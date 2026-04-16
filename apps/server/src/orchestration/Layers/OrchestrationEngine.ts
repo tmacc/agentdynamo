@@ -62,6 +62,13 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         aggregateKind: "project",
         aggregateId: command.projectId,
       };
+    case "thread.team-task.spawn":
+    case "thread.team-task.upsert":
+    case "thread.team-task.cancel":
+      return {
+        aggregateKind: "thread",
+        aggregateId: command.parentThreadId,
+      };
     default:
       return {
         aggregateKind: "thread",

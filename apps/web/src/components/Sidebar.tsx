@@ -4,6 +4,7 @@ import {
   ChevronRightIcon,
   CloudIcon,
   GitPullRequestIcon,
+  InfoIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
@@ -79,6 +80,7 @@ import { useGitStatus } from "../lib/gitStatusState";
 import { readLocalApi } from "../localApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { useProjectIntelligenceNavigation } from "../hooks/useProjectIntelligenceNavigation";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
 
 import { useThreadActions } from "../hooks/useThreadActions";
@@ -90,6 +92,7 @@ import {
 import { toastManager } from "./ui/toast";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
+import { Badge } from "./ui/badge";
 import { Kbd } from "./ui/kbd";
 import {
   getArm64IntelBuildWarningDescription,
@@ -422,6 +425,22 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       [thread.environmentId, thread.projectId],
     ),
   );
+  const parentThreadTitle = useStore(
+    useMemo(() => {
+      if (!thread.teamParentThreadId) {
+        return () => null;
+      }
+      return (state: import("../store").AppState) => {
+        if (!thread.teamParentThreadId) {
+          return null;
+        }
+        return (
+          selectThreadByRef(state, scopeThreadRef(thread.environmentId, thread.teamParentThreadId))
+            ?.title ?? null
+        );
+      };
+    }, [thread.environmentId, thread.teamParentThreadId]),
+  );
   const gitCwd = thread.worktreePath ?? threadProjectCwd ?? props.projectCwd;
   const gitStatus = useGitStatus({
     environmentId: thread.environmentId,
@@ -647,21 +666,33 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               onClick={handleRenameInputClick}
             />
           ) : (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span
-                    className="min-w-0 flex-1 truncate text-xs"
-                    data-testid={`thread-title-${thread.id}`}
-                  >
-                    {thread.title}
-                  </span>
-                }
-              />
-              <TooltipPopup side="top" className="max-w-80 whitespace-normal leading-tight">
-                {thread.title}
-              </TooltipPopup>
-            </Tooltip>
+            <div className="min-w-0 flex-1">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span
+                      className="min-w-0 block truncate text-xs"
+                      data-testid={`thread-title-${thread.id}`}
+                    >
+                      {thread.title}
+                    </span>
+                  }
+                />
+                <TooltipPopup side="top" className="max-w-80 whitespace-normal leading-tight">
+                  {thread.title}
+                </TooltipPopup>
+              </Tooltip>
+              {thread.teamParentThreadId != null ? (
+                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <Badge variant="outline" size="sm">
+                    Child task
+                  </Badge>
+                  {parentThreadTitle ? (
+                    <span className="min-w-0 truncate">from {parentThreadTitle}</span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           )}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -1012,6 +1043,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const clearProjectDraftThreadId = useComposerDraftStore(
     (state) => state.clearProjectDraftThreadId,
   );
+  const { openProjectIntelligence } = useProjectIntelligenceNavigation();
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{
     threadId: ThreadId;
   }>({
@@ -1554,6 +1586,18 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     },
     [defaultThreadEnvMode, handleNewThread, project.environmentId, project.id, router],
   );
+  const handleOpenProjectIntelligence = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openProjectIntelligence({
+        mode: "project",
+        environmentId: project.environmentId,
+        projectCwd: project.cwd,
+      });
+    },
+    [openProjectIntelligence, project.cwd, project.environmentId],
+  );
 
   const attemptArchiveThread = useCallback(
     async (threadRef: ScopedThreadRef) => {
@@ -1760,10 +1804,25 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             </TooltipPopup>
           </Tooltip>
         )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <div className="pointer-events-none absolute top-1 right-1.5 opacity-0 transition-opacity duration-150 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
+        <div className="pointer-events-none absolute top-1 right-1.5 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Open intelligence for ${project.name}`}
+                  className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-secondary hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                  onClick={handleOpenProjectIntelligence}
+                >
+                  <InfoIcon className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">Project intelligence</TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
                 <button
                   type="button"
                   aria-label={`Create new thread in ${project.name}`}
@@ -1773,13 +1832,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 >
                   <SquarePenIcon className="size-3.5" />
                 </button>
-              </div>
-            }
-          />
-          <TooltipPopup side="top">
-            {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
-          </TooltipPopup>
-        </Tooltip>
+              }
+            />
+            <TooltipPopup side="top">
+              {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
+            </TooltipPopup>
+          </Tooltip>
+        </div>
       </div>
 
       <SidebarProjectThreadList
@@ -1829,19 +1888,14 @@ const SidebarProjectListRow = memo(function SidebarProjectListRow(props: Sidebar
   );
 });
 
-function T3Wordmark() {
+function DynamoWordmark() {
   return (
-    <svg
-      aria-label="T3"
-      className="h-2.5 w-auto shrink-0 text-foreground"
-      viewBox="15.5309 37 94.3941 56.96"
-      xmlns="http://www.w3.org/2000/svg"
+    <span
+      aria-label="Dynamo"
+      className="shrink-0 text-sm font-semibold tracking-tight text-foreground"
     >
-      <path
-        d="M33.4509 93V47.56H15.5309V37H64.3309V47.56H46.4109V93H33.4509ZM86.7253 93.96C82.832 93.96 78.9653 93.4533 75.1253 92.44C71.2853 91.3733 68.032 89.88 65.3653 87.96L70.4053 78.04C72.5386 79.5867 75.0186 80.8133 77.8453 81.72C80.672 82.6267 83.5253 83.08 86.4053 83.08C89.6586 83.08 92.2186 82.44 94.0853 81.16C95.952 79.88 96.8853 78.12 96.8853 75.88C96.8853 73.7467 96.0586 72.0667 94.4053 70.84C92.752 69.6133 90.0853 69 86.4053 69H80.4853V60.44L96.0853 42.76L97.5253 47.4H68.1653V37H107.365V45.4L91.8453 63.08L85.2853 59.32H89.0453C95.9253 59.32 101.125 60.8667 104.645 63.96C108.165 67.0533 109.925 71.0267 109.925 75.88C109.925 79.0267 109.099 81.9867 107.445 84.76C105.792 87.48 103.259 89.6933 99.8453 91.4C96.432 93.1067 92.0586 93.96 86.7253 93.96Z"
-        fill="currentColor"
-      />
-    </svg>
+      Dynamo
+    </span>
   );
 }
 
@@ -1970,10 +2024,7 @@ const SidebarChromeHeader = memo(function SidebarChromeHeader({
               className="ml-1 flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-md outline-hidden ring-ring transition-colors hover:text-foreground focus-visible:ring-2"
               to="/"
             >
-              <T3Wordmark />
-              <span className="truncate text-sm font-medium tracking-tight text-muted-foreground">
-                Code
-              </span>
+              <DynamoWordmark />
               <span className="rounded-full bg-muted/50 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.18em] text-muted-foreground/60">
                 {APP_STAGE_LABEL}
               </span>

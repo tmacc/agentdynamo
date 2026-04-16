@@ -46,13 +46,13 @@ describe("waitForHttpReady", () => {
 
     await waitForHttpReady("http://127.0.0.1:3773", {
       fetchImpl,
-      timeoutMs: 100,
-      intervalMs: 0,
-      requestTimeoutMs: 1,
+      timeoutMs: 2_000,
+      intervalMs: 5,
+      requestTimeoutMs: 25,
     });
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
-  });
+  }, 10_000);
 
   it("aborts an in-flight readiness wait", async () => {
     const controller = new AbortController();

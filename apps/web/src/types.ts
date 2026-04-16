@@ -5,6 +5,9 @@ import type {
   OrchestrationProposedPlanId,
   RepositoryIdentity,
   OrchestrationSessionStatus,
+  OrchestrationTeamTaskId,
+  OrchestrationTeamTaskStatus,
+  OrchestrationTeamTaskWorkspaceMode,
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
   ThreadId,
@@ -80,6 +83,23 @@ export interface TurnDiffSummary {
   checkpointTurnCount?: number | undefined;
 }
 
+export interface TeamTask {
+  id: OrchestrationTeamTaskId;
+  parentThreadId: ThreadId;
+  childThreadId: ThreadId;
+  title: string;
+  roleLabel: string | null;
+  modelSelection: ModelSelection;
+  workspaceMode: OrchestrationTeamTaskWorkspaceMode;
+  status: OrchestrationTeamTaskStatus;
+  latestSummary: string | null;
+  errorText: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}
+
 export interface Project {
   id: ProjectId;
   environmentId: EnvironmentId;
@@ -112,6 +132,12 @@ export interface Thread {
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
+  teamParentThreadId?: ThreadId | null;
+  teamParentTaskId?: OrchestrationTeamTaskId | null;
+  teamRoleLabel?: string | null;
+  teamStatus?: OrchestrationTeamTaskStatus | null;
+  activeTeamTaskCount?: number;
+  teamTasks?: TeamTask[];
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }
@@ -131,6 +157,11 @@ export interface ThreadShell {
   updatedAt?: string | undefined;
   branch: string | null;
   worktreePath: string | null;
+  teamParentThreadId?: ThreadId | null;
+  teamParentTaskId?: OrchestrationTeamTaskId | null;
+  teamRoleLabel?: string | null;
+  teamStatus?: OrchestrationTeamTaskStatus | null;
+  activeTeamTaskCount?: number;
 }
 
 export interface ThreadTurnState {
@@ -151,6 +182,11 @@ export interface SidebarThreadSummary {
   latestTurn: OrchestrationLatestTurn | null;
   branch: string | null;
   worktreePath: string | null;
+  teamParentThreadId?: ThreadId | null;
+  teamParentTaskId?: OrchestrationTeamTaskId | null;
+  teamRoleLabel?: string | null;
+  teamStatus?: OrchestrationTeamTaskStatus | null;
+  activeTeamTaskCount?: number;
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;

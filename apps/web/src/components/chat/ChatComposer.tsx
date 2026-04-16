@@ -394,6 +394,7 @@ export interface ChatComposerProps {
 
   // Provider / model
   lockedProvider: ProviderKind | null;
+  activeSessionProvider: ProviderKind | null;
   providerStatuses: ServerProvider[];
   activeProjectDefaultModelSelection: ModelSelection | null | undefined;
   activeThreadModelSelection: ModelSelection | null | undefined;
@@ -485,6 +486,7 @@ export const ChatComposer = memo(
       runtimeMode,
       interactionMode,
       lockedProvider,
+      activeSessionProvider,
       providerStatuses,
       activeProjectDefaultModelSelection,
       activeThreadModelSelection,
@@ -558,6 +560,17 @@ export const ChatComposer = memo(
       selectedProviderByThreadId ?? threadProvider ?? "codex",
     );
     const selectedProvider: ProviderKind = lockedProvider ?? unlockedSelectedProvider;
+    const pendingSwitchFromProvider =
+      activeSessionProvider !== null && activeSessionProvider !== selectedProvider
+        ? activeSessionProvider
+        : null;
+    const providerLabel = (provider: ProviderKind): string =>
+      AVAILABLE_PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ??
+      (provider === "claudeAgent" ? "Claude" : "Codex");
+    const pendingSwitchHint =
+      pendingSwitchFromProvider === null
+        ? null
+        : `Next turn switches from ${providerLabel(pendingSwitchFromProvider)} to ${providerLabel(selectedProvider)}.`;
 
     const { modelOptions: composerModelOptions, selectedModel } = useEffectiveComposerModelState({
       threadRef: composerDraftTarget,
@@ -1991,6 +2004,14 @@ export const ChatComposer = memo(
                 </div>
               </div>
             )}
+            {pendingSwitchHint ? (
+              <div
+                data-testid="provider-switch-hint"
+                className="px-2.5 pb-2 text-muted-foreground text-xs sm:px-3"
+              >
+                {pendingSwitchHint}
+              </div>
+            ) : null}
           </div>
         </div>
       </form>

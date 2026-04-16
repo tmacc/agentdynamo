@@ -10,6 +10,7 @@ import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
 import { DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { useProjectIntelligenceNavigation } from "~/hooks/useProjectIntelligenceNavigation";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -23,6 +24,7 @@ interface ChatHeaderProps {
   draftId?: DraftId;
   activeThreadTitle: string;
   activeProjectName: string | undefined;
+  activeProjectCwd?: string | null;
   isGitRepo: boolean;
   openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
@@ -49,6 +51,7 @@ export const ChatHeader = memo(function ChatHeader({
   draftId,
   activeThreadTitle,
   activeProjectName,
+  activeProjectCwd,
   isGitRepo,
   openInCwd,
   activeProjectScripts,
@@ -68,6 +71,8 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
+  const { openProjectIntelligence } = useProjectIntelligenceNavigation();
+
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
@@ -79,7 +84,21 @@ export const ChatHeader = memo(function ChatHeader({
           {activeThreadTitle}
         </h2>
         {activeProjectName && (
-          <Badge variant="outline" className="min-w-0 shrink overflow-hidden">
+          <Badge
+            variant="outline"
+            render={activeProjectCwd ? <button type="button" /> : undefined}
+            className="min-w-0 shrink overflow-hidden"
+            onClick={
+              activeProjectCwd
+                ? () =>
+                    openProjectIntelligence({
+                      mode: "thread",
+                      environmentId: activeThreadEnvironmentId,
+                      projectCwd: activeProjectCwd,
+                    })
+                : undefined
+            }
+          >
             <span className="min-w-0 truncate">{activeProjectName}</span>
           </Badge>
         )}

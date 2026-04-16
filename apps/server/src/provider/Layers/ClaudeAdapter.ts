@@ -67,6 +67,7 @@ import {
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { buildClaudeTeamToolRegistration } from "../teamToolRegistration.ts";
 import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";
 import {
   ProviderAdapterProcessError,
@@ -2744,6 +2745,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       );
       const claudeBinaryPath = claudeSettings.binaryPath;
       const extraArgs = parseCliArgs(claudeSettings.launchArgs).flags;
+      const teamExtraArgs = input.teamCoordinator
+        ? buildClaudeTeamToolRegistration(input.teamCoordinator)
+        : {};
       const modelSelection =
         input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
       const caps = getClaudeModelCapabilities(modelSelection?.model);
@@ -2783,7 +2787,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         canUseTool,
         env: process.env,
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
-        ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
+        ...(Object.keys({ ...extraArgs, ...teamExtraArgs }).length > 0
+          ? { extraArgs: { ...extraArgs, ...teamExtraArgs } }
+          : {}),
       };
 
       const queryRuntime = yield* Effect.try({

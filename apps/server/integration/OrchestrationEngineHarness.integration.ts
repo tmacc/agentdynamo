@@ -40,6 +40,7 @@ import { ProviderUnsupportedError } from "../src/provider/Errors.ts";
 import { ProviderAdapterRegistry } from "../src/provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
 import { ServerSettingsService } from "../src/serverSettings.ts";
+import { TeamCoordinatorSessionRegistry } from "../src/team/Services/TeamCoordinatorSessionRegistry.ts";
 import { makeProviderServiceLive } from "../src/provider/Layers/ProviderService.ts";
 import { makeCodexAdapterLive } from "../src/provider/Layers/CodexAdapter.ts";
 import { CodexAdapter } from "../src/provider/Services/CodexAdapter.ts";
@@ -314,10 +315,19 @@ export const makeOrchestrationIntegrationHarness = (
       generateBranchName: () => Effect.succeed({ branch: "update" }),
       generateThreadTitle: () => Effect.succeed({ title: "New thread" }),
     } as unknown as TextGenerationShape);
+    const teamCoordinatorRegistryLayer = Layer.succeed(TeamCoordinatorSessionRegistry, {
+      getCoordinatorSessionConfig: () =>
+        Effect.succeed({
+          mcpServerUrl: "http://127.0.0.1:13773/api/team-mcp",
+          accessToken: "test-team-token",
+        }),
+      authenticateCoordinatorAccessToken: () => Effect.succeed(Option.none()),
+    });
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(gitCoreLayer),
       Layer.provideMerge(textGenerationLayer),
+      Layer.provide(teamCoordinatorRegistryLayer),
       Layer.provideMerge(serverSettingsLayer),
     );
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
