@@ -587,6 +587,7 @@ function normalizeProviderModelOptions(
     claudeCandidate?.effort === "medium" ||
     claudeCandidate?.effort === "high" ||
     claudeCandidate?.effort === "max" ||
+    claudeCandidate?.effort === "xhigh" ||
     claudeCandidate?.effort === "ultrathink"
       ? claudeCandidate.effort
       : undefined;

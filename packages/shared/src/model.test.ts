@@ -52,6 +52,7 @@ describe("normalizeModelSlug", () => {
   it("maps known aliases to canonical slugs", () => {
     expect(normalizeModelSlug("gpt-5-codex")).toBe("gpt-5.4");
     expect(normalizeModelSlug("5.3")).toBe("gpt-5.3-codex");
+    expect(normalizeModelSlug("opus", "claudeAgent")).toBe("claude-opus-4-7");
     expect(normalizeModelSlug("sonnet", "claudeAgent")).toBe("claude-sonnet-4-6");
   });
 
@@ -106,6 +107,21 @@ describe("resolveEffort", () => {
     expect(resolveEffort(codexCaps, "xhigh")).toBe("xhigh");
     expect(resolveEffort(codexCaps, "high")).toBe("high");
     expect(resolveEffort(claudeCaps, "medium")).toBe("medium");
+  });
+
+  it("supports Claude xhigh when the model advertises it", () => {
+    const claude47Caps: ModelCapabilities = {
+      reasoningEffortLevels: [
+        { value: "high", label: "High" },
+        { value: "xhigh", label: "Extra High", isDefault: true },
+      ],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    };
+    expect(resolveEffort(claude47Caps, "xhigh")).toBe("xhigh");
+    expect(getDefaultEffort(claude47Caps)).toBe("xhigh");
   });
 
   it("falls back to default when value is unsupported", () => {

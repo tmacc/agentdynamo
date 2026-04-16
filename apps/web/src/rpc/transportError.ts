@@ -1,7 +1,9 @@
+import { APP_BASE_NAME } from "../branding";
+
 const TRANSPORT_ERROR_PATTERNS = [
   /\bSocketCloseError\b/i,
   /\bSocketOpenError\b/i,
-  /Unable to connect to the T3 server WebSocket\./i,
+  new RegExp(`Unable to connect to the ${APP_BASE_NAME} server WebSocket\\.`, "i"),
   /\bping timeout\b/i,
 ] as const;
 

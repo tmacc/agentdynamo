@@ -1,6 +1,7 @@
 import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import { type MessageId, type ProviderKind } from "@t3tools/contracts";
+import type { TeamTaskInlineView } from "./TeamTaskInlineBlock";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
@@ -36,6 +37,7 @@ export type MessagesTimelineRow =
       createdAt: string;
       proposedPlan: ProposedPlan;
     }
+  | { kind: "team-tasks"; id: string; createdAt: string; tasks: readonly TeamTaskInlineView[] }
   | { kind: "working"; id: string; createdAt: string | null };
 
 export interface StableMessagesTimelineRowsState {
@@ -122,6 +124,7 @@ export function deriveMessagesTimelineRows(input: {
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
   userMessageSwitchInfoByMessageId: ReadonlyMap<MessageId, UserMessageSwitchInfo>;
+  teamTasks?: readonly TeamTaskInlineView[] | undefined;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
   const durationStartByMessageId = computeMessageDurationStart(
@@ -192,6 +195,19 @@ export function deriveMessagesTimelineRows(input: {
     });
   }
 
+  if (input.teamTasks && input.teamTasks.length > 0) {
+    const earliestCreatedAt = input.teamTasks.reduce(
+      (earliest, view) => (view.task.createdAt < earliest ? view.task.createdAt : earliest),
+      input.teamTasks[0]!.task.createdAt,
+    );
+    nextRows.push({
+      kind: "team-tasks",
+      id: "team-tasks-inline",
+      createdAt: earliestCreatedAt,
+      tasks: input.teamTasks,
+    });
+  }
+
   if (input.isWorking) {
     nextRows.push({
       kind: "working",
@@ -233,6 +249,9 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
+
+    case "team-tasks":
+      return a.tasks === (b as typeof a).tasks;
 
     case "work":
       return a.groupedEntries === (b as typeof a).groupedEntries;
