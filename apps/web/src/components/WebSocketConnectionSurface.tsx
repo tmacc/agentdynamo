@@ -12,6 +12,7 @@ import {
 } from "../rpc/wsConnectionState";
 import { toastManager } from "./ui/toast";
 import { getPrimaryEnvironmentConnection } from "../environments/runtime";
+import { APP_BASE_NAME } from "../branding";
 
 const FORCED_WS_RECONNECT_DEBOUNCE_MS = 5_000;
 type WsAutoReconnectTrigger = "focus" | "online";
@@ -54,7 +55,7 @@ function describeExhaustedToast(): string {
 }
 
 function buildReconnectTitle(_status: WsConnectionStatus): string {
-  return "Disconnected from T3 Server";
+  return `Disconnected from ${APP_BASE_NAME} server`;
 }
 
 function describeRecoveredToast(
@@ -270,7 +271,7 @@ export function WebSocketConnectionCoordinator() {
               },
               description: describeExhaustedToast(),
               timeout: 0,
-              title: "Disconnected from T3 Server",
+              title: `Disconnected from ${APP_BASE_NAME} server`,
               type: "error" as const,
               data: {
                 hideCopyButton: true,
@@ -310,7 +311,7 @@ export function WebSocketConnectionCoordinator() {
     ) {
       const successToast = {
         description: describeRecoveredToast(previousDisconnectedAt, status.connectedAt),
-        title: "Reconnected to T3 Server",
+        title: `Reconnected to ${APP_BASE_NAME} server`,
         type: "success" as const,
         timeout: 0,
         data: {

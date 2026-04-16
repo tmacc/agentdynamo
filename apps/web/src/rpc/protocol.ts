@@ -16,6 +16,7 @@ import {
   recordWsConnectionOpened,
   WS_RECONNECT_MAX_RETRIES,
 } from "./wsConnectionState";
+import { APP_BASE_NAME } from "../branding";
 
 export interface WsProtocolLifecycleHandlers {
   readonly onAttempt?: (socketUrl: string) => void;
@@ -121,7 +122,7 @@ export function createWsRpcProtocolLayer(
       socket.addEventListener(
         "error",
         () => {
-          lifecycle.onError("Unable to connect to the T3 server WebSocket.");
+          lifecycle.onError(`Unable to connect to the ${APP_BASE_NAME} server WebSocket.`);
         },
         { once: true },
       );

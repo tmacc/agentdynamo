@@ -48,10 +48,10 @@ describe("ProviderSessionStartInput", () => {
       cwd: "/tmp/workspace",
       modelSelection: {
         provider: "claudeAgent",
-        model: "claude-sonnet-4-6",
+        model: "claude-opus-4-7",
         options: {
           thinking: true,
-          effort: "max",
+          effort: "xhigh",
           fastMode: true,
         },
       },
@@ -59,12 +59,12 @@ describe("ProviderSessionStartInput", () => {
     });
     expect(parsed.provider).toBe("claudeAgent");
     expect(parsed.modelSelection?.provider).toBe("claudeAgent");
-    expect(parsed.modelSelection?.model).toBe("claude-sonnet-4-6");
+    expect(parsed.modelSelection?.model).toBe("claude-opus-4-7");
     if (parsed.modelSelection?.provider !== "claudeAgent") {
       throw new Error("Expected claude modelSelection");
     }
     expect(parsed.modelSelection.options?.thinking).toBe(true);
-    expect(parsed.modelSelection.options?.effort).toBe("max");
+    expect(parsed.modelSelection.options?.effort).toBe("xhigh");
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
     expect(parsed.runtimeMode).toBe("full-access");
   });

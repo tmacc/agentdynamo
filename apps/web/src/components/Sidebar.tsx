@@ -425,22 +425,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       [thread.environmentId, thread.projectId],
     ),
   );
-  const parentThreadTitle = useStore(
-    useMemo(() => {
-      if (!thread.teamParentThreadId) {
-        return () => null;
-      }
-      return (state: import("../store").AppState) => {
-        if (!thread.teamParentThreadId) {
-          return null;
-        }
-        return (
-          selectThreadByRef(state, scopeThreadRef(thread.environmentId, thread.teamParentThreadId))
-            ?.title ?? null
-        );
-      };
-    }, [thread.environmentId, thread.teamParentThreadId]),
-  );
   const gitCwd = thread.worktreePath ?? threadProjectCwd ?? props.projectCwd;
   const gitStatus = useGitStatus({
     environmentId: thread.environmentId,
@@ -682,14 +666,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   {thread.title}
                 </TooltipPopup>
               </Tooltip>
-              {thread.teamParentThreadId != null ? (
-                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+              {(thread.activeTeamTaskCount ?? 0) > 0 ? (
+                <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
                   <Badge variant="outline" size="sm">
-                    Child task
+                    {thread.activeTeamTaskCount}{" "}
+                    {thread.activeTeamTaskCount === 1 ? "agent" : "agents"}
                   </Badge>
-                  {parentThreadTitle ? (
-                    <span className="min-w-0 truncate">from {parentThreadTitle}</span>
-                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -2599,7 +2581,10 @@ export default function Sidebar() {
   }, []);
 
   const visibleThreads = useMemo(
-    () => sidebarThreads.filter((thread) => thread.archivedAt === null),
+    () =>
+      sidebarThreads.filter(
+        (thread) => thread.archivedAt === null && thread.teamParentThreadId == null,
+      ),
     [sidebarThreads],
   );
   const sortedProjects = useMemo(() => {

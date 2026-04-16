@@ -46,6 +46,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { setPairingTokenOnUrl } from "../../pairingUrl";
+import { APP_BASE_NAME } from "../../branding";
 import {
   createServerPairingCredential,
   fetchSessionState,
@@ -1162,8 +1163,8 @@ export function ConnectionsSettings() {
                         </AlertDialogTitle>
                         <AlertDialogDescription>
                           {pendingDesktopServerExposureMode === "network-accessible"
-                            ? "T3 Code will restart to expose this environment over the network."
-                            : "T3 Code will restart and limit this environment back to this machine."}
+                            ? `${APP_BASE_NAME} will restart to expose this environment over the network.`
+                            : `${APP_BASE_NAME} will restart and limit this environment back to this machine.`}
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
