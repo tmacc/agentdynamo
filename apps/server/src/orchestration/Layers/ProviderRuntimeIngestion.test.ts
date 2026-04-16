@@ -531,6 +531,51 @@ describe("ProviderRuntimeIngestion", () => {
     );
   });
 
+  it("ignores late runtime events from a provider that no longer owns the thread", async () => {
+    const harness = await createHarness();
+    const switchedAt = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-switched-provider"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "ready",
+          providerName: "claudeAgent",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          updatedAt: switchedAt,
+          lastError: null,
+        },
+        createdAt: switchedAt,
+      }),
+    );
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-late-codex-session-state"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        state: "running",
+        reason: "late old-provider event",
+      },
+    });
+
+    await harness.drain();
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(thread?.session?.providerName).toBe("claudeAgent");
+    expect(thread?.session?.status).toBe("ready");
+    expect(
+      thread?.activities.find((activity) => activity.id === "evt-late-codex-session-state"),
+    ).toBeUndefined();
+  });
+
   it("ignores auxiliary turn completions from a different provider thread", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -2093,6 +2138,24 @@ describe("ProviderRuntimeIngestion", () => {
   it("projects Claude usage snapshots with context window into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-claude-usage-window"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "ready",
+          providerName: "claudeAgent",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          updatedAt: now,
+          lastError: null,
+        },
+        createdAt: now,
+      }),
+    );
 
     harness.emit({
       type: "thread.token-usage.updated",

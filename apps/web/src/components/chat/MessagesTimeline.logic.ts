@@ -1,6 +1,6 @@
 import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
-import { type MessageId } from "@t3tools/contracts";
+import { type MessageId, type ProviderKind } from "@t3tools/contracts";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
@@ -28,6 +28,7 @@ export type MessagesTimelineRow =
       showAssistantCopyButton: boolean;
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
+      userMessageSwitchInfo?: UserMessageSwitchInfo | undefined;
     }
   | {
       kind: "proposed-plan";
@@ -40,6 +41,12 @@ export type MessagesTimelineRow =
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
   result: MessagesTimelineRow[];
+}
+
+export interface UserMessageSwitchInfo {
+  fromProvider: ProviderKind;
+  toProvider: ProviderKind;
+  toModel: string;
 }
 
 export function computeMessageDurationStart(
@@ -114,6 +121,7 @@ export function deriveMessagesTimelineRows(input: {
   activeTurnStartedAt: string | null;
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
+  userMessageSwitchInfoByMessageId: ReadonlyMap<MessageId, UserMessageSwitchInfo>;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
   const durationStartByMessageId = computeMessageDurationStart(
@@ -177,6 +185,10 @@ export function deriveMessagesTimelineRows(input: {
         timelineEntry.message.role === "user"
           ? input.revertTurnCountByUserMessageId.get(timelineEntry.message.id)
           : undefined,
+      userMessageSwitchInfo:
+        timelineEntry.message.role === "user"
+          ? input.userMessageSwitchInfoByMessageId.get(timelineEntry.message.id)
+          : undefined,
     });
   }
 
@@ -233,7 +245,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showCompletionDivider === bm.showCompletionDivider &&
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
-        a.revertTurnCount === bm.revertTurnCount
+        a.revertTurnCount === bm.revertTurnCount &&
+        a.userMessageSwitchInfo === bm.userMessageSwitchInfo
       );
     }
   }

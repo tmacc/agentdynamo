@@ -479,10 +479,10 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   ServerSettingsError,
   ChildProcessSpawner.ChildProcessSpawner | ServerSettingsService
 > {
-  const claudeSettings = yield* Effect.service(ServerSettingsService).pipe(
+  const serverSettings = yield* Effect.service(ServerSettingsService).pipe(
     Effect.flatMap((service) => service.getSettings),
-    Effect.map((settings) => settings.providers.claudeAgent),
   );
+  const claudeSettings = serverSettings.providers.claudeAgent;
   const checkedAt = new Date().toISOString();
   const models = providerModelsFromSettings(
     BUILT_IN_MODELS,
@@ -490,6 +490,10 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     claudeSettings.customModels,
     DEFAULT_CLAUDE_MODEL_CAPABILITIES,
   );
+  const teamFlags = {
+    supportsTeamCoordinator: serverSettings.teamAgents && claudeSettings.enabled,
+    supportsTeamWorker: claudeSettings.enabled,
+  };
 
   if (!claudeSettings.enabled) {
     return buildServerProvider({
@@ -497,6 +501,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       enabled: false,
       checkedAt,
       models,
+      ...teamFlags,
       probe: {
         installed: false,
         version: null,
@@ -519,6 +524,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       enabled: claudeSettings.enabled,
       checkedAt,
       models,
+      ...teamFlags,
       probe: {
         installed: !isCommandMissingCause(error),
         version: null,
@@ -537,6 +543,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       enabled: claudeSettings.enabled,
       checkedAt,
       models,
+      ...teamFlags,
       probe: {
         installed: true,
         version: null,
@@ -557,6 +564,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       enabled: claudeSettings.enabled,
       checkedAt,
       models,
+      ...teamFlags,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -612,6 +620,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       checkedAt,
       models,
       slashCommands: dedupedSlashCommands,
+      ...teamFlags,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -632,6 +641,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       checkedAt,
       models,
       slashCommands: dedupedSlashCommands,
+      ...teamFlags,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -650,6 +660,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     checkedAt,
     models,
     slashCommands: dedupedSlashCommands,
+    ...teamFlags,
     probe: {
       installed: true,
       version: parsedVersion,
@@ -678,6 +689,8 @@ const makePendingClaudeProvider = (claudeSettings: ClaudeSettings): ServerProvid
       enabled: false,
       checkedAt,
       models,
+      supportsTeamCoordinator: false,
+      supportsTeamWorker: false,
       probe: {
         installed: false,
         version: null,
@@ -693,6 +706,8 @@ const makePendingClaudeProvider = (claudeSettings: ClaudeSettings): ServerProvid
     enabled: true,
     checkedAt,
     models,
+    supportsTeamCoordinator: false,
+    supportsTeamWorker: true,
     probe: {
       installed: false,
       version: null,

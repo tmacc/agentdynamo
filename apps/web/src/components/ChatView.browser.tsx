@@ -185,6 +185,64 @@ function createBaseServerConfig(): ServerConfig {
   };
 }
 
+function withDualProviderModels(serverConfig: ServerConfig): ServerConfig {
+  return {
+    ...serverConfig,
+    providers: [
+      {
+        provider: "codex",
+        enabled: true,
+        installed: true,
+        version: "0.116.0",
+        status: "ready",
+        auth: { status: "authenticated" },
+        checkedAt: NOW_ISO,
+        slashCommands: [],
+        skills: [],
+        models: [
+          {
+            slug: "gpt-5",
+            name: "GPT-5",
+            isCustom: false,
+            capabilities: {
+              reasoningEffortLevels: [],
+              supportsFastMode: true,
+              supportsThinkingToggle: false,
+              contextWindowOptions: [],
+              promptInjectedEffortLevels: [],
+            },
+          },
+        ],
+      },
+      {
+        provider: "claudeAgent",
+        enabled: true,
+        installed: true,
+        version: "1.0.0",
+        status: "ready",
+        auth: { status: "authenticated" },
+        checkedAt: NOW_ISO,
+        slashCommands: [],
+        skills: [],
+        models: [
+          {
+            slug: "claude-opus-4-6",
+            name: "Claude Opus 4.6",
+            isCustom: false,
+            capabilities: {
+              reasoningEffortLevels: [],
+              supportsFastMode: false,
+              supportsThinkingToggle: true,
+              contextWindowOptions: [],
+              promptInjectedEffortLevels: [],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function createMockEnvironmentApi(input: {
   browse: EnvironmentApi["filesystem"]["browse"];
   dispatchCommand: EnvironmentApi["orchestration"]["dispatchCommand"];
@@ -342,9 +400,14 @@ function createSnapshotForTargetUser(options: {
         updatedAt: NOW_ISO,
         archivedAt: null,
         deletedAt: null,
+        teamParentThreadId: null,
+        teamParentTaskId: null,
+        teamRoleLabel: null,
+        teamStatus: null,
         messages,
         activities: [],
         proposedPlans: [],
+        teamTasks: [],
         checkpoints: [],
         session: {
           threadId: THREAD_ID,
@@ -407,9 +470,14 @@ function addThreadToSnapshot(
         updatedAt: NOW_ISO,
         archivedAt: null,
         deletedAt: null,
+        teamParentThreadId: null,
+        teamParentTaskId: null,
+        teamRoleLabel: null,
+        teamStatus: null,
         messages: [],
         activities: [],
         proposedPlans: [],
+        teamTasks: [],
         checkpoints: [],
         session: {
           threadId,
@@ -741,9 +809,14 @@ function createSnapshotWithSecondaryProject(options?: {
           createdAt: isoAt(30),
           updatedAt: isoAt(31),
           deletedAt: null,
+          teamParentThreadId: null,
+          teamParentTaskId: null,
+          teamRoleLabel: null,
+          teamStatus: null,
           messages: [],
           activities: [],
           proposedPlans: [],
+          teamTasks: [],
           checkpoints: [],
           session: {
             threadId: "thread-secondary-project" as ThreadId,
@@ -773,9 +846,14 @@ function createSnapshotWithSecondaryProject(options?: {
           createdAt: isoAt(24),
           updatedAt: isoAt(25),
           deletedAt: null,
+          teamParentThreadId: null,
+          teamParentTaskId: null,
+          teamRoleLabel: null,
+          teamStatus: null,
           messages: [],
           activities: [],
           proposedPlans: [],
+          teamTasks: [],
           checkpoints: [],
           session: {
             threadId: ARCHIVED_SECONDARY_THREAD_ID,
@@ -5333,6 +5411,91 @@ describe("ChatView timeline estimator parity (full app)", () => {
             answers: {
               scope: "Tight",
               risk: "Conservative",
+            },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("allows switching providers on idle threads and shows the pending switch hint before send", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-provider-switch-idle" as MessageId,
+        targetText: "idle provider switch",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = withDualProviderModels(nextFixture.serverConfig);
+      },
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const providerPicker = await waitForElement(
+        findComposerProviderModelPicker,
+        "Unable to find provider model picker.",
+      );
+      providerPicker.click();
+
+      await page.getByRole("menuitem", { name: "Claude" }).hover();
+      await page.getByRole("menuitemradio", { name: "Claude Opus 4.6" }).click();
+
+      await vi.waitFor(
+        () => {
+          const hint = document.querySelector<HTMLElement>('[data-testid="provider-switch-hint"]');
+          expect(hint?.textContent).toContain("Next turn switches from Codex to Claude.");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      useComposerDraftStore.getState().setPrompt(THREAD_REF, "Switch providers next turn");
+      await waitForLayout();
+
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const dispatchRequests = wsRequests.filter(
+            (request) => request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand,
+          ) as Array<
+            | {
+                _tag: string;
+                type?: string;
+                threadId?: string;
+                modelSelection?: { provider?: string; model?: string };
+              }
+            | undefined
+          >;
+
+          expect(dispatchRequests[0]).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            type: "thread.meta.update",
+            threadId: THREAD_ID,
+            modelSelection: {
+              provider: "claudeAgent",
+              model: "claude-opus-4-6",
+            },
+          });
+          expect(dispatchRequests[1]).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            type: "thread.turn.start",
+            threadId: THREAD_ID,
+            modelSelection: {
+              provider: "claudeAgent",
+              model: "claude-opus-4-6",
             },
           });
         },

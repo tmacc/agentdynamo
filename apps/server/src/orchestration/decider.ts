@@ -7,6 +7,9 @@ import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  findTeamTaskById,
+  isActiveTeamTaskStatus,
+  listActiveTeamTasks,
   requireProject,
   requireProjectAbsent,
   requireThread,
@@ -170,11 +173,20 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.delete": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      if (
+        listActiveTeamTasks(thread).length > 0 ||
+        isActiveTeamTaskStatus(thread.teamStatus ?? undefined)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' cannot be deleted while linked team tasks are active.`,
+        });
+      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -192,11 +204,20 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.archive": {
-      yield* requireThreadNotArchived({
+      const thread = yield* requireThreadNotArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
+      if (
+        listActiveTeamTasks(thread).length > 0 ||
+        isActiveTeamTaskStatus(thread.teamStatus ?? undefined)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' cannot be archived while linked team tasks are active.`,
+        });
+      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -520,6 +541,113 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           session: command.session,
+        },
+      };
+    }
+
+    case "thread.team-task.spawn": {
+      const parentThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.parentThreadId,
+      });
+      if (parentThread.teamParentThreadId !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.parentThreadId}' is already a child thread and cannot spawn team tasks in v1.`,
+        });
+      }
+      if (command.teamTask.parentThreadId !== command.parentThreadId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Spawned team task parentThreadId does not match the command parent thread.",
+        });
+      }
+      if (findTeamTaskById(parentThread, command.teamTask.id)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Team task '${command.teamTask.id}' already exists on thread '${command.parentThreadId}'.`,
+        });
+      }
+      if (listActiveTeamTasks(parentThread).length >= 3) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.parentThreadId}' already has the maximum number of active child team tasks.`,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.parentThreadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.team-task-spawn-requested",
+        payload: {
+          parentThreadId: command.parentThreadId,
+          teamTask: command.teamTask,
+        },
+      };
+    }
+
+    case "thread.team-task.upsert": {
+      const parentThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.parentThreadId,
+      });
+      const existingTask = findTeamTaskById(parentThread, command.teamTask.id);
+      if (!existingTask) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Team task '${command.teamTask.id}' does not exist on thread '${command.parentThreadId}'.`,
+        });
+      }
+      if (command.teamTask.parentThreadId !== command.parentThreadId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Updated team task parentThreadId does not match the command parent thread.",
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.parentThreadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.team-task-upserted",
+        payload: {
+          parentThreadId: command.parentThreadId,
+          teamTask: command.teamTask,
+        },
+      };
+    }
+
+    case "thread.team-task.cancel": {
+      const parentThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.parentThreadId,
+      });
+      if (!findTeamTaskById(parentThread, command.taskId)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Team task '${command.taskId}' does not exist on thread '${command.parentThreadId}'.`,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.parentThreadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.team-task-cancel-requested",
+        payload: {
+          parentThreadId: command.parentThreadId,
+          taskId: command.taskId,
+          createdAt: command.createdAt,
         },
       };
     }

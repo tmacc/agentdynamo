@@ -91,6 +91,8 @@ export const ServerProvider = Schema.Struct({
   checkedAt: IsoDateTime,
   message: Schema.optional(TrimmedNonEmptyString),
   models: Schema.Array(ServerProviderModel),
+  supportsTeamCoordinator: Schema.optionalKey(Schema.Boolean),
+  supportsTeamWorker: Schema.optionalKey(Schema.Boolean),
   slashCommands: Schema.Array(ServerProviderSlashCommand).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),

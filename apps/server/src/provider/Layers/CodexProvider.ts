@@ -349,10 +349,10 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   | Path.Path
   | ServerSettingsService
 > {
-  const codexSettings = yield* Effect.service(ServerSettingsService).pipe(
+  const serverSettings = yield* Effect.service(ServerSettingsService).pipe(
     Effect.flatMap((service) => service.getSettings),
-    Effect.map((settings) => settings.providers.codex),
   );
+  const codexSettings = serverSettings.providers.codex;
   const checkedAt = new Date().toISOString();
   const models = providerModelsFromSettings(
     BUILT_IN_MODELS,
@@ -360,6 +360,10 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     codexSettings.customModels,
     DEFAULT_CODEX_MODEL_CAPABILITIES,
   );
+  const teamFlags = {
+    supportsTeamCoordinator: serverSettings.teamAgents && codexSettings.enabled,
+    supportsTeamWorker: codexSettings.enabled,
+  };
 
   if (!codexSettings.enabled) {
     return buildServerProvider({
@@ -367,6 +371,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       enabled: false,
       checkedAt,
       models,
+      ...teamFlags,
       probe: {
         installed: false,
         version: null,
@@ -389,6 +394,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       enabled: codexSettings.enabled,
       checkedAt,
       models,
+      ...teamFlags,
       probe: {
         installed: !isCommandMissingCause(error),
         version: null,
@@ -407,6 +413,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       enabled: codexSettings.enabled,
       checkedAt,
       models,
+      ...teamFlags,
       probe: {
         installed: true,
         version: null,
@@ -428,6 +435,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       enabled: codexSettings.enabled,
       checkedAt,
       models,
+      ...teamFlags,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -472,6 +480,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       checkedAt,
       models,
       skills,
+      ...teamFlags,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -502,6 +511,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       checkedAt,
       models: resolvedModels,
       skills,
+      ...teamFlags,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -519,6 +529,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       checkedAt,
       models: resolvedModels,
       skills,
+      ...teamFlags,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -538,6 +549,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     checkedAt,
     models: resolvedModels,
     skills,
+    ...teamFlags,
     probe: {
       installed: true,
       version: parsedVersion,
@@ -567,6 +579,8 @@ const makePendingCodexProvider = (codexSettings: CodexSettings): ServerProvider 
       enabled: false,
       checkedAt,
       models,
+      supportsTeamCoordinator: false,
+      supportsTeamWorker: false,
       probe: {
         installed: false,
         version: null,
@@ -582,6 +596,8 @@ const makePendingCodexProvider = (codexSettings: CodexSettings): ServerProvider 
     enabled: true,
     checkedAt,
     models,
+    supportsTeamCoordinator: false,
+    supportsTeamWorker: true,
     probe: {
       installed: false,
       version: null,

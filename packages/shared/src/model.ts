@@ -239,3 +239,31 @@ export function applyClaudePromptEffortPrefix(
   }
   return `Ultrathink:\n${trimmed}`;
 }
+
+export function splitClaudePromptEffortPrefix(text: string): {
+  text: string;
+  effort: ClaudeCodeEffort | null;
+} {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return {
+      text: "",
+      effort: null,
+    };
+  }
+  if (!trimmed.startsWith("Ultrathink:")) {
+    return {
+      text: trimmed,
+      effort: null,
+    };
+  }
+
+  return {
+    text: trimmed.slice("Ultrathink:".length).trimStart(),
+    effort: "ultrathink",
+  };
+}
+
+export function stripClaudePromptEffortPrefix(text: string): string {
+  return splitClaudePromptEffortPrefix(text).text;
+}
