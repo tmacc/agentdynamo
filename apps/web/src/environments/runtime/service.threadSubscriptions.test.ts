@@ -198,10 +198,10 @@ describe("retainThreadDetailSubscription", () => {
     expect(mockSubscribeThread).toHaveBeenCalledTimes(1);
 
     releaseSecond();
-    await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+    vi.advanceTimersByTime(2 * 60 * 1000);
     expect(mockThreadUnsubscribe).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(28 * 60 * 1000);
+    vi.advanceTimersByTime(28 * 60 * 1000);
     expect(mockThreadUnsubscribe).toHaveBeenCalledTimes(1);
 
     stop();
@@ -235,7 +235,7 @@ describe("retainThreadDetailSubscription", () => {
     expect(mockSubscribeThread).toHaveBeenCalledTimes(1);
 
     release();
-    await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
+    vi.advanceTimersByTime(30 * 60 * 1000);
     expect(mockThreadUnsubscribe).not.toHaveBeenCalled();
 
     connectionInput.applyShellEvent(
@@ -250,7 +250,7 @@ describe("retainThreadDetailSubscription", () => {
       environmentId,
     );
 
-    await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
+    vi.advanceTimersByTime(30 * 60 * 1000);
     expect(mockThreadUnsubscribe).toHaveBeenCalledTimes(1);
 
     stop();
