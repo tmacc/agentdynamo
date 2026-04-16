@@ -14,6 +14,9 @@ import {
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
   ThreadActivityAppendedPayload,
+  ThreadTeamTaskCancelRequestedPayload,
+  ThreadTeamTaskSpawnRequestedPayload,
+  ThreadTeamTaskUpsertedPayload,
   ThreadArchivedPayload,
   ThreadCreatedPayload,
   ThreadDeletedPayload,
@@ -43,6 +46,33 @@ function updateThread(
   patch: ThreadPatch,
 ): OrchestrationThread[] {
   return threads.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread));
+}
+
+function deriveChildTeamSummary(
+  threads: ReadonlyArray<OrchestrationThread>,
+  childThreadId: ThreadId,
+): Pick<
+  OrchestrationThread,
+  "teamParentThreadId" | "teamParentTaskId" | "teamRoleLabel" | "teamStatus"
+> {
+  for (const thread of threads) {
+    const task = (thread.teamTasks ?? []).find((entry) => entry.childThreadId === childThreadId);
+    if (task) {
+      return {
+        teamParentThreadId: thread.id,
+        teamParentTaskId: task.id,
+        teamRoleLabel: task.roleLabel,
+        teamStatus: task.status,
+      };
+    }
+  }
+
+  return {
+    teamParentThreadId: null,
+    teamParentTaskId: null,
+    teamRoleLabel: null,
+    teamStatus: null,
+  };
 }
 
 function decodeForEvent<A>(
@@ -264,7 +294,9 @@ export function projectEvent(
             updatedAt: payload.updatedAt,
             archivedAt: null,
             deletedAt: null,
+            ...deriveChildTeamSummary(nextBase.threads, payload.threadId),
             messages: [],
+            teamTasks: [],
             activities: [],
             checkpoints: [],
             session: null,
@@ -466,6 +498,148 @@ export function projectEvent(
           }),
         };
       });
+
+    case "thread.team-task-spawn-requested":
+      return decodeForEvent(
+        ThreadTeamTaskSpawnRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const parentThread = nextBase.threads.find(
+            (entry) => entry.id === payload.parentThreadId,
+          );
+          if (!parentThread) {
+            return nextBase;
+          }
+
+          const teamTasks = [
+            ...(parentThread.teamTasks ?? []).filter((entry) => entry.id !== payload.teamTask.id),
+            payload.teamTask,
+          ].toSorted(
+            (left, right) =>
+              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+          );
+
+          return {
+            ...nextBase,
+            threads: nextBase.threads.map((thread) => {
+              if (thread.id === payload.parentThreadId) {
+                return {
+                  ...thread,
+                  teamTasks,
+                  updatedAt: event.occurredAt,
+                };
+              }
+              if (thread.id === payload.teamTask.childThreadId) {
+                return {
+                  ...thread,
+                  teamParentThreadId: payload.parentThreadId,
+                  teamParentTaskId: payload.teamTask.id,
+                  teamRoleLabel: payload.teamTask.roleLabel,
+                  teamStatus: payload.teamTask.status,
+                  updatedAt: event.occurredAt,
+                };
+              }
+              return thread;
+            }),
+          };
+        }),
+      );
+
+    case "thread.team-task-upserted":
+      return decodeForEvent(
+        ThreadTeamTaskUpsertedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const parentThread = nextBase.threads.find(
+            (entry) => entry.id === payload.parentThreadId,
+          );
+          if (!parentThread) {
+            return nextBase;
+          }
+
+          const teamTasks = [
+            ...(parentThread.teamTasks ?? []).filter((entry) => entry.id !== payload.teamTask.id),
+            payload.teamTask,
+          ].toSorted(
+            (left, right) =>
+              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+          );
+
+          return {
+            ...nextBase,
+            threads: nextBase.threads.map((thread) => {
+              if (thread.id === payload.parentThreadId) {
+                return {
+                  ...thread,
+                  teamTasks,
+                  updatedAt: event.occurredAt,
+                };
+              }
+              if (thread.id === payload.teamTask.childThreadId) {
+                return {
+                  ...thread,
+                  teamParentThreadId: payload.parentThreadId,
+                  teamParentTaskId: payload.teamTask.id,
+                  teamRoleLabel: payload.teamTask.roleLabel,
+                  teamStatus: payload.teamTask.status,
+                  updatedAt: event.occurredAt,
+                };
+              }
+              return thread;
+            }),
+          };
+        }),
+      );
+
+    case "thread.team-task-cancel-requested":
+      return decodeForEvent(
+        ThreadTeamTaskCancelRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const parentThread = nextBase.threads.find(
+            (entry) => entry.id === payload.parentThreadId,
+          );
+          if (!parentThread) {
+            return nextBase;
+          }
+
+          const teamTask = (parentThread.teamTasks ?? []).find(
+            (entry) => entry.id === payload.taskId,
+          );
+          if (!teamTask) {
+            return nextBase;
+          }
+
+          return {
+            ...nextBase,
+            threads: nextBase.threads.map((thread) => {
+              if (thread.id === payload.parentThreadId) {
+                return { ...thread, updatedAt: event.occurredAt };
+              }
+              if (thread.id === teamTask.childThreadId) {
+                return {
+                  ...thread,
+                  teamParentThreadId: payload.parentThreadId,
+                  teamParentTaskId: teamTask.id,
+                  teamRoleLabel: teamTask.roleLabel,
+                  teamStatus: teamTask.status,
+                  updatedAt: event.occurredAt,
+                };
+              }
+              return thread;
+            }),
+          };
+        }),
+      );
 
     case "thread.proposed-plan-upserted":
       return Effect.gen(function* () {

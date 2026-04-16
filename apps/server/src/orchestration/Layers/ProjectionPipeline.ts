@@ -23,6 +23,7 @@ import {
   ProjectionThreadProposedPlanRepository,
 } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
+import { ProjectionThreadTeamTaskRepository } from "../../persistence/Services/ProjectionThreadTeamTasks.ts";
 import {
   type ProjectionTurn,
   ProjectionTurnRepository,
@@ -35,6 +36,7 @@ import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
+import { ProjectionThreadTeamTaskRepositoryLive } from "../../persistence/Layers/ProjectionThreadTeamTasks.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
 import { ServerConfig } from "../../config.ts";
@@ -56,6 +58,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
   threadSessions: "projection.thread-sessions",
+  threadTeamTasks: "projection.thread-team-tasks",
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
   pendingApprovals: "projection.pending-approvals",
@@ -449,6 +452,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
+    const projectionThreadTeamTaskRepository = yield* ProjectionThreadTeamTaskRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
 
@@ -685,9 +689,14 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         case "thread.proposed-plan-upserted":
         case "thread.activity-appended":
         case "thread.approval-response-requested":
-        case "thread.user-input-response-requested": {
+        case "thread.user-input-response-requested":
+        case "thread.team-task-spawn-requested":
+        case "thread.team-task-upserted":
+        case "thread.team-task-cancel-requested": {
+          const threadId =
+            "threadId" in event.payload ? event.payload.threadId : event.payload.parentThreadId;
           const existingRow = yield* projectionThreadRepository.getById({
-            threadId: event.payload.threadId,
+            threadId,
           });
           if (Option.isNone(existingRow)) {
             return;
@@ -696,7 +705,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...existingRow.value,
             updatedAt: event.occurredAt,
           });
-          yield* refreshThreadShellSummary(event.payload.threadId);
+          yield* refreshThreadShellSummary(threadId);
           return;
         }
 
@@ -950,6 +959,49 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         lastError: event.payload.session.lastError,
         updatedAt: event.payload.session.updatedAt,
       });
+    });
+
+    const applyThreadTeamTasksProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyThreadTeamTasksProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "thread.team-task-spawn-requested":
+        case "thread.team-task-upserted":
+          yield* projectionThreadTeamTaskRepository.upsert({
+            taskId: event.payload.teamTask.id,
+            parentThreadId: event.payload.parentThreadId,
+            childThreadId: event.payload.teamTask.childThreadId,
+            title: event.payload.teamTask.title,
+            roleLabel: event.payload.teamTask.roleLabel,
+            modelSelection: event.payload.teamTask.modelSelection,
+            workspaceMode: event.payload.teamTask.workspaceMode,
+            status: event.payload.teamTask.status,
+            latestSummary: event.payload.teamTask.latestSummary,
+            errorText: event.payload.teamTask.errorText,
+            createdAt: event.payload.teamTask.createdAt,
+            startedAt: event.payload.teamTask.startedAt,
+            completedAt: event.payload.teamTask.completedAt,
+            updatedAt: event.payload.teamTask.updatedAt,
+          });
+          return;
+
+        case "thread.team-task-cancel-requested": {
+          const existingRow = yield* projectionThreadTeamTaskRepository.getByTaskId({
+            taskId: event.payload.taskId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadTeamTaskRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.payload.createdAt,
+          });
+          return;
+        }
+
+        default:
+          return;
+      }
     });
 
     const applyThreadTurnsProjection: ProjectorDefinition["apply"] = Effect.fn(
@@ -1348,6 +1400,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyThreadSessionsProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.threadTeamTasks,
+        apply: applyThreadTeamTasksProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadTurns,
         apply: applyThreadTurnsProjection,
       },
@@ -1463,6 +1519,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
+  Layer.provideMerge(ProjectionThreadTeamTaskRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),
   Layer.provideMerge(ProjectionStateRepositoryLive),

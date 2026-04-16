@@ -2,7 +2,9 @@ import type {
   OrchestrationCommand,
   OrchestrationProject,
   OrchestrationReadModel,
+  OrchestrationTeamTask,
   OrchestrationThread,
+  OrchestrationTeamTaskId,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -36,6 +38,29 @@ export function listThreadsByProjectId(
   projectId: ProjectId,
 ): ReadonlyArray<OrchestrationThread> {
   return readModel.threads.filter((thread) => thread.projectId === projectId);
+}
+
+const ACTIVE_TEAM_TASK_STATUSES = new Set(["queued", "starting", "running", "waiting"]);
+
+export function isActiveTeamTaskStatus(value: string | null | undefined): boolean {
+  return typeof value === "string" && ACTIVE_TEAM_TASK_STATUSES.has(value);
+}
+
+export function isActiveTeamTask(task: OrchestrationTeamTask): boolean {
+  return ACTIVE_TEAM_TASK_STATUSES.has(task.status);
+}
+
+export function listActiveTeamTasks(
+  thread: OrchestrationThread,
+): ReadonlyArray<OrchestrationTeamTask> {
+  return (thread.teamTasks ?? []).filter(isActiveTeamTask);
+}
+
+export function findTeamTaskById(
+  thread: OrchestrationThread,
+  taskId: OrchestrationTeamTaskId,
+): OrchestrationTeamTask | undefined {
+  return (thread.teamTasks ?? []).find((task) => task.id === taskId);
 }
 
 export function requireProject(input: {

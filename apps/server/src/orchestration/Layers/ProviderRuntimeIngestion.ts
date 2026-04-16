@@ -12,8 +12,9 @@ import {
   TurnId,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
+  ProviderKind,
 } from "@t3tools/contracts";
-import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
+import { Cache, Cause, Duration, Effect, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -879,6 +880,12 @@ const make = Effect.fn("make")(function* () {
     const readModel = yield* orchestrationEngine.getReadModel();
     const thread = readModel.threads.find((entry) => entry.id === event.threadId);
     if (!thread) return;
+    if (
+      Schema.is(ProviderKind)(thread.session?.providerName) &&
+      thread.session.providerName !== event.provider
+    ) {
+      return;
+    }
 
     const now = event.createdAt;
     const eventTurnId = toTurnId(event.turnId);

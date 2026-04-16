@@ -151,12 +151,11 @@ export function useHandleNewThread() {
   const activeThread = useStore(
     useMemo(() => createThreadSelectorByRef(routeThreadRef), [routeThreadRef]),
   );
-  const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
-  const activeDraftThread = useComposerDraftStore(() =>
+  const activeDraftThread = useComposerDraftStore((store) =>
     routeTarget
       ? routeTarget.kind === "server"
-        ? getDraftThread(routeTarget.threadRef)
-        : useComposerDraftStore.getState().getDraftSession(routeTarget.draftId)
+        ? store.getDraftThread(routeTarget.threadRef)
+        : store.getDraftSession(routeTarget.draftId)
       : null,
   );
   const projects = useStore(useShallow((store) => selectProjectsAcrossEnvironments(store)));

@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, MessageId } from "@t3tools/contracts";
 import { createRef } from "react";
 import type { LegendListRef } from "@legendapp/list/react";
 import { page } from "vitest/browser";
@@ -58,6 +58,7 @@ function buildProps() {
     completionDividerBeforeEntryId: null,
     completionSummary: null,
     turnDiffSummaryByAssistantMessageId: new Map(),
+    userMessageSwitchInfoByMessageId: new Map(),
     routeThreadKey: "environment-local:thread-1",
     onOpenTurnDiff: vi.fn(),
     revertTurnCountByUserMessageId: new Map(),
@@ -153,6 +154,51 @@ describe("MessagesTimeline", () => {
       expect(props.onIsAtEndChange).toHaveBeenCalledWith(true);
       expect(scrollToEndSpy).toHaveBeenCalledWith({ animated: false });
       expect(requestAnimationFrameSpy).toHaveBeenCalled();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("renders a provider switch badge on the user bubble for the switching turn", async () => {
+    const props = buildProps();
+    const screen = await render(
+      <MessagesTimeline
+        {...props}
+        userMessageSwitchInfoByMessageId={
+          new Map([
+            [
+              MessageId.make("user-1"),
+              {
+                fromProvider: "codex",
+                toProvider: "claudeAgent",
+                toModel: "claude-opus-4-6",
+              },
+            ],
+          ])
+        }
+        timelineEntries={[
+          {
+            id: "user-entry",
+            kind: "message",
+            createdAt: "2026-04-13T12:00:00.000Z",
+            message: {
+              id: MessageId.make("user-1"),
+              role: "user",
+              text: "Switch providers",
+              turnId: null,
+              createdAt: "2026-04-13T12:00:00.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+      />,
+    );
+
+    try {
+      await expect.element(page.getByText("Switch providers")).toBeVisible();
+      await expect
+        .element(page.getByTestId("user-message-switch-badge"))
+        .toHaveTextContent("Switched to Claude · claude-opus-4-6");
     } finally {
       await screen.unmount();
     }

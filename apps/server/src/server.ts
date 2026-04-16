@@ -38,9 +38,11 @@ import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus"
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
+import { ThreadBootstrapDispatcherLive } from "./orchestration/Layers/ThreadBootstrapDispatcher";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
+import { ProjectIntelligenceResolverLive } from "./project/Layers/ProjectIntelligenceResolver";
 import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdentityResolver";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem";
@@ -72,6 +74,10 @@ import {
   orchestrationDispatchRouteLayer,
   orchestrationSnapshotRouteLayer,
 } from "./orchestration/http";
+import { TeamCoordinatorSessionRegistryLive } from "./team/Layers/TeamCoordinatorSessionRegistry";
+import { TeamOrchestrationServiceLive } from "./team/Layers/TeamOrchestrationService";
+import { TeamTaskReactorLive } from "./team/Layers/TeamTaskReactor";
+import { teamMcpHealthRouteLayer, teamMcpRouteLayer } from "./team/http";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -126,6 +132,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderRuntimeIngestionLive),
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
+  Layer.provideMerge(TeamTaskReactorLive),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 
@@ -194,7 +201,7 @@ const AuthLayerLive = ServerAuthLive.pipe(
   Layer.provide(ServerSecretStoreLive),
 );
 
-const RuntimeDependenciesLive = ReactorLayerLive.pipe(
+const RuntimeCoreDependenciesBaseLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(GitLayerLive),
@@ -205,6 +212,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(KeybindingsLive),
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(ServerSettingsLive),
+  Layer.provideMerge(TeamCoordinatorSessionRegistryLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
   Layer.provideMerge(RepositoryIdentityResolverLive),
@@ -215,6 +223,18 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(AnalyticsServiceLayerLive),
   Layer.provideMerge(OpenLive),
   Layer.provideMerge(ServerLifecycleEventsLive),
+);
+
+const RuntimeCoreDependenciesWithBootstrapLive = ThreadBootstrapDispatcherLive.pipe(
+  Layer.provideMerge(RuntimeCoreDependenciesBaseLive),
+);
+
+const RuntimeCoreDependenciesLive = TeamOrchestrationServiceLive.pipe(
+  Layer.provideMerge(RuntimeCoreDependenciesWithBootstrapLive),
+);
+
+const RuntimeDependenciesLive = ProjectIntelligenceResolverLive.pipe(
+  Layer.provideMerge(RuntimeCoreDependenciesLive),
 );
 
 const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
@@ -235,6 +255,8 @@ export const makeRoutesLayer = Layer.mergeAll(
   attachmentsRouteLayer,
   orchestrationDispatchRouteLayer,
   orchestrationSnapshotRouteLayer,
+  teamMcpHealthRouteLayer,
+  teamMcpRouteLayer,
   otlpTracesProxyRouteLayer,
   projectFaviconRouteLayer,
   serverEnvironmentRouteLayer,
@@ -295,9 +317,5 @@ export const makeServerLayer = Layer.unwrap(
   }),
 );
 
-// Important: Only `ServerConfig` should be provided by the CLI layer!!! Don't let other requirements leak into the launch layer.
-export const runServer = Layer.launch(makeServerLayer) satisfies Effect.Effect<
-  never,
-  any,
-  ServerConfig
->;
+// Important: Only `ServerConfig` should be provided by the CLI layer.
+export const runServer = Layer.launch(makeServerLayer) as Effect.Effect<never, Error, ServerConfig>;
