@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect } from "react";
 
+import { ProjectIntelligenceRouteSheet } from "../components/project-intelligence/ProjectIntelligenceRouteSheet";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import {
@@ -9,6 +10,7 @@ import {
 } from "../lib/chatThreadActions";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
+import { parseProjectIntelligenceRouteSearch } from "../projectIntelligenceRouteSearch";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
@@ -102,11 +104,13 @@ function ChatRouteLayout() {
     <>
       <ChatRouteGlobalShortcuts />
       <Outlet />
+      <ProjectIntelligenceRouteSheet />
     </>
   );
 }
 
 export const Route = createFileRoute("/_chat")({
+  validateSearch: (search) => parseProjectIntelligenceRouteSearch(search),
   beforeLoad: async ({ context }) => {
     if (context.authGateState.status !== "authenticated") {
       throw redirect({ to: "/pair", replace: true });

@@ -79,6 +79,11 @@ interface CodexSessionContext {
   pendingApprovals: Map<ApprovalRequestId, PendingApprovalRequest>;
   pendingUserInputs: Map<ApprovalRequestId, PendingUserInputRequest>;
   collabReceiverTurns: Map<string, TurnId>;
+  collabChildTurns: Map<string, TurnId | undefined>;
+  teamMcpServerName?: string;
+  teamMcpServerUrl?: string;
+  teamMcpStatusObserved: boolean;
+  nativeCollabPolicyWarningEmitted: boolean;
   nextRequestId: number;
   stopping: boolean;
 }
@@ -125,6 +130,10 @@ export interface CodexAppServerStartSessionInput {
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly runtimeMode: RuntimeMode;
+  readonly configOverrides?: ReadonlyArray<string>;
+  readonly extraEnv?: Record<string, string>;
+  readonly teamCoordinatorMcpServerName?: string;
+  readonly teamCoordinatorMcpServerUrl?: string;
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -337,10 +346,30 @@ export function normalizeCodexModelSlug(
   return normalized;
 }
 
+const CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS = `Cross-provider team orchestration in this session is app-managed. If team.* tools are available, you must use them for delegation instead of native Codex collaboration tools like spawnAgent or wait. Do not substitute native collab tools for team delegation in this session. If team.* tools are unavailable, say that explicitly instead of silently falling back to native collab tools.`;
+
+function appendDeveloperInstructions(base: string, extra: string | undefined): string {
+  return extra ? `${base}\n\n${extra}` : base;
+}
+
+function summarizeCodexStartupInput(input: CodexAppServerStartSessionInput): string {
+  return JSON.stringify({
+    binaryPath: input.binaryPath,
+    cwd: input.cwd ?? process.cwd(),
+    model: input.model ?? null,
+    runtimeMode: input.runtimeMode,
+    configOverrides: [...(input.configOverrides ?? [])],
+    extraEnvVarNames: Object.keys(input.extraEnv ?? {}).toSorted(),
+    teamCoordinatorMcpServerName: input.teamCoordinatorMcpServerName ?? null,
+    teamCoordinatorMcpServerUrl: input.teamCoordinatorMcpServerUrl ?? null,
+  });
+}
+
 function buildCodexCollaborationMode(input: {
   readonly interactionMode?: "default" | "plan";
   readonly model?: string;
   readonly effort?: string;
+  readonly extraDeveloperInstructions?: string;
 }):
   | {
       mode: "default" | "plan";
@@ -360,10 +389,12 @@ function buildCodexCollaborationMode(input: {
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions:
+      developer_instructions: appendDeveloperInstructions(
         input.interactionMode === "plan"
           ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
           : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+        input.extraDeveloperInstructions,
+      ),
     },
   };
 }
@@ -451,6 +482,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     try {
       const resolvedCwd = input.cwd ?? process.cwd();
+      const startupConfigSummary = summarizeCodexStartupInput(input);
 
       const session: ProviderSession = {
         provider: "codex",
@@ -470,15 +502,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         cwd: resolvedCwd,
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
       });
-      const child = spawn(codexBinaryPath, ["app-server"], {
-        cwd: resolvedCwd,
-        env: {
-          ...process.env,
-          ...(codexHomePath ? { CODEX_HOME: codexHomePath } : {}),
+      const child = spawn(
+        codexBinaryPath,
+        ["app-server", ...(input.configOverrides ?? []).flatMap((override) => ["-c", override])],
+        {
+          cwd: resolvedCwd,
+          env: {
+            ...process.env,
+            ...(codexHomePath ? { CODEX_HOME: codexHomePath } : {}),
+            ...input.extraEnv,
+          },
+          stdio: ["pipe", "pipe", "pipe"],
+          shell: process.platform === "win32",
         },
-        stdio: ["pipe", "pipe", "pipe"],
-        shell: process.platform === "win32",
-      });
+      );
       const output = readline.createInterface({ input: child.stdout });
 
       context = {
@@ -494,6 +531,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         pendingApprovals: new Map(),
         pendingUserInputs: new Map(),
         collabReceiverTurns: new Map(),
+        collabChildTurns: new Map(),
+        ...(input.teamCoordinatorMcpServerName
+          ? { teamMcpServerName: input.teamCoordinatorMcpServerName }
+          : {}),
+        ...(input.teamCoordinatorMcpServerUrl
+          ? { teamMcpServerUrl: input.teamCoordinatorMcpServerUrl }
+          : {}),
+        teamMcpStatusObserved: false,
+        nativeCollabPolicyWarningEmitted: false,
         nextRequestId: 1,
         stopping: false,
       };
@@ -502,6 +548,34 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.attachProcessListeners(context);
 
       this.emitLifecycleEvent(context, "session/connecting", "Starting codex app-server");
+      this.emitLifecycleEvent(
+        context,
+        "session/startupConfig",
+        `Codex app-server startup config: ${startupConfigSummary}`,
+      );
+      if (context.teamMcpServerName) {
+        this.emitLifecycleEvent(
+          context,
+          "session/teamCoordinatorConfigured",
+          `Expected Codex MCP server ${context.teamMcpServerName} at ${context.teamMcpServerUrl ?? "unknown url"}.`,
+        );
+        setTimeout(() => {
+          const liveContext = this.sessions.get(threadId);
+          if (
+            !liveContext ||
+            liveContext !== context ||
+            liveContext.stopping ||
+            liveContext.teamMcpStatusObserved
+          ) {
+            return;
+          }
+          this.emitErrorEvent(
+            liveContext,
+            "session/teamCoordinatorMcpMissing",
+            `No mcpServer/startupStatus/updated notification was observed for ${liveContext.teamMcpServerName}. Startup config: ${startupConfigSummary}`,
+          );
+        }, 4_000);
+      }
 
       await this.sendRequest(context, "initialize", buildCodexInitializeParams());
 
@@ -724,6 +798,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
       ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(context.teamMcpServerName
+        ? { extraDeveloperInstructions: CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS }
+        : {}),
     });
     if (collaborationMode) {
       if (!turnStartParams.model) {
@@ -767,6 +844,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       runtimeMode: context.session.runtimeMode,
       resumeCursor: context.session.resumeCursor,
     });
+    for (const [childThreadId, childTurnId] of context.collabChildTurns.entries()) {
+      if (!childTurnId) {
+        continue;
+      }
+      await this.sendRequest(context, "turn/interrupt", {
+        threadId: childThreadId,
+        turnId: childTurnId,
+      }).catch(() => undefined);
+    }
+
     if (!effectiveTurnId || !providerThreadId) {
       return;
     }
@@ -910,6 +997,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context.pending.clear();
     context.pendingApprovals.clear();
     context.pendingUserInputs.clear();
+    context.collabReceiverTurns.clear();
+    context.collabChildTurns.clear();
 
     context.output.close();
 
@@ -1046,14 +1135,55 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     notification: JsonRpcNotification,
   ): void {
     const rawRoute = this.readRouteFields(notification.params);
+    const providerConversationId = this.readProviderConversationId(notification.params);
+    const collabTool = this.readCollabToolName(notification.params);
     this.rememberCollabReceiverTurns(context, notification.params, rawRoute.turnId);
     const childParentTurnId = this.readChildParentTurnId(context, notification.params);
-    const isChildConversation = childParentTurnId !== undefined;
+    const isChildConversation =
+      childParentTurnId !== undefined ||
+      (providerConversationId !== undefined &&
+        context.collabChildTurns.has(providerConversationId));
+    const isDetachedChildConversation = isChildConversation && childParentTurnId === undefined;
+
+    if (notification.method === "turn/started" && isChildConversation && providerConversationId) {
+      context.collabChildTurns.set(providerConversationId, rawRoute.turnId);
+    }
+
+    if (notification.method === "turn/completed" && isChildConversation && providerConversationId) {
+      context.collabChildTurns.delete(providerConversationId);
+      context.collabReceiverTurns.delete(providerConversationId);
+    }
+
     if (
       isChildConversation &&
-      this.shouldSuppressChildConversationNotification(notification.method)
+      (this.shouldSuppressChildConversationNotification(notification.method) ||
+        isDetachedChildConversation)
     ) {
       return;
+    }
+
+    if (
+      context.teamMcpServerName &&
+      notification.method === "mcpServer/startupStatus/updated" &&
+      this.readString(notification.params, "name") === context.teamMcpServerName
+    ) {
+      context.teamMcpStatusObserved = true;
+      const status = this.readString(notification.params, "status") ?? "unknown";
+      const error = this.readString(notification.params, "error");
+      this.emitLifecycleEvent(
+        context,
+        "session/teamCoordinatorMcpStatus",
+        `Observed ${context.teamMcpServerName} startup status=${status}${error ? ` error=${error}` : ""}`,
+      );
+    }
+
+    if (context.teamMcpServerName && collabTool && !context.nativeCollabPolicyWarningEmitted) {
+      context.nativeCollabPolicyWarningEmitted = true;
+      this.emitErrorEvent(
+        context,
+        "session/teamCoordinatorNativeCollabDetected",
+        `Native Codex collab tool ${collabTool} was used while ${context.teamMcpServerName} was configured. Coordinator sessions should use team.* delegation instead.`,
+      );
     }
     const textDelta =
       notification.method === "item/agentMessage/delta"
@@ -1451,7 +1581,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         .filter((value): value is string => value !== null) ?? [];
     for (const receiverThreadId of receiverThreadIds) {
       context.collabReceiverTurns.set(receiverThreadId, parentTurnId);
+      if (!context.collabChildTurns.has(receiverThreadId)) {
+        context.collabChildTurns.set(receiverThreadId, undefined);
+      }
     }
+  }
+
+  private readCollabToolName(params: unknown): string | undefined {
+    const payload = this.readObject(params);
+    const item = this.readObject(payload, "item") ?? payload;
+    const itemType = this.readString(item, "type") ?? this.readString(item, "kind");
+    if (itemType !== "collabAgentToolCall") {
+      return undefined;
+    }
+    return this.readString(item, "tool");
   }
 
   private shouldSuppressChildConversationNotification(method: string): boolean {

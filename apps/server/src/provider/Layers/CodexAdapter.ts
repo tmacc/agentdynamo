@@ -40,9 +40,11 @@ import {
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { buildCodexTeamToolRegistration } from "../teamToolRegistration.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "codex" as const;
+const CODEX_TEAM_TOOL_ACCESS_TOKEN_ENV_VAR = "T3_TEAM_MCP_TOKEN";
 
 export interface CodexAdapterLiveOptions {
   readonly manager?: CodexAppServerManager;
@@ -1398,6 +1400,12 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       );
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
+      const teamRegistration = input.teamCoordinator
+        ? buildCodexTeamToolRegistration({
+            teamCoordinator: input.teamCoordinator,
+            accessTokenEnvVar: CODEX_TEAM_TOOL_ACCESS_TOKEN_ENV_VAR,
+          })
+        : null;
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
         provider: "codex",
@@ -1411,6 +1419,14 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           : {}),
         ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
           ? { serviceTier: "fast" }
+          : {}),
+        ...(teamRegistration
+          ? {
+              configOverrides: teamRegistration.configOverrides,
+              extraEnv: teamRegistration.env,
+              teamCoordinatorMcpServerName: teamRegistration.serverName,
+              teamCoordinatorMcpServerUrl: teamRegistration.serverUrl,
+            }
           : {}),
       };
 

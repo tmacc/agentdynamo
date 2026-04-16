@@ -140,6 +140,10 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         updatedAt: NOW_ISO,
         archivedAt: null,
         deletedAt: null,
+        teamParentThreadId: null,
+        teamParentTaskId: null,
+        teamRoleLabel: null,
+        teamStatus: null,
         messages: [
           {
             id: "msg-1" as MessageId,
@@ -153,6 +157,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         ],
         activities: [],
         proposedPlans: [],
+        teamTasks: [],
         checkpoints: [],
         session: {
           threadId: THREAD_ID,

@@ -23,6 +23,12 @@ import {
   RuntimeMode,
 } from "./orchestration";
 
+export const ProviderTeamCoordinatorSessionConfig = Schema.Struct({
+  mcpServerUrl: TrimmedNonEmptyString,
+  accessToken: TrimmedNonEmptyString,
+});
+export type ProviderTeamCoordinatorSessionConfig = typeof ProviderTeamCoordinatorSessionConfig.Type;
+
 const ProviderSessionStatus = Schema.Literals([
   "connecting",
   "ready",
@@ -55,6 +61,7 @@ export const ProviderSessionStartInput = Schema.Struct({
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,
+  teamCoordinator: Schema.optional(ProviderTeamCoordinatorSessionConfig),
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 

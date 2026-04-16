@@ -41,6 +41,7 @@ import {
   deriveMessagesTimelineRows,
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
+  type UserMessageSwitchInfo,
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
@@ -102,6 +103,7 @@ interface MessagesTimelineProps {
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
+  userMessageSwitchInfoByMessageId: Map<MessageId, UserMessageSwitchInfo>;
   routeThreadKey: string;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
@@ -130,6 +132,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   completionDividerBeforeEntryId,
   completionSummary,
   turnDiffSummaryByAssistantMessageId,
+  userMessageSwitchInfoByMessageId,
   routeThreadKey,
   onOpenTurnDiff,
   revertTurnCountByUserMessageId,
@@ -152,6 +155,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         activeTurnStartedAt,
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
+        userMessageSwitchInfoByMessageId,
       }),
     [
       timelineEntries,
@@ -160,6 +164,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeTurnStartedAt,
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
+      userMessageSwitchInfoByMessageId,
     ],
   );
   const rows = useStableRows(rawRows);
@@ -349,6 +354,9 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
                     terminalContexts={terminalContexts}
                   />
                 )}
+                {row.userMessageSwitchInfo ? (
+                  <UserMessageSwitchBadge switchInfo={row.userMessageSwitchInfo} />
+                ) : null}
                 <div className="mt-1.5 flex items-center justify-end gap-2">
                   <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
                     {displayedUserMessage.copyText && (
@@ -770,6 +778,22 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   return (
     <div className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground">
       {props.text}
+    </div>
+  );
+});
+
+const UserMessageSwitchBadge = memo(function UserMessageSwitchBadge(props: {
+  switchInfo: UserMessageSwitchInfo;
+}) {
+  const providerLabel = props.switchInfo.toProvider === "claudeAgent" ? "Claude" : "Codex";
+  return (
+    <div
+      data-testid="user-message-switch-badge"
+      className="mt-2 inline-flex max-w-full items-center rounded-full border border-border/70 bg-background/45 px-2 py-0.5 text-[10px] text-muted-foreground/80"
+    >
+      <span className="truncate">
+        Switched to {providerLabel} · {props.switchInfo.toModel}
+      </span>
     </div>
   );
 });

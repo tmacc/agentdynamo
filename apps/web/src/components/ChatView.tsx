@@ -3,7 +3,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   type ClaudeCodeEffort,
   type EnvironmentId,
-  type MessageId,
+  MessageId,
   type ModelSelection,
   type ProjectScript,
   type ProviderKind,
@@ -68,6 +68,7 @@ import {
 } from "../pendingUserInput";
 import {
   selectProjectsAcrossEnvironments,
+  selectThreadByRef,
   selectThreadsAcrossEnvironments,
   useStore,
 } from "../store";
@@ -85,6 +86,7 @@ import {
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
   type SessionPhase,
+  type TeamTask,
   type Thread,
   type TurnDiffSummary,
 } from "../types";
@@ -140,6 +142,8 @@ import { NoActiveThreadState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   buildExpiredTerminalContextToastCopy,
@@ -178,6 +182,7 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+const EMPTY_TEAM_TASK_CHILD_THREADS_BY_ID = Object.freeze({}) as Record<ThreadId, Thread | null>;
 
 type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
 
@@ -576,6 +581,201 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   );
 });
 
+const TEAM_STATUS_TONE: Record<
+  TeamTask["status"],
+  "default" | "secondary" | "destructive" | "outline"
+> = {
+  queued: "outline",
+  starting: "outline",
+  running: "secondary",
+  waiting: "secondary",
+  completed: "default",
+  failed: "destructive",
+  cancelled: "outline",
+};
+
+function formatTeamTaskElapsed(task: TeamTask): string | null {
+  return formatElapsed(
+    task.startedAt ?? task.createdAt,
+    task.completedAt ?? new Date().toISOString(),
+  );
+}
+
+function deriveTeamTaskDiffSummary(childThread: Thread | null | undefined): string | null {
+  const latestDiff = childThread?.turnDiffSummaries.at(-1);
+  if (!latestDiff) {
+    return null;
+  }
+  const changedFiles = latestDiff.files.length;
+  if (changedFiles === 0) {
+    return "No tracked file changes";
+  }
+  const additions = latestDiff.files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
+  const deletions = latestDiff.files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
+  return `${changedFiles} file${changedFiles === 1 ? "" : "s"} changed, +${additions}/-${deletions}`;
+}
+
+function TeamStatusBadge({ status }: { status: TeamTask["status"] }) {
+  return (
+    <Badge variant={TEAM_STATUS_TONE[status]} size="sm" className="capitalize">
+      {status}
+    </Badge>
+  );
+}
+
+interface TeamPanelTaskView {
+  task: TeamTask;
+  childThread: Thread | null;
+  diffSummary: string | null;
+  elapsed: string | null;
+}
+
+function TeamPanel({
+  tasks,
+  onOpenThread,
+  onStopTask,
+}: {
+  tasks: readonly TeamPanelTaskView[];
+  onOpenThread: (threadId: ThreadId) => void;
+  onStopTask: (task: TeamTask) => void;
+}) {
+  if (tasks.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="border-b border-border bg-muted/20 px-3 py-2 sm:px-5">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-medium text-foreground">Team Tasks</div>
+            <div className="text-xs text-muted-foreground">
+              Child threads run in isolated workspaces and hand back branch/diff results.
+            </div>
+          </div>
+          <Badge variant="outline" size="sm">
+            {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
+          </Badge>
+        </div>
+        <div className="grid gap-2">
+          {tasks.map(({ task, childThread, diffSummary, elapsed }) => (
+            <div
+              key={task.id}
+              className="grid gap-2 rounded-lg border border-border/70 bg-background/80 p-3 md:grid-cols-[minmax(0,1fr)_auto]"
+            >
+              <div className="min-w-0 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="min-w-0 truncate text-sm font-medium text-foreground">
+                    {task.title}
+                  </div>
+                  <TeamStatusBadge status={task.status} />
+                  {task.roleLabel ? (
+                    <Badge variant="outline" size="sm">
+                      {task.roleLabel}
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>
+                    {task.modelSelection.provider} / {task.modelSelection.model}
+                  </span>
+                  <span>{task.workspaceMode === "worktree" ? "Worktree" : "Shared cwd"}</span>
+                  {elapsed ? <span>{elapsed}</span> : null}
+                </div>
+                {childThread?.branch || childThread?.worktreePath ? (
+                  <div className="text-xs text-muted-foreground">
+                    {childThread?.branch ? `Branch: ${childThread.branch}` : "Branch: n/a"}
+                    {childThread?.worktreePath ? ` · Worktree: ${childThread.worktreePath}` : ""}
+                  </div>
+                ) : null}
+                {diffSummary ? (
+                  <div className="text-xs text-muted-foreground">{diffSummary}</div>
+                ) : null}
+                {task.latestSummary ? (
+                  <div className="line-clamp-2 text-xs text-foreground/80">
+                    {task.latestSummary}
+                  </div>
+                ) : task.errorText ? (
+                  <div className="line-clamp-2 text-xs text-destructive">{task.errorText}</div>
+                ) : null}
+              </div>
+              <div className="flex items-start justify-end gap-2">
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => onOpenThread(task.childThreadId)}
+                >
+                  Open thread
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={
+                    task.status === "completed" ||
+                    task.status === "failed" ||
+                    task.status === "cancelled"
+                  }
+                  onClick={() => onStopTask(task)}
+                >
+                  Stop
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CoordinatorBanner({
+  parentTitle,
+  roleLabel,
+  status,
+  branch,
+  worktreePath,
+  onOpenCoordinator,
+}: {
+  parentTitle: string;
+  roleLabel: string | null;
+  status: TeamTask["status"] | null;
+  branch: string | null;
+  worktreePath: string | null;
+  onOpenCoordinator: () => void;
+}) {
+  return (
+    <section className="border-b border-border bg-muted/20 px-3 py-2 sm:px-5">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-2 text-sm">
+        <Badge variant="outline" size="sm">
+          Child task
+        </Badge>
+        <span className="text-foreground/80">
+          Coordinator:{" "}
+          <button
+            type="button"
+            className="cursor-pointer font-medium text-foreground"
+            onClick={onOpenCoordinator}
+          >
+            {parentTitle}
+          </button>
+        </span>
+        {roleLabel ? (
+          <Badge variant="outline" size="sm">
+            {roleLabel}
+          </Badge>
+        ) : null}
+        {status ? <TeamStatusBadge status={status} /> : null}
+        {(branch || worktreePath) && (
+          <span className="text-xs text-muted-foreground">
+            {branch ? `Branch: ${branch}` : "Branch: n/a"}
+            {worktreePath ? ` · Worktree: ${worktreePath}` : ""}
+          </span>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function ChatView(props: ChatViewProps) {
   const {
     environmentId,
@@ -828,6 +1028,37 @@ export default function ChatView(props: ChatViewProps) {
     : null;
   const activeProject = useStore(
     useMemo(() => createProjectSelectorByRef(activeProjectRef), [activeProjectRef]),
+  );
+  const activeTeamParentTitle = useStore(
+    useMemo(() => {
+      if (!activeThread?.teamParentThreadId) {
+        return () => null;
+      }
+      const parentThreadRef = scopeThreadRef(
+        activeThread.environmentId,
+        activeThread.teamParentThreadId,
+      );
+      return (state) => selectThreadByRef(state, parentThreadRef)?.title ?? null;
+    }, [activeThread?.environmentId, activeThread?.teamParentThreadId]),
+  );
+  const teamTaskChildThreadsById = useStore(
+    useShallow(
+      useMemo(() => {
+        if (!activeThread || (activeThread.teamTasks ?? []).length === 0) {
+          return () => EMPTY_TEAM_TASK_CHILD_THREADS_BY_ID;
+        }
+        const childThreadRefs = (activeThread.teamTasks ?? []).map((task) =>
+          scopeThreadRef(activeThread.environmentId, task.childThreadId),
+        );
+        return (state) =>
+          Object.fromEntries(
+            childThreadRefs.map((threadRef) => [
+              threadRef.threadId,
+              selectThreadByRef(state, threadRef) ?? null,
+            ]),
+          ) as Record<ThreadId, Thread | null>;
+      }, [activeThread]),
+    ),
   );
 
   useEffect(() => {
@@ -1375,6 +1606,50 @@ export default function ChatView(props: ChatViewProps) {
 
     return byUserMessageId;
   }, [inferredCheckpointTurnCountByTurnId, timelineEntries, turnDiffSummaryByAssistantMessageId]);
+  const userMessageSwitchInfoByMessageId = useMemo(() => {
+    const byMessageId = new Map<
+      MessageId,
+      {
+        fromProvider: ProviderKind;
+        toProvider: ProviderKind;
+        toModel: string;
+      }
+    >();
+
+    for (const activity of threadActivities) {
+      if (activity.kind !== "provider.session.switched") {
+        continue;
+      }
+      const payload =
+        activity.payload && typeof activity.payload === "object"
+          ? (activity.payload as Record<string, unknown>)
+          : null;
+      const messageId =
+        payload && typeof payload.messageId === "string" ? MessageId.make(payload.messageId) : null;
+      const fromProvider =
+        payload && (payload.fromProvider === "codex" || payload.fromProvider === "claudeAgent")
+          ? payload.fromProvider
+          : null;
+      const toProvider =
+        payload && (payload.toProvider === "codex" || payload.toProvider === "claudeAgent")
+          ? payload.toProvider
+          : null;
+      const toModel =
+        payload && typeof payload.toModel === "string" && payload.toModel.trim().length > 0
+          ? payload.toModel
+          : null;
+      if (!messageId || !fromProvider || !toProvider || !toModel) {
+        continue;
+      }
+      byMessageId.set(messageId, {
+        fromProvider,
+        toProvider,
+        toModel,
+      });
+    }
+
+    return byMessageId;
+  }, [threadActivities]);
 
   const completionSummary = useMemo(() => {
     if (!latestTurnSettled) return null;
@@ -1411,6 +1686,19 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+  const teamPanelTasks = useMemo<readonly TeamPanelTaskView[]>(
+    () =>
+      (activeThread?.teamTasks ?? []).map((task) => {
+        const childThread = teamTaskChildThreadsById[task.childThreadId] ?? null;
+        return {
+          task,
+          childThread,
+          diffSummary: deriveTeamTaskDiffSummary(childThread),
+          elapsed: formatTeamTaskElapsed(task),
+        };
+      }),
+    [activeThread?.teamTasks, teamTaskChildThreadsById],
+  );
   const activeTerminalLaunchContext =
     terminalLaunchContext?.threadId === activeThreadId
       ? terminalLaunchContext
@@ -1475,6 +1763,18 @@ export default function ChatView(props: ChatViewProps) {
       },
     });
   }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
+  const openThreadById = useCallback(
+    (nextThreadId: ThreadId) => {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: activeThread?.environmentId ?? environmentId,
+          threadId: nextThreadId,
+        },
+      });
+    },
+    [activeThread?.environmentId, environmentId, navigate],
+  );
 
   const envLocked = Boolean(
     activeThread &&
@@ -1534,6 +1834,39 @@ export default function ChatView(props: ChatViewProps) {
       });
     },
     [draftId, routeThreadRef, serverThread, setStoreThreadError],
+  );
+  const onStopTeamTask = useCallback(
+    async (task: TeamTask) => {
+      if (!activeThread) {
+        return;
+      }
+      const api = readEnvironmentApi(activeThread.environmentId);
+      if (!api) {
+        return;
+      }
+      const createdAt = new Date().toISOString();
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "thread.team-task.cancel",
+          commandId: newCommandId(),
+          parentThreadId: activeThread.id,
+          taskId: task.id,
+          createdAt,
+        });
+        await api.orchestration.dispatchCommand({
+          type: "thread.session.stop",
+          commandId: newCommandId(),
+          threadId: task.childThreadId,
+          createdAt,
+        });
+      } catch (error) {
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to stop child task.",
+        );
+      }
+    },
+    [activeThread, setThreadError],
   );
 
   const focusComposer = useCallback(() => {
@@ -3202,6 +3535,7 @@ export default function ChatView(props: ChatViewProps) {
           {...(routeKind === "draft" && draftId ? { draftId } : {})}
           activeThreadTitle={activeThread.title}
           activeProjectName={activeProject?.name}
+          activeProjectCwd={activeProject?.cwd ?? null}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}
           activeProjectScripts={activeProject?.scripts}
@@ -3224,6 +3558,28 @@ export default function ChatView(props: ChatViewProps) {
           onToggleDiff={onToggleDiff}
         />
       </header>
+
+      {activeThread.teamParentThreadId != null && activeTeamParentTitle ? (
+        <CoordinatorBanner
+          parentTitle={activeTeamParentTitle}
+          roleLabel={activeThread.teamRoleLabel ?? null}
+          status={activeThread.teamStatus ?? null}
+          branch={activeThread.branch}
+          worktreePath={activeThread.worktreePath}
+          onOpenCoordinator={() => {
+            const parentThreadId = activeThread.teamParentThreadId;
+            if (parentThreadId) {
+              openThreadById(parentThreadId);
+            }
+          }}
+        />
+      ) : activeThread.teamParentThreadId == null && teamPanelTasks.length > 0 ? (
+        <TeamPanel
+          tasks={teamPanelTasks}
+          onOpenThread={openThreadById}
+          onStopTask={onStopTeamTask}
+        />
+      ) : null}
 
       {/* Error banner */}
       <ProviderStatusBanner status={activeProviderStatus} />
@@ -3249,6 +3605,7 @@ export default function ChatView(props: ChatViewProps) {
               completionDividerBeforeEntryId={completionDividerBeforeEntryId}
               completionSummary={completionSummary}
               turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+              userMessageSwitchInfoByMessageId={userMessageSwitchInfoByMessageId}
               activeThreadEnvironmentId={activeThread.environmentId}
               routeThreadKey={routeThreadKey}
               onOpenTurnDiff={onOpenTurnDiff}
@@ -3314,6 +3671,7 @@ export default function ChatView(props: ChatViewProps) {
               runtimeMode={runtimeMode}
               interactionMode={interactionMode}
               lockedProvider={lockedProvider}
+              activeSessionProvider={activeThread?.session?.provider ?? null}
               providerStatuses={providerStatuses as ServerProvider[]}
               activeProjectDefaultModelSelection={activeProject?.defaultModelSelection}
               activeThreadModelSelection={activeThread?.modelSelection}

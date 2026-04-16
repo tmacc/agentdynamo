@@ -11,6 +11,7 @@ import type {
   OrchestrationShellStreamEvent,
   OrchestrationSession,
   OrchestrationSessionStatus,
+  OrchestrationTeamTask,
   OrchestrationThread,
   OrchestrationThreadShell,
   OrchestrationThreadActivity,
@@ -28,6 +29,7 @@ import {
   type Project,
   type ProposedPlan,
   type SidebarThreadSummary,
+  type TeamTask,
   type Thread,
   type ThreadSession,
   type ThreadShell,
@@ -74,6 +76,8 @@ export interface EnvironmentState {
   activityByThreadId: Record<ThreadId, Record<string, OrchestrationThreadActivity>>;
   proposedPlanIdsByThreadId: Record<ThreadId, string[]>;
   proposedPlanByThreadId: Record<ThreadId, Record<string, ProposedPlan>>;
+  teamTaskIdsByThreadId?: Record<ThreadId, string[]>;
+  teamTaskByThreadId?: Record<ThreadId, Record<string, TeamTask>>;
   turnDiffIdsByThreadId: Record<ThreadId, TurnId[]>;
   turnDiffSummaryByThreadId: Record<ThreadId, Record<TurnId, TurnDiffSummary>>;
 
@@ -108,6 +112,8 @@ const initialEnvironmentState: EnvironmentState = {
   activityByThreadId: {},
   proposedPlanIdsByThreadId: {},
   proposedPlanByThreadId: {},
+  teamTaskIdsByThreadId: {},
+  teamTaskByThreadId: {},
   turnDiffIdsByThreadId: {},
   turnDiffSummaryByThreadId: {},
   sidebarThreadSummaryById: {},
@@ -124,6 +130,12 @@ const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
 const MAX_THREAD_ACTIVITIES = 500;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
+
+function isActiveTeamTaskStatus(status: TeamTask["status"]): boolean {
+  return (
+    status === "queued" || status === "starting" || status === "running" || status === "waiting"
+  );
+}
 
 function arraysEqual<T>(left: readonly T[], right: readonly T[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
@@ -203,6 +215,25 @@ function mapTurnDiffSummary(checkpoint: OrchestrationCheckpointSummary): TurnDif
   };
 }
 
+function mapTeamTask(teamTask: OrchestrationTeamTask): TeamTask {
+  return {
+    id: teamTask.id,
+    parentThreadId: teamTask.parentThreadId,
+    childThreadId: teamTask.childThreadId,
+    title: teamTask.title,
+    roleLabel: teamTask.roleLabel,
+    modelSelection: normalizeModelSelection(teamTask.modelSelection),
+    workspaceMode: teamTask.workspaceMode,
+    status: teamTask.status,
+    latestSummary: teamTask.latestSummary,
+    errorText: teamTask.errorText,
+    createdAt: teamTask.createdAt,
+    startedAt: teamTask.startedAt,
+    completedAt: teamTask.completedAt,
+    updatedAt: teamTask.updatedAt,
+  };
+}
+
 function mapProject(
   project:
     | OrchestrationReadModel["projects"][number]
@@ -225,6 +256,7 @@ function mapProject(
 }
 
 function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): Thread {
+  const teamTasks = (thread.teamTasks ?? []).map(mapTeamTask);
   return {
     id: thread.id,
     environmentId,
@@ -245,6 +277,12 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    teamParentThreadId: thread.teamParentThreadId ?? null,
+    teamParentTaskId: thread.teamParentTaskId ?? null,
+    teamRoleLabel: thread.teamRoleLabel ?? null,
+    teamStatus: thread.teamStatus ?? null,
+    activeTeamTaskCount: teamTasks.filter((task) => isActiveTeamTaskStatus(task.status)).length,
+    teamTasks,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -274,6 +312,11 @@ function mapThreadShell(
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    teamParentThreadId: thread.teamParentThreadId ?? null,
+    teamParentTaskId: thread.teamParentTaskId ?? null,
+    teamRoleLabel: thread.teamRoleLabel ?? null,
+    teamStatus: thread.teamStatus ?? null,
+    activeTeamTaskCount: thread.activeTeamTaskCount ?? 0,
   };
   const session = thread.session ? mapSession(thread.session) : null;
   const turnState: ThreadTurnState = {
@@ -293,6 +336,11 @@ function mapThreadShell(
     latestTurn: thread.latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    teamParentThreadId: thread.teamParentThreadId ?? null,
+    teamParentTaskId: thread.teamParentTaskId ?? null,
+    teamRoleLabel: thread.teamRoleLabel ?? null,
+    teamStatus: thread.teamStatus ?? null,
+    activeTeamTaskCount: thread.activeTeamTaskCount ?? 0,
     latestUserMessageAt: thread.latestUserMessageAt,
     hasPendingApprovals: thread.hasPendingApprovals,
     hasPendingUserInput: thread.hasPendingUserInput,
@@ -322,6 +370,11 @@ function toThreadShell(thread: Thread): ThreadShell {
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    teamParentThreadId: thread.teamParentThreadId ?? null,
+    teamParentTaskId: thread.teamParentTaskId ?? null,
+    teamRoleLabel: thread.teamRoleLabel ?? null,
+    teamStatus: thread.teamStatus ?? null,
+    activeTeamTaskCount: thread.activeTeamTaskCount ?? 0,
   };
 }
 
@@ -394,6 +447,11 @@ function sidebarThreadSummariesEqual(
     latestTurnsEqual(left.latestTurn, right.latestTurn) &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
+    left.teamParentThreadId === right.teamParentThreadId &&
+    left.teamParentTaskId === right.teamParentTaskId &&
+    left.teamRoleLabel === right.teamRoleLabel &&
+    left.teamStatus === right.teamStatus &&
+    left.activeTeamTaskCount === right.activeTeamTaskCount &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
@@ -417,7 +475,12 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left.archivedAt === right.archivedAt &&
     left.updatedAt === right.updatedAt &&
     left.branch === right.branch &&
-    left.worktreePath === right.worktreePath
+    left.worktreePath === right.worktreePath &&
+    left.teamParentThreadId === right.teamParentThreadId &&
+    left.teamParentTaskId === right.teamParentTaskId &&
+    left.teamRoleLabel === right.teamRoleLabel &&
+    left.teamStatus === right.teamStatus &&
+    left.activeTeamTaskCount === right.activeTeamTaskCount
   );
 }
 
@@ -470,6 +533,20 @@ function buildProposedPlanSlice(thread: Thread): {
     byId: Object.fromEntries(
       thread.proposedPlans.map((plan) => [plan.id, plan] as const),
     ) as Record<string, ProposedPlan>,
+  };
+}
+
+function buildTeamTaskSlice(thread: Thread): {
+  ids: string[];
+  byId: Record<string, TeamTask>;
+} {
+  const teamTasks = thread.teamTasks ?? [];
+  return {
+    ids: teamTasks.map((task) => task.id),
+    byId: Object.fromEntries(teamTasks.map((task) => [task.id, task] as const)) as Record<
+      string,
+      TeamTask
+    >,
   };
 }
 
@@ -656,6 +733,21 @@ function writeThreadState(
     };
   }
 
+  if (previousThread?.teamTasks !== nextThread.teamTasks) {
+    const nextTeamTaskSlice = buildTeamTaskSlice(nextThread);
+    nextState = {
+      ...nextState,
+      teamTaskIdsByThreadId: {
+        ...nextState.teamTaskIdsByThreadId,
+        [nextThread.id]: nextTeamTaskSlice.ids,
+      },
+      teamTaskByThreadId: {
+        ...nextState.teamTaskByThreadId,
+        [nextThread.id]: nextTeamTaskSlice.byId,
+      },
+    };
+  }
+
   if (previousThread?.turnDiffSummaries !== nextThread.turnDiffSummaries) {
     const nextTurnDiffSlice = buildTurnDiffSlice(nextThread);
     nextState = {
@@ -796,6 +888,9 @@ function removeThreadState(state: EnvironmentState, threadId: ThreadId): Environ
   const { [threadId]: _removedPlanIds, ...proposedPlanIdsByThreadId } =
     state.proposedPlanIdsByThreadId;
   const { [threadId]: _removedPlans, ...proposedPlanByThreadId } = state.proposedPlanByThreadId;
+  const { [threadId]: _removedTeamTaskIds, ...teamTaskIdsByThreadId } =
+    state.teamTaskIdsByThreadId ?? {};
+  const { [threadId]: _removedTeamTasks, ...teamTaskByThreadId } = state.teamTaskByThreadId ?? {};
   const { [threadId]: _removedTurnDiffIds, ...turnDiffIdsByThreadId } = state.turnDiffIdsByThreadId;
   const { [threadId]: _removedTurnDiffs, ...turnDiffSummaryByThreadId } =
     state.turnDiffSummaryByThreadId;
@@ -815,6 +910,8 @@ function removeThreadState(state: EnvironmentState, threadId: ThreadId): Environ
     activityByThreadId,
     proposedPlanIdsByThreadId,
     proposedPlanByThreadId,
+    teamTaskIdsByThreadId,
+    teamTaskByThreadId,
     turnDiffIdsByThreadId,
     turnDiffSummaryByThreadId,
     sidebarThreadSummaryById,
@@ -1258,8 +1355,13 @@ function applyEnvironmentOrchestrationEvent(
           updatedAt: event.payload.updatedAt,
           archivedAt: null,
           deletedAt: null,
+          teamParentThreadId: null,
+          teamParentTaskId: null,
+          teamRoleLabel: null,
+          teamStatus: null,
           messages: [],
           proposedPlans: [],
+          teamTasks: [],
           activities: [],
           checkpoints: [],
           session: null,
@@ -1468,6 +1570,31 @@ function applyEnvironmentOrchestrationEvent(
                 sourceProposedPlan: thread.pendingSourceProposedPlan,
               })
             : thread.latestTurn,
+        updatedAt: event.occurredAt,
+      }));
+
+    case "thread.team-task-spawn-requested":
+    case "thread.team-task-upserted":
+      return updateThreadState(state, event.payload.parentThreadId, (thread) => {
+        const teamTasks = [
+          ...(thread.teamTasks ?? []).filter((task) => task.id !== event.payload.teamTask.id),
+          mapTeamTask(event.payload.teamTask),
+        ].toSorted(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+        );
+        return {
+          ...thread,
+          teamTasks,
+          activeTeamTaskCount: teamTasks.filter((task) => isActiveTeamTaskStatus(task.status))
+            .length,
+          updatedAt: event.occurredAt,
+        };
+      });
+
+    case "thread.team-task-cancel-requested":
+      return updateThreadState(state, event.payload.parentThreadId, (thread) => ({
+        ...thread,
         updatedAt: event.occurredAt,
       }));
 

@@ -119,6 +119,11 @@ function makeThreadShellSnapshot(params: {
         createdAt: "2026-04-13T00:00:00.000Z",
         updatedAt: "2026-04-13T00:00:00.000Z",
         archivedAt: null,
+        teamParentThreadId: null,
+        teamParentTaskId: null,
+        teamRoleLabel: null,
+        teamStatus: null,
+        activeTeamTaskCount: 0,
         session: params.sessionStatus
           ? {
               threadId: params.threadId,

@@ -17,6 +17,8 @@ import {
   resolveModelSlug,
   resolveModelSlugForProvider,
   resolveSelectableModel,
+  splitClaudePromptEffortPrefix,
+  stripClaudePromptEffortPrefix,
   trimOrNull,
 } from "./model";
 
@@ -148,6 +150,18 @@ describe("misc helpers", () => {
     expect(applyClaudePromptEffortPrefix("Ultrathink:\nInvestigate", "ultrathink")).toBe(
       "Ultrathink:\nInvestigate",
     );
+  });
+
+  it("splits and strips prompt-injected effort prefixes", () => {
+    expect(splitClaudePromptEffortPrefix("Ultrathink:\nInvestigate")).toEqual({
+      text: "Investigate",
+      effort: "ultrathink",
+    });
+    expect(stripClaudePromptEffortPrefix("Ultrathink:\nInvestigate")).toBe("Investigate");
+    expect(splitClaudePromptEffortPrefix("Investigate")).toEqual({
+      text: "Investigate",
+      effort: null,
+    });
   });
 
   it("trims strings to null", () => {

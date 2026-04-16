@@ -132,6 +132,8 @@ export function buildServerProvider(input: {
   enabled: boolean;
   checkedAt: string;
   models: ReadonlyArray<ServerProviderModel>;
+  supportsTeamCoordinator?: boolean;
+  supportsTeamWorker?: boolean;
   slashCommands?: ReadonlyArray<ServerProviderSlashCommand>;
   skills?: ReadonlyArray<ServerProviderSkill>;
   probe: ProviderProbeResult;
@@ -146,6 +148,8 @@ export function buildServerProvider(input: {
     checkedAt: input.checkedAt,
     ...(input.probe.message ? { message: input.probe.message } : {}),
     models: input.models,
+    supportsTeamCoordinator: input.supportsTeamCoordinator ?? false,
+    supportsTeamWorker: input.supportsTeamWorker ?? false,
     slashCommands: [...(input.slashCommands ?? [])],
     skills: [...(input.skills ?? [])],
   };

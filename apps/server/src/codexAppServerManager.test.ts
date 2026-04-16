@@ -28,6 +28,7 @@ function createSendTurnHarness() {
       threadId: "thread_1",
       runtimeMode: "full-access",
       model: "gpt-5.3-codex",
+      activeTurnId: undefined as string | undefined,
       resumeCursor: { threadId: "thread_1" },
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
@@ -38,6 +39,11 @@ function createSendTurnHarness() {
       sparkEnabled: true,
     },
     collabReceiverTurns: new Map(),
+    collabChildTurns: new Map(),
+    teamMcpServerName: undefined as string | undefined,
+    teamMcpServerUrl: undefined as string | undefined,
+    teamMcpStatusObserved: false,
+    nativeCollabPolicyWarningEmitted: false,
   };
 
   const requireSession = vi
@@ -72,11 +78,17 @@ function createThreadControlHarness() {
       threadId: "thread_1",
       runtimeMode: "full-access",
       model: "gpt-5.3-codex",
+      activeTurnId: undefined as string | undefined,
       resumeCursor: { threadId: "thread_1" },
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
     collabReceiverTurns: new Map(),
+    collabChildTurns: new Map(),
+    teamMcpServerName: undefined as string | undefined,
+    teamMcpServerUrl: undefined as string | undefined,
+    teamMcpStatusObserved: false,
+    nativeCollabPolicyWarningEmitted: false,
   };
 
   const requireSession = vi
@@ -120,6 +132,11 @@ function createPendingUserInputHarness() {
       ],
     ]),
     collabReceiverTurns: new Map(),
+    collabChildTurns: new Map(),
+    teamMcpServerName: undefined as string | undefined,
+    teamMcpServerUrl: undefined as string | undefined,
+    teamMcpStatusObserved: false,
+    nativeCollabPolicyWarningEmitted: false,
   };
 
   const requireSession = vi
@@ -161,6 +178,11 @@ function createCollabNotificationHarness() {
     pendingApprovals: new Map(),
     pendingUserInputs: new Map(),
     collabReceiverTurns: new Map<string, string>(),
+    collabChildTurns: new Map<string, string | undefined>(),
+    teamMcpServerName: undefined as string | undefined,
+    teamMcpServerUrl: undefined as string | undefined,
+    teamMcpStatusObserved: false,
+    nativeCollabPolicyWarningEmitted: false,
     nextRequestId: 1,
     stopping: false,
   };
@@ -606,6 +628,32 @@ describe("sendTurn", () => {
     });
   });
 
+  it("adds team-coordinator instructions that de-prioritize native collab tools", async () => {
+    const { manager, context, sendRequest } = createSendTurnHarness();
+    context.teamMcpServerName = "t3_team";
+
+    await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Use team delegation for this task",
+      interactionMode: "default",
+    });
+
+    expect(sendRequest).toHaveBeenCalledWith(
+      context,
+      "turn/start",
+      expect.objectContaining({
+        collaborationMode: {
+          mode: "default",
+          settings: expect.objectContaining({
+            developer_instructions: expect.stringContaining(
+              "Do not substitute native collab tools",
+            ),
+          }),
+        },
+      }),
+    );
+  });
+
   it("keeps the session model when interaction mode is set without an explicit model", async () => {
     const { manager, context, sendRequest } = createSendTurnHarness();
     context.session.model = "gpt-5.2-codex";
@@ -649,6 +697,30 @@ describe("sendTurn", () => {
 });
 
 describe("thread checkpoint control", () => {
+  it("interrupts active collab child turns before interrupting the parent turn", async () => {
+    const { manager, context, sendRequest } = createThreadControlHarness();
+    context.session.status = "running";
+    context.session.activeTurnId = "turn_parent";
+    context.collabChildTurns.set("child_provider_1", "turn_child_1");
+    context.collabChildTurns.set("child_provider_2", "turn_child_2");
+    sendRequest.mockResolvedValue({});
+
+    await manager.interruptTurn(asThreadId("thread_1"));
+
+    expect(sendRequest).toHaveBeenNthCalledWith(1, context, "turn/interrupt", {
+      threadId: "child_provider_1",
+      turnId: "turn_child_1",
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(2, context, "turn/interrupt", {
+      threadId: "child_provider_2",
+      turnId: "turn_child_2",
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(3, context, "turn/interrupt", {
+      threadId: "thread_1",
+      turnId: "turn_parent",
+    });
+  });
+
   it("reads thread turns from thread/read", async () => {
     const { manager, context, requireSession, sendRequest } = createThreadControlHarness();
     sendRequest.mockResolvedValue({
@@ -937,6 +1009,93 @@ describe("collab child conversation routing", () => {
       params: {
         threadId: "child_provider_1",
         turn: { id: "turn_child_1", status: "completed" },
+      },
+    });
+
+    expect(emitEvent).not.toHaveBeenCalled();
+    expect(updateSession).not.toHaveBeenCalled();
+  });
+
+  it("logs a policy warning when native collab is used in a team-coordinator session", () => {
+    const { manager, context, emitEvent } = createCollabNotificationHarness();
+    context.teamMcpServerName = "t3_team";
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/started",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          id: "call_collab_1",
+          tool: "spawnAgent",
+        },
+        threadId: "provider_parent",
+        turnId: "turn_parent",
+      },
+    });
+
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "error",
+        method: "session/teamCoordinatorNativeCollabDetected",
+      }),
+    );
+  });
+
+  it("suppresses detached child notifications after the parent turn has already completed", () => {
+    const { manager, context, emitEvent, updateSession } = createCollabNotificationHarness();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/completed",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          id: "call_collab_1",
+          receiverThreadIds: ["child_provider_1"],
+        },
+        threadId: "provider_parent",
+        turnId: "turn_parent",
+      },
+    });
+    emitEvent.mockClear();
+    updateSession.mockClear();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "turn/completed",
+      params: {
+        threadId: "provider_parent",
+        turn: { id: "turn_parent", status: "interrupted" },
+      },
+    });
+
+    expect(context.collabReceiverTurns.size).toBe(0);
+    expect(context.collabChildTurns.has("child_provider_1")).toBe(true);
+
+    emitEvent.mockClear();
+    updateSession.mockClear();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: "child_provider_1",
+        turnId: "turn_child_1",
+        itemId: "msg_child_1",
+        delta: "still running",
       },
     });
 

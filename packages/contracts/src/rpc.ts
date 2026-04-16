@@ -45,6 +45,12 @@ import {
   OrchestrationRpcSchemas,
 } from "./orchestration";
 import {
+  ProjectGetIntelligenceError,
+  ProjectGetIntelligenceInput,
+  ProjectGetIntelligenceResult,
+  ProjectReadIntelligenceSurfaceError,
+  ProjectReadIntelligenceSurfaceInput,
+  ProjectReadIntelligenceSurfaceResult,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -79,6 +85,8 @@ export const WS_METHODS = {
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
   projectsSearchEntries: "projects.searchEntries",
+  projectsGetIntelligence: "projects.getIntelligence",
+  projectsReadIntelligenceSurface: "projects.readIntelligenceSurface",
   projectsWriteFile: "projects.writeFile",
 
   // Shell methods
@@ -163,6 +171,21 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   success: ProjectWriteFileResult,
   error: ProjectWriteFileError,
 });
+
+export const WsProjectsGetIntelligenceRpc = Rpc.make(WS_METHODS.projectsGetIntelligence, {
+  payload: ProjectGetIntelligenceInput,
+  success: ProjectGetIntelligenceResult,
+  error: ProjectGetIntelligenceError,
+});
+
+export const WsProjectsReadIntelligenceSurfaceRpc = Rpc.make(
+  WS_METHODS.projectsReadIntelligenceSurface,
+  {
+    payload: ProjectReadIntelligenceSurfaceInput,
+    success: ProjectReadIntelligenceSurfaceResult,
+    error: ProjectReadIntelligenceSurfaceError,
+  },
+);
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: OpenInEditorInput,
@@ -358,6 +381,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
   WsProjectsSearchEntriesRpc,
+  WsProjectsGetIntelligenceRpc,
+  WsProjectsReadIntelligenceSurfaceRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,

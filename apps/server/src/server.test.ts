@@ -73,6 +73,10 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import {
+  ThreadBootstrapDispatcher,
+  type ThreadBootstrapDispatcherShape,
+} from "./orchestration/Services/ThreadBootstrapDispatcher.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import {
   ProviderRegistry,
@@ -92,9 +96,21 @@ import {
   type ProjectSetupScriptRunnerShape,
 } from "./project/Services/ProjectSetupScriptRunner.ts";
 import {
+  ProjectIntelligenceResolver,
+  type ProjectIntelligenceResolverShape,
+} from "./project/Services/ProjectIntelligenceResolver.ts";
+import {
   RepositoryIdentityResolver,
   type RepositoryIdentityResolverShape,
 } from "./project/Services/RepositoryIdentityResolver.ts";
+import {
+  TeamCoordinatorSessionRegistry,
+  type TeamCoordinatorSessionRegistryShape,
+} from "./team/Services/TeamCoordinatorSessionRegistry.ts";
+import {
+  TeamOrchestrationService,
+  type TeamOrchestrationServiceShape,
+} from "./team/Services/TeamOrchestrationService.ts";
 import {
   ServerEnvironment,
   type ServerEnvironmentShape,
@@ -307,7 +323,11 @@ const buildAppUnderTest = (options?: {
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     serverEnvironment?: Partial<ServerEnvironmentShape>;
+    projectIntelligenceResolver?: Partial<ProjectIntelligenceResolverShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
+    threadBootstrapDispatcher?: Partial<ThreadBootstrapDispatcherShape>;
+    teamCoordinatorSessionRegistry?: Partial<TeamCoordinatorSessionRegistryShape>;
+    teamOrchestrationService?: Partial<TeamOrchestrationServiceShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -455,6 +475,40 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.checkpointDiffQuery,
         }),
       ),
+      Layer.provide(
+        Layer.mock(ThreadBootstrapDispatcher)({
+          dispatch: () => Effect.succeed({ sequence: 0 }),
+          ...options?.layers?.threadBootstrapDispatcher,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(TeamCoordinatorSessionRegistry)({
+          getCoordinatorSessionConfig: () =>
+            Effect.succeed({
+              mcpServerUrl: "http://127.0.0.1:0/api/team-mcp",
+              accessToken: "test-token",
+            }),
+          authenticateCoordinatorAccessToken: () => Effect.succeed(Option.none()),
+          ...options?.layers?.teamCoordinatorSessionRegistry,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(TeamOrchestrationService)({
+          getCoordinatorSessionConfig: () =>
+            Effect.succeed({
+              mcpServerUrl: "http://127.0.0.1:0/api/team-mcp",
+              accessToken: "test-token",
+            }),
+          authenticateCoordinatorAccessToken: () => Effect.succeed(Option.none()),
+          spawnChild: () => Effect.fail(new Error("team orchestration not configured in test")),
+          listChildren: () => Effect.succeed([]),
+          waitForChildren: () => Effect.succeed([]),
+          sendChildMessage: () =>
+            Effect.fail(new Error("team orchestration not configured in test")),
+          closeChild: () => Effect.fail(new Error("team orchestration not configured in test")),
+          ...options?.layers?.teamOrchestrationService,
+        }),
+      ),
     );
 
     const appLayer = servedRoutesLayer.pipe(
@@ -485,6 +539,29 @@ const buildAppUnderTest = (options?: {
           getEnvironmentId: Effect.succeed(testEnvironmentDescriptor.environmentId),
           getDescriptor: Effect.succeed(testEnvironmentDescriptor),
           ...options?.layers?.serverEnvironment,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProjectIntelligenceResolver)({
+          getIntelligence: () =>
+            Effect.succeed({
+              resolvedAt: new Date(0).toISOString(),
+              viewMode: "project",
+              projectCwd: process.cwd(),
+              surfaces: [],
+              scopeSummaries: [],
+              providerRuntime: [],
+              warnings: [],
+            }),
+          readSurface: ({ surfaceId }) =>
+            Effect.succeed({
+              surfaceId,
+              contentType: "markdown",
+              content: "",
+              truncated: false,
+              maxBytes: 64 * 1024,
+            }),
+          ...options?.layers?.projectIntelligenceResolver,
         }),
       ),
       Layer.provide(
@@ -1001,6 +1078,190 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       const response = yield* HttpClient.post("/api/auth/pairing-token");
       assert.equal(response.status, 401);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("lists team MCP tools with exact live provider model slugs", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          providerRegistry: {
+            getProviders: Effect.succeed([
+              {
+                provider: "codex" as const,
+                enabled: true,
+                installed: true,
+                version: "1.0.0",
+                status: "ready" as const,
+                auth: { status: "authenticated" as const },
+                checkedAt: "2026-04-16T00:00:00.000Z",
+                message: "ready",
+                models: [
+                  {
+                    slug: "gpt-5.4",
+                    name: "GPT-5.4",
+                    isCustom: false,
+                    capabilities: null,
+                  },
+                  {
+                    slug: "gpt-5.2-codex",
+                    name: "GPT-5.2 Codex",
+                    isCustom: false,
+                    capabilities: null,
+                  },
+                ],
+                supportsTeamCoordinator: true,
+                supportsTeamWorker: true,
+                slashCommands: [],
+                skills: [],
+              },
+              {
+                provider: "claudeAgent" as const,
+                enabled: true,
+                installed: true,
+                version: "1.0.0",
+                status: "ready" as const,
+                auth: { status: "authenticated" as const },
+                checkedAt: "2026-04-16T00:00:00.000Z",
+                message: "ready",
+                models: [
+                  {
+                    slug: "claude-opus-4-6",
+                    name: "Claude Opus 4.6",
+                    isCustom: false,
+                    capabilities: null,
+                  },
+                ],
+                supportsTeamCoordinator: true,
+                supportsTeamWorker: true,
+                slashCommands: [],
+                skills: [],
+              },
+            ]),
+          },
+          teamCoordinatorSessionRegistry: {
+            authenticateCoordinatorAccessToken: (accessToken) =>
+              Effect.succeed(
+                accessToken === "test-token" ? Option.some(defaultThreadId) : Option.none(),
+              ),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.post("/api/team-mcp", {
+        headers: {
+          authorization: "Bearer test-token",
+        },
+        body: HttpBody.text(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: "tools-list",
+            method: "tools/list",
+          }),
+          "application/json",
+        ),
+      });
+      const body = (yield* response.json) as {
+        readonly result: {
+          readonly tools: ReadonlyArray<{
+            readonly name: string;
+            readonly description?: string;
+            readonly inputSchema?: Record<string, unknown>;
+          }>;
+        };
+      };
+
+      assert.equal(response.status, 200);
+      const spawnTool = body.result.tools.find((tool) => tool.name === "team.spawn_child");
+      assert.isDefined(spawnTool);
+      assert.include(spawnTool?.description ?? "", "gpt-5.4");
+      assert.include(spawnTool?.description ?? "", "gpt-5.2-codex");
+      assert.include(spawnTool?.description ?? "", "claude-opus-4-6");
+      assert.deepEqual(spawnTool?.inputSchema, {
+        oneOf: [
+          {
+            type: "object",
+            properties: {
+              provider: {
+                type: "string",
+                enum: ["codex"],
+                description: "Codex worker provider",
+              },
+              model: {
+                type: "string",
+                enum: ["gpt-5.4", "gpt-5.2-codex"],
+                description: "Available Codex worker models",
+              },
+              title: { type: "string" },
+              task: { type: "string" },
+              roleLabel: { type: "string" },
+              contextBrief: { type: "string" },
+              relevantFiles: {
+                type: "array",
+                items: { type: "string" },
+              },
+            },
+            required: ["provider", "model", "title", "task"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            properties: {
+              provider: {
+                type: "string",
+                enum: ["claudeAgent"],
+                description: "Claude worker provider",
+              },
+              model: {
+                type: "string",
+                enum: ["claude-opus-4-6"],
+                description: "Available Claude worker models",
+              },
+              title: { type: "string" },
+              task: { type: "string" },
+              roleLabel: { type: "string" },
+              contextBrief: { type: "string" },
+              relevantFiles: {
+                type: "array",
+                items: { type: "string" },
+              },
+            },
+            required: ["provider", "model", "title", "task"],
+            additionalProperties: false,
+          },
+        ],
+      });
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("acknowledges team MCP initialized notifications without a JSON-RPC body", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          teamCoordinatorSessionRegistry: {
+            authenticateCoordinatorAccessToken: (accessToken) =>
+              Effect.succeed(
+                accessToken === "test-token" ? Option.some(defaultThreadId) : Option.none(),
+              ),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.post("/api/team-mcp", {
+        headers: {
+          authorization: "Bearer test-token",
+        },
+        body: HttpBody.text(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "notifications/initialized",
+          }),
+          "application/json",
+        ),
+      });
+
+      assert.equal(response.status, 204);
+      assert.equal(yield* response.text, "");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

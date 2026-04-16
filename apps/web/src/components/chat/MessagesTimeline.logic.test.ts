@@ -255,6 +255,7 @@ describe("deriveMessagesTimelineRows", () => {
       activeTurnStartedAt: null,
       turnDiffSummaryByAssistantMessageId: new Map(),
       revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map(),
     });
 
     const assistantRows = rows.filter(
@@ -314,6 +315,7 @@ describe("deriveMessagesTimelineRows", () => {
         ["assistant-1" as never, assistantTurnDiffSummary],
       ]),
       revertTurnCountByUserMessageId: new Map([["user-1" as never, 1]]),
+      userMessageSwitchInfoByMessageId: new Map(),
     });
 
     const userRow = rows.find(
@@ -327,6 +329,52 @@ describe("deriveMessagesTimelineRows", () => {
 
     expect(userRow?.revertTurnCount).toBe(1);
     expect(assistantRow?.assistantTurnDiffSummary).toBe(assistantTurnDiffSummary);
+  });
+
+  it("projects provider switch metadata onto the affected user message row", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:00Z",
+          message: {
+            id: "user-1" as never,
+            role: "user",
+            text: "Continue in Claude",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:00Z",
+            streaming: false,
+          },
+        },
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map([
+        [
+          "user-1" as never,
+          {
+            fromProvider: "codex",
+            toProvider: "claudeAgent",
+            toModel: "claude-opus-4-6",
+          },
+        ],
+      ]),
+    });
+
+    const userRow = rows.find(
+      (row): row is Extract<(typeof rows)[number], { kind: "message" }> =>
+        row.kind === "message" && row.message.role === "user",
+    );
+
+    expect(userRow?.userMessageSwitchInfo).toEqual({
+      fromProvider: "codex",
+      toProvider: "claudeAgent",
+      toModel: "claude-opus-4-6",
+    });
   });
 });
 
@@ -369,6 +417,7 @@ describe("computeStableMessagesTimelineRows", () => {
       activeTurnStartedAt: null,
       turnDiffSummaryByAssistantMessageId: new Map(),
       revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map(),
     });
 
     const initial = computeStableMessagesTimelineRows(rows, {
@@ -420,6 +469,7 @@ describe("computeStableMessagesTimelineRows", () => {
       activeTurnStartedAt: null,
       turnDiffSummaryByAssistantMessageId: new Map(),
       revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map(),
     });
 
     const initial = computeStableMessagesTimelineRows(firstRows, {
