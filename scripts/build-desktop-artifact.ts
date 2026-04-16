@@ -503,10 +503,21 @@ export function resolveMockUpdateServerUrl(mockUpdateServerPort: number | undefi
   return `http://localhost:${mockUpdateServerPort ?? 3000}`;
 }
 
+function resolveDesktopProductBaseName(): string {
+  const configuredProductName = desktopPackageJson.productName?.trim();
+  if (!configuredProductName) {
+    return "T3 Code";
+  }
+
+  return configuredProductName.replace(/\s+\([^)]*\)$/, "");
+}
+
 export function resolveDesktopProductName(version: string): string {
+  const baseName = resolveDesktopProductBaseName();
+
   return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "T3 Code (Nightly)"
-    : (desktopPackageJson.productName ?? "T3 Code");
+    ? `${baseName} (Nightly)`
+    : (desktopPackageJson.productName ?? `${baseName} (Alpha)`);
 }
 
 const createBuildConfig = Effect.fn("createBuildConfig")(function* (
