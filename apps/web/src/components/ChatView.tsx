@@ -136,6 +136,7 @@ import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import { TeamAgentPills } from "./chat/TeamAgentPills";
 import { ChatHeader } from "./chat/ChatHeader";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -628,104 +629,6 @@ interface TeamPanelTaskView {
   childThread: Thread | null;
   diffSummary: string | null;
   elapsed: string | null;
-}
-
-function TeamPanel({
-  tasks,
-  onOpenThread,
-  onStopTask,
-}: {
-  tasks: readonly TeamPanelTaskView[];
-  onOpenThread: (threadId: ThreadId) => void;
-  onStopTask: (task: TeamTask) => void;
-}) {
-  if (tasks.length === 0) {
-    return null;
-  }
-
-  return (
-    <section className="border-b border-border bg-muted/20 px-3 py-2 sm:px-5">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-2">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-medium text-foreground">Team Tasks</div>
-            <div className="text-xs text-muted-foreground">
-              Child threads run in isolated workspaces and hand back branch/diff results.
-            </div>
-          </div>
-          <Badge variant="outline" size="sm">
-            {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
-          </Badge>
-        </div>
-        <div className="grid gap-2">
-          {tasks.map(({ task, childThread, diffSummary, elapsed }) => (
-            <div
-              key={task.id}
-              className="grid gap-2 rounded-lg border border-border/70 bg-background/80 p-3 md:grid-cols-[minmax(0,1fr)_auto]"
-            >
-              <div className="min-w-0 space-y-1.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="min-w-0 truncate text-sm font-medium text-foreground">
-                    {task.title}
-                  </div>
-                  <TeamStatusBadge status={task.status} />
-                  {task.roleLabel ? (
-                    <Badge variant="outline" size="sm">
-                      {task.roleLabel}
-                    </Badge>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                  <span>
-                    {task.modelSelection.provider} / {task.modelSelection.model}
-                  </span>
-                  <span>{task.workspaceMode === "worktree" ? "Worktree" : "Shared cwd"}</span>
-                  {elapsed ? <span>{elapsed}</span> : null}
-                </div>
-                {childThread?.branch || childThread?.worktreePath ? (
-                  <div className="text-xs text-muted-foreground">
-                    {childThread?.branch ? `Branch: ${childThread.branch}` : "Branch: n/a"}
-                    {childThread?.worktreePath ? ` · Worktree: ${childThread.worktreePath}` : ""}
-                  </div>
-                ) : null}
-                {diffSummary ? (
-                  <div className="text-xs text-muted-foreground">{diffSummary}</div>
-                ) : null}
-                {task.latestSummary ? (
-                  <div className="line-clamp-2 text-xs text-foreground/80">
-                    {task.latestSummary}
-                  </div>
-                ) : task.errorText ? (
-                  <div className="line-clamp-2 text-xs text-destructive">{task.errorText}</div>
-                ) : null}
-              </div>
-              <div className="flex items-start justify-end gap-2">
-                <Button
-                  size="xs"
-                  variant="outline"
-                  onClick={() => onOpenThread(task.childThreadId)}
-                >
-                  Open thread
-                </Button>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={
-                    task.status === "completed" ||
-                    task.status === "failed" ||
-                    task.status === "cancelled"
-                  }
-                  onClick={() => onStopTask(task)}
-                >
-                  Stop
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
 }
 
 function CoordinatorBanner({
@@ -1698,6 +1601,17 @@ export default function ChatView(props: ChatViewProps) {
         };
       }),
     [activeThread?.teamTasks, teamTaskChildThreadsById],
+  );
+  const teamTaskInlineViews = useMemo(
+    () =>
+      activeThread?.teamParentThreadId == null
+        ? teamPanelTasks.map(({ task, diffSummary, elapsed }) => ({
+            task,
+            diffSummary,
+            elapsed,
+          }))
+        : [],
+    [teamPanelTasks, activeThread?.teamParentThreadId],
   );
   const activeTerminalLaunchContext =
     terminalLaunchContext?.threadId === activeThreadId
@@ -3573,12 +3487,6 @@ export default function ChatView(props: ChatViewProps) {
             }
           }}
         />
-      ) : activeThread.teamParentThreadId == null && teamPanelTasks.length > 0 ? (
-        <TeamPanel
-          tasks={teamPanelTasks}
-          onOpenThread={openThreadById}
-          onStopTask={onStopTeamTask}
-        />
       ) : null}
 
       {/* Error banner */}
@@ -3618,6 +3526,8 @@ export default function ChatView(props: ChatViewProps) {
               timestampFormat={timestampFormat}
               workspaceRoot={activeWorkspaceRoot}
               onIsAtEndChange={onIsAtEndChange}
+              teamTasks={teamTaskInlineViews}
+              onOpenChildThread={openThreadById}
             />
 
             {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
@@ -3634,6 +3544,11 @@ export default function ChatView(props: ChatViewProps) {
               </div>
             )}
           </div>
+
+          {/* Agent pills — shown when inline blocks are scrolled out of view */}
+          {showScrollToBottom && teamTaskInlineViews.length > 0 && (
+            <TeamAgentPills tasks={teamTaskInlineViews} onOpenThread={openThreadById} />
+          )}
 
           {/* Input bar */}
           <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>

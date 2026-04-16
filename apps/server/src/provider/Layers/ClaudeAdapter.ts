@@ -226,6 +226,20 @@ function getEffectiveClaudeCodeEffort(
   return effort === "ultrathink" ? null : effort;
 }
 
+function getClaudeSdkEffort(
+  effort: Exclude<ClaudeCodeEffort, "ultrathink"> | null,
+): ClaudeQueryOptions["effort"] | undefined {
+  switch (effort) {
+    case "low":
+    case "medium":
+    case "high":
+    case "max":
+      return effort;
+    default:
+      return undefined;
+  }
+}
+
 function isClaudeInterruptedMessage(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
@@ -2760,6 +2774,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ? modelSelection.options.thinking
           : undefined;
       const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
+      const sdkEffort = getClaudeSdkEffort(effectiveEffort);
       const runtimeModeToPermission: Record<string, PermissionMode> = {
         "auto-accept-edits": "acceptEdits",
         "full-access": "bypassPermissions",
@@ -2775,7 +2790,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(apiModelId ? { model: apiModelId } : {}),
         pathToClaudeCodeExecutable: claudeBinaryPath,
         settingSources: [...CLAUDE_SETTING_SOURCES],
-        ...(effectiveEffort ? { effort: effectiveEffort } : {}),
+        ...(sdkEffort ? { effort: sdkEffort } : {}),
         ...(permissionMode ? { permissionMode } : {}),
         ...(permissionMode === "bypassPermissions"
           ? { allowDangerouslySkipPermissions: true }
@@ -2787,8 +2802,18 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         canUseTool,
         env: process.env,
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
-        ...(Object.keys({ ...extraArgs, ...teamExtraArgs }).length > 0
-          ? { extraArgs: { ...extraArgs, ...teamExtraArgs } }
+        ...(Object.keys({
+          ...extraArgs,
+          ...teamExtraArgs,
+          ...(effectiveEffort === "xhigh" ? { effort: "xhigh" } : {}),
+        }).length > 0
+          ? {
+              extraArgs: {
+                ...extraArgs,
+                ...teamExtraArgs,
+                ...(effectiveEffort === "xhigh" ? { effort: "xhigh" } : {}),
+              },
+            }
           : {}),
       };
 

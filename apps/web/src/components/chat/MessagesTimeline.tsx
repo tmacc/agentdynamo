@@ -32,6 +32,7 @@ import {
 import { Button } from "../ui/button";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
+import { TeamTaskInlineBlocks, type TeamTaskInlineView } from "./TeamTaskInlineBlock";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
@@ -85,6 +86,7 @@ interface TimelineRowSharedState {
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onOpenChildThread: (threadId: import("@t3tools/contracts").ThreadId) => void;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -116,6 +118,8 @@ interface MessagesTimelineProps {
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   onIsAtEndChange: (isAtEnd: boolean) => void;
+  teamTasks?: readonly TeamTaskInlineView[];
+  onOpenChildThread?: (threadId: import("@t3tools/contracts").ThreadId) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +149,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
   onIsAtEndChange,
+  teamTasks,
+  onOpenChildThread,
 }: MessagesTimelineProps) {
+  const noopOpenChildThread = useCallback(() => {}, []);
   const rawRows = useMemo(
     () =>
       deriveMessagesTimelineRows({
@@ -156,6 +163,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
         userMessageSwitchInfoByMessageId,
+        teamTasks,
       }),
     [
       timelineEntries,
@@ -165,6 +173,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
       userMessageSwitchInfoByMessageId,
+      teamTasks,
     ],
   );
   const rows = useStableRows(rawRows);
@@ -212,6 +221,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
+      onOpenChildThread: onOpenChildThread ?? noopOpenChildThread,
     }),
     [
       activeTurnInProgress,
@@ -228,6 +238,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
+      onOpenChildThread,
+      noopOpenChildThread,
     ],
   );
 
@@ -461,6 +473,12 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
             cwd={ctx.markdownCwd}
             workspaceRoot={ctx.workspaceRoot}
           />
+        </div>
+      )}
+
+      {row.kind === "team-tasks" && (
+        <div className="min-w-0 px-1 py-0.5">
+          <TeamTaskInlineBlocks tasks={row.tasks} onOpenThread={ctx.onOpenChildThread} />
         </div>
       )}
 
