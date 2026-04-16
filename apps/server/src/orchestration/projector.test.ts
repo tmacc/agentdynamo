@@ -94,6 +94,11 @@ describe("orchestration projector", () => {
         activities: [],
         checkpoints: [],
         session: null,
+        teamParentThreadId: null,
+        teamParentTaskId: null,
+        teamRoleLabel: null,
+        teamStatus: null,
+        teamTasks: [],
       },
     ]);
   });

@@ -351,6 +351,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             lastError: null,
             updatedAt: "2026-02-24T00:00:07.000Z",
           },
+          teamParentThreadId: null,
+          teamParentTaskId: null,
+          teamRoleLabel: null,
+          teamStatus: null,
+          teamTasks: [],
         },
       ]);
 
@@ -420,6 +425,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           hasPendingApprovals: true,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
+          activeTeamTaskCount: 0,
+          teamParentThreadId: null,
+          teamParentTaskId: null,
+          teamRoleLabel: null,
+          teamStatus: null,
         },
       ]);
 

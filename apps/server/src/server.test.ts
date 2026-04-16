@@ -77,6 +77,7 @@ import {
   ThreadBootstrapDispatcher,
   type ThreadBootstrapDispatcherShape,
 } from "./orchestration/Services/ThreadBootstrapDispatcher.ts";
+import { ThreadBootstrapDispatcherLive } from "./orchestration/Layers/ThreadBootstrapDispatcher.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import {
   ProviderRegistry,
@@ -366,11 +367,36 @@ const buildAppUnderTest = (options?: {
     const gitManagerLayer = Layer.mock(GitManager)({
       ...options?.layers?.gitManager,
     });
+    const gitCoreLayer = Layer.mock(GitCore)({
+      ...options?.layers?.gitCore,
+    });
     const gitStatusBroadcasterLayer = options?.layers?.gitStatusBroadcaster
       ? Layer.mock(GitStatusBroadcaster)({
           ...options.layers.gitStatusBroadcaster,
         })
       : GitStatusBroadcasterLive.pipe(Layer.provide(gitManagerLayer));
+    const projectSetupScriptRunnerLayer = Layer.mock(ProjectSetupScriptRunner)({
+      runForThread: () => Effect.succeed({ status: "no-script" as const }),
+      ...options?.layers?.projectSetupScriptRunner,
+    });
+    const orchestrationEngineLayer = Layer.mock(OrchestrationEngineService)({
+      getReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
+      readEvents: () => Stream.empty,
+      dispatch: () => Effect.succeed({ sequence: 0 }),
+      streamDomainEvents: Stream.empty,
+      ...options?.layers?.orchestrationEngine,
+    });
+    const threadBootstrapDispatcherLayer = options?.layers?.threadBootstrapDispatcher
+      ? Layer.mock(ThreadBootstrapDispatcher)({
+          dispatch: () => Effect.succeed({ sequence: 0 }),
+          ...options.layers.threadBootstrapDispatcher,
+        })
+      : ThreadBootstrapDispatcherLive.pipe(
+          Layer.provide(orchestrationEngineLayer),
+          Layer.provide(projectSetupScriptRunnerLayer),
+          Layer.provideMerge(gitStatusBroadcasterLayer),
+          Layer.provide(gitCoreLayer),
+        );
 
     const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
@@ -409,33 +435,16 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.open,
         }),
       ),
-      Layer.provide(
-        Layer.mock(GitCore)({
-          ...options?.layers?.gitCore,
-        }),
-      ),
+      Layer.provide(gitCoreLayer),
       Layer.provide(gitManagerLayer),
       Layer.provideMerge(gitStatusBroadcasterLayer),
-      Layer.provide(
-        Layer.mock(ProjectSetupScriptRunner)({
-          runForThread: () => Effect.succeed({ status: "no-script" as const }),
-          ...options?.layers?.projectSetupScriptRunner,
-        }),
-      ),
+      Layer.provide(projectSetupScriptRunnerLayer),
       Layer.provide(
         Layer.mock(TerminalManager)({
           ...options?.layers?.terminalManager,
         }),
       ),
-      Layer.provide(
-        Layer.mock(OrchestrationEngineService)({
-          getReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
-          readEvents: () => Stream.empty,
-          dispatch: () => Effect.succeed({ sequence: 0 }),
-          streamDomainEvents: Stream.empty,
-          ...options?.layers?.orchestrationEngine,
-        }),
-      ),
+      Layer.provide(orchestrationEngineLayer),
       Layer.provide(
         Layer.mock(ProjectionSnapshotQuery)({
           getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
@@ -475,12 +484,7 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.checkpointDiffQuery,
         }),
       ),
-      Layer.provide(
-        Layer.mock(ThreadBootstrapDispatcher)({
-          dispatch: () => Effect.succeed({ sequence: 0 }),
-          ...options?.layers?.threadBootstrapDispatcher,
-        }),
-      ),
+      Layer.provide(threadBootstrapDispatcherLayer),
       Layer.provide(
         Layer.mock(TeamCoordinatorSessionRegistry)({
           getCoordinatorSessionConfig: () =>
