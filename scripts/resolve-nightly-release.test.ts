@@ -18,7 +18,7 @@ it("derives nightly metadata including the short commit sha in the release name"
       baseVersion: "9.9.9",
       version: "9.9.9-nightly.20260413.321",
       tag: "nightly-v9.9.9-nightly.20260413.321",
-      name: "T3 Code Nightly 9.9.9-nightly.20260413.321 (abcdef123456)",
+      name: "Dynamo Nightly 9.9.9-nightly.20260413.321 (abcdef123456)",
       shortSha: "abcdef123456",
     },
   );

@@ -2,6 +2,12 @@
 
 import { homedir } from "node:os";
 
+import {
+  APP_BASE_NAME,
+  APP_HOME_DIR_NAME,
+  APP_HOME_ENV_VAR,
+  LEGACY_APP_HOME_ENV_VAR,
+} from "@t3tools/shared/branding";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { NetService } from "@t3tools/shared/Net";
@@ -17,7 +23,7 @@ const DESKTOP_DEV_LOOPBACK_HOST = "127.0.0.1";
 const DEV_PORT_PROBE_HOSTS = ["127.0.0.1", "0.0.0.0", "::1", "::"] as const;
 
 export const DEFAULT_T3_HOME = Effect.map(Effect.service(Path.Path), (path) =>
-  path.join(homedir(), ".t3"),
+  path.join(homedir(), APP_HOME_DIR_NAME),
 );
 
 const MODE_ARGS = {
@@ -155,7 +161,8 @@ export function createDevRunnerEnv({
       VITE_DEV_SERVER_URL:
         devUrl?.toString() ??
         `http://${isDesktopMode ? DESKTOP_DEV_LOOPBACK_HOST : "localhost"}:${webPort}`,
-      T3CODE_HOME: resolvedBaseDir,
+      [APP_HOME_ENV_VAR]: resolvedBaseDir,
+      [LEGACY_APP_HOME_ENV_VAR]: resolvedBaseDir,
     };
 
     if (!isDesktopMode) {
@@ -472,8 +479,10 @@ const devRunnerCli = Command.make("dev-runner", {
     Argument.withDescription("Development mode to run."),
   ),
   t3Home: Flag.string("home-dir").pipe(
-    Flag.withDescription("Base directory for all T3 Code data (equivalent to T3CODE_HOME)."),
-    Flag.withFallbackConfig(optionalStringConfig("T3CODE_HOME")),
+    Flag.withDescription(
+      `Base directory for all ${APP_BASE_NAME} data (equivalent to ${APP_HOME_ENV_VAR}, legacy: ${LEGACY_APP_HOME_ENV_VAR}).`,
+    ),
+    Flag.withFallbackConfig(optionalStringConfig(APP_HOME_ENV_VAR)),
   ),
   noBrowser: Flag.boolean("no-browser").pipe(
     Flag.withDescription("Browser auto-open toggle (equivalent to T3CODE_NO_BROWSER)."),

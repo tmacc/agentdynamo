@@ -394,8 +394,8 @@ describe("startSession", () => {
   it("enables Codex experimental api capabilities during initialize", () => {
     expect(buildCodexInitializeParams()).toEqual({
       clientInfo: {
-        name: "t3code_desktop",
-        title: "T3 Code Desktop",
+        name: "dynamo_desktop",
+        title: "Dynamo Desktop",
         version: "0.1.0",
       },
       capabilities: {

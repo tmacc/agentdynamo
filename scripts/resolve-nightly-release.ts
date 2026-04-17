@@ -2,6 +2,7 @@
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { APP_BASE_NAME } from "@t3tools/shared/branding";
 import { Config, Effect, FileSystem, Option, Path, Schema } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
@@ -44,7 +45,7 @@ export const resolveNightlyReleaseMetadata = (
     baseVersion,
     version,
     tag: `nightly-v${version}`,
-    name: `T3 Code Nightly ${version} (${shortSha})`,
+    name: `${APP_BASE_NAME} Nightly ${version} (${shortSha})`,
     shortSha,
   };
 };
