@@ -1,4 +1,5 @@
 import { NetService } from "@t3tools/shared/Net";
+import { APP_HOME_ENV_VAR, LEGACY_APP_HOME_ENV_VAR } from "@t3tools/shared/branding";
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import {
   AuthSessionId,
@@ -155,7 +156,11 @@ const EnvServerConfig = Config.all({
   ),
   port: Config.port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.string("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  t3Home: Config.string("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  appHome: Config.string(APP_HOME_ENV_VAR).pipe(Config.option, Config.map(Option.getOrUndefined)),
+  legacyAppHome: Config.string(LEGACY_APP_HOME_ENV_VAR).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   noBrowser: Config.boolean("T3CODE_NO_BROWSER").pipe(
     Config.option,
@@ -277,7 +282,8 @@ export const resolveServerConfig = (
       Option.getOrUndefined(
         resolveOptionPrecedence(
           normalizedFlags.baseDir,
-          Option.fromUndefinedOr(env.t3Home),
+          Option.fromUndefinedOr(env.appHome),
+          Option.fromUndefinedOr(env.legacyAppHome),
           Option.fromUndefinedOr(bootstrap?.t3Home),
         ),
       ),

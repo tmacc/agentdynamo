@@ -20,6 +20,10 @@
       "types": "./src/logging.ts",
       "import": "./src/logging.ts"
     },
+    "./branding": {
+      "types": "./src/branding.ts",
+      "import": "./src/branding.ts"
+    },
     "./shell": {
       "types": "./src/shell.ts",
       "import": "./src/shell.ts"

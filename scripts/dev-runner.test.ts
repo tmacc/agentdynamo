@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
+import { APP_HOME_ENV_VAR, LEGACY_APP_HOME_ENV_VAR } from "@t3tools/shared/branding";
 
 import {
   checkPortAvailabilityOnHosts,
@@ -47,7 +48,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("createDevRunnerEnv", () => {
-    it.effect("defaults T3CODE_HOME to ~/.t3 when not provided", () =>
+    it.effect("defaults Dynamo home to ~/.dynamo when not provided", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
@@ -63,7 +64,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.T3CODE_HOME, resolve(homedir(), ".t3"));
+        assert.equal(env[APP_HOME_ENV_VAR], resolve(homedir(), ".dynamo"));
+        assert.equal(env[LEGACY_APP_HOME_ENV_VAR], resolve(homedir(), ".dynamo"));
       }),
     );
 
@@ -83,7 +85,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: new URL("http://localhost:7331"),
         });
 
-        assert.equal(env.T3CODE_HOME, resolve("/tmp/custom-t3"));
+        assert.equal(env[APP_HOME_ENV_VAR], resolve("/tmp/custom-t3"));
+        assert.equal(env[LEGACY_APP_HOME_ENV_VAR], resolve("/tmp/custom-t3"));
         assert.equal(env.T3CODE_PORT, "4222");
         assert.equal(env.VITE_HTTP_URL, "http://localhost:4222");
         assert.equal(env.VITE_WS_URL, "ws://localhost:4222");
