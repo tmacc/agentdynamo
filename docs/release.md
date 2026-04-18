@@ -21,10 +21,22 @@ This document covers the unified release workflow for stable and nightly desktop
   - Nightly runs are always GitHub prereleases and never marked latest.
   - Automatically generated release notes are pinned to the previous tag in the same channel, so stable compares to the previous stable tag and nightly compares to the previous nightly tag.
 - Includes Electron auto-update metadata (for example `latest*.yml`, `nightly*.yml`, and `*.blockmap`) in release assets.
-- Publishes the CLI package (`apps/server`, npm package `t3`) with OIDC trusted publishing from the same workflow file:
-  - stable releases publish npm dist-tag `latest`
-  - nightly releases publish npm dist-tag `nightly`
+- Optionally publishes the CLI package (`apps/server`) only when repository variable `ENABLE_CLI_PUBLISH` is set to `true`.
+- Optionally runs the post-release version bump/finalize flow only when repository variable `ENABLE_RELEASE_FINALIZE` is set to `true`.
 - Signing is optional and auto-detected per platform from secrets.
+
+## Recommended current setup for this fork
+
+If your current goal is "desktop GitHub Releases first, everything else later", keep the workflow in this mode:
+
+- Repository variables:
+  - `ENABLE_CLI_PUBLISH=false`
+  - `ENABLE_RELEASE_FINALIZE=false`
+- No npm publishing setup required.
+- No GitHub App finalize setup required.
+- Apple and Windows signing can be added later.
+
+With that setup, pushed release tags still build the desktop artifacts and publish a GitHub Release, which is enough for manual downloads and app auto-update checks.
 
 ## Nightly builds
 
@@ -39,7 +51,7 @@ This document covers the unified release workflow for stable and nightly desktop
   - `make_latest` is always `false`
 - Uses the current `apps/desktop/package.json` semver core (`X.Y.Z`) as the nightly base, then appends a nightly prerelease suffix.
 - Publishes Electron auto-update metadata to the dedicated `nightly` updater channel, so desktop users can opt into that track independently from stable.
-- Publishes the CLI package (`apps/server`, npm package `t3`) to the `nightly` npm dist-tag using the same nightly version.
+- Publishes the CLI package only if `ENABLE_CLI_PUBLISH=true`.
 - Does not commit version bumps back to `main`.
 
 ## Desktop auto-update notes
@@ -64,25 +76,22 @@ This document covers the unified release workflow for stable and nightly desktop
   - `electron-updater` reads `latest-mac.yml` on stable and `nightly-mac.yml` on nightly, for both Intel and Apple Silicon.
   - The workflow merges the per-arch mac manifests into one channel-specific mac manifest before publishing the GitHub Release.
 
-## 0) npm OIDC trusted publishing setup (CLI)
+## 0) First release on this fork
 
-The workflow publishes the CLI with `npm publish` from `apps/server` after bumping
-the package version to the release tag version.
+Use this path first if you want downloadable releases for yourself and friends without taking on npm publishing or post-release automation yet.
 
 Checklist:
 
-1. Confirm npm org/user owns package `t3` (or rename package first if needed).
-2. In npm package settings, configure Trusted Publisher:
-   - Provider: GitHub Actions
-   - Repository: this repo
-   - Workflow file: `.github/workflows/release.yml`
-   - Environment (if used): match your npm trusted publishing config
-3. Ensure npm account and org policies allow trusted publishing for the package.
-4. Create release tag `vX.Y.Z` and push; workflow will:
-   - set `apps/server/package.json` version to `X.Y.Z`
-   - build web + server
-   - run `npm publish --access public --tag latest`
-5. Nightly runs from the same workflow file publish with `npm publish --access public --tag nightly`.
+1. In GitHub repository settings, add Actions variables:
+   - `ENABLE_CLI_PUBLISH=false`
+   - `ENABLE_RELEASE_FINALIZE=false`
+2. Confirm the repo is public if you want the simplest GitHub Releases download/update path.
+3. Decide whether this first release will be unsigned:
+   - unsigned is acceptable for initial testing and friend distribution
+   - signed/notarized is strongly recommended later for normal macOS installs and macOS auto-update
+4. Push a stable tag like `v0.1.0`.
+5. Wait for `.github/workflows/release.yml` to finish.
+6. Verify the GitHub Release contains all expected assets.
 
 ## 1) Dry-run release without signing
 
@@ -96,7 +105,40 @@ Use this first to validate the release pipeline.
 4. Verify the GitHub Release contains all platform artifacts.
 5. Download each artifact and sanity-check installation on each OS.
 
-## 2) Apple signing + notarization setup (macOS)
+## 2) Stable release steps
+
+Typical stable release flow:
+
+1. Ensure `main` is green in CI.
+2. Run locally:
+   - `bun fmt`
+   - `bun lint`
+   - `bun typecheck`
+3. Push the current branch to `main`.
+4. Create release tag: `vX.Y.Z`.
+5. Push tag.
+6. Verify workflow steps:
+   - preflight passes
+   - all matrix builds pass
+   - release job uploads expected files
+7. Smoke test downloaded artifacts.
+
+Example:
+
+```bash
+git checkout main
+git pull origin main
+bun fmt
+bun lint
+bun typecheck
+git push origin main
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+## 3) Apple signing + notarization setup (macOS)
+
+Add this when you want a normal macOS install experience and reliable macOS auto-updates.
 
 Required secrets used by the workflow:
 
@@ -126,7 +168,7 @@ Notes:
 - `APPLE_API_KEY` is stored as raw key text in secrets.
 - The workflow writes it to a temporary `AuthKey_<id>.p8` file at runtime.
 
-## 3) Azure Trusted Signing setup (Windows)
+## 4) Azure Trusted Signing setup (Windows)
 
 Required secrets used by the workflow:
 
@@ -152,24 +194,47 @@ Checklist:
 6. Add Azure secrets listed above in GitHub Actions secrets.
 7. Re-run a tag release and confirm Windows installer is signed.
 
-## 4) Ongoing release checklist
+## 5) Optional CLI publish setup
 
-1. Ensure `main` is green in CI.
-2. Bump app version as needed.
-3. Create release tag: `vX.Y.Z`.
-4. Push tag.
-5. Verify workflow steps:
-   - preflight passes
-   - all matrix builds pass
-   - release job uploads expected files
-6. Smoke test downloaded artifacts.
+Only do this when you actually want the workflow to publish the CLI package from `apps/server`.
 
-## 5) Troubleshooting
+Checklist:
+
+1. Confirm npm org/user owns the target package name.
+2. In npm package settings, configure Trusted Publisher:
+   - Provider: GitHub Actions
+   - Repository: this repo
+   - Workflow file: `.github/workflows/release.yml`
+3. Ensure npm account and org policies allow trusted publishing for the package.
+4. Set repository variable `ENABLE_CLI_PUBLISH=true`.
+5. Push a release tag and confirm the `publish_cli` job succeeds.
+
+## 6) Optional finalize setup
+
+Only do this when you want the workflow to commit version bumps back to `main` after stable releases.
+
+Required secrets used by the workflow:
+
+- `RELEASE_APP_ID`
+- `RELEASE_APP_PRIVATE_KEY`
+
+Checklist:
+
+1. Create or reuse a GitHub App with permission to commit to this repository.
+2. Store the app ID and private key in repository Actions secrets.
+3. Set repository variable `ENABLE_RELEASE_FINALIZE=true`.
+4. Push a stable release tag and confirm the `finalize` job succeeds.
+
+## 7) Troubleshooting
 
 - macOS build unsigned when expected signed:
   - Check all Apple secrets are populated and non-empty.
 - Windows build unsigned when expected signed:
   - Check all Azure ATS and auth secrets are populated and non-empty.
+- `publish_cli` did not run:
+  - Check `ENABLE_CLI_PUBLISH`.
+- `finalize` did not run:
+  - Check `ENABLE_RELEASE_FINALIZE`.
 - Build fails with signing error:
   - Retry with secrets removed to confirm unsigned path still works.
   - Re-check certificate/profile names and tenant/client credentials.
