@@ -1445,6 +1445,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         existingBranchBeforeFetchPath !== rootWorktreePath
       ) {
         yield* ensureExistingWorktreeUpstream(existingBranchBeforeFetch.worktreePath);
+        yield* maybeRunSetupScript(existingBranchBeforeFetch.worktreePath);
         return {
           pullRequest,
           branch: localPullRequestBranch,
@@ -1473,6 +1474,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         existingBranchAfterFetchPath !== rootWorktreePath
       ) {
         yield* ensureExistingWorktreeUpstream(existingBranchAfterFetch.worktreePath);
+        yield* maybeRunSetupScript(existingBranchAfterFetch.worktreePath);
         return {
           pullRequest,
           branch: localPullRequestBranch,

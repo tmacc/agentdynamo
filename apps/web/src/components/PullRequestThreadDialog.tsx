@@ -9,6 +9,8 @@ import {
 } from "~/lib/gitReactQuery";
 import { cn } from "~/lib/utils";
 import { parsePullRequestReference } from "~/pullRequestReference";
+import type { Project } from "../types";
+import { useEnsureWorktreeReadiness } from "../hooks/useEnsureWorktreeReadiness";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -25,6 +27,7 @@ import { Spinner } from "./ui/spinner";
 interface PullRequestThreadDialogProps {
   open: boolean;
   environmentId: EnvironmentId;
+  project: Project | null;
   threadId: ThreadId;
   cwd: string | null;
   initialReference: string | null;
@@ -35,12 +38,15 @@ interface PullRequestThreadDialogProps {
 export function PullRequestThreadDialog({
   open,
   environmentId,
+  project,
   threadId,
   cwd,
   initialReference,
   onOpenChange,
   onPrepared,
 }: PullRequestThreadDialogProps) {
+  const { ensureProjectWorktreeReadiness, dialog: worktreeReadinessDialog } =
+    useEnsureWorktreeReadiness(environmentId);
   const queryClient = useQueryClient();
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const [reference, setReference] = useState(initialReference ?? "");
@@ -131,6 +137,15 @@ export function PullRequestThreadDialog({
       if (!parsedReference || !resolvedPullRequest || !cwd) {
         return;
       }
+      if (mode === "worktree") {
+        const readinessApproved = await ensureProjectWorktreeReadiness({
+          project,
+          trigger: "pull_request_worktree",
+        });
+        if (!readinessApproved) {
+          return;
+        }
+      }
       setPreparingMode(mode);
       try {
         const result = await preparePullRequestThreadMutation.mutateAsync({
@@ -149,9 +164,11 @@ export function PullRequestThreadDialog({
     },
     [
       cwd,
+      ensureProjectWorktreeReadiness,
       onOpenChange,
       onPrepared,
       parsedReference,
+      project,
       preparePullRequestThreadMutation,
       resolvedPullRequest,
       threadId,
@@ -286,6 +303,7 @@ export function PullRequestThreadDialog({
           </Button>
         </DialogFooter>
       </DialogPopup>
+      {worktreeReadinessDialog}
     </Dialog>
   );
 }

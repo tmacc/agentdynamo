@@ -45,12 +45,18 @@ import {
   OrchestrationRpcSchemas,
 } from "./orchestration";
 import {
+  ProjectApplyWorktreeReadinessError,
+  ProjectApplyWorktreeReadinessInput,
+  ProjectApplyWorktreeReadinessResult,
   ProjectGetIntelligenceError,
   ProjectGetIntelligenceInput,
   ProjectGetIntelligenceResult,
   ProjectReadIntelligenceSurfaceError,
   ProjectReadIntelligenceSurfaceInput,
   ProjectReadIntelligenceSurfaceResult,
+  ProjectScanWorktreeReadinessError,
+  ProjectScanWorktreeReadinessInput,
+  ProjectScanWorktreeReadinessResult,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -88,6 +94,8 @@ export const WS_METHODS = {
   projectsGetIntelligence: "projects.getIntelligence",
   projectsReadIntelligenceSurface: "projects.readIntelligenceSurface",
   projectsWriteFile: "projects.writeFile",
+  projectsScanWorktreeReadiness: "projects.scanWorktreeReadiness",
+  projectsApplyWorktreeReadiness: "projects.applyWorktreeReadiness",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -171,6 +179,24 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   success: ProjectWriteFileResult,
   error: ProjectWriteFileError,
 });
+
+export const WsProjectsScanWorktreeReadinessRpc = Rpc.make(
+  WS_METHODS.projectsScanWorktreeReadiness,
+  {
+    payload: ProjectScanWorktreeReadinessInput,
+    success: ProjectScanWorktreeReadinessResult,
+    error: ProjectScanWorktreeReadinessError,
+  },
+);
+
+export const WsProjectsApplyWorktreeReadinessRpc = Rpc.make(
+  WS_METHODS.projectsApplyWorktreeReadiness,
+  {
+    payload: ProjectApplyWorktreeReadinessInput,
+    success: ProjectApplyWorktreeReadinessResult,
+    error: ProjectApplyWorktreeReadinessError,
+  },
+);
 
 export const WsProjectsGetIntelligenceRpc = Rpc.make(WS_METHODS.projectsGetIntelligence, {
   payload: ProjectGetIntelligenceInput,
@@ -381,6 +407,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
   WsProjectsSearchEntriesRpc,
+  WsProjectsScanWorktreeReadinessRpc,
+  WsProjectsApplyWorktreeReadinessRpc,
   WsProjectsGetIntelligenceRpc,
   WsProjectsReadIntelligenceSurfaceRpc,
   WsProjectsWriteFileRpc,

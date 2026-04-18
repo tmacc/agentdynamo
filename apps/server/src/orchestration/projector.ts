@@ -247,6 +247,9 @@ export function projectEvent(
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
+                  ...(payload.worktreeReadiness !== undefined
+                    ? { worktreeReadiness: payload.worktreeReadiness }
+                    : {}),
                   updatedAt: payload.updatedAt,
                 }
               : project,

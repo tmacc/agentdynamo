@@ -443,7 +443,9 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
                 },
               }
             : {}),
-          runSetupScript: workspaceMode === "worktree",
+          // Team child worktrees are ephemeral scratch spaces. They should not
+          // inherit the coordinator's setup-on-worktree-create behavior.
+          runSetupScript: false,
         },
         createdAt: now,
       };
