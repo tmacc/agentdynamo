@@ -1,10 +1,4 @@
-import {
-  Outlet,
-  createFileRoute,
-  redirect,
-  useNavigate,
-  useSearch,
-} from "@tanstack/react-router";
+import { Outlet, createFileRoute, redirect, useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo } from "react";
 
 import { useBoardUiStore } from "../boardUiStore";
@@ -185,7 +179,8 @@ function ChatRouteLayout() {
  */
 function BoardRouteView() {
   const search = useSearch({ from: "/_chat" });
-  const { activeDraftThread, activeThread, defaultProjectRef } = useHandleNewThread();
+  const { activeDraftThread, activeThread, createFreshDraftThread, defaultProjectRef } =
+    useHandleNewThread();
   const appSettings = useSettings();
 
   const resolved = useMemo<{ environmentId: EnvironmentId; projectId: ProjectId } | null>(() => {
@@ -232,6 +227,7 @@ function BoardRouteView() {
         context: {
           activeDraftThread,
           activeThread,
+          createFreshDraftThread,
           defaultProjectRef,
           defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
             defaultEnvMode: appSettings.defaultThreadEnvMode,
@@ -244,6 +240,7 @@ function BoardRouteView() {
     [
       activeDraftThread,
       activeThread,
+      createFreshDraftThread,
       appSettings.defaultThreadEnvMode,
       defaultProjectRef,
       handleNewThread,

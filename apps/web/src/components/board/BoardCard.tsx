@@ -1,8 +1,4 @@
-import {
-  type EnvironmentId,
-  type FeatureCard,
-  type ProjectId,
-} from "@t3tools/contracts";
+import { type EnvironmentId, type FeatureCard, type ProjectId } from "@t3tools/contracts";
 import {
   ArchiveIcon,
   CheckCircle2Icon,

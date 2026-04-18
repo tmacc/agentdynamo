@@ -2,6 +2,7 @@ import {
   type EnvironmentId,
   type FeatureCard,
   type FeatureCardId,
+  type FeatureCardStoredColumn,
   type GitStatusResult,
   type ProjectId,
   type ThreadId,
@@ -20,6 +21,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   acquireBoardSubscription,
+  boardKey,
   computeSortOrderBetween,
   moveBoardCard,
   useBoardCards,
@@ -32,10 +34,12 @@ import {
   deriveBoardColumns,
   isStoredBoardColumn,
 } from "../../boardProjection";
+import { useBoardUiStore } from "../../boardUiStore";
 import { selectProjectByRef, selectSidebarThreadsForProjectRef, useStore } from "../../store";
-import { useGitStatus } from "../../lib/gitStatusState";
+import { useGitStatusSnapshots } from "../../lib/gitStatusState";
 import { BoardColumn } from "./BoardColumn";
 import { BoardCardSheet } from "./BoardCardSheet";
+import type { SidebarThreadSummary } from "../../types";
 
 interface BoardViewProps {
   readonly environmentId: EnvironmentId;
@@ -54,7 +58,11 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
   const cards = useBoardCards(environmentId, projectId);
   const dismissedGhostThreadIds = useBoardDismissedGhostThreadIds(environmentId, projectId);
   const status = useBoardStatus(environmentId, projectId);
-  const [openCard, setOpenCard] = useState<FeatureCard | null>(null);
+  const pendingAddColumn = useBoardUiStore(
+    (state) => state.pendingAddColumnByKey[boardKey(environmentId, projectId)] ?? undefined,
+  );
+  const clearAddCardIntent = useBoardUiStore((state) => state.clearAddCardIntent);
+  const [openCardId, setOpenCardId] = useState<FeatureCardId | null>(null);
   const [activeDragCardId, setActiveDragCardId] = useState<FeatureCardId | null>(null);
 
   // Subscribe to the board RPC stream for this project.
@@ -65,27 +73,22 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
     };
   }, [environmentId, projectId]);
 
-  // Single "active thread" git-status lookup is not enough for the board; we
-  // need PR state for each thread with a branch. In practice most threads
-  // share the same repo cwd, so we look up the project cwd's status once and
-  // apply PR resolution per-thread in the derivation.
-  const repoCwd = project?.cwd ?? null;
-  const projectGitStatus = useGitStatus({
-    environmentId,
-    cwd: repoCwd,
-  });
+  const gitStatusTargets = useMemo(
+    () => resolveBoardGitStatusTargets(threads, project?.cwd ?? null),
+    [project?.cwd, threads],
+  );
+  const gitStatusSnapshots = useGitStatusSnapshots(gitStatusTargets);
 
-  const gitStatusByThreadId = useMemo<ReadonlyMap<ThreadId, GitStatusResult | null>>(() => {
-    const status = projectGitStatus.data ?? null;
-    const map = new Map<ThreadId, GitStatusResult | null>();
-    for (const t of threads) {
-      // PR resolution matches when gitStatus.branch === thread.branch;
-      // if the thread has no branch or the repo's current status doesn't
-      // match, `resolveThreadPr()` returns null.
-      map.set(t.id, status);
+  const gitStatusByThreadId = useMemo(
+    () => resolveBoardThreadGitStatusMap(threads, project?.cwd ?? null, gitStatusSnapshots),
+    [gitStatusSnapshots, project?.cwd, threads],
+  );
+
+  useEffect(() => {
+    if (openCardId && !cards.some((card) => card.id === openCardId)) {
+      setOpenCardId(null);
     }
-    return map;
-  }, [threads, projectGitStatus.data]);
+  }, [cards, openCardId]);
 
   const columns = useMemo(
     () =>
@@ -99,9 +102,7 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
     [cards, dismissedGhostThreadIds, gitStatusByThreadId, projectId, threads],
   );
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const data = event.active?.data?.current as { kind?: string; card?: FeatureCard } | undefined;
@@ -130,6 +131,7 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
         const maybeColumn = overId.slice("board-column:".length);
         if (maybeColumn === "ideas" || maybeColumn === "planned") {
           targetColumn = maybeColumn;
+          ({ beforeId, afterId } = resolveBoardColumnDropPlacement(cards, targetColumn));
         }
       } else {
         const overCard = cards.find((c) => (c.id as unknown as string) === overId);
@@ -199,17 +201,19 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
               environmentId={environmentId}
               projectId={projectId}
               onStartAgent={onStartAgent}
-              onOpenCard={setOpenCard}
+              onOpenCard={(card) => setOpenCardId(card.id)}
+              shouldOpenAddCard={pendingAddColumn === col}
+              onAddCardIntentHandled={() => clearAddCardIntent(environmentId, projectId)}
             />
           ))}
         </div>
       </DndContext>
-      {openCard ? (
+      {openCardId ? (
         <BoardCardSheet
           environmentId={environmentId}
           projectId={projectId}
-          card={openCard}
-          onClose={() => setOpenCard(null)}
+          cardId={openCardId}
+          onClose={() => setOpenCardId(null)}
           onStartAgent={onStartAgent}
         />
       ) : null}
@@ -220,6 +224,86 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
       ) : null}
     </div>
   );
+}
+
+interface BoardGitStatusTarget {
+  readonly environmentId: EnvironmentId;
+  readonly cwd: string;
+}
+
+function boardGitStatusTargetKey(target: BoardGitStatusTarget): string {
+  return `${target.environmentId}:${target.cwd}`;
+}
+
+export function resolveBoardGitStatusTargets(
+  threads: ReadonlyArray<SidebarThreadSummary>,
+  projectCwd: string | null,
+): ReadonlyArray<BoardGitStatusTarget> {
+  const seen = new Set<string>();
+  const targets: BoardGitStatusTarget[] = [];
+
+  for (const thread of threads) {
+    if (thread.branch === null) {
+      continue;
+    }
+    const cwd = thread.worktreePath ?? projectCwd;
+    if (!cwd) {
+      continue;
+    }
+    const target = { environmentId: thread.environmentId, cwd };
+    const key = boardGitStatusTargetKey(target);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    targets.push(target);
+  }
+
+  return targets;
+}
+
+export function resolveBoardThreadGitStatusMap(
+  threads: ReadonlyArray<SidebarThreadSummary>,
+  projectCwd: string | null,
+  gitStatusesByTargetKey: ReadonlyMap<string, GitStatusResult | null>,
+): ReadonlyMap<ThreadId, GitStatusResult | null> {
+  const map = new Map<ThreadId, GitStatusResult | null>();
+
+  for (const thread of threads) {
+    if (thread.branch === null) {
+      map.set(thread.id, null);
+      continue;
+    }
+
+    const cwd = thread.worktreePath ?? projectCwd;
+    if (!cwd) {
+      map.set(thread.id, null);
+      continue;
+    }
+
+    const targetKey = boardGitStatusTargetKey({
+      environmentId: thread.environmentId,
+      cwd,
+    });
+    const status = gitStatusesByTargetKey.get(targetKey) ?? null;
+    map.set(thread.id, status);
+  }
+
+  return map;
+}
+
+export function resolveBoardColumnDropPlacement(
+  cards: ReadonlyArray<FeatureCard>,
+  targetColumn: FeatureCardStoredColumn,
+): { beforeId: FeatureCardId | null; afterId: FeatureCardId | null } {
+  const siblings = cards
+    .filter((card) => card.column === targetColumn && card.archivedAt === null)
+    .toSorted((left, right) => left.sortOrder - right.sortOrder);
+  const lastCard = siblings.at(-1) ?? null;
+  return {
+    beforeId: lastCard?.id ?? null,
+    afterId: null,
+  };
 }
 
 interface BoardHeaderProps {

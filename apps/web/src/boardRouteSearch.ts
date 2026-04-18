@@ -21,9 +21,7 @@ function normalizeString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-export function parseBoardRouteSearch(
-  search: Record<string, unknown>,
-): BoardRouteSearch {
+export function parseBoardRouteSearch(search: Record<string, unknown>): BoardRouteSearch {
   if (search.view !== "board") return {};
   const boardEnvironmentId = normalizeString(search.boardEnvironmentId) as
     | EnvironmentId

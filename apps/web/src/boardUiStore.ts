@@ -24,10 +24,12 @@ export interface BoardUiState {
     column: FeatureCardStoredColumn,
   ) => void;
 
-  readonly consumeAddCardIntent: (
+  readonly peekAddCardIntent: (
     environmentId: EnvironmentId,
     projectId: ProjectId,
   ) => FeatureCardStoredColumn | undefined;
+
+  readonly clearAddCardIntent: (environmentId: EnvironmentId, projectId: ProjectId) => void;
 }
 
 export const useBoardUiStore = create<BoardUiState>((set, get) => ({
@@ -40,15 +42,17 @@ export const useBoardUiStore = create<BoardUiState>((set, get) => ({
     }));
   },
 
-  consumeAddCardIntent: (environmentId, projectId) => {
+  peekAddCardIntent: (environmentId, projectId) => {
     const key = boardKey(environmentId, projectId);
-    const value = get().pendingAddColumnByKey[key];
-    if (!value) return undefined;
+    return get().pendingAddColumnByKey[key];
+  },
+
+  clearAddCardIntent: (environmentId, projectId) => {
+    const key = boardKey(environmentId, projectId);
     set((state) => {
       const next = { ...state.pendingAddColumnByKey };
       delete next[key];
       return { pendingAddColumnByKey: next };
     });
-    return value;
   },
 }));

@@ -16,7 +16,8 @@ import {
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 
-import { ensureEnvironmentApi, readEnvironmentApi } from "./environmentApi";
+import { createEnvironmentApi, ensureEnvironmentApi, readEnvironmentApi } from "./environmentApi";
+import { readEnvironmentConnection, subscribeEnvironmentConnections } from "./environments/runtime";
 import { newCommandId, newFeatureCardId, randomUUID } from "./lib/utils";
 
 /**
@@ -31,7 +32,9 @@ interface BoardSubscriptionEntry {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   refCount: number;
+  currentSource: unknown;
   unsubscribe: () => void;
+  unsubscribeConnectionListener: (() => void) | null;
   snapshotLoadedAt: string | null;
   error: string | null;
 }
@@ -215,10 +218,7 @@ export const useBoardStore = create<BoardStoreState>((set) => ({
       return {
         dismissedGhostsByKey: {
           ...state.dismissedGhostsByKey,
-          [key]: [
-            ...existing,
-            { projectId, threadId, dismissedAt: dismissedAt as never },
-          ],
+          [key]: [...existing, { projectId, threadId, dismissedAt: dismissedAt as never }],
         },
       };
     }),
@@ -473,6 +473,71 @@ export function useBoardStatus(environmentId: EnvironmentId, projectId: ProjectI
 // ---------------------------------------------------------------------------
 
 const subscriptions = new Map<string, BoardSubscriptionEntry>();
+const NOOP = () => undefined;
+
+function readBoardSubscriptionSource(environmentId: EnvironmentId): {
+  api: ReturnType<typeof readEnvironmentApi> | undefined;
+  source: unknown;
+} {
+  const connection = readEnvironmentConnection(environmentId);
+  if (connection) {
+    return {
+      api: createEnvironmentApi(connection.client),
+      source: connection,
+    };
+  }
+
+  const api = readEnvironmentApi(environmentId);
+  return {
+    api,
+    source: api ?? null,
+  };
+}
+
+function attachBoardSubscription(entry: BoardSubscriptionEntry): boolean {
+  const { api, source } = readBoardSubscriptionSource(entry.environmentId);
+  if (!api || !source) {
+    if (entry.currentSource !== null) {
+      entry.unsubscribe();
+      entry.unsubscribe = NOOP;
+      entry.currentSource = null;
+    }
+    useBoardStore
+      .getState()
+      .setStatus(entry.environmentId, entry.projectId, "error", "Environment not connected.");
+    return false;
+  }
+
+  if (entry.currentSource === source && entry.unsubscribe !== NOOP) {
+    return true;
+  }
+
+  entry.unsubscribe();
+  entry.unsubscribe = api.board.subscribeProject(
+    { projectId: entry.projectId },
+    (event: BoardStreamEvent) => {
+      if (event.kind === "snapshot") {
+        useBoardStore.getState().setSnapshot(entry.environmentId, entry.projectId, {
+          cards: event.cards,
+          dismissedGhosts: event.dismissedGhosts,
+          snapshotSequence: event.snapshotSequence,
+        });
+        entry.snapshotLoadedAt = new Date().toISOString();
+        return;
+      }
+      useBoardStore
+        .getState()
+        .applyEvent(entry.environmentId, entry.projectId, event.event as OrchestrationEvent);
+    },
+    {
+      onResubscribe: () => {
+        useBoardStore.getState().setStatus(entry.environmentId, entry.projectId, "loading");
+      },
+    },
+  );
+  entry.currentSource = source;
+  return true;
+}
 
 /**
  * Acquire a subscription to a project's board events. Returns a `release`
@@ -494,48 +559,27 @@ export function acquireBoardSubscription(
     environmentId,
     projectId,
     refCount: 1,
-    unsubscribe: () => undefined,
+    currentSource: null,
+    unsubscribe: NOOP,
+    unsubscribeConnectionListener: null,
     snapshotLoadedAt: null,
     error: null,
   };
   subscriptions.set(key, entry);
 
   useBoardStore.getState().setStatus(environmentId, projectId, "loading");
-
-  const api = readEnvironmentApi(environmentId);
-  if (!api) {
-    useBoardStore
-      .getState()
-      .setStatus(environmentId, projectId, "error", "Environment not connected.");
-    return () => releaseBoardSubscription(key);
-  }
-
-  const handleStreamEvent = (event: BoardStreamEvent) => {
-    if (event.kind === "snapshot") {
-      useBoardStore.getState().setSnapshot(environmentId, projectId, {
-        cards: event.cards,
-        dismissedGhosts: event.dismissedGhosts,
-        snapshotSequence: event.snapshotSequence,
-      });
-      entry.snapshotLoadedAt = new Date().toISOString();
-      return;
+  entry.unsubscribeConnectionListener = subscribeEnvironmentConnections(() => {
+    try {
+      useBoardStore.getState().setStatus(environmentId, projectId, "loading");
+      attachBoardSubscription(entry);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      useBoardStore.getState().setStatus(environmentId, projectId, "error", message);
     }
-    // The wire schema uses Schema.Unknown for the event payload — we cast to
-    // the concrete union here since the server-side stream only emits board.*
-    // events for this subscription.
-    useBoardStore.getState().applyEvent(environmentId, projectId, event.event as OrchestrationEvent);
-  };
+  });
 
   try {
-    entry.unsubscribe = api.board.subscribeProject(
-      { projectId },
-      handleStreamEvent,
-      {
-        onResubscribe: () => {
-          useBoardStore.getState().setStatus(environmentId, projectId, "loading");
-        },
-      },
-    );
+    attachBoardSubscription(entry);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     useBoardStore.getState().setStatus(environmentId, projectId, "error", message);
@@ -554,7 +598,27 @@ function releaseBoardSubscription(key: string): void {
   } catch {
     // noop
   }
+  entry.unsubscribeConnectionListener?.();
   subscriptions.delete(key);
+}
+
+export function __resetBoardStoreForTests(): void {
+  for (const entry of subscriptions.values()) {
+    try {
+      entry.unsubscribe();
+    } catch {
+      // noop
+    }
+    entry.unsubscribeConnectionListener?.();
+  }
+  subscriptions.clear();
+  useBoardStore.setState({
+    cardsByKey: {},
+    dismissedGhostsByKey: {},
+    snapshotSequenceByKey: {},
+    statusByKey: {},
+    errorByKey: {},
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -584,9 +648,7 @@ export function computeNextSortOrderForAppend(
   cards: ReadonlyArray<FeatureCard>,
   column: FeatureCardStoredColumn,
 ): number {
-  const inColumn = sortByOrder(
-    cards.filter((c) => c.column === column && c.archivedAt === null),
-  );
+  const inColumn = sortByOrder(cards.filter((c) => c.column === column && c.archivedAt === null));
   if (inColumn.length === 0) return 0;
   return inColumn[inColumn.length - 1]!.sortOrder + BOARD_DEFAULT_SORT_SPACING;
 }
@@ -597,9 +659,7 @@ export function computeSortOrderBetween(
   beforeId: FeatureCardId | null,
   afterId: FeatureCardId | null,
 ): { sortOrder: number; needsReindex: boolean } {
-  const inColumn = sortByOrder(
-    cards.filter((c) => c.column === column && c.archivedAt === null),
-  );
+  const inColumn = sortByOrder(cards.filter((c) => c.column === column && c.archivedAt === null));
   const before = beforeId ? inColumn.find((c) => c.id === beforeId) : null;
   const after = afterId ? inColumn.find((c) => c.id === afterId) : null;
   const prev = before ? before.sortOrder : null;
@@ -655,9 +715,7 @@ export async function createBoardCard(input: BoardCreateCardInput): Promise<Feat
   } catch (err) {
     // Roll back the optimistic insert. Real state will catch up from the
     // server stream if the server actually committed the command.
-    useBoardStore
-      .getState()
-      .optimisticDeleteCard(input.environmentId, input.projectId, cardId);
+    useBoardStore.getState().optimisticDeleteCard(input.environmentId, input.projectId, cardId);
     throw err;
   }
 }
@@ -702,11 +760,7 @@ export async function updateBoardCard(input: {
   try {
     await api.board.dispatchCommand(command);
   } catch (err) {
-    useBoardStore.getState().optimisticUpsertCard(
-      input.environmentId,
-      input.projectId,
-      existing,
-    );
+    useBoardStore.getState().optimisticUpsertCard(input.environmentId, input.projectId, existing);
     throw err;
   }
 }
@@ -762,10 +816,15 @@ export async function archiveBoardCard(input: {
   cardId: FeatureCardId;
 }): Promise<void> {
   const api = ensureEnvironmentApi(input.environmentId);
+  const store = useBoardStore.getState();
+  const previous = selectCardsForProject(store, input.environmentId, input.projectId).find(
+    (card) => card.id === input.cardId,
+  );
+  if (!previous) {
+    throw new Error("Card not found for archive");
+  }
   const now = nowIso();
-  useBoardStore
-    .getState()
-    .optimisticArchiveCard(input.environmentId, input.projectId, input.cardId, now);
+  store.optimisticArchiveCard(input.environmentId, input.projectId, input.cardId, now);
   const command: BoardCommand = {
     type: "board.card.archive",
     commandId: newCommandId(),
@@ -773,7 +832,12 @@ export async function archiveBoardCard(input: {
     projectId: input.projectId,
     archivedAt: now as never,
   };
-  await api.board.dispatchCommand(command);
+  try {
+    await api.board.dispatchCommand(command);
+  } catch (err) {
+    store.optimisticUpsertCard(input.environmentId, input.projectId, previous);
+    throw err;
+  }
 }
 
 export async function deleteBoardCard(input: {

@@ -242,8 +242,6 @@ export const BOARD_COLUMN_ORDER: ReadonlyArray<FeatureCardColumn> = [
   "done",
 ];
 
-export function isStoredBoardColumn(
-  column: FeatureCardColumn,
-): column is "ideas" | "planned" {
+export function isStoredBoardColumn(column: FeatureCardColumn): column is "ideas" | "planned" {
   return column === "ideas" || column === "planned";
 }

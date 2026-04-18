@@ -10,13 +10,18 @@ import {
   findTeamTaskById,
   isActiveTeamTaskStatus,
   listActiveTeamTasks,
+  requireBoardCardInProject,
+  requireBoardThreadLinkAvailable,
   requireProject,
   requireProjectAbsent,
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
   requireThreadNotArchived,
+  requireThreadInProject,
 } from "./commandInvariants.ts";
+import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
+import { ProjectionBoardCardRepository } from "../persistence/Services/ProjectionBoardCards.ts";
 
 const nowIso = () => new Date().toISOString();
 const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
@@ -58,7 +63,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   readonly readModel: OrchestrationReadModel;
 }): Effect.fn.Return<
   Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
-  OrchestrationCommandInvariantError
+  OrchestrationCommandInvariantError | ProjectionRepositoryError,
+  ProjectionBoardCardRepository
 > {
   switch (command.type) {
     case "project.create": {
@@ -806,11 +812,26 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "board.card.create": {
+      const boardCardRepository = yield* ProjectionBoardCardRepository;
       yield* requireProject({
         readModel,
         command,
         projectId: command.projectId,
       });
+      if (command.linkedThreadId !== null) {
+        yield* requireThreadInProject({
+          readModel,
+          command,
+          threadId: command.linkedThreadId,
+          projectId: command.projectId,
+        });
+        yield* requireBoardThreadLinkAvailable({
+          command,
+          threadId: command.linkedThreadId,
+          cardId: command.cardId,
+          repository: boardCardRepository,
+        });
+      }
       return {
         ...withEventBase({
           aggregateKind: "board",
@@ -836,10 +857,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "board.card.update": {
+      const boardCardRepository = yield* ProjectionBoardCardRepository;
       yield* requireProject({
         readModel,
         command,
         projectId: command.projectId,
+      });
+      yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
       });
       return {
         ...withEventBase({
@@ -861,10 +889,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "board.card.move": {
+      const boardCardRepository = yield* ProjectionBoardCardRepository;
       yield* requireProject({
         readModel,
         command,
         projectId: command.projectId,
+      });
+      yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
       });
       return {
         ...withEventBase({
@@ -885,10 +920,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "board.card.archive": {
+      const boardCardRepository = yield* ProjectionBoardCardRepository;
       yield* requireProject({
         readModel,
         command,
         projectId: command.projectId,
+      });
+      yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
       });
       return {
         ...withEventBase({
@@ -908,10 +950,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "board.card.delete": {
+      const boardCardRepository = yield* ProjectionBoardCardRepository;
       yield* requireProject({
         readModel,
         command,
         projectId: command.projectId,
+      });
+      yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
       });
       return {
         ...withEventBase({
@@ -930,15 +979,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "board.card.linkThread": {
+      const boardCardRepository = yield* ProjectionBoardCardRepository;
       yield* requireProject({
         readModel,
         command,
         projectId: command.projectId,
       });
-      yield* requireThread({
+      yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
+      });
+      yield* requireThreadInProject({
         readModel,
         command,
         threadId: command.threadId,
+        projectId: command.projectId,
+      });
+      yield* requireBoardThreadLinkAvailable({
+        command,
+        threadId: command.threadId,
+        cardId: command.cardId,
+        repository: boardCardRepository,
       });
       return {
         ...withEventBase({
@@ -958,10 +1021,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "board.card.unlinkThread": {
+      const boardCardRepository = yield* ProjectionBoardCardRepository;
       yield* requireProject({
         readModel,
         command,
         projectId: command.projectId,
+      });
+      yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
       });
       return {
         ...withEventBase({

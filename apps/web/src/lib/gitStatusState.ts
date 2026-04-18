@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { Cause } from "effect";
 import { Atom } from "effect/unstable/reactivity";
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import {
@@ -56,6 +56,7 @@ const EMPTY_GIT_STATUS_ATOM = Atom.make(EMPTY_GIT_STATUS_STATE).pipe(
 const NOOP: () => void = () => undefined;
 const watchedGitStatuses = new Map<string, WatchedGitStatus>();
 const knownGitStatusKeys = new Set<string>();
+const gitStatusSnapshotListeners = new Map<string, Set<() => void>>();
 const gitStatusRefreshInFlight = new Map<string, Promise<GitStatusResult>>();
 const gitStatusLastRefreshAtByKey = new Map<string, number>();
 
@@ -153,6 +154,7 @@ export function resetGitStatusStateForTests(): void {
     watched.unsubscribe();
   }
   watchedGitStatuses.clear();
+  gitStatusSnapshotListeners.clear();
   gitStatusRefreshInFlight.clear();
   gitStatusLastRefreshAtByKey.clear();
 
@@ -173,6 +175,48 @@ export function useGitStatus(target: GitStatusTarget): GitStatusState {
     targetKey !== null ? gitStatusStateAtom(targetKey) : EMPTY_GIT_STATUS_ATOM,
   );
   return targetKey === null ? EMPTY_GIT_STATUS_STATE : state;
+}
+
+export function useGitStatusSnapshots(
+  targets: ReadonlyArray<GitStatusTarget>,
+): ReadonlyMap<string, GitStatusResult | null> {
+  const targetKeys = targets
+    .map((target) => getGitStatusTargetKey(target))
+    .filter((key): key is string => key !== null);
+
+  useEffect(() => {
+    const releases = targets.map((target) =>
+      watchGitStatus({ environmentId: target.environmentId, cwd: target.cwd }),
+    );
+    return () => {
+      for (const release of releases) {
+        release();
+      }
+    };
+  }, [targets]);
+
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      const unsubs = targetKeys.map((key) => subscribeGitStatusSnapshot(key, onStoreChange));
+      return () => {
+        for (const unsub of unsubs) {
+          unsub();
+        }
+      };
+    },
+    () => {
+      const statuses = new Map<string, GitStatusResult | null>();
+      for (const target of targets) {
+        const key = getGitStatusTargetKey(target);
+        if (key === null) {
+          continue;
+        }
+        statuses.set(key, getGitStatusSnapshot(target).data);
+      }
+      return statuses;
+    },
+    () => new Map(),
+  );
 }
 
 function unwatchGitStatus(targetKey: string): void {
@@ -252,6 +296,7 @@ function subscribeToGitStatus(targetKey: string, cwd: string, client: GitStatusC
         cause: null,
         isPending: false,
       });
+      notifyGitStatusSnapshotListeners(targetKey);
     },
     {
       onResubscribe: () => {
@@ -284,4 +329,31 @@ function markGitStatusPending(targetKey: string): void {
   }
 
   appAtomRegistry.set(atom, next);
+  notifyGitStatusSnapshotListeners(targetKey);
+}
+
+function subscribeGitStatusSnapshot(targetKey: string, listener: () => void): () => void {
+  const listeners = gitStatusSnapshotListeners.get(targetKey) ?? new Set<() => void>();
+  listeners.add(listener);
+  gitStatusSnapshotListeners.set(targetKey, listeners);
+  return () => {
+    const currentListeners = gitStatusSnapshotListeners.get(targetKey);
+    if (!currentListeners) {
+      return;
+    }
+    currentListeners.delete(listener);
+    if (currentListeners.size === 0) {
+      gitStatusSnapshotListeners.delete(targetKey);
+    }
+  };
+}
+
+function notifyGitStatusSnapshotListeners(targetKey: string): void {
+  const listeners = gitStatusSnapshotListeners.get(targetKey);
+  if (!listeners) {
+    return;
+  }
+  for (const listener of listeners) {
+    listener();
+  }
 }

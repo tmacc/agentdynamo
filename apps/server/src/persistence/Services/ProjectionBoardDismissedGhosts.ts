@@ -17,9 +17,7 @@ export const DeleteBoardDismissedGhostInput = Schema.Struct({
 export type DeleteBoardDismissedGhostInput = typeof DeleteBoardDismissedGhostInput.Type;
 
 export interface ProjectionBoardDismissedGhostRepositoryShape {
-  readonly upsert: (
-    row: BoardDismissedGhost,
-  ) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly upsert: (row: BoardDismissedGhost) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly listByProject: (
     input: ListBoardDismissedGhostsByProjectInput,
   ) => Effect.Effect<ReadonlyArray<BoardDismissedGhost>, ProjectionRepositoryError>;

@@ -5,25 +5,15 @@ import {
   type ProjectId,
 } from "@t3tools/contracts";
 import { useDroppable } from "@dnd-kit/core";
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { PlusIcon } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import { BOARD_COLUMN_LABELS, type BoardItem } from "../../boardProjection";
-import { useBoardUiStore } from "../../boardUiStore";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
-import {
-  BoardDoneCard,
-  BoardLiveCard,
-  BoardReviewCard,
-  BoardUserCard,
-} from "./BoardCard";
+import { BoardDoneCard, BoardLiveCard, BoardReviewCard, BoardUserCard } from "./BoardCard";
 import { BoardAddCardInput } from "./BoardAddCardInput";
 
 interface BoardColumnProps {
@@ -33,6 +23,8 @@ interface BoardColumnProps {
   readonly projectId: ProjectId;
   readonly onStartAgent: (card: FeatureCard) => void;
   readonly onOpenCard: (card: FeatureCard) => void;
+  readonly shouldOpenAddCard: boolean;
+  readonly onAddCardIntentHandled: () => void;
 }
 
 export const BoardColumn = memo(function BoardColumn({
@@ -42,25 +34,24 @@ export const BoardColumn = memo(function BoardColumn({
   projectId,
   onStartAgent,
   onOpenCard,
+  shouldOpenAddCard,
+  onAddCardIntentHandled,
 }: BoardColumnProps) {
   const isStored = column === "ideas" || column === "planned";
   const [isAdding, setIsAdding] = useState(false);
 
-  // Consume any "open Add Card in this column" intent set by the command
-  // palette / keybindings.
-  const consumeAddCardIntent = useBoardUiStore((s) => s.consumeAddCardIntent);
   useEffect(() => {
-    if (!isStored) return;
-    const intent = consumeAddCardIntent(environmentId, projectId);
-    if (intent === column) {
-      setIsAdding(true);
-    }
-  }, [column, consumeAddCardIntent, environmentId, isStored, projectId]);
+    if (!isStored || !shouldOpenAddCard) return;
+    setIsAdding(true);
+    onAddCardIntentHandled();
+  }, [isStored, onAddCardIntentHandled, shouldOpenAddCard]);
 
   const userCardIds = useMemo(
     () =>
       items
-        .filter((item): item is Extract<BoardItem, { kind: "user-card" }> => item.kind === "user-card")
+        .filter(
+          (item): item is Extract<BoardItem, { kind: "user-card" }> => item.kind === "user-card",
+        )
         .map((item) => item.card.id as unknown as string),
     [items],
   );
