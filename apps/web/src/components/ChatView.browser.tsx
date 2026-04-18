@@ -266,6 +266,18 @@ function createMockEnvironmentApi(input: {
       subscribeThread: (() => () =>
         undefined) as EnvironmentApi["orchestration"]["subscribeThread"],
     },
+    board: {
+      listCards: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["board"]["listCards"],
+      listDismissedGhosts: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["board"]["listDismissedGhosts"],
+      subscribeProject: (() => () => undefined) as EnvironmentApi["board"]["subscribeProject"],
+      dispatchCommand: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["board"]["dispatchCommand"],
+    },
   };
 }
 

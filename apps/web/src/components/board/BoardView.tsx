@@ -1,0 +1,246 @@
+import {
+  type EnvironmentId,
+  type FeatureCard,
+  type FeatureCardId,
+  type GitStatusResult,
+  type ProjectId,
+  type ThreadId,
+} from "@t3tools/contracts";
+import { scopeProjectRef } from "@t3tools/client-runtime";
+import {
+  DndContext,
+  type DragEndEvent,
+  type DragStartEvent,
+  PointerSensor,
+  closestCorners,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import {
+  acquireBoardSubscription,
+  computeSortOrderBetween,
+  moveBoardCard,
+  useBoardCards,
+  useBoardDismissedGhostThreadIds,
+  useBoardStatus,
+} from "../../boardStore";
+import {
+  BOARD_COLUMN_ORDER,
+  type BoardItem,
+  deriveBoardColumns,
+  isStoredBoardColumn,
+} from "../../boardProjection";
+import { selectProjectByRef, selectSidebarThreadsForProjectRef, useStore } from "../../store";
+import { useGitStatus } from "../../lib/gitStatusState";
+import { BoardColumn } from "./BoardColumn";
+import { BoardCardSheet } from "./BoardCardSheet";
+
+interface BoardViewProps {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly onStartAgent: (card: FeatureCard) => void;
+}
+
+export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewProps) {
+  const projectRef = useMemo(
+    () => scopeProjectRef(environmentId, projectId),
+    [environmentId, projectId],
+  );
+  const project = useStore((s) => selectProjectByRef(s, projectRef));
+  const threads = useStore((s) => selectSidebarThreadsForProjectRef(s, projectRef));
+
+  const cards = useBoardCards(environmentId, projectId);
+  const dismissedGhostThreadIds = useBoardDismissedGhostThreadIds(environmentId, projectId);
+  const status = useBoardStatus(environmentId, projectId);
+  const [openCard, setOpenCard] = useState<FeatureCard | null>(null);
+  const [activeDragCardId, setActiveDragCardId] = useState<FeatureCardId | null>(null);
+
+  // Subscribe to the board RPC stream for this project.
+  useEffect(() => {
+    const release = acquireBoardSubscription(environmentId, projectId);
+    return () => {
+      release();
+    };
+  }, [environmentId, projectId]);
+
+  // Single "active thread" git-status lookup is not enough for the board; we
+  // need PR state for each thread with a branch. In practice most threads
+  // share the same repo cwd, so we look up the project cwd's status once and
+  // apply PR resolution per-thread in the derivation.
+  const repoCwd = project?.cwd ?? null;
+  const projectGitStatus = useGitStatus({
+    environmentId,
+    cwd: repoCwd,
+  });
+
+  const gitStatusByThreadId = useMemo<ReadonlyMap<ThreadId, GitStatusResult | null>>(() => {
+    const status = projectGitStatus.data ?? null;
+    const map = new Map<ThreadId, GitStatusResult | null>();
+    for (const t of threads) {
+      // PR resolution matches when gitStatus.branch === thread.branch;
+      // if the thread has no branch or the repo's current status doesn't
+      // match, `resolveThreadPr()` returns null.
+      map.set(t.id, status);
+    }
+    return map;
+  }, [threads, projectGitStatus.data]);
+
+  const columns = useMemo(
+    () =>
+      deriveBoardColumns({
+        projectId,
+        cards,
+        threads,
+        gitStatusByThreadId,
+        dismissedGhostThreadIds,
+      }),
+    [cards, dismissedGhostThreadIds, gitStatusByThreadId, projectId, threads],
+  );
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const data = event.active?.data?.current as { kind?: string; card?: FeatureCard } | undefined;
+    if (data?.kind === "user-card" && data.card) {
+      setActiveDragCardId(data.card.id);
+    }
+  }, []);
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setActiveDragCardId(null);
+      const activeId = event.active?.id as string | undefined;
+      const overId = event.over?.id as string | undefined;
+      if (!activeId || !overId) return;
+
+      const activeCard = cards.find((c) => (c.id as unknown as string) === activeId);
+      if (!activeCard) return;
+
+      // Determine target column from over target — either the column
+      // droppable id ("board-column:<col>") or another card's id.
+      let targetColumn: "ideas" | "planned" | null = null;
+      let beforeId: FeatureCardId | null = null;
+      let afterId: FeatureCardId | null = null;
+
+      if (overId.startsWith("board-column:")) {
+        const maybeColumn = overId.slice("board-column:".length);
+        if (maybeColumn === "ideas" || maybeColumn === "planned") {
+          targetColumn = maybeColumn;
+        }
+      } else {
+        const overCard = cards.find((c) => (c.id as unknown as string) === overId);
+        if (overCard && isStoredBoardColumn(overCard.column)) {
+          targetColumn = overCard.column;
+          // The user dropped directly onto a sibling card — we'll insert
+          // *before* that sibling (closer to the top of the column).
+          afterId = overCard.id;
+          // Compute the immediately-preceding card in the same column.
+          const siblings = cards
+            .filter((c) => c.column === overCard.column && c.archivedAt === null)
+            .toSorted((a, b) => a.sortOrder - b.sortOrder);
+          const idx = siblings.findIndex((s) => s.id === overCard.id);
+          if (idx > 0) {
+            beforeId = siblings[idx - 1]!.id;
+          }
+        }
+      }
+
+      if (!targetColumn) return;
+
+      // If dropping into the same column in the same spot, no-op.
+      if (activeCard.column === targetColumn && !beforeId && !afterId) {
+        return;
+      }
+
+      const { sortOrder } = computeSortOrderBetween(cards, targetColumn, beforeId, afterId);
+
+      void moveBoardCard({
+        environmentId,
+        projectId,
+        cardId: activeCard.id,
+        toColumn: targetColumn,
+        sortOrder,
+      }).catch(() => undefined);
+    },
+    [cards, environmentId, projectId],
+  );
+
+  if (!project) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+        Project not found.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <BoardHeader
+        projectName={project.name}
+        cardCount={cards.filter((c) => c.archivedAt === null).length}
+        status={status.status}
+      />
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden p-3">
+          {BOARD_COLUMN_ORDER.map((col) => (
+            <BoardColumn
+              key={col}
+              column={col}
+              items={columns.find((c) => c.kind === col)?.items ?? []}
+              environmentId={environmentId}
+              projectId={projectId}
+              onStartAgent={onStartAgent}
+              onOpenCard={setOpenCard}
+            />
+          ))}
+        </div>
+      </DndContext>
+      {openCard ? (
+        <BoardCardSheet
+          environmentId={environmentId}
+          projectId={projectId}
+          card={openCard}
+          onClose={() => setOpenCard(null)}
+          onStartAgent={onStartAgent}
+        />
+      ) : null}
+      {activeDragCardId ? (
+        <div aria-hidden className="sr-only">
+          dragging {activeDragCardId}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+interface BoardHeaderProps {
+  readonly projectName: string;
+  readonly cardCount: number;
+  readonly status: "loading" | "ready" | "error" | "idle";
+}
+
+function BoardHeader({ projectName, cardCount, status }: BoardHeaderProps) {
+  return (
+    <div className="flex items-center justify-between border-b bg-background px-4 py-2">
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium text-foreground">{projectName}</div>
+        <div className="text-[11px] text-muted-foreground">
+          {cardCount} {cardCount === 1 ? "card" : "cards"} ·{" "}
+          <span className="capitalize">{status}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Satisfy eslint: BoardItem is used transitively via `columns` typing.
+void (null as unknown as BoardItem);

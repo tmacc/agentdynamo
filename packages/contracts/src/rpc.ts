@@ -45,6 +45,18 @@ import {
   OrchestrationRpcSchemas,
 } from "./orchestration";
 import {
+  BOARD_WS_METHODS,
+  BoardListCardsError,
+  BoardListCardsInput,
+  BoardListCardsResult,
+  BoardListDismissedGhostsError,
+  BoardListDismissedGhostsInput,
+  BoardListDismissedGhostsResult,
+  BoardStreamEvent,
+  BoardSubscribeProjectError,
+  BoardSubscribeProjectInput,
+} from "./board";
+import {
   ProjectGetIntelligenceError,
   ProjectGetIntelligenceInput,
   ProjectGetIntelligenceResult,
@@ -349,6 +361,25 @@ export const WsOrchestrationSubscribeThreadRpc = Rpc.make(
   },
 );
 
+export const WsBoardListCardsRpc = Rpc.make(BOARD_WS_METHODS.listCards, {
+  payload: BoardListCardsInput,
+  success: BoardListCardsResult,
+  error: BoardListCardsError,
+});
+
+export const WsBoardListDismissedGhostsRpc = Rpc.make(BOARD_WS_METHODS.listDismissedGhosts, {
+  payload: BoardListDismissedGhostsInput,
+  success: BoardListDismissedGhostsResult,
+  error: BoardListDismissedGhostsError,
+});
+
+export const WsBoardSubscribeProjectRpc = Rpc.make(BOARD_WS_METHODS.subscribeProject, {
+  payload: BoardSubscribeProjectInput,
+  success: BoardStreamEvent,
+  error: BoardSubscribeProjectError,
+  stream: true,
+});
+
 export const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTerminalEvents, {
   payload: Schema.Struct({}),
   success: TerminalEvent,
@@ -414,4 +445,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationReplayEventsRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,
+  WsBoardListCardsRpc,
+  WsBoardListDismissedGhostsRpc,
+  WsBoardSubscribeProjectRpc,
 );

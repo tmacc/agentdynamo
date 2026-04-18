@@ -2,6 +2,10 @@ import { Duration, Effect, Layer, Option, Queue, Ref, Schema, Stream } from "eff
 import {
   type AuthAccessStreamEvent,
   AuthSessionId,
+  BOARD_WS_METHODS,
+  BoardListCardsError,
+  BoardListDismissedGhostsError,
+  BoardSubscribeProjectError,
   CommandId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
@@ -19,6 +23,7 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   type GitManagerServiceError,
+  ProjectId,
   ThreadId,
   type TerminalEvent,
   WS_METHODS,
@@ -37,6 +42,8 @@ import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
+import { ProjectionBoardCardRepository } from "./persistence/Services/ProjectionBoardCards";
+import { ProjectionBoardDismissedGhostRepository } from "./persistence/Services/ProjectionBoardDismissedGhosts";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ThreadBootstrapDispatcher } from "./orchestration/Services/ThreadBootstrapDispatcher";
 import {
@@ -186,6 +193,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
       const threadBootstrapDispatcher = yield* ThreadBootstrapDispatcher;
+      const projectionBoardCardRepository = yield* ProjectionBoardCardRepository;
+      const projectionBoardDismissedGhostRepository = yield* ProjectionBoardDismissedGhostRepository;
       const serverCommandId = (tag: string) =>
         CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 
@@ -569,6 +578,83 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               );
             }),
             { "rpc.aggregate": "orchestration" },
+          ),
+        [BOARD_WS_METHODS.listCards]: (input) =>
+          observeRpcEffect(
+            BOARD_WS_METHODS.listCards,
+            projectionBoardCardRepository.listByProject({ projectId: input.projectId }).pipe(
+              Effect.map((cards) => ({ cards })),
+              Effect.mapError(
+                (cause) =>
+                  new BoardListCardsError({
+                    message: `Failed to load board cards for project ${input.projectId}`,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "board" },
+          ),
+        [BOARD_WS_METHODS.listDismissedGhosts]: (input) =>
+          observeRpcEffect(
+            BOARD_WS_METHODS.listDismissedGhosts,
+            projectionBoardDismissedGhostRepository
+              .listByProject({ projectId: input.projectId })
+              .pipe(
+                Effect.map((dismissed) => ({ dismissed })),
+                Effect.mapError(
+                  (cause) =>
+                    new BoardListDismissedGhostsError({
+                      message: `Failed to load dismissed ghost cards for project ${input.projectId}`,
+                      cause,
+                    }),
+                ),
+              ),
+            { "rpc.aggregate": "board" },
+          ),
+        [BOARD_WS_METHODS.subscribeProject]: (input) =>
+          observeRpcStreamEffect(
+            BOARD_WS_METHODS.subscribeProject,
+            Effect.gen(function* () {
+              const [cards, dismissedGhosts, snapshotSequence] = yield* Effect.all([
+                projectionBoardCardRepository.listByProject({ projectId: input.projectId }),
+                projectionBoardDismissedGhostRepository.listByProject({
+                  projectId: input.projectId,
+                }),
+                orchestrationEngine
+                  .getReadModel()
+                  .pipe(Effect.map((readModel) => readModel.snapshotSequence)),
+              ]).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new BoardSubscribeProjectError({
+                      message: `Failed to load board snapshot for project ${input.projectId}`,
+                      cause,
+                    }),
+                ),
+              );
+
+              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
+                Stream.filter(
+                  (event) =>
+                    event.aggregateKind === "board" && event.aggregateId === input.projectId,
+                ),
+                Stream.map((event) => ({
+                  kind: "event" as const,
+                  event,
+                })),
+              );
+
+              return Stream.concat(
+                Stream.make({
+                  kind: "snapshot" as const,
+                  cards,
+                  dismissedGhosts,
+                  snapshotSequence,
+                }),
+                liveStream,
+              );
+            }),
+            { "rpc.aggregate": "board" },
           ),
         [WS_METHODS.serverGetConfig]: (_input) =>
           observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {

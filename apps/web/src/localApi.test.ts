@@ -94,6 +94,11 @@ const rpcClientMock = {
     ),
     subscribeThread: vi.fn(() => () => undefined),
   },
+  board: {
+    listCards: vi.fn(),
+    listDismissedGhosts: vi.fn(),
+    subscribeProject: vi.fn(() => () => undefined),
+  },
 };
 
 vi.mock("./environments/runtime", () => ({

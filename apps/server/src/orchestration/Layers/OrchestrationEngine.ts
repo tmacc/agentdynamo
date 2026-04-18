@@ -51,7 +51,7 @@ interface CommandEnvelope {
 }
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "thread";
+  readonly aggregateKind: "project" | "thread" | "board";
   readonly aggregateId: ProjectId | ThreadId;
 } {
   switch (command.type) {
@@ -68,6 +68,19 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       return {
         aggregateKind: "thread",
         aggregateId: command.parentThreadId,
+      };
+    case "board.card.create":
+    case "board.card.update":
+    case "board.card.move":
+    case "board.card.archive":
+    case "board.card.delete":
+    case "board.card.linkThread":
+    case "board.card.unlinkThread":
+    case "board.ghost-card.dismiss":
+    case "board.ghost-card.undismiss":
+      return {
+        aggregateKind: "board",
+        aggregateId: command.projectId,
       };
     default:
       return {
