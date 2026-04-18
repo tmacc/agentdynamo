@@ -1,6 +1,7 @@
 import type {
   EnvironmentId,
   ModelSelection,
+  OrchestrationProject,
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
   RepositoryIdentity,
@@ -110,6 +111,7 @@ export interface Project {
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
   scripts: ProjectScript[];
+  worktreeReadiness?: OrchestrationProject["worktreeReadiness"];
 }
 
 export interface Thread {

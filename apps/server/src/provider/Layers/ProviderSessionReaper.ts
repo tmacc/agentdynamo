@@ -85,19 +85,17 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
     });
 
     const start: ProviderSessionReaperShape["start"] = () =>
-      Effect.gen(function* () {
-        yield* Effect.forkScoped(
-          sweep.pipe(
-            Effect.catch((error: unknown) =>
-              Effect.logWarning("provider.session.reaper.sweep-failed", { error }),
-            ),
-            Effect.catchDefect((defect: unknown) =>
-              Effect.logWarning("provider.session.reaper.sweep-defect", { defect }),
-            ),
-            Effect.repeat(Schedule.spaced(Duration.millis(sweepIntervalMs))),
+      Effect.forkScoped(
+        sweep.pipe(
+          Effect.catch((error: unknown) =>
+            Effect.logWarning("provider.session.reaper.sweep-failed", { error }),
           ),
-        );
-      });
+          Effect.catchDefect((defect: unknown) =>
+            Effect.logWarning("provider.session.reaper.sweep-defect", { defect }),
+          ),
+          Effect.repeat(Schedule.spaced(Duration.millis(sweepIntervalMs))),
+        ),
+      ).pipe(Effect.asVoid);
 
     return {
       start,
