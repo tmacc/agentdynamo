@@ -17,7 +17,9 @@ import type { SidebarThreadSummary, ThreadSession } from "./types";
 const ENV = "env-1" as unknown as EnvironmentId;
 const PROJECT = "project-1" as unknown as ProjectId;
 
-function makeCard(partial: Partial<FeatureCard> & { id: FeatureCardId; column: FeatureCard["column"] }): FeatureCard {
+function makeCard(
+  partial: Partial<FeatureCard> & { id: FeatureCardId; column: FeatureCard["column"] },
+): FeatureCard {
   return {
     projectId: PROJECT,
     title: "T" as unknown as FeatureCard["title"],
@@ -33,7 +35,9 @@ function makeCard(partial: Partial<FeatureCard> & { id: FeatureCardId; column: F
   };
 }
 
-function makeThread(overrides: Partial<SidebarThreadSummary> & { id: ThreadId }): SidebarThreadSummary {
+function makeThread(
+  overrides: Partial<SidebarThreadSummary> & { id: ThreadId },
+): SidebarThreadSummary {
   return {
     environmentId: ENV,
     projectId: PROJECT,

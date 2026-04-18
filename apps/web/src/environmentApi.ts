@@ -52,8 +52,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       listDismissedGhosts: rpcClient.board.listDismissedGhosts,
       subscribeProject: (input, callback, options) =>
         rpcClient.board.subscribeProject(input, callback, options),
-      dispatchCommand: (command) =>
-        rpcClient.orchestration.dispatchCommand(command as never),
+      dispatchCommand: (command) => rpcClient.orchestration.dispatchCommand(command as never),
     },
   };
 }

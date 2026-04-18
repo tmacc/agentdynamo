@@ -1,12 +1,11 @@
 import { scopeProjectRef } from "@t3tools/client-runtime";
-import type {
-  EnvironmentId,
-  FeatureCard,
-  ProjectId,
-  ScopedProjectRef,
-} from "@t3tools/contracts";
+import type { EnvironmentId, FeatureCard, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
 import { linkBoardCardThread } from "../boardStore";
-import { useComposerDraftStore, type DraftThreadEnvMode } from "../composerDraftStore";
+import {
+  useComposerDraftStore,
+  type DraftId,
+  type DraftThreadEnvMode,
+} from "../composerDraftStore";
 
 interface ThreadContextLike {
   environmentId: EnvironmentId;
@@ -31,10 +30,15 @@ interface NewThreadHandler {
 }
 
 type NewThreadOptions = NonNullable<Parameters<NewThreadHandler>[1]>;
+type FreshDraftThreadHandler = (
+  projectRef: ScopedProjectRef,
+  options?: NewThreadOptions,
+) => Promise<DraftId>;
 
 export interface ChatThreadActionContext {
   readonly activeDraftThread: DraftThreadContextLike | null;
   readonly activeThread: ThreadContextLike | undefined;
+  readonly createFreshDraftThread?: FreshDraftThreadHandler;
   readonly defaultProjectRef: ScopedProjectRef | null;
   readonly defaultThreadEnvMode: DraftThreadEnvMode;
   readonly handleNewThread: NewThreadHandler;
@@ -55,15 +59,40 @@ export function resolveThreadActionProjectRef(
   return context.defaultProjectRef;
 }
 
-function buildContextualThreadOptions(context: ChatThreadActionContext): NewThreadOptions {
-  return {
-    branch: context.activeThread?.branch ?? context.activeDraftThread?.branch ?? null,
-    worktreePath:
-      context.activeThread?.worktreePath ?? context.activeDraftThread?.worktreePath ?? null,
-    envMode:
-      context.activeDraftThread?.envMode ??
-      (context.activeThread?.worktreePath ? "worktree" : "local"),
-  };
+function isSameProjectContext(
+  contextRef:
+    | Pick<ThreadContextLike, "environmentId" | "projectId">
+    | Pick<DraftThreadContextLike, "environmentId" | "projectId">
+    | null
+    | undefined,
+  projectRef: ScopedProjectRef,
+): boolean {
+  return (
+    !!contextRef &&
+    contextRef.environmentId === projectRef.environmentId &&
+    contextRef.projectId === projectRef.projectId
+  );
+}
+
+export function buildContextualThreadOptionsForProject(
+  context: ChatThreadActionContext,
+  projectRef: ScopedProjectRef,
+): NewThreadOptions {
+  if (isSameProjectContext(context.activeThread, projectRef)) {
+    return {
+      branch: context.activeThread?.branch ?? null,
+      worktreePath: context.activeThread?.worktreePath ?? null,
+      envMode: context.activeThread?.worktreePath ? "worktree" : "local",
+    };
+  }
+  if (isSameProjectContext(context.activeDraftThread, projectRef)) {
+    return {
+      branch: context.activeDraftThread?.branch ?? null,
+      worktreePath: context.activeDraftThread?.worktreePath ?? null,
+      envMode: context.activeDraftThread?.envMode ?? "local",
+    };
+  }
+  return buildDefaultThreadOptions(context);
 }
 
 function buildDefaultThreadOptions(context: ChatThreadActionContext): NewThreadOptions {
@@ -76,7 +105,10 @@ export async function startNewThreadInProjectFromContext(
   context: ChatThreadActionContext,
   projectRef: ScopedProjectRef,
 ): Promise<void> {
-  await context.handleNewThread(projectRef, buildContextualThreadOptions(context));
+  await context.handleNewThread(
+    projectRef,
+    buildContextualThreadOptionsForProject(context, projectRef),
+  );
 }
 
 export async function startNewThreadFromContext(
@@ -136,22 +168,28 @@ export async function startSeededThreadForCard(args: {
   const { card, context, environmentId } = args;
   const projectRef = scopeProjectRef(environmentId, card.projectId);
   const prompt = resolveSeededPromptForCard(card);
+  const createFreshDraftThread = context.createFreshDraftThread;
+  if (!createFreshDraftThread) {
+    throw new Error("Fresh draft thread creation is not available in this context.");
+  }
 
-  // Step 1: create (or reuse) the draft for this project.
-  await context.handleNewThread(projectRef, buildContextualThreadOptions(context));
+  // Step 1: create a fresh draft for this card's project.
+  const draftId = await createFreshDraftThread(
+    projectRef,
+    buildContextualThreadOptionsForProject(context, projectRef),
+  );
 
   // Step 2: seed the composer prompt.
   const draftStore = useComposerDraftStore.getState();
-  const draft = draftStore.getDraftThreadByProjectRef(projectRef);
-  if (!draft) return;
+  if (!draftStore.getDraftSession(draftId)) return;
 
-  draftStore.setPrompt(draft.draftId, prompt);
+  draftStore.setPrompt(draftId, prompt);
 
   // Step 3: subscribe for promotion → fire linkThread once.
   let settled = false;
   const unsubscribe = useComposerDraftStore.subscribe((state) => {
     if (settled) return;
-    const session = state.getDraftSession(draft.draftId);
+    const session = state.getDraftSession(draftId);
     const promoted = session?.promotedTo;
     if (!promoted) return;
     settled = true;

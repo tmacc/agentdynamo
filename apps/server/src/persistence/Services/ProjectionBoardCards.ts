@@ -1,9 +1,4 @@
-import {
-  FeatureCard,
-  FeatureCardId,
-  ProjectId,
-  ThreadId,
-} from "@t3tools/contracts";
+import { FeatureCard, FeatureCardId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { Context, Option, Schema } from "effect";
 import type { Effect } from "effect";
 

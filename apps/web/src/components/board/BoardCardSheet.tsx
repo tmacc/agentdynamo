@@ -1,6 +1,7 @@
 import {
   type EnvironmentId,
   type FeatureCard,
+  type FeatureCardId,
   type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -22,24 +23,18 @@ import {
   deleteBoardCard,
   unlinkBoardCardThread,
   updateBoardCard,
+  useBoardCards,
 } from "../../boardStore";
 import { selectSidebarThreadSummaryByRef, useStore } from "../../store";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import {
-  Sheet,
-  SheetFooter,
-  SheetHeader,
-  SheetPanel,
-  SheetPopup,
-  SheetTitle,
-} from "../ui/sheet";
+import { Sheet, SheetFooter, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "../ui/sheet";
 import { Textarea } from "../ui/textarea";
 
 interface BoardCardSheetProps {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
-  readonly card: FeatureCard;
+  readonly cardId: FeatureCardId;
   readonly onClose: () => void;
   readonly onStartAgent: (card: FeatureCard) => void;
 }
@@ -56,25 +51,42 @@ interface BoardCardSheetProps {
 export function BoardCardSheet({
   environmentId,
   projectId,
-  card,
+  cardId,
   onClose,
   onStartAgent,
 }: BoardCardSheetProps) {
-  const [title, setTitle] = useState<string>(card.title);
-  const [description, setDescription] = useState<string>(card.description ?? "");
-  const [seededPrompt, setSeededPrompt] = useState<string>(card.seededPrompt ?? "");
+  const card =
+    useBoardCards(environmentId, projectId).find((candidate) => candidate.id === cardId) ?? null;
+  const [title, setTitle] = useState<string>(card?.title ?? "");
+  const [description, setDescription] = useState<string>(card?.description ?? "");
+  const [seededPrompt, setSeededPrompt] = useState<string>(card?.seededPrompt ?? "");
   const [promptPreview, setPromptPreview] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [pendingMutation, setPendingMutation] = useState<"archive" | "delete" | null>(null);
+
+  useEffect(() => {
+    if (card === null) {
+      onClose();
+    }
+  }, [card, onClose]);
 
   // Reset local state when the card id changes (e.g. user opens a different
   // card without closing the sheet first).
   useEffect(() => {
+    if (card === null) {
+      return;
+    }
     setTitle(card.title);
     setDescription(card.description ?? "");
     setSeededPrompt(card.seededPrompt ?? "");
     setPromptPreview(false);
     setSaveError(null);
-  }, [card.id, card.title, card.description, card.seededPrompt]);
+    setPendingMutation(null);
+  }, [card]);
+
+  if (card === null) {
+    return null;
+  }
 
   const effectivePrompt = useMemo<string>(() => {
     const prompt = seededPrompt.trim();
@@ -90,6 +102,7 @@ export function BoardCardSheet({
       description?: string | null;
       seededPrompt?: string | null;
     }) => {
+      if (card === null) return;
       setSaveError(null);
       try {
         await updateBoardCard({ environmentId, projectId, cardId: card.id, ...patch });
@@ -97,7 +110,7 @@ export function BoardCardSheet({
         setSaveError(err instanceof Error ? err.message : "Failed to save changes");
       }
     },
-    [card.id, environmentId, projectId],
+    [card, environmentId, projectId],
   );
 
   const handleTitleCommit = useCallback(() => {
@@ -126,17 +139,33 @@ export function BoardCardSheet({
   }, [card.seededPrompt, commit, seededPrompt]);
 
   const handleArchive = useCallback(() => {
-    onClose();
-    archiveBoardCard({ environmentId, projectId, cardId: card.id }).catch((err) => {
-      setSaveError(err instanceof Error ? err.message : "Failed to archive");
-    });
+    setPendingMutation("archive");
+    setSaveError(null);
+    void archiveBoardCard({ environmentId, projectId, cardId: card.id })
+      .then(() => {
+        onClose();
+      })
+      .catch((err) => {
+        setSaveError(err instanceof Error ? err.message : "Failed to archive");
+      })
+      .finally(() => {
+        setPendingMutation(null);
+      });
   }, [card.id, environmentId, onClose, projectId]);
 
   const handleDelete = useCallback(() => {
-    onClose();
-    deleteBoardCard({ environmentId, projectId, cardId: card.id }).catch((err) => {
-      setSaveError(err instanceof Error ? err.message : "Failed to delete");
-    });
+    setPendingMutation("delete");
+    setSaveError(null);
+    void deleteBoardCard({ environmentId, projectId, cardId: card.id })
+      .then(() => {
+        onClose();
+      })
+      .catch((err) => {
+        setSaveError(err instanceof Error ? err.message : "Failed to delete");
+      })
+      .finally(() => {
+        setPendingMutation(null);
+      });
   }, [card.id, environmentId, onClose, projectId]);
 
   const handleStartAgent = useCallback(() => {
@@ -148,6 +177,7 @@ export function BoardCardSheet({
   // that here to keep the button disabled while linked to a thread.
   const canDelete = card.linkedThreadId === null;
   const canStartAgent = card.column === "planned" && card.linkedThreadId === null;
+  const isMutating = pendingMutation !== null;
 
   return (
     <Sheet
@@ -156,16 +186,14 @@ export function BoardCardSheet({
         if (!open) onClose();
       }}
     >
-      <SheetPopup
-        side="right"
-        className="flex w-[min(92vw,520px)] max-w-[520px] flex-col p-0"
-      >
+      <SheetPopup side="right" className="flex w-[min(92vw,520px)] max-w-[520px] flex-col p-0">
         <SheetHeader className="border-b py-4">
           <SheetTitle className="sr-only">{title || "Untitled card"}</SheetTitle>
           <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={handleTitleCommit}
+            disabled={isMutating}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -194,6 +222,7 @@ export function BoardCardSheet({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               onBlur={handleDescriptionCommit}
+              disabled={isMutating}
               placeholder="Add more detail about this card…"
               className="min-h-[5rem] text-xs"
               size="sm"
@@ -204,16 +233,10 @@ export function BoardCardSheet({
             label="Seeded prompt"
             action={
               <div className="flex items-center gap-1 text-[10px]">
-                <TabButton
-                  active={!promptPreview}
-                  onClick={() => setPromptPreview(false)}
-                >
+                <TabButton active={!promptPreview} onClick={() => setPromptPreview(false)}>
                   Edit
                 </TabButton>
-                <TabButton
-                  active={promptPreview}
-                  onClick={() => setPromptPreview(true)}
-                >
+                <TabButton active={promptPreview} onClick={() => setPromptPreview(true)}>
                   Preview
                 </TabButton>
               </div>
@@ -238,6 +261,7 @@ export function BoardCardSheet({
                 value={seededPrompt}
                 onChange={(e) => setSeededPrompt(e.target.value)}
                 onBlur={handleSeededPromptCommit}
+                disabled={isMutating}
                 placeholder="Optional prompt the agent is seeded with when you click Start Agent."
                 className="min-h-[6rem] font-mono text-[11px]"
                 size="sm"
@@ -249,6 +273,7 @@ export function BoardCardSheet({
             environmentId={environmentId}
             projectId={projectId}
             card={card}
+            disabled={isMutating}
           />
 
           {saveError ? (
@@ -266,6 +291,7 @@ export function BoardCardSheet({
                 variant="secondary"
                 className="h-7 gap-1 px-2 text-[11px]"
                 onClick={handleStartAgent}
+                disabled={isMutating}
               >
                 <PlayIcon className="size-3" />
                 Start Agent
@@ -279,9 +305,10 @@ export function BoardCardSheet({
                 variant="ghost"
                 className="h-7 gap-1 px-2 text-[11px]"
                 onClick={handleArchive}
+                disabled={isMutating}
               >
                 <ArchiveIcon className="size-3" />
-                Archive
+                {pendingMutation === "archive" ? "Archiving..." : "Archive"}
               </Button>
             ) : null}
             {canDelete ? (
@@ -290,9 +317,10 @@ export function BoardCardSheet({
                 variant="ghost"
                 className="h-7 gap-1 px-2 text-[11px] text-destructive"
                 onClick={handleDelete}
+                disabled={isMutating}
               >
                 <Trash2Icon className="size-3" />
-                Delete
+                {pendingMutation === "delete" ? "Deleting..." : "Delete"}
               </Button>
             ) : null}
             <Button
@@ -300,6 +328,7 @@ export function BoardCardSheet({
               variant="outline"
               className="h-7 px-2 text-[11px]"
               onClick={onClose}
+              disabled={isMutating}
             >
               Close
             </Button>
@@ -356,12 +385,14 @@ interface LinkedThreadSectionProps {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly card: FeatureCard;
+  readonly disabled: boolean;
 }
 
 function LinkedThreadSection({
   environmentId,
   projectId,
   card,
+  disabled,
 }: LinkedThreadSectionProps) {
   const navigate = useNavigate();
 
@@ -411,6 +442,7 @@ function LinkedThreadSection({
           variant="ghost"
           className="h-5 gap-1 px-1 text-[10px]"
           onClick={handleUnlink}
+          disabled={disabled}
         >
           <Unlink2Icon className="size-3" />
           Unlink
@@ -420,14 +452,10 @@ function LinkedThreadSection({
       <div className="rounded-md border bg-card p-2">
         <div className="flex items-center gap-1.5 text-[11px] text-foreground">
           <LinkIcon className="size-3 shrink-0 text-muted-foreground" />
-          <span className="truncate font-medium">
-            {thread?.title ?? "(thread unavailable)"}
-          </span>
+          <span className="truncate font-medium">{thread?.title ?? "(thread unavailable)"}</span>
         </div>
         {thread?.branch ? (
-          <div className="mt-1 truncate text-[10px] text-muted-foreground">
-            {thread.branch}
-          </div>
+          <div className="mt-1 truncate text-[10px] text-muted-foreground">{thread.branch}</div>
         ) : null}
         <div className="mt-2 flex justify-end">
           <Button

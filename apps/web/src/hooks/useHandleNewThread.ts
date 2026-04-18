@@ -4,18 +4,37 @@ import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
+  DraftId,
   type DraftThreadEnvMode,
   type DraftThreadState,
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { newDraftId, newThreadId } from "../lib/utils";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
-import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
+import {
+  deriveLogicalProjectKeyFromSettings,
+  type ProjectGroupingSettings,
+} from "../logicalProject";
 import { selectProjectsAcrossEnvironments, useStore } from "../store";
 import { createThreadSelectorByRef } from "../storeSelectors";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { useUiStateStore } from "../uiStateStore";
 import { useSettings } from "./useSettings";
+
+function resolveLogicalProjectKeyForRef(args: {
+  projectRef: ScopedProjectRef;
+  projects: ReturnType<typeof selectProjectsAcrossEnvironments>;
+  projectGroupingSettings: ProjectGroupingSettings;
+}): string {
+  const project = args.projects.find(
+    (candidate) =>
+      candidate.id === args.projectRef.projectId &&
+      candidate.environmentId === args.projectRef.environmentId,
+  );
+  return project
+    ? deriveLogicalProjectKeyFromSettings(project, args.projectGroupingSettings)
+    : scopedProjectKey(args.projectRef);
+}
 
 function useNewThreadState() {
   const projects = useStore(useShallow((store) => selectProjectsAcrossEnvironments(store)));
@@ -47,14 +66,11 @@ function useNewThreadState() {
         setLogicalProjectDraftThreadId,
       } = useComposerDraftStore.getState();
       const currentRouteTarget = getCurrentRouteTarget();
-      const project = projects.find(
-        (candidate) =>
-          candidate.id === projectRef.projectId &&
-          candidate.environmentId === projectRef.environmentId,
-      );
-      const logicalProjectKey = project
-        ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
-        : scopedProjectKey(projectRef);
+      const logicalProjectKey = resolveLogicalProjectKeyForRef({
+        projectRef,
+        projects,
+        projectGroupingSettings,
+      });
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
@@ -138,10 +154,60 @@ function useNewThreadState() {
   );
 }
 
+function useFreshDraftThreadState() {
+  const projects = useStore(useShallow((store) => selectProjectsAcrossEnvironments(store)));
+  const projectGroupingSettings = useSettings((settings) => ({
+    sidebarProjectGroupingMode: settings.sidebarProjectGroupingMode,
+    sidebarProjectGroupingOverrides: settings.sidebarProjectGroupingOverrides,
+  }));
+  const router = useRouter();
+
+  return useCallback(
+    async (
+      projectRef: ScopedProjectRef,
+      options?: {
+        branch?: string | null;
+        worktreePath?: string | null;
+        envMode?: DraftThreadEnvMode;
+      },
+    ): Promise<DraftId> => {
+      const draftId = newDraftId();
+      const threadId = newThreadId();
+      const createdAt = new Date().toISOString();
+      const logicalProjectKey = resolveLogicalProjectKeyForRef({
+        projectRef,
+        projects,
+        projectGroupingSettings,
+      });
+      const { applyStickyState, registerDraftSession } = useComposerDraftStore.getState();
+
+      registerDraftSession(projectRef, draftId, logicalProjectKey, {
+        threadId,
+        createdAt,
+        branch: options?.branch ?? null,
+        worktreePath: options?.worktreePath ?? null,
+        envMode: options?.envMode ?? "local",
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+      });
+      applyStickyState(draftId);
+
+      await router.navigate({
+        to: "/draft/$draftId",
+        params: { draftId },
+      });
+
+      return draftId;
+    },
+    [projectGroupingSettings, projects, router],
+  );
+}
+
 export function useNewThreadHandler() {
   const handleNewThread = useNewThreadState();
+  const createFreshDraftThread = useFreshDraftThreadState();
 
   return {
+    createFreshDraftThread,
     handleNewThread,
   };
 }
@@ -172,10 +238,12 @@ export function useHandleNewThread() {
     });
   }, [projectOrder, projects]);
   const handleNewThread = useNewThreadState();
+  const createFreshDraftThread = useFreshDraftThreadState();
 
   return {
     activeDraftThread,
     activeThread,
+    createFreshDraftThread,
     defaultProjectRef: orderedProjects[0]
       ? scopeProjectRef(orderedProjects[0].environmentId, orderedProjects[0].id)
       : null,

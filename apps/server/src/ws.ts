@@ -194,7 +194,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const sessions = yield* SessionCredentialService;
       const threadBootstrapDispatcher = yield* ThreadBootstrapDispatcher;
       const projectionBoardCardRepository = yield* ProjectionBoardCardRepository;
-      const projectionBoardDismissedGhostRepository = yield* ProjectionBoardDismissedGhostRepository;
+      const projectionBoardDismissedGhostRepository =
+        yield* ProjectionBoardDismissedGhostRepository;
       const serverCommandId = (tag: string) =>
         CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 

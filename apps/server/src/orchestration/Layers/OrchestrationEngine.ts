@@ -30,6 +30,7 @@ import {
 import { toPersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
+import { ProjectionBoardCardRepositoryLive } from "../../persistence/Layers/ProjectionBoardCards.ts";
 import {
   OrchestrationCommandInvariantError,
   OrchestrationCommandPreviouslyRejectedError,
@@ -102,7 +103,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const commandQueue = yield* Queue.unbounded<CommandEnvelope>();
   const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
 
-  const processEnvelope = (envelope: CommandEnvelope): Effect.Effect<void> => {
+  const processEnvelope = (envelope: CommandEnvelope) => {
     const dispatchStartSequence = readModel.snapshotSequence;
     const processingStartedAtMs = Date.now();
     const aggregateRef = commandToAggregateRef(envelope.command);
@@ -327,4 +328,4 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 export const OrchestrationEngineLive = Layer.effect(
   OrchestrationEngineService,
   makeOrchestrationEngine,
-);
+).pipe(Layer.provideMerge(ProjectionBoardCardRepositoryLive));

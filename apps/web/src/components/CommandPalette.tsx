@@ -701,8 +701,7 @@ function OpenCommandPaletteDialog() {
   // Board: open / add idea / add planned — only when there's a resolvable
   // project (active thread or active draft).
   if (currentProjectEnvironmentId && currentProjectId) {
-    const resolvedProjectTitle =
-      projectTitleById.get(currentProjectId) ?? "this project";
+    const resolvedProjectTitle = projectTitleById.get(currentProjectId) ?? "this project";
     const openBoard = async () => {
       await navigate({
         to: ".",
