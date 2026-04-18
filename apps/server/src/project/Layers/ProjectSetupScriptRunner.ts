@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
+import { materializeManagedWorktreeScripts } from "./WorktreeReadinessShared.ts";
 import { WorktreeRuntimeEnvProvisionerLive } from "./WorktreeRuntimeEnvProvisioner.ts";
 import { WorktreeRuntimeEnvProvisioner } from "../Services/WorktreeRuntimeEnvProvisioner.ts";
 import {
@@ -31,12 +32,26 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
         return yield* Effect.fail(new Error("Project was not found for setup script execution."));
       }
 
-      if (project.worktreeReadiness?.status === "configured") {
+      const readinessProfile =
+        project.worktreeReadiness?.status === "configured" ? project.worktreeReadiness : null;
+
+      if (readinessProfile) {
         yield* worktreeRuntimeEnvProvisioner.ensureEnvFile({
           projectCwd: project.workspaceRoot,
           worktreePath: input.worktreePath,
-          portCount: project.worktreeReadiness.portCount,
+          portCount: readinessProfile.portCount,
         });
+        yield* Effect.tryPromise(() =>
+          materializeManagedWorktreeScripts({
+            rootPath: input.worktreePath,
+            installCommand: readinessProfile.installCommand,
+            envStrategy: readinessProfile.envStrategy,
+            envSourcePath: readinessProfile.envSourcePath,
+            framework: readinessProfile.framework,
+            packageManager: readinessProfile.packageManager,
+            devCommand: readinessProfile.devCommand,
+          }),
+        );
       }
 
       const script = setupProjectScript(project.scripts);
