@@ -960,7 +960,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   updatedAt: "2026-04-01T15:00:00Z",
                   isCrossRepository: true,
                   headRepository: {
-                    nameWithOwner: "lnieuwenhuis/t3code",
+                    nameWithOwner: "lnieuwenhuis/agentdynamo2",
                   },
                   headRepositoryOwner: {
                     login: "lnieuwenhuis",
@@ -2077,7 +2077,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   state: "OPEN",
                   isCrossRepository: true,
                   headRepository: {
-                    nameWithOwner: "lnieuwenhuis/t3code",
+                    nameWithOwner: "lnieuwenhuis/agentdynamo2",
                   },
                   headRepositoryOwner: {
                     login: "lnieuwenhuis",
@@ -2583,7 +2583,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             headRepositoryOwnerLogin: "binbandit",
           },
           repositoryCloneUrls: {
-            "binbandit/t3code": {
+            "binbandit/agentdynamo2": {
               url: forkDir,
               sshUrl: forkDir,
             },
