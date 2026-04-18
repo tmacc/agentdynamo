@@ -52,6 +52,8 @@ const clientSettings: ClientSettings = {
   confirmThreadArchive: true,
   confirmThreadDelete: false,
   diffWordWrap: true,
+  sidebarProjectGroupingMode: "repository_path",
+  sidebarProjectGroupingOverrides: {},
   sidebarProjectSortOrder: "manual",
   sidebarThreadSortOrder: "created_at",
   timestampFormat: "24-hour",
@@ -73,6 +75,30 @@ describe("clientPersistence", () => {
     writeClientSettings(settingsPath, clientSettings);
 
     expect(readClientSettings(settingsPath)).toEqual(clientSettings);
+  });
+
+  it("fills missing project grouping settings when loading older client settings", () => {
+    const settingsPath = makeTempPath("client-settings.json");
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        settings: {
+          confirmThreadArchive: true,
+          confirmThreadDelete: false,
+          diffWordWrap: true,
+          sidebarProjectSortOrder: "manual",
+          sidebarThreadSortOrder: "created_at",
+          timestampFormat: "24-hour",
+        },
+      }),
+      "utf8",
+    );
+
+    expect(readClientSettings(settingsPath)).toEqual({
+      ...clientSettings,
+      sidebarProjectGroupingMode: "repository",
+      sidebarProjectGroupingOverrides: {},
+    });
   });
 
   it("persists and reloads saved environment metadata", () => {
