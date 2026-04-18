@@ -205,13 +205,17 @@ function detectDevCommand(input: {
 }
 
 async function detectEnvSourcePath(projectCwd: string): Promise<string | null> {
-  const candidates = [
-    ".env.local",
-    ".env.development",
-    ".env",
-    ".env.example",
-    ".env.local.example",
-  ];
+  const candidates = [".env.local", ".env.development", ".env"];
+  for (const candidate of candidates) {
+    if (await fileExists(path.join(projectCwd, candidate))) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function detectEnvTemplatePath(projectCwd: string): Promise<string | null> {
+  const candidates = [".env.local.example", ".env.example"];
   for (const candidate of candidates) {
     if (await fileExists(path.join(projectCwd, candidate))) {
       return candidate;
@@ -448,12 +452,17 @@ export async function computeReadinessAnalysis(input: {
     const exists = await fileExists(absolutePath);
     filePresence.set(relativePath, exists);
     if (!exists) {
-      fingerprint.update(`${relativePath}:missing\n`);
+      fingerprint.update(relativePath);
+      fingerprint.update("\0missing\0");
       continue;
     }
     const content = await readOptionalFile(absolutePath);
-    fingerprint.update(`${relativePath}\n${content ?? ""}\n`);
+    fingerprint.update(relativePath);
+    fingerprint.update("\0");
+    fingerprint.update(content ?? "");
+    fingerprint.update("\0");
   }
+  const scanFingerprint = fingerprint.digest("hex");
 
   const packageJson = await readPackageJson(input.projectCwd);
   const framework = detectFramework({ packageJson, filePresence });
@@ -466,6 +475,8 @@ export async function computeReadinessAnalysis(input: {
     filePresence,
   });
   const envSourcePath = await detectEnvSourcePath(input.projectCwd);
+  const envTemplatePath =
+    envSourcePath === null ? await detectEnvTemplatePath(input.projectCwd) : null;
   const envStrategy: ProjectWorktreeReadinessEnvStrategy = envSourcePath ? "symlink_root" : "none";
   const recommendation: ProjectWorktreeReadinessRecommendation = {
     packageManager,
@@ -514,11 +525,14 @@ export async function computeReadinessAnalysis(input: {
   if (recommendation.envStrategy === "none") {
     warnings.push({
       id: "missing-env-source",
-      message: "No root env file was detected. Worktree readiness will skip env file linking.",
+      message:
+        envTemplatePath !== null
+          ? `Only ${envTemplatePath} was detected. Worktree readiness will skip env file linking until a real env file is present.`
+          : "No root env file was detected. Worktree readiness will skip env file linking.",
       severity: "info",
     });
   }
-  if (input.profile && input.profile.scanFingerprint !== fingerprint.digest("hex")) {
+  if (input.profile && input.profile.scanFingerprint !== scanFingerprint) {
     warnings.push({
       id: "stale-readiness-profile",
       message: "The saved worktree readiness profile is stale and should be reviewed.",
@@ -526,16 +540,8 @@ export async function computeReadinessAnalysis(input: {
     });
   }
 
-  const digest = crypto.createHash("sha256");
-  for (const relativePath of trackedFiles) {
-    const absolutePath = path.join(input.projectCwd, relativePath);
-    const exists = await fileExists(absolutePath);
-    digest.update(relativePath);
-    digest.update(exists ? ((await readOptionalFile(absolutePath)) ?? "") : "missing");
-  }
-
   return {
-    scanFingerprint: digest.digest("hex"),
+    scanFingerprint,
     detectedProjectType: framework === "generic" ? packageManager : framework,
     recommendation,
     warnings,
