@@ -375,6 +375,33 @@ export function buildManagedScripts(input: {
   ];
 }
 
+export function buildManagedWorktreeScriptFiles(input: {
+  readonly installCommand: string | null;
+  readonly envStrategy: ProjectWorktreeReadinessEnvStrategy;
+  readonly envSourcePath: string | null;
+  readonly framework: ProjectWorktreeReadinessFramework;
+  readonly packageManager: ProjectWorktreeReadinessPackageManager;
+  readonly devCommand: string | null;
+}): ReadonlyArray<readonly [string, string]> {
+  const setupContent = buildSetupScriptContent({
+    installCommand: input.installCommand,
+    envStrategy: input.envStrategy,
+    envSourcePath: input.envSourcePath,
+  });
+  const devContent = buildDevScriptContent({
+    framework: input.framework,
+    packageManager: input.packageManager,
+    devCommand:
+      input.devCommand ??
+      "zsh -lc 'echo \"No dev command configured for this worktree.\" >&2; exit 1'",
+  });
+
+  return [
+    [WORKTREE_SETUP_SCRIPT_PATH, setupContent],
+    [WORKTREE_DEV_SCRIPT_PATH, devContent],
+  ] as const;
+}
+
 export function mergeReadinessScripts(
   existingScripts: ReadonlyArray<ProjectScript>,
   nextManagedScripts: ReadonlyArray<ProjectScript>,
@@ -570,6 +597,31 @@ export async function writeExecutableFile(filePath: string, contents: string): P
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, contents, "utf8");
   await fs.chmod(filePath, 0o755);
+}
+
+export async function materializeManagedWorktreeScripts(input: {
+  readonly rootPath: string;
+  readonly installCommand: string | null;
+  readonly envStrategy: ProjectWorktreeReadinessEnvStrategy;
+  readonly envSourcePath: string | null;
+  readonly framework: ProjectWorktreeReadinessFramework;
+  readonly packageManager: ProjectWorktreeReadinessPackageManager;
+  readonly devCommand: string | null;
+}): Promise<ReadonlyArray<string>> {
+  const files = buildManagedWorktreeScriptFiles({
+    installCommand: input.installCommand,
+    envStrategy: input.envStrategy,
+    envSourcePath: input.envSourcePath,
+    framework: input.framework,
+    packageManager: input.packageManager,
+    devCommand: input.devCommand,
+  });
+
+  for (const [relativePath, content] of files) {
+    await writeExecutableFile(path.join(input.rootPath, relativePath), content);
+  }
+
+  return files.map(([relativePath]) => relativePath);
 }
 
 export async function ensureGitignoreEntry(projectCwd: string, entry: string): Promise<boolean> {
