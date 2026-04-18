@@ -197,6 +197,50 @@ function createCollabNotificationHarness() {
   return { manager, context, emitEvent, updateSession };
 }
 
+function createDisposableSessionContext(threadId: ThreadId = asThreadId("thread-disposable")) {
+  const outputClose = vi.fn();
+  const context = {
+    session: {
+      provider: "codex" as const,
+      status: "ready" as const,
+      threadId,
+      runtimeMode: "full-access" as const,
+      model: "gpt-5.3-codex",
+      activeTurnId: undefined as string | undefined,
+      resumeCursor: { threadId },
+      createdAt: "2026-02-10T00:00:00.000Z",
+      updatedAt: "2026-02-10T00:00:00.000Z",
+    },
+    account: {
+      type: "unknown" as const,
+      planType: null,
+      sparkEnabled: true,
+    },
+    child: {
+      killed: true,
+    },
+    output: {
+      close: outputClose,
+    },
+    pending: new Map(),
+    pendingApprovals: new Map(),
+    pendingUserInputs: new Map(),
+    collabReceiverTurns: new Map(),
+    collabChildTurns: new Map(),
+    teamMcpServerName: undefined as string | undefined,
+    teamMcpServerUrl: undefined as string | undefined,
+    teamMcpStatusObserved: false,
+    nativeCollabPolicyWarningEmitted: false,
+    nextRequestId: 1,
+    stopping: false,
+  };
+
+  return {
+    context,
+    outputClose,
+  };
+}
+
 describe("classifyCodexStderrLine", () => {
   it("ignores empty lines", () => {
     expect(classifyCodexStderrLine("   ")).toBeNull();
@@ -226,6 +270,100 @@ describe("classifyCodexStderrLine", () => {
     expect(classifyCodexStderrLine(line)).toEqual({
       message: line,
     });
+  });
+});
+
+describe("session disposal", () => {
+  it("disposes an existing runtime before attempting a replacement session", async () => {
+    const manager = new CodexAppServerManager();
+    const { context } = createDisposableSessionContext(asThreadId("thread-replace"));
+    (
+      manager as unknown as {
+        sessions: Map<ThreadId, unknown>;
+      }
+    ).sessions.set(context.session.threadId, context);
+    const disposeSession = vi.spyOn(
+      manager as unknown as {
+        disposeSession: (
+          context: unknown,
+          options?: { readonly emitLifecycleEvent?: boolean },
+        ) => void;
+      },
+      "disposeSession",
+    );
+    const processCwd = vi.spyOn(process, "cwd").mockImplementation(() => {
+      throw new Error("cwd missing after replacement");
+    });
+
+    try {
+      await expect(
+        manager.startSession({
+          threadId: context.session.threadId,
+          provider: "codex",
+          binaryPath: "codex",
+          runtimeMode: "full-access",
+        }),
+      ).rejects.toThrow("cwd missing after replacement");
+      expect(disposeSession).toHaveBeenCalledTimes(1);
+      expect(disposeSession).toHaveBeenCalledWith(context, {
+        emitLifecycleEvent: false,
+      });
+    } finally {
+      processCwd.mockRestore();
+      disposeSession.mockRestore();
+      manager.stopAll();
+    }
+  });
+
+  it("disposal is idempotent for the same session context", () => {
+    const manager = new CodexAppServerManager();
+    const { context, outputClose } = createDisposableSessionContext();
+    (
+      manager as unknown as {
+        sessions: Map<ThreadId, unknown>;
+      }
+    ).sessions.set(context.session.threadId, context);
+    const updateSession = vi
+      .spyOn(manager as unknown as { updateSession: (...args: unknown[]) => void }, "updateSession")
+      .mockImplementation(() => {});
+    const emitLifecycleEvent = vi
+      .spyOn(
+        manager as unknown as { emitLifecycleEvent: (...args: unknown[]) => void },
+        "emitLifecycleEvent",
+      )
+      .mockImplementation(() => {});
+
+    (
+      manager as unknown as {
+        disposeSession: (
+          context: unknown,
+          options?: { readonly emitLifecycleEvent?: boolean },
+        ) => void;
+      }
+    ).disposeSession(context, {
+      emitLifecycleEvent: true,
+    });
+    (
+      manager as unknown as {
+        disposeSession: (
+          context: unknown,
+          options?: { readonly emitLifecycleEvent?: boolean },
+        ) => void;
+      }
+    ).disposeSession(context, {
+      emitLifecycleEvent: true,
+    });
+
+    expect(outputClose).toHaveBeenCalledTimes(1);
+    expect(updateSession).toHaveBeenCalledTimes(1);
+    expect(emitLifecycleEvent).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        manager as unknown as {
+          sessions: Map<ThreadId, unknown>;
+        }
+      ).sessions.has(context.session.threadId),
+    ).toBe(false);
   });
 });
 

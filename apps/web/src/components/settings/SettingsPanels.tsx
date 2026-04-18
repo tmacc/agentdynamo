@@ -19,7 +19,10 @@ import {
   type ServerProviderModel,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import {
+  DEFAULT_UNIFIED_SETTINGS,
+  type SidebarProjectGroupingMode,
+} from "@t3tools/contracts/settings";
 import { normalizeModelSlug } from "@t3tools/shared/model";
 import { Equal } from "effect";
 import { APP_BASE_NAME, APP_VERSION } from "../../branding";
@@ -98,6 +101,12 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+const SIDEBAR_PROJECT_GROUPING_LABELS: Record<SidebarProjectGroupingMode, string> = {
+  repository: "By repository",
+  repository_path: "By repository path",
+  separate: "Keep separate",
+};
 
 type InstallProviderSettings = {
   provider: ProviderKind;
@@ -439,6 +448,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap
         ? ["Diff line wrapping"]
         : []),
+      ...(settings.sidebarProjectGroupingMode !==
+      DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
+        ? ["Project grouping"]
+        : []),
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -466,6 +479,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.addProjectBaseDirectory,
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
+      settings.sidebarProjectGroupingMode,
       settings.enableAssistantStreaming,
       settings.teamAgents,
       settings.timestampFormat,
@@ -856,6 +870,53 @@ export function GeneralSettingsPanel() {
               onCheckedChange={(checked) => updateSettings({ diffWordWrap: Boolean(checked) })}
               aria-label="Wrap diff lines by default"
             />
+          }
+        />
+
+        <SettingsRow
+          title="Project grouping"
+          description="Choose how the sidebar groups projects that share a repository across environments."
+          resetAction={
+            settings.sidebarProjectGroupingMode !==
+            DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode ? (
+              <SettingResetButton
+                label="project grouping"
+                onClick={() =>
+                  updateSettings({
+                    sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.sidebarProjectGroupingMode}
+              onValueChange={(value) => {
+                if (value === "repository" || value === "repository_path" || value === "separate") {
+                  updateSettings({
+                    sidebarProjectGroupingMode: value,
+                  });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-48" aria-label="Sidebar project grouping">
+                <SelectValue>
+                  {SIDEBAR_PROJECT_GROUPING_LABELS[settings.sidebarProjectGroupingMode]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="repository">
+                  {SIDEBAR_PROJECT_GROUPING_LABELS.repository}
+                </SelectItem>
+                <SelectItem hideIndicator value="repository_path">
+                  {SIDEBAR_PROJECT_GROUPING_LABELS.repository_path}
+                </SelectItem>
+                <SelectItem hideIndicator value="separate">
+                  {SIDEBAR_PROJECT_GROUPING_LABELS.separate}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
           }
         />
 
