@@ -10,6 +10,7 @@ import {
   OrchestrationTeamTask,
   OrchestrationThread,
   ProjectScript,
+  ProjectWorktreeReadinessProfile,
   TurnId,
   type OrchestrationCheckpointSummary,
   type OrchestrationLatestTurn,
@@ -59,6 +60,7 @@ const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+    worktreeReadiness: Schema.NullOr(Schema.fromJsonString(ProjectWorktreeReadinessProfile)),
   }),
 );
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
@@ -248,6 +250,7 @@ function mapProjectShellRow(
     repositoryIdentity,
     defaultModelSelection: row.defaultModelSelection,
     scripts: row.scripts,
+    worktreeReadiness: row.worktreeReadiness,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -1036,6 +1039,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 repositoryIdentity: repositoryIdentities.get(row.projectId) ?? null,
                 defaultModelSelection: row.defaultModelSelection,
                 scripts: row.scripts,
+                worktreeReadiness: row.worktreeReadiness,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
                 deletedAt: row.deletedAt,

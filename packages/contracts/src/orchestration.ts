@@ -143,6 +143,58 @@ export const ProjectScript = Schema.Struct({
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
+export const ProjectWorktreeReadinessPackageManager = Schema.Literals([
+  "bun",
+  "pnpm",
+  "npm",
+  "yarn",
+  "uv",
+  "pip",
+  "poetry",
+  "bundle",
+  "mix",
+  "unknown",
+]);
+export type ProjectWorktreeReadinessPackageManager =
+  typeof ProjectWorktreeReadinessPackageManager.Type;
+
+export const ProjectWorktreeReadinessFramework = Schema.Literals([
+  "next",
+  "vite",
+  "astro",
+  "django",
+  "rails",
+  "phoenix",
+  "generic",
+]);
+export type ProjectWorktreeReadinessFramework = typeof ProjectWorktreeReadinessFramework.Type;
+
+export const ProjectWorktreeReadinessEnvStrategy = Schema.Literals([
+  "symlink_root",
+  "copy_root",
+  "none",
+]);
+export type ProjectWorktreeReadinessEnvStrategy = typeof ProjectWorktreeReadinessEnvStrategy.Type;
+
+export const ProjectWorktreeReadinessProfile = Schema.Struct({
+  version: Schema.Literal(1),
+  status: Schema.Literal("configured"),
+  scanFingerprint: TrimmedNonEmptyString,
+  lastScannedAt: IsoDateTime,
+  lastAppliedAt: IsoDateTime,
+  packageManager: ProjectWorktreeReadinessPackageManager,
+  framework: ProjectWorktreeReadinessFramework,
+  installCommand: Schema.NullOr(TrimmedNonEmptyString),
+  devCommand: Schema.NullOr(TrimmedNonEmptyString),
+  envStrategy: ProjectWorktreeReadinessEnvStrategy,
+  envSourcePath: Schema.NullOr(TrimmedNonEmptyString),
+  portCount: NonNegativeInt,
+  generatedFiles: Schema.Array(TrimmedNonEmptyString),
+  setupScriptCommand: TrimmedNonEmptyString,
+  devScriptCommand: TrimmedNonEmptyString,
+});
+export type ProjectWorktreeReadinessProfile = typeof ProjectWorktreeReadinessProfile.Type;
+
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -150,6 +202,7 @@ export const OrchestrationProject = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  worktreeReadiness: Schema.optional(Schema.NullOr(ProjectWorktreeReadinessProfile)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -360,6 +413,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  worktreeReadiness: Schema.optional(Schema.NullOr(ProjectWorktreeReadinessProfile)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -464,6 +518,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  worktreeReadiness: Schema.optional(Schema.NullOr(ProjectWorktreeReadinessProfile)),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -830,6 +885,7 @@ export const ProjectCreatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  worktreeReadiness: Schema.optional(Schema.NullOr(ProjectWorktreeReadinessProfile)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -841,6 +897,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  worktreeReadiness: Schema.optional(Schema.NullOr(ProjectWorktreeReadinessProfile)),
   updatedAt: IsoDateTime,
 });
 

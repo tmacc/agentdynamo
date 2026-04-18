@@ -3,6 +3,8 @@ import { Effect, Layer } from "effect";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
+import { WorktreeRuntimeEnvProvisionerLive } from "./WorktreeRuntimeEnvProvisioner.ts";
+import { WorktreeRuntimeEnvProvisioner } from "../Services/WorktreeRuntimeEnvProvisioner.ts";
 import {
   type ProjectSetupScriptRunnerShape,
   ProjectSetupScriptRunner,
@@ -11,6 +13,7 @@ import {
 const makeProjectSetupScriptRunner = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const terminalManager = yield* TerminalManager;
+  const worktreeRuntimeEnvProvisioner = yield* WorktreeRuntimeEnvProvisioner;
 
   const runForThread: ProjectSetupScriptRunnerShape["runForThread"] = (input) =>
     Effect.gen(function* () {
@@ -26,6 +29,14 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
 
       if (!project) {
         return yield* Effect.fail(new Error("Project was not found for setup script execution."));
+      }
+
+      if (project.worktreeReadiness?.status === "configured") {
+        yield* worktreeRuntimeEnvProvisioner.ensureEnvFile({
+          projectCwd: project.workspaceRoot,
+          worktreePath: input.worktreePath,
+          portCount: project.worktreeReadiness.portCount,
+        });
       }
 
       const script = setupProjectScript(project.scripts);
@@ -72,4 +83,4 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
 export const ProjectSetupScriptRunnerLive = Layer.effect(
   ProjectSetupScriptRunner,
   makeProjectSetupScriptRunner,
-);
+).pipe(Layer.provideMerge(WorktreeRuntimeEnvProvisionerLive));

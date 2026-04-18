@@ -20,10 +20,14 @@ import type {
 } from "./git";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import type {
+  ProjectApplyWorktreeReadinessInput,
+  ProjectApplyWorktreeReadinessResult,
   ProjectGetIntelligenceInput,
   ProjectGetIntelligenceResult,
   ProjectReadIntelligenceSurfaceInput,
   ProjectReadIntelligenceSurfaceResult,
+  ProjectScanWorktreeReadinessInput,
+  ProjectScanWorktreeReadinessResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -247,6 +251,12 @@ export interface EnvironmentApi {
   };
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
+    scanWorktreeReadiness: (
+      input: ProjectScanWorktreeReadinessInput,
+    ) => Promise<ProjectScanWorktreeReadinessResult>;
+    applyWorktreeReadiness: (
+      input: ProjectApplyWorktreeReadinessInput,
+    ) => Promise<ProjectApplyWorktreeReadinessResult>;
     getIntelligence: (input: ProjectGetIntelligenceInput) => Promise<ProjectGetIntelligenceResult>;
     readIntelligenceSurface: (
       input: ProjectReadIntelligenceSurfaceInput,
