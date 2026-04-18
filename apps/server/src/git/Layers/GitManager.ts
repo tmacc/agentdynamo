@@ -131,6 +131,24 @@ function resolveHeadRepositoryNameWithOwner(
   return `${ownerLogin}/${repositoryName}`;
 }
 
+function remoteNameLooksOwnedBy(
+  remoteName: string | null | undefined,
+  ownerLogin: string | null | undefined,
+): boolean {
+  const normalizedRemoteName = remoteName?.trim().toLowerCase() ?? "";
+  const normalizedOwnerLogin = ownerLogin?.trim().toLowerCase() ?? "";
+  if (normalizedRemoteName.length === 0 || normalizedOwnerLogin.length === 0) {
+    return false;
+  }
+
+  return (
+    normalizedRemoteName === normalizedOwnerLogin ||
+    normalizedRemoteName.startsWith(`${normalizedOwnerLogin}-`) ||
+    normalizedRemoteName.endsWith(`-${normalizedOwnerLogin}`) ||
+    normalizedRemoteName.includes(normalizedOwnerLogin)
+  );
+}
+
 function resolvePullRequestWorktreeLocalBranchName(
   pullRequest: ResolvedPullRequest & PullRequestHeadRemoteInfo,
 ): string {
@@ -525,6 +543,34 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       pullRequest: ResolvedPullRequest & PullRequestHeadRemoteInfo,
       localBranch = pullRequest.headBranch,
     ) {
+      const resolveExistingHeadRemoteName = Effect.fn("resolveExistingHeadRemoteName")(function* (
+        searchCwd: string,
+      ) {
+        const branches = yield* gitCore.listBranches({ cwd: searchCwd });
+        const matchingRemoteBranches = branches.branches.filter(
+          (branch) =>
+            branch.isRemote &&
+            branch.remoteName &&
+            extractBranchNameFromRemoteRef(branch.name, { remoteName: branch.remoteName }) ===
+              pullRequest.headBranch,
+        );
+        const ownerMatchedRemote = matchingRemoteBranches.find((branch) =>
+          remoteNameLooksOwnedBy(branch.remoteName, pullRequest.headRepositoryOwnerLogin),
+        );
+        return ownerMatchedRemote?.remoteName ?? matchingRemoteBranches[0]?.remoteName ?? null;
+      });
+
+      const existingHeadRemoteName = yield* resolveExistingHeadRemoteName(cwd);
+      if (existingHeadRemoteName) {
+        yield* gitCore.setBranchUpstream({
+          cwd,
+          branch: localBranch,
+          remoteName: existingHeadRemoteName,
+          remoteBranch: pullRequest.headBranch,
+        });
+        return;
+      }
+
       const repositoryNameWithOwner = resolveHeadRepositoryNameWithOwner(pullRequest) ?? "";
       if (repositoryNameWithOwner.length === 0) {
         return;
@@ -1445,7 +1491,6 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         existingBranchBeforeFetchPath !== rootWorktreePath
       ) {
         yield* ensureExistingWorktreeUpstream(existingBranchBeforeFetch.worktreePath);
-        yield* maybeRunSetupScript(existingBranchBeforeFetch.worktreePath);
         return {
           pullRequest,
           branch: localPullRequestBranch,
@@ -1474,7 +1519,6 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         existingBranchAfterFetchPath !== rootWorktreePath
       ) {
         yield* ensureExistingWorktreeUpstream(existingBranchAfterFetch.worktreePath);
-        yield* maybeRunSetupScript(existingBranchAfterFetch.worktreePath);
         return {
           pullRequest,
           branch: localPullRequestBranch,
