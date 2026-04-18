@@ -284,6 +284,7 @@ const make = Effect.gen(function* () {
     const requestedModelSelection = options?.modelSelection;
     const desiredModelSelection = requestedModelSelection ?? thread.modelSelection;
     const desiredProvider = desiredModelSelection.provider;
+    const preferredProvider: ProviderKind = currentProvider ?? desiredProvider;
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
       projects: readModel.projects,
@@ -321,7 +322,7 @@ const make = Effect.gen(function* () {
     }) =>
       providerService.startSession(threadId, {
         threadId,
-        provider: input?.provider ?? desiredProvider,
+        provider: input?.provider ?? preferredProvider,
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),

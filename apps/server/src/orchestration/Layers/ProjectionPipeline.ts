@@ -1336,6 +1336,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             }
             return;
           }
+          if (event.payload.activity.kind !== "approval.requested") {
+            return;
+          }
           if (Option.isSome(existingRow) && existingRow.value.status === "resolved") {
             return;
           }
