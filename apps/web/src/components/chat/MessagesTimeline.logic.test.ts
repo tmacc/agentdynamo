@@ -376,6 +376,173 @@ describe("deriveMessagesTimelineRows", () => {
       toModel: "claude-opus-4-6",
     });
   });
+
+  it("shows the fork button only for user messages with a settled assistant response block", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-settled-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:00Z",
+          message: {
+            id: "user-settled" as never,
+            role: "user",
+            text: "Settled prompt",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:00Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-settled-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:05Z",
+          message: {
+            id: "assistant-settled" as never,
+            role: "assistant",
+            text: "Done",
+            turnId: "turn-1" as never,
+            createdAt: "2026-01-01T00:00:05Z",
+            completedAt: "2026-01-01T00:00:06Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "user-streaming-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:10Z",
+          message: {
+            id: "user-streaming" as never,
+            role: "user",
+            text: "Streaming prompt",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:10Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-streaming-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:15Z",
+          message: {
+            id: "assistant-streaming" as never,
+            role: "assistant",
+            text: "Still going",
+            turnId: "turn-2" as never,
+            createdAt: "2026-01-01T00:00:15Z",
+            streaming: true,
+          },
+        },
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map(),
+    });
+
+    const settledUserRow = rows.find(
+      (row): row is Extract<(typeof rows)[number], { kind: "message" }> =>
+        row.kind === "message" && row.message.id === ("user-settled" as never),
+    );
+    const streamingUserRow = rows.find(
+      (row): row is Extract<(typeof rows)[number], { kind: "message" }> =>
+        row.kind === "message" && row.message.id === ("user-streaming" as never),
+    );
+
+    expect(settledUserRow?.showForkButton).toBe(true);
+    expect(streamingUserRow?.showForkButton).toBe(false);
+  });
+
+  it("inserts the fork separator after imported rows and before post-fork rows", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "imported-user-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          message: {
+            id: "imported-user" as never,
+            role: "user",
+            text: "Imported question",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:01.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "post-fork-user-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:03.000Z",
+          message: {
+            id: "post-fork-user" as never,
+            role: "user",
+            text: "New question",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:03.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map(),
+      forkOrigin: {
+        sourceThreadId: "thread-source" as never,
+        sourceThreadTitle: "Parent thread",
+        sourceUserMessageId: "message-source" as never,
+        importedUntilAt: "2026-01-01T00:00:02.000Z",
+        forkedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "fork-separator", "message"]);
+    expect(rows[1]).toEqual({
+      kind: "fork-separator",
+      id: "fork-separator:2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:02.000Z",
+      sourceThreadTitle: "Parent thread",
+    });
+  });
+
+  it("appends the fork separator when there are no post-fork rows yet", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "imported-user-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          message: {
+            id: "imported-user" as never,
+            role: "user",
+            text: "Imported question",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:01.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map(),
+      forkOrigin: {
+        sourceThreadId: "thread-source" as never,
+        sourceThreadTitle: "Parent thread",
+        sourceUserMessageId: "message-source" as never,
+        importedUntilAt: "2026-01-01T00:00:02.000Z",
+        forkedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+
+    expect(rows.at(-1)?.kind).toBe("fork-separator");
+  });
 });
 
 describe("computeStableMessagesTimelineRows", () => {

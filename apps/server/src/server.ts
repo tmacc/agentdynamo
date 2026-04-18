@@ -40,6 +40,8 @@ import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRun
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
 import { ThreadBootstrapDispatcherLive } from "./orchestration/Layers/ThreadBootstrapDispatcher";
+import { ThreadForkDispatcherLive } from "./orchestration/Layers/ThreadForkDispatcher";
+import { ThreadForkMaterializerLive } from "./orchestration/Layers/ThreadForkMaterializer";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
@@ -73,6 +75,7 @@ import {
 } from "./serverRuntimeState";
 import {
   orchestrationDispatchRouteLayer,
+  orchestrationForkThreadRouteLayer,
   orchestrationSnapshotRouteLayer,
 } from "./orchestration/http";
 import { TeamCoordinatorSessionRegistryLive } from "./team/Layers/TeamCoordinatorSessionRegistry";
@@ -241,7 +244,9 @@ const RuntimeCoreDependenciesBaseLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ServerLifecycleEventsLive),
 );
 
-const RuntimeCoreDependenciesWithBootstrapLive = ThreadBootstrapDispatcherLive.pipe(
+const RuntimeCoreDependenciesWithBootstrapLive = ThreadForkDispatcherLive.pipe(
+  Layer.provideMerge(ThreadForkMaterializerLive),
+  Layer.provideMerge(ThreadBootstrapDispatcherLive),
   Layer.provideMerge(RuntimeCoreDependenciesBaseLive),
 );
 
@@ -270,6 +275,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   authWebSocketTokenRouteLayer,
   attachmentsRouteLayer,
   orchestrationDispatchRouteLayer,
+  orchestrationForkThreadRouteLayer,
   orchestrationSnapshotRouteLayer,
   teamMcpHealthRouteLayer,
   teamMcpRouteLayer,

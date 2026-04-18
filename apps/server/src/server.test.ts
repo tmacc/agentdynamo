@@ -15,6 +15,7 @@ import {
   TerminalNotRunningError,
   type OrchestrationCommand,
   type OrchestrationEvent,
+  OrchestrationForkThreadError,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ResolvedKeybindingRule,
@@ -78,6 +79,10 @@ import {
   ThreadBootstrapDispatcher,
   type ThreadBootstrapDispatcherShape,
 } from "./orchestration/Services/ThreadBootstrapDispatcher.ts";
+import {
+  ThreadForkDispatcher,
+  type ThreadForkDispatcherShape,
+} from "./orchestration/Services/ThreadForkDispatcher.ts";
 import { ThreadBootstrapDispatcherLive } from "./orchestration/Layers/ThreadBootstrapDispatcher.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import {
@@ -349,6 +354,7 @@ const buildAppUnderTest = (options?: {
     projectIntelligenceResolver?: Partial<ProjectIntelligenceResolverShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
     threadBootstrapDispatcher?: Partial<ThreadBootstrapDispatcherShape>;
+    threadForkDispatcher?: Partial<ThreadForkDispatcherShape>;
     teamCoordinatorSessionRegistry?: Partial<TeamCoordinatorSessionRegistryShape>;
     teamOrchestrationService?: Partial<TeamOrchestrationServiceShape>;
   };
@@ -444,6 +450,15 @@ const buildAppUnderTest = (options?: {
       flush: Effect.void,
       ...options?.layers?.analytics,
     });
+    const threadForkDispatcherLayer = Layer.mock(ThreadForkDispatcher)({
+      forkThread: () =>
+        Effect.fail(
+          new OrchestrationForkThreadError({
+            message: "thread forking is not configured in this server test harness",
+          }),
+        ),
+      ...options?.layers?.threadForkDispatcher,
+    });
 
     const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
@@ -533,6 +548,7 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provide(threadBootstrapDispatcherLayer),
       Layer.provide(analyticsLayer),
+      Layer.provide(threadForkDispatcherLayer),
       Layer.provide(
         Layer.mock(TeamCoordinatorSessionRegistry)({
           getCoordinatorSessionConfig: () =>
