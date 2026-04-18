@@ -280,6 +280,7 @@ jobs:
           if-no-files-found: error
 
   publish_cli:
+    if: vars.ENABLE_CLI_PUBLISH == 'true'
     name: Publish CLI to npm
     needs: [preflight, build]
     runs-on: ubuntu-24.04
@@ -315,7 +316,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [preflight, build, publish_cli]
+    needs: [preflight, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -388,7 +389,7 @@ jobs:
 
   finalize:
     name: Finalize release
-    if: needs.preflight.outputs.release_channel == 'stable'
+    if: needs.preflight.outputs.release_channel == 'stable' && vars.ENABLE_RELEASE_FINALIZE == 'true'
     needs: [preflight, release]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
