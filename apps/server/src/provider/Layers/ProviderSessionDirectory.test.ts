@@ -133,6 +133,28 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       }
     }));
 
+  it("lists persisted bindings with last-seen metadata", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const threadId = ThreadId.make("thread-list-bindings");
+
+      yield* directory.upsert({
+        provider: "codex",
+        threadId,
+        status: "running",
+        runtimePayload: {
+          activeTurnId: "turn-list-bindings",
+        },
+      });
+
+      const bindings = yield* directory.listBindings();
+      assert.equal(bindings.length, 1);
+      assert.equal(bindings[0]?.threadId, threadId);
+      assert.equal(bindings[0]?.provider, "codex");
+      assert.equal(bindings[0]?.status, "running");
+      assert.equal(typeof bindings[0]?.lastSeenAt, "string");
+    }));
+
   it("resets adapterKey to the new provider when provider changes without an explicit adapter key", () =>
     Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;
