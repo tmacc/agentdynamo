@@ -51,6 +51,14 @@ export interface OrchestrationEventStoreShape {
    * @returns Stream containing all stored events.
    */
   readonly readAll: () => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
+
+  /**
+   * Read the event stream for a single aggregate in sequence order.
+   */
+  readonly readStream: (input: {
+    readonly aggregateKind: OrchestrationEvent["aggregateKind"];
+    readonly streamId: OrchestrationEvent["aggregateId"];
+  }) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
 }
 
 /**

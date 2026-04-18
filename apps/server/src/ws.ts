@@ -5,6 +5,7 @@ import {
   CommandId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
+  OrchestrationForkThreadError,
   OrchestrationDispatchCommandError,
   FilesystemBrowseError,
   type OrchestrationEvent,
@@ -41,6 +42,7 @@ import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ThreadBootstrapDispatcher } from "./orchestration/Services/ThreadBootstrapDispatcher";
+import { ThreadForkDispatcher } from "./orchestration/Services/ThreadForkDispatcher";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -194,8 +196,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
       const threadBootstrapDispatcher = yield* ThreadBootstrapDispatcher;
-      const serverCommandId = (tag: string) =>
-        CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
+      const threadForkDispatcher = yield* ThreadForkDispatcher;
 
       const loadAuthAccessSnapshot = () =>
         Effect.all({
@@ -449,6 +450,34 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                     }),
               ),
             ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.forkThread]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.forkThread,
+            startup
+              .enqueueCommand(
+                threadForkDispatcher.forkThread(input).pipe(
+                  Effect.mapError((cause) =>
+                    Schema.is(OrchestrationForkThreadError)(cause)
+                      ? cause
+                      : new OrchestrationForkThreadError({
+                          message: "Failed to fork thread",
+                          cause,
+                        }),
+                  ),
+                ),
+              )
+              .pipe(
+                Effect.mapError((cause) =>
+                  Schema.is(OrchestrationForkThreadError)(cause)
+                    ? cause
+                    : new OrchestrationForkThreadError({
+                        message: "Failed to fork thread",
+                        cause,
+                      }),
+                ),
+              ),
             { "rpc.aggregate": "orchestration" },
           ),
         [ORCHESTRATION_WS_METHODS.getTurnDiff]: (input) =>
