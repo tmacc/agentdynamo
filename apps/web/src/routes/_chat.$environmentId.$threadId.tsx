@@ -16,6 +16,7 @@ import {
   parseDiffRouteSearch,
   stripDiffSearchParams,
 } from "../diffRouteSearch";
+import { type BoardRouteSearch, parseBoardRouteSearch } from "../boardRouteSearch";
 import {
   type ProjectIntelligenceRouteSearch,
   parseProjectIntelligenceRouteSearch,
@@ -308,15 +309,19 @@ export const Route = createFileRoute("/_chat/$environmentId/$threadId")({
   validateSearch: (search) => ({
     ...parseProjectIntelligenceRouteSearch(search),
     ...parseDiffRouteSearch(search),
+    ...parseBoardRouteSearch(search),
   }),
   search: {
     middlewares: [
-      retainSearchParams<DiffRouteSearch & ProjectIntelligenceRouteSearch>([
+      retainSearchParams<DiffRouteSearch & ProjectIntelligenceRouteSearch & BoardRouteSearch>([
         "diff",
         "intel",
         "intelEnvironmentId",
         "intelProjectCwd",
         "intelSection",
+        "view",
+        "boardEnvironmentId",
+        "boardProjectId",
       ]),
     ],
   },

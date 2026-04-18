@@ -55,6 +55,15 @@ import type {
   OrchestrationSubscribeThreadInput,
   OrchestrationThreadStreamItem,
 } from "./orchestration";
+import type {
+  BoardCommand,
+  BoardListCardsInput,
+  BoardListCardsResult,
+  BoardListDismissedGhostsInput,
+  BoardListDismissedGhostsResult,
+  BoardStreamEvent,
+  BoardSubscribeProjectInput,
+} from "./board";
 import type { EnvironmentId } from "./baseSchemas";
 import { EditorId } from "./editor";
 import { ClientSettings, ServerSettings, ServerSettingsPatch } from "./settings";
@@ -296,5 +305,19 @@ export interface EnvironmentApi {
         onResubscribe?: () => void;
       },
     ) => () => void;
+  };
+  board: {
+    listCards: (input: BoardListCardsInput) => Promise<BoardListCardsResult>;
+    listDismissedGhosts: (
+      input: BoardListDismissedGhostsInput,
+    ) => Promise<BoardListDismissedGhostsResult>;
+    subscribeProject: (
+      input: BoardSubscribeProjectInput,
+      callback: (event: BoardStreamEvent) => void,
+      options?: {
+        onResubscribe?: () => void;
+      },
+    ) => () => void;
+    dispatchCommand: (command: BoardCommand) => Promise<{ sequence: number }>;
   };
 }

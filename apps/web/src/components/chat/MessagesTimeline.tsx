@@ -1,4 +1,9 @@
-import { type EnvironmentId, type MessageId, type TurnId } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  type MessageId,
+  type ProjectId,
+  type TurnId,
+} from "@t3tools/contracts";
 import {
   createContext,
   memo,
@@ -83,6 +88,7 @@ interface TimelineRowSharedState {
   resolvedTheme: "light" | "dark";
   workspaceRoot: string | undefined;
   activeThreadEnvironmentId: EnvironmentId;
+  activeThreadProjectId: ProjectId | undefined;
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
@@ -113,6 +119,7 @@ interface MessagesTimelineProps {
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   activeThreadEnvironmentId: EnvironmentId;
+  activeThreadProjectId: ProjectId | undefined;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
@@ -144,6 +151,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isRevertingCheckpoint,
   onImageExpand,
   activeThreadEnvironmentId,
+  activeThreadProjectId,
   markdownCwd,
   resolvedTheme,
   timestampFormat,
@@ -218,6 +226,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       resolvedTheme,
       workspaceRoot,
       activeThreadEnvironmentId,
+      activeThreadProjectId,
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
@@ -235,6 +244,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       resolvedTheme,
       workspaceRoot,
       activeThreadEnvironmentId,
+      activeThreadProjectId,
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
@@ -470,6 +480,8 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
           <ProposedPlanCard
             planMarkdown={row.proposedPlan.planMarkdown}
             environmentId={ctx.activeThreadEnvironmentId}
+            projectId={ctx.activeThreadProjectId}
+            proposedPlanId={row.proposedPlan.id}
             cwd={ctx.markdownCwd}
             workspaceRoot={ctx.workspaceRoot}
           />

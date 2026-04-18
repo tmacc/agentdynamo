@@ -3525,6 +3525,7 @@ export default function ChatView(props: ChatViewProps) {
               turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
               userMessageSwitchInfoByMessageId={userMessageSwitchInfoByMessageId}
               activeThreadEnvironmentId={activeThread.environmentId}
+              activeThreadProjectId={activeThread.projectId}
               routeThreadKey={routeThreadKey}
               onOpenTurnDiff={onOpenTurnDiff}
               revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}

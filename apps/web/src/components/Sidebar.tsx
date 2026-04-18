@@ -1236,6 +1236,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
         const clicked = await api.contextMenu.show(
           [
+            { id: "open-board", label: "Open board" },
             { id: "copy-path", label: "Copy Project Path" },
             { id: "delete", label: "Remove project", destructive: true },
           ],
@@ -1244,6 +1245,20 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             y: event.clientY,
           },
         );
+        if (clicked === "open-board") {
+          void router
+            .navigate({
+              to: ".",
+              search: (prev) => ({
+                ...(prev as Record<string, unknown>),
+                view: "board",
+                boardEnvironmentId: project.environmentId,
+                boardProjectId: project.id,
+              }),
+            })
+            .catch(() => undefined);
+          return;
+        }
         if (clicked === "copy-path") {
           copyPathToClipboard(project.cwd, { path: project.cwd });
           return;
@@ -1301,6 +1316,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       project.id,
       project.name,
       projectThreads.length,
+      router,
       suppressProjectClickForContextMenuRef,
     ],
   );

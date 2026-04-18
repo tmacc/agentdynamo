@@ -805,6 +805,225 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "board.card.create": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-created",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          title: command.title,
+          description: command.description,
+          seededPrompt: command.seededPrompt,
+          column: command.column,
+          sortOrder: command.sortOrder,
+          linkedThreadId: command.linkedThreadId,
+          linkedProposedPlanId: command.linkedProposedPlanId,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "board.card.update": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.updatedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-updated",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          ...(command.title !== undefined ? { title: command.title } : {}),
+          ...(command.description !== undefined ? { description: command.description } : {}),
+          ...(command.seededPrompt !== undefined ? { seededPrompt: command.seededPrompt } : {}),
+          updatedAt: command.updatedAt,
+        },
+      };
+    }
+
+    case "board.card.move": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.updatedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-moved",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          toColumn: command.toColumn,
+          sortOrder: command.sortOrder,
+          updatedAt: command.updatedAt,
+        },
+      };
+    }
+
+    case "board.card.archive": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.archivedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-archived",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          archivedAt: command.archivedAt,
+          updatedAt: command.archivedAt,
+        },
+      };
+    }
+
+    case "board.card.delete": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.deletedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-deleted",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          deletedAt: command.deletedAt,
+        },
+      };
+    }
+
+    case "board.card.linkThread": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.updatedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-thread-linked",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          threadId: command.threadId,
+          updatedAt: command.updatedAt,
+        },
+      };
+    }
+
+    case "board.card.unlinkThread": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.updatedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-thread-unlinked",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          previousThreadId: command.previousThreadId,
+          updatedAt: command.updatedAt,
+        },
+      };
+    }
+
+    case "board.ghost-card.dismiss": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.dismissedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.ghost-card-dismissed",
+        payload: {
+          projectId: command.projectId,
+          threadId: command.threadId,
+          dismissedAt: command.dismissedAt,
+        },
+      };
+    }
+
+    case "board.ghost-card.undismiss": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.undismissedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.ghost-card-undismissed",
+        payload: {
+          projectId: command.projectId,
+          threadId: command.threadId,
+          undismissedAt: command.undismissedAt,
+        },
+      };
+    }
+
     default: {
       command satisfies never;
       const fallback = command as never as { type: string };
