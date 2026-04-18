@@ -8,9 +8,8 @@ import { Effect, Layer } from "effect";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import {
-  buildDevScriptContent,
+  buildManagedWorktreeScriptFiles,
   buildManagedScripts,
-  buildSetupScriptContent,
   computeReadinessAnalysis,
   ensureGitignoreEntry,
   mergeReadinessScripts,
@@ -66,21 +65,14 @@ const makeWorktreeReadinessApplicator = Effect.gen(function* () {
         portCount: input.portCount,
       } as const;
 
-      const setupContent = buildSetupScriptContent({
+      const managedTargets = buildManagedWorktreeScriptFiles({
         installCommand: recommendation.installCommand,
         envStrategy: recommendation.envStrategy,
         envSourcePath: recommendation.envSourcePath,
-      });
-      const devContent = buildDevScriptContent({
         framework: recommendation.framework,
         packageManager: recommendation.packageManager,
         devCommand: recommendation.devCommand,
       });
-
-      const managedTargets = [
-        [WORKTREE_SETUP_SCRIPT_PATH, setupContent],
-        [WORKTREE_DEV_SCRIPT_PATH, devContent],
-      ] as const;
 
       const writtenFiles: string[] = [];
       for (const [relativePath, nextContent] of managedTargets) {
