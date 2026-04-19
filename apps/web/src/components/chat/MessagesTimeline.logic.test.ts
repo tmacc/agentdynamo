@@ -41,6 +41,7 @@ function makeActivity(input: {
   id: string;
   kind: string;
   createdAt: string;
+  sequence?: number;
   payload?: Record<string, unknown>;
 }): OrchestrationThreadActivity {
   return {
@@ -49,6 +50,7 @@ function makeActivity(input: {
     kind: input.kind,
     summary: input.kind,
     payload: input.payload ?? {},
+    ...(input.sequence !== undefined ? { sequence: input.sequence } : {}),
     turnId: null,
     createdAt: input.createdAt,
   };
@@ -859,6 +861,58 @@ describe("deriveTeamTaskLaunchGroups", () => {
       {
         id: "activity-spawn-2",
         createdAt: "2026-01-01T00:00:07.000Z",
+        tasks: [fixer],
+      },
+    ]);
+  });
+
+  it("uses sequence order to split tied-timestamp spawn groups deterministically", () => {
+    const reviewer = makeTeamTaskView({
+      id: "task-reviewer",
+      title: "Reviewer",
+      createdAt: "2026-01-01T00:00:05.000Z",
+    });
+    const fixer = makeTeamTaskView({
+      id: "task-fixer",
+      title: "Fixer",
+      createdAt: "2026-01-01T00:00:05.000Z",
+    });
+
+    const groups = deriveTeamTaskLaunchGroups({
+      activities: [
+        makeActivity({
+          id: "activity-spawn-2",
+          kind: "team.task.spawned",
+          createdAt: "2026-01-01T00:00:05.000Z",
+          sequence: 3,
+          payload: { taskId: "task-fixer" },
+        }),
+        makeActivity({
+          id: "activity-tool-1",
+          kind: "tool.updated",
+          createdAt: "2026-01-01T00:00:05.000Z",
+          sequence: 2,
+        }),
+        makeActivity({
+          id: "activity-spawn-1",
+          kind: "team.task.spawned",
+          createdAt: "2026-01-01T00:00:05.000Z",
+          sequence: 1,
+          payload: { taskId: "task-reviewer" },
+        }),
+      ],
+      taskViews: [reviewer, fixer],
+    });
+
+    expect(groups).toEqual([
+      {
+        id: "activity-spawn-1",
+        createdAt: "2026-01-01T00:00:05.000Z",
+        tasks: [reviewer],
+      },
+      {
+        id: "activity-spawn-2",
+        createdAt: "2026-01-01T00:00:05.000Z",
         tasks: [fixer],
       },
     ]);

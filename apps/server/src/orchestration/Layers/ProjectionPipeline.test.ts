@@ -174,6 +174,86 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
   "OrchestrationProjectionPipeline",
   (it) => {
+    it.effect("stores fallback activity sequence from the orchestration event when absent", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const now = new Date().toISOString();
+
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.make("evt-activity-sequence-thread"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-activity-sequence"),
+          occurredAt: now,
+          commandId: CommandId.make("cmd-activity-sequence-thread"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-activity-sequence-thread"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-activity-sequence"),
+            projectId: ProjectId.make("project-1"),
+            title: "Thread activity sequence",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        const appended = yield* eventStore.append({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-activity-sequence-activity"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-activity-sequence"),
+          occurredAt: "2026-04-19T12:20:01.000Z",
+          commandId: CommandId.make("cmd-activity-sequence-activity"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-activity-sequence-activity"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-activity-sequence"),
+            activity: {
+              id: EventId.make("activity-fallback-sequence"),
+              tone: "info",
+              kind: "team.task.spawned",
+              summary: "Spawned task",
+              payload: { taskId: "team-task:1" },
+              turnId: null,
+              createdAt: "2026-04-19T12:20:01.000Z",
+            },
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const rows = yield* sql<{
+          readonly activityId: string;
+          readonly sequence: number | null;
+        }>`
+          SELECT
+            activity_id AS "activityId",
+            sequence
+          FROM projection_thread_activities
+          WHERE activity_id = 'activity-fallback-sequence'
+        `;
+
+        assert.deepEqual(rows, [
+          {
+            activityId: "activity-fallback-sequence",
+            sequence: appended.sequence,
+          },
+        ]);
+      }),
+    );
+
     it.effect("stores message attachment references without mutating payloads", () =>
       Effect.gen(function* () {
         const projectionPipeline = yield* OrchestrationProjectionPipeline;
