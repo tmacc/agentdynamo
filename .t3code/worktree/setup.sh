@@ -7,7 +7,8 @@ set -euo pipefail
 SCRIPT_DIR=${0:A:h}
 WORKTREE_ROOT=${SCRIPT_DIR:h:h}
 PROJECT_ROOT=${T3CODE_PROJECT_ROOT:-$WORKTREE_ROOT}
-LOCAL_ENV_PATH="$WORKTREE_ROOT/.t3code/worktree.local.env"
+GIT_DIR="$(git -C "$WORKTREE_ROOT" rev-parse --absolute-git-dir)"
+LOCAL_ENV_PATH="$GIT_DIR/t3code/worktree.local.env"
 
 mkdir -p "$WORKTREE_ROOT/.t3code"
 if [[ ! -f "$LOCAL_ENV_PATH" ]]; then

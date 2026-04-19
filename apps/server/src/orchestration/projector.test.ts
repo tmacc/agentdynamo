@@ -186,6 +186,138 @@ describe("orchestration projector", () => {
     ).rejects.toBeDefined();
   });
 
+  it("falls back to the orchestration event sequence for appended activities", async () => {
+    const now = "2026-04-19T12:00:00.000Z";
+    const created = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(now),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-activity-sequence",
+          occurredAt: now,
+          commandId: "cmd-thread-create-sequence",
+          payload: {
+            threadId: "thread-activity-sequence",
+            projectId: "project-1",
+            title: "Sequence thread",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+
+    const next = await Effect.runPromise(
+      projectEvent(
+        created,
+        makeEvent({
+          sequence: 7,
+          type: "thread.activity-appended",
+          aggregateKind: "thread",
+          aggregateId: "thread-activity-sequence",
+          occurredAt: "2026-04-19T12:00:01.000Z",
+          commandId: "cmd-thread-activity-sequence",
+          payload: {
+            threadId: "thread-activity-sequence",
+            activity: {
+              id: "activity-fallback-sequence",
+              tone: "info",
+              kind: "team.task.spawned",
+              summary: "Spawned task",
+              payload: { taskId: "team-task:1" },
+              turnId: null,
+              createdAt: "2026-04-19T12:00:01.000Z",
+            },
+          },
+        }),
+      ),
+    );
+
+    expect(next.threads[0]?.activities).toEqual([
+      {
+        id: "activity-fallback-sequence",
+        tone: "info",
+        kind: "team.task.spawned",
+        summary: "Spawned task",
+        payload: { taskId: "team-task:1" },
+        turnId: null,
+        sequence: 7,
+        createdAt: "2026-04-19T12:00:01.000Z",
+      },
+    ]);
+  });
+
+  it("preserves explicit activity.sequence values on appended activities", async () => {
+    const now = "2026-04-19T12:10:00.000Z";
+    const created = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(now),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-activity-sequence-explicit",
+          occurredAt: now,
+          commandId: "cmd-thread-create-sequence-explicit",
+          payload: {
+            threadId: "thread-activity-sequence-explicit",
+            projectId: "project-1",
+            title: "Explicit sequence thread",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+
+    const next = await Effect.runPromise(
+      projectEvent(
+        created,
+        makeEvent({
+          sequence: 9,
+          type: "thread.activity-appended",
+          aggregateKind: "thread",
+          aggregateId: "thread-activity-sequence-explicit",
+          occurredAt: "2026-04-19T12:10:01.000Z",
+          commandId: "cmd-thread-activity-sequence-explicit",
+          payload: {
+            threadId: "thread-activity-sequence-explicit",
+            activity: {
+              id: "activity-explicit-sequence",
+              tone: "info",
+              kind: "team.task.spawned",
+              summary: "Spawned task",
+              payload: { taskId: "team-task:2" },
+              turnId: null,
+              sequence: 3,
+              createdAt: "2026-04-19T12:10:01.000Z",
+            },
+          },
+        }),
+      ),
+    );
+
+    expect(next.threads[0]?.activities[0]?.sequence).toBe(3);
+  });
+
   it("applies thread.archived and thread.unarchived events", async () => {
     const now = new Date().toISOString();
     const later = new Date(Date.parse(now) + 1_000).toISOString();
