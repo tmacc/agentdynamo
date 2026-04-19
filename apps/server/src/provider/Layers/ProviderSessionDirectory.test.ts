@@ -75,7 +75,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       }
 
       const threadIds = yield* directory.listThreadIds();
-      assert.deepEqual(threadIds, [nextThreadId]);
+      assert.deepEqual(threadIds, [initialThreadId, nextThreadId]);
 
       yield* directory.remove(nextThreadId);
       const missingProvider = yield* directory.getProvider(nextThreadId).pipe(Effect.result);
@@ -155,7 +155,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       assert.equal(typeof bindings[0]?.lastSeenAt, "string");
     }));
 
-  it("resets adapterKey to the new provider when provider changes without an explicit adapter key", () =>
+  it("parks the previous active slot when a different provider becomes active", () =>
     Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;
       const runtimeRepository = yield* ProviderSessionRuntimeRepository;
@@ -167,6 +167,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         adapterKey: "claudeAgent",
         runtimeMode: "full-access",
         status: "running",
+        slotState: "active",
         lastSeenAt: new Date().toISOString(),
         resumeCursor: null,
         runtimePayload: null,
@@ -177,11 +178,23 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         threadId,
       });
 
-      const runtime = yield* runtimeRepository.getByThreadId({ threadId });
-      assert.equal(Option.isSome(runtime), true);
-      if (Option.isSome(runtime)) {
-        assert.equal(runtime.value.providerName, "codex");
-        assert.equal(runtime.value.adapterKey, "codex");
+      const activeRuntime = yield* runtimeRepository.getByThreadId({ threadId });
+      assert.equal(Option.isSome(activeRuntime), true);
+      if (Option.isSome(activeRuntime)) {
+        assert.equal(activeRuntime.value.providerName, "codex");
+        assert.equal(activeRuntime.value.adapterKey, "codex");
+        assert.equal(activeRuntime.value.slotState, "active");
+      }
+
+      const parkedRuntime = yield* runtimeRepository.getByThreadIdAndProvider({
+        threadId,
+        providerName: "claudeAgent",
+      });
+      assert.equal(Option.isSome(parkedRuntime), true);
+      if (Option.isSome(parkedRuntime)) {
+        assert.equal(parkedRuntime.value.providerName, "claudeAgent");
+        assert.equal(parkedRuntime.value.slotState, "parked");
+        assert.equal(parkedRuntime.value.status, "stopped");
       }
     }));
 

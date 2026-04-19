@@ -2,7 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { ModelSelection, ProviderRuntimeEvent, ProviderSession } from "@t3tools/contracts";
+import type {
+  ModelSelection,
+  ProviderKind,
+  ProviderRuntimeEvent,
+  ProviderSession,
+} from "@t3tools/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -116,17 +121,61 @@ describe("ProviderCommandReactor", () => {
     let nextSessionIndex = 1;
     const runtimeSessions: Array<ProviderSession> = [];
     const lifecycleCalls: string[] = [];
+    const bindings = new Map<
+      string,
+      {
+        threadId: ThreadId;
+        provider: ProviderKind;
+        lastSeenAt: string;
+        status?: "starting" | "running" | "stopped" | "error";
+        slotState?: "active" | "parked" | "stale" | "expired" | "error" | "stopped";
+        runtimeMode?: ProviderSession["runtimeMode"];
+        resumeCursor?: unknown | null;
+        runtimePayload?: unknown | null;
+      }
+    >();
+    const bindingKey = (threadId: ThreadId, provider: ProviderKind) => `${threadId}:${provider}`;
     const threadModelSelection = input?.threadModelSelection ?? {
       provider: "codex",
       model: "gpt-5-codex",
     };
-    const startSession = vi.fn((_: unknown, input: unknown) => {
+    const getBinding = (threadId: ThreadId, provider: ProviderKind) =>
+      bindings.get(bindingKey(threadId, provider));
+    const setBinding = (binding: {
+      threadId: ThreadId;
+      provider: ProviderKind;
+      lastSeenAt?: string;
+      status?: "starting" | "running" | "stopped" | "error";
+      slotState?: "active" | "parked" | "stale" | "expired" | "error" | "stopped";
+      runtimeMode?: ProviderSession["runtimeMode"];
+      resumeCursor?: unknown | null;
+      runtimePayload?: unknown | null;
+    }) => {
+      const nextBinding = {
+        ...getBinding(binding.threadId, binding.provider),
+        ...binding,
+        lastSeenAt: binding.lastSeenAt ?? new Date().toISOString(),
+      };
+      if ((nextBinding.slotState ?? "active") === "active") {
+        for (const [key, existing] of bindings.entries()) {
+          if (existing.threadId !== binding.threadId || existing.provider === binding.provider) {
+            continue;
+          }
+          if ((existing.slotState ?? "active") !== "active") {
+            continue;
+          }
+          bindings.set(key, {
+            ...existing,
+            status: existing.status === "error" ? "error" : "stopped",
+            slotState: existing.status === "error" ? "error" : "parked",
+          });
+        }
+      }
+      bindings.set(bindingKey(binding.threadId, binding.provider), nextBinding);
+    };
+    const startSession = vi.fn((_: unknown, input: unknown, options?: unknown) => {
       const sessionIndex = nextSessionIndex++;
       lifecycleCalls.push("start");
-      const resumeCursor =
-        typeof input === "object" && input !== null && "resumeCursor" in input
-          ? input.resumeCursor
-          : undefined;
       const requestedProvider =
         typeof input === "object" &&
         input !== null &&
@@ -157,6 +206,20 @@ describe("ProviderCommandReactor", () => {
         typeof input.threadId === "string"
           ? ThreadId.make(input.threadId)
           : ThreadId.make(`thread-${sessionIndex}`);
+      const persistedBinding = getBinding(threadId, requestedProvider);
+      const preferredResumeCursor =
+        options &&
+        typeof options === "object" &&
+        "resumeStrategy" in options &&
+        options.resumeStrategy === "fresh"
+          ? undefined
+          : persistedBinding?.slotState !== "stale" && persistedBinding?.slotState !== "error"
+            ? persistedBinding?.resumeCursor
+            : undefined;
+      const resumeCursor =
+        typeof input === "object" && input !== null && "resumeCursor" in input
+          ? input.resumeCursor
+          : preferredResumeCursor;
       const session: ProviderSession = {
         provider: requestedProvider,
         status: "ready" as const,
@@ -173,7 +236,23 @@ describe("ProviderCommandReactor", () => {
         createdAt: now,
         updatedAt: now,
       };
+      const existingIndex = runtimeSessions.findIndex((entry) => entry.threadId === threadId);
+      if (existingIndex >= 0) {
+        runtimeSessions.splice(existingIndex, 1);
+      }
       runtimeSessions.push(session);
+      setBinding({
+        threadId,
+        provider: requestedProvider,
+        status: "running",
+        slotState: "active",
+        runtimeMode: session.runtimeMode,
+        resumeCursor: session.resumeCursor ?? null,
+        runtimePayload: {
+          modelSelection: requestedModelSelection,
+        },
+        lastSeenAt: now,
+      });
       return Effect.succeed(session);
     });
     const sendTurn = vi.fn((_: unknown) =>
@@ -185,6 +264,28 @@ describe("ProviderCommandReactor", () => {
     const interruptTurn = vi.fn((_: unknown) => Effect.void);
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
+    const parkSession = vi.fn<ProviderServiceShape["parkSession"]>((request) =>
+      Effect.sync(() => {
+        lifecycleCalls.push("park");
+        const runtimeIndex = runtimeSessions.findIndex(
+          (session) =>
+            session.threadId === request.threadId && session.provider === request.provider,
+        );
+        if (runtimeIndex >= 0) {
+          runtimeSessions.splice(runtimeIndex, 1);
+        }
+        setBinding({
+          threadId: request.threadId,
+          provider: request.provider,
+          status: "stopped",
+          slotState: request.nextSlotState ?? "parked",
+          runtimePayload: {
+            ...(request.syncState !== undefined ? { syncState: request.syncState } : {}),
+          },
+          lastSeenAt: new Date().toISOString(),
+        });
+      }),
+    );
     const stopSession = vi.fn((input: unknown) =>
       Effect.sync(() => {
         lifecycleCalls.push("stop");
@@ -195,9 +296,25 @@ describe("ProviderCommandReactor", () => {
         if (!threadId) {
           return;
         }
-        const index = runtimeSessions.findIndex((session) => session.threadId === threadId);
-        if (index >= 0) {
-          runtimeSessions.splice(index, 1);
+        for (let index = runtimeSessions.length - 1; index >= 0; index -= 1) {
+          if (runtimeSessions[index]?.threadId === threadId) {
+            runtimeSessions.splice(index, 1);
+          }
+        }
+        for (const binding of bindings.values()) {
+          if (binding.threadId !== threadId) {
+            continue;
+          }
+          setBinding({
+            threadId,
+            provider: binding.provider,
+            status: "stopped",
+            slotState: "expired",
+            runtimePayload: {
+              activeTurnId: null,
+            },
+            lastSeenAt: new Date().toISOString(),
+          });
         }
       }),
     );
@@ -250,12 +367,25 @@ describe("ProviderCommandReactor", () => {
     const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
     const service: ProviderServiceShape = {
       startSession: startSession as ProviderServiceShape["startSession"],
+      parkSession,
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
       interruptTurn: interruptTurn as ProviderServiceShape["interruptTurn"],
       respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
       stopSession: stopSession as ProviderServiceShape["stopSession"],
       listSessions: () => Effect.succeed(runtimeSessions),
+      getBinding: (threadId) =>
+        Effect.succeed(
+          Array.from(bindings.values()).find(
+            (binding) =>
+              binding.threadId === threadId && (binding.slotState ?? "active") === "active",
+          ),
+        ),
+      getBindingForProvider: (threadId, provider) => Effect.succeed(getBinding(threadId, provider)),
+      listBindingsByThreadId: (threadId) =>
+        Effect.succeed(
+          Array.from(bindings.values()).filter((binding) => binding.threadId === threadId),
+        ),
       getCapabilities: (_provider) =>
         Effect.succeed({
           sessionModelSwitch: input?.sessionModelSwitch ?? "in-session",
@@ -361,6 +491,7 @@ describe("ProviderCommandReactor", () => {
       interruptTurn,
       respondToRequest,
       respondToUserInput,
+      parkSession,
       stopSession,
       lifecycleCalls,
       renameBranch,
@@ -1329,11 +1460,11 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.stopSession.mock.calls.length === 1);
+    await waitFor(() => harness.parkSession.mock.calls.length === 1);
     await waitFor(() => harness.startSession.mock.calls.length === 2);
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
 
-    expect(harness.lifecycleCalls).toEqual(["start", "stop", "start"]);
+    expect(harness.lifecycleCalls).toEqual(["start", "park", "start"]);
     expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
       threadId: ThreadId.make("thread-1"),
       provider: "claudeAgent",
@@ -1428,11 +1559,11 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.stopSession.mock.calls.length === 1);
+    await waitFor(() => harness.parkSession.mock.calls.length === 1);
     await waitFor(() => harness.startSession.mock.calls.length === 2);
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
 
-    expect(harness.lifecycleCalls).toEqual(["start", "stop", "start"]);
+    expect(harness.lifecycleCalls).toEqual(["start", "park", "start"]);
     expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
       threadId: ThreadId.make("thread-1"),
       provider: "codex",
@@ -1443,6 +1574,14 @@ describe("ProviderCommandReactor", () => {
     });
     expect(harness.startSession.mock.calls[1]?.[1]).not.toHaveProperty("resumeCursor");
 
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      return (
+        readModel.threads
+          .find((entry) => entry.id === ThreadId.make("thread-1"))
+          ?.activities.some((activity) => activity.kind === "provider.session.switched") ?? false
+      );
+    });
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(thread?.session?.providerName).toBe("codex");
@@ -1456,6 +1595,162 @@ describe("ProviderCommandReactor", () => {
         toModel: "gpt-5-codex",
       },
     });
+  });
+
+  it("reuses parked provider slots across repeated codex and claude flips with incremental catch-up", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-multihop-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-multihop-1"),
+          role: "user",
+          text: "context group A",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-multihop-2"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-multihop-2"),
+          role: "user",
+          text: "context group B",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-multihop-3"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-multihop-3"),
+          role: "user",
+          text: "context group C",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 3);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-multihop-4"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-multihop-4"),
+          role: "user",
+          text: "context group D",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 4);
+    expect(harness.parkSession).toHaveBeenCalledTimes(3);
+    expect(harness.startSession).toHaveBeenCalledTimes(4);
+    expect(harness.lifecycleCalls).toEqual([
+      "start",
+      "park",
+      "start",
+      "park",
+      "start",
+      "park",
+      "start",
+    ]);
+
+    expect(harness.startSession.mock.calls[2]?.[2]).toMatchObject({
+      resumeStrategy: "prefer-persisted",
+    });
+    expect(harness.startSession.mock.calls[2]?.[1]).toMatchObject({
+      provider: "codex",
+    });
+    expect(harness.startSession.mock.calls[3]?.[2]).toMatchObject({
+      resumeStrategy: "prefer-persisted",
+    });
+    expect(harness.startSession.mock.calls[3]?.[1]).toMatchObject({
+      provider: "claudeAgent",
+    });
+
+    const switchBackToCodexInput = harness.sendTurn.mock.calls[2]?.[0] as
+      | {
+          input?: string;
+        }
+      | undefined;
+    expect(switchBackToCodexInput?.input).toContain(
+      "Incremental provider switch catch-up for an existing thread.",
+    );
+    expect(switchBackToCodexInput?.input).toContain("context group B");
+    expect(switchBackToCodexInput?.input).not.toContain("context group A");
+    expect(switchBackToCodexInput?.input).toContain("context group C");
+
+    const switchBackToClaudeInput = harness.sendTurn.mock.calls[3]?.[0] as
+      | {
+          input?: string;
+        }
+      | undefined;
+    expect(switchBackToClaudeInput?.input).toContain(
+      "Incremental provider switch catch-up for an existing thread.",
+    );
+    expect(switchBackToClaudeInput?.input).toContain("context group C");
+    expect(switchBackToClaudeInput?.input).not.toContain("context group A");
+    expect(switchBackToClaudeInput?.input).toContain("context group D");
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      return (
+        readModel.threads
+          .find((entry) => entry.id === ThreadId.make("thread-1"))
+          ?.activities.filter((activity) => activity.kind === "provider.session.switched")
+          .length === 3
+      );
+    });
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const switchActivities = readModel.threads
+      .find((entry) => entry.id === ThreadId.make("thread-1"))
+      ?.activities.filter((activity) => activity.kind === "provider.session.switched");
+    expect(switchActivities?.length).toBe(3);
   });
 
   it("rejects provider switching while a turn is running", async () => {
