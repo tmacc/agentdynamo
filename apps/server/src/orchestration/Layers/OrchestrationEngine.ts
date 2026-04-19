@@ -30,6 +30,7 @@ import {
 import { toPersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
+import { ProjectionBoardCardRepositoryLive } from "../../persistence/Layers/ProjectionBoardCards.ts";
 import {
   OrchestrationCommandInvariantError,
   OrchestrationCommandPreviouslyRejectedError,
@@ -51,7 +52,7 @@ interface CommandEnvelope {
 }
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "thread";
+  readonly aggregateKind: "project" | "thread" | "board";
   readonly aggregateId: ProjectId | ThreadId;
 } {
   switch (command.type) {
@@ -68,6 +69,19 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       return {
         aggregateKind: "thread",
         aggregateId: command.parentThreadId,
+      };
+    case "board.card.create":
+    case "board.card.update":
+    case "board.card.move":
+    case "board.card.archive":
+    case "board.card.delete":
+    case "board.card.linkThread":
+    case "board.card.unlinkThread":
+    case "board.ghost-card.dismiss":
+    case "board.ghost-card.undismiss":
+      return {
+        aggregateKind: "board",
+        aggregateId: command.projectId,
       };
     default:
       return {
@@ -89,7 +103,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const commandQueue = yield* Queue.unbounded<CommandEnvelope>();
   const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
 
-  const processEnvelope = (envelope: CommandEnvelope): Effect.Effect<void> => {
+  const processEnvelope = (envelope: CommandEnvelope) => {
     const dispatchStartSequence = readModel.snapshotSequence;
     const processingStartedAtMs = Date.now();
     const aggregateRef = commandToAggregateRef(envelope.command);
@@ -314,4 +328,4 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 export const OrchestrationEngineLive = Layer.effect(
   OrchestrationEngineService,
   makeOrchestrationEngine,
-);
+).pipe(Layer.provideMerge(ProjectionBoardCardRepositoryLive));

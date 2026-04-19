@@ -55,6 +55,7 @@ import {
 import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
+import { clearBoardRouteSearchParams } from "../boardRouteSearch";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId } from "../lib/utils";
 import {
@@ -1236,6 +1237,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
         const clicked = await api.contextMenu.show(
           [
+            { id: "open-board", label: "Open board" },
             { id: "copy-path", label: "Copy Project Path" },
             { id: "delete", label: "Remove project", destructive: true },
           ],
@@ -1244,6 +1246,20 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             y: event.clientY,
           },
         );
+        if (clicked === "open-board") {
+          void router
+            .navigate({
+              to: ".",
+              search: (prev) => ({
+                ...(prev as Record<string, unknown>),
+                view: "board",
+                boardEnvironmentId: project.environmentId,
+                boardProjectId: project.id,
+              }),
+            })
+            .catch(() => undefined);
+          return;
+        }
         if (clicked === "copy-path") {
           copyPathToClipboard(project.cwd, { path: project.cwd });
           return;
@@ -1301,6 +1317,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       project.id,
       project.name,
       projectThreads.length,
+      router,
       suppressProjectClickForContextMenuRef,
     ],
   );
@@ -1314,6 +1331,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       void router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
+        search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
       });
     },
     [clearSelection, router, setSelectionAnchor],
@@ -1350,6 +1368,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       void router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
+        search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
       });
     },
     [clearSelection, rangeSelectTo, router, setSelectionAnchor, toggleThreadSelection],
@@ -2355,6 +2374,7 @@ export default function Sidebar() {
       void navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
+        search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
       });
     },
     [clearSelection, navigate, setSelectionAnchor],

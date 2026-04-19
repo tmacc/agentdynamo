@@ -72,6 +72,14 @@ import {
 } from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
 import {
+  ProjectionBoardCardRepository,
+  type ProjectionBoardCardRepositoryShape,
+} from "./persistence/Services/ProjectionBoardCards.ts";
+import {
+  ProjectionBoardDismissedGhostRepository,
+  type ProjectionBoardDismissedGhostRepositoryShape,
+} from "./persistence/Services/ProjectionBoardDismissedGhosts.ts";
+import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -345,6 +353,8 @@ const buildAppUnderTest = (options?: {
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
+    projectionBoardCardRepository?: Partial<ProjectionBoardCardRepositoryShape>;
+    projectionBoardDismissedGhostRepository?: Partial<ProjectionBoardDismissedGhostRepositoryShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
@@ -507,6 +517,24 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(orchestrationEngineLayer),
+      Layer.provide(
+        Layer.mock(ProjectionBoardCardRepository)({
+          upsert: () => Effect.void,
+          getById: () => Effect.succeed(Option.none()),
+          getByLinkedThreadId: () => Effect.succeed(Option.none()),
+          listByProject: () => Effect.succeed([]),
+          deleteById: () => Effect.void,
+          ...options?.layers?.projectionBoardCardRepository,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProjectionBoardDismissedGhostRepository)({
+          upsert: () => Effect.void,
+          listByProject: () => Effect.succeed([]),
+          delete: () => Effect.void,
+          ...options?.layers?.projectionBoardDismissedGhostRepository,
+        }),
+      ),
       Layer.provide(
         Layer.mock(ProjectionSnapshotQuery)({
           getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),

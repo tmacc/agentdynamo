@@ -50,6 +50,13 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       subscribeThread: (input, callback, options) =>
         rpcClient.orchestration.subscribeThread(input, callback, options),
     },
+    board: {
+      listCards: rpcClient.board.listCards,
+      listDismissedGhosts: rpcClient.board.listDismissedGhosts,
+      subscribeProject: (input, callback, options) =>
+        rpcClient.board.subscribeProject(input, callback, options),
+      dispatchCommand: (command) => rpcClient.orchestration.dispatchCommand(command as never),
+    },
   };
 }
 

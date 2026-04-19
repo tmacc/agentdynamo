@@ -599,6 +599,76 @@ export async function writeExecutableFile(filePath: string, contents: string): P
   await fs.chmod(filePath, 0o755);
 }
 
+type ManagedWorktreeScriptWritePolicy =
+  | {
+      readonly mode: "apply_with_confirmation";
+      readonly overwriteManagedFiles: boolean;
+    }
+  | {
+      readonly mode: "bootstrap_safe";
+    };
+
+type ManagedWorktreeScriptMaterializationAction = "created" | "preserved" | "overwritten";
+
+interface ManagedWorktreeScriptMaterializationEntry {
+  readonly path: string;
+  readonly action: ManagedWorktreeScriptMaterializationAction;
+}
+
+export interface ManagedWorktreeScriptMaterializationResult {
+  readonly files: ReadonlyArray<ManagedWorktreeScriptMaterializationEntry>;
+}
+
+type ExistingManagedWorktreeScriptState =
+  | {
+      readonly status: "missing";
+    }
+  | {
+      readonly status: "identical";
+    }
+  | {
+      readonly status: "drifted_managed" | "drifted_unmanaged";
+      readonly existingContent: string;
+    };
+
+async function readManagedWorktreeScriptState(input: {
+  readonly absolutePath: string;
+  readonly expectedContent: string;
+}): Promise<ExistingManagedWorktreeScriptState> {
+  const existingContent = await readOptionalFile(input.absolutePath);
+  if (existingContent === null) {
+    return { status: "missing" };
+  }
+  if (existingContent === input.expectedContent) {
+    return { status: "identical" };
+  }
+  return {
+    status: isManagedWorktreeFile(existingContent) ? "drifted_managed" : "drifted_unmanaged",
+    existingContent,
+  };
+}
+
+function managedWorktreeScriptDriftError(input: {
+  readonly relativePath: string;
+  readonly policy: ManagedWorktreeScriptWritePolicy;
+  readonly state: Extract<
+    ExistingManagedWorktreeScriptState,
+    { readonly status: "drifted_managed" | "drifted_unmanaged" }
+  >;
+}): Error {
+  if (input.policy.mode === "apply_with_confirmation") {
+    return new Error(
+      `Worktree helper already exists and requires overwrite confirmation: ${input.relativePath}`,
+    );
+  }
+
+  const driftKind =
+    input.state.status === "drifted_managed" ? "managed helper file" : "unmanaged file";
+  return new Error(
+    `Worktree helper drift detected at ${input.relativePath} (${driftKind}). Reapply Worktree Readiness and confirm overwriting this helper before running setup.`,
+  );
+}
+
 export async function materializeManagedWorktreeScripts(input: {
   readonly rootPath: string;
   readonly installCommand: string | null;
@@ -607,7 +677,8 @@ export async function materializeManagedWorktreeScripts(input: {
   readonly framework: ProjectWorktreeReadinessFramework;
   readonly packageManager: ProjectWorktreeReadinessPackageManager;
   readonly devCommand: string | null;
-}): Promise<ReadonlyArray<string>> {
+  readonly policy: ManagedWorktreeScriptWritePolicy;
+}): Promise<ManagedWorktreeScriptMaterializationResult> {
   const files = buildManagedWorktreeScriptFiles({
     installCommand: input.installCommand,
     envStrategy: input.envStrategy,
@@ -617,11 +688,39 @@ export async function materializeManagedWorktreeScripts(input: {
     devCommand: input.devCommand,
   });
 
+  const results: ManagedWorktreeScriptMaterializationEntry[] = [];
   for (const [relativePath, content] of files) {
-    await writeExecutableFile(path.join(input.rootPath, relativePath), content);
+    const absolutePath = path.join(input.rootPath, relativePath);
+    const existingState = await readManagedWorktreeScriptState({
+      absolutePath,
+      expectedContent: content,
+    });
+    switch (existingState.status) {
+      case "missing":
+        await writeExecutableFile(absolutePath, content);
+        results.push({ path: relativePath, action: "created" });
+        break;
+      case "identical":
+        results.push({ path: relativePath, action: "preserved" });
+        break;
+      case "drifted_managed":
+      case "drifted_unmanaged":
+        if (input.policy.mode === "apply_with_confirmation" && input.policy.overwriteManagedFiles) {
+          await writeExecutableFile(absolutePath, content);
+          results.push({ path: relativePath, action: "overwritten" });
+          break;
+        }
+        throw managedWorktreeScriptDriftError({
+          relativePath,
+          policy: input.policy,
+          state: existingState,
+        });
+    }
   }
 
-  return files.map(([relativePath]) => relativePath);
+  return {
+    files: results,
+  };
 }
 
 export async function ensureGitignoreEntry(projectCwd: string, entry: string): Promise<boolean> {

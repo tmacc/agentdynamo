@@ -30,7 +30,7 @@ import { BrowserWsRpcHarness } from "../../test/wsRpcHarness";
 
 vi.mock("../lib/gitStatusState", () => ({
   useGitStatus: () => ({ data: null, error: null, cause: null, isPending: false }),
-  useGitStatuses: () => new Map(),
+  useGitStatusSnapshots: () => new Map(),
   refreshGitStatus: () => Promise.resolve(null),
   resetGitStatusStateForTests: () => undefined,
 }));
@@ -49,7 +49,7 @@ interface TestFixture {
 let fixture: TestFixture;
 const rpcHarness = new BrowserWsRpcHarness();
 
-const wsLink = ws.link(/ws(s)?:\/\/.*/);
+const wsLink = ws.link(/^ws(s)?:\/\/[^/]+\/ws(?:\?.*)?$/);
 
 function createBaseServerConfig(): ServerConfig {
   return {

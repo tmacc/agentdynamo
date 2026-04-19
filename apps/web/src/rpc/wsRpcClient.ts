@@ -1,4 +1,5 @@
 import {
+  BOARD_WS_METHODS,
   type GitActionProgressEvent,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
@@ -127,6 +128,11 @@ export interface WsRpcClient {
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
     readonly subscribeShell: RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeShell>;
     readonly subscribeThread: RpcInputStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeThread>;
+  };
+  readonly board: {
+    readonly listCards: RpcUnaryMethod<typeof BOARD_WS_METHODS.listCards>;
+    readonly listDismissedGhosts: RpcUnaryMethod<typeof BOARD_WS_METHODS.listDismissedGhosts>;
+    readonly subscribeProject: RpcInputStreamMethod<typeof BOARD_WS_METHODS.subscribeProject>;
   };
 }
 
@@ -267,6 +273,18 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       subscribeThread: (input, listener, options) =>
         transport.subscribe(
           (client) => client[ORCHESTRATION_WS_METHODS.subscribeThread](input),
+          listener,
+          options,
+        ),
+    },
+    board: {
+      listCards: (input) =>
+        transport.request((client) => client[BOARD_WS_METHODS.listCards](input)),
+      listDismissedGhosts: (input) =>
+        transport.request((client) => client[BOARD_WS_METHODS.listDismissedGhosts](input)),
+      subscribeProject: (input, listener, options) =>
+        transport.subscribe(
+          (client) => client[BOARD_WS_METHODS.subscribeProject](input),
           listener,
           options,
         ),

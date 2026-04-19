@@ -10,6 +10,7 @@ import { OrchestrationEngineService } from "../../orchestration/Services/Orchest
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
 import { ProjectSetupScriptRunner } from "../Services/ProjectSetupScriptRunner.ts";
 import { ProjectSetupScriptRunnerLive } from "./ProjectSetupScriptRunner.ts";
+import { buildManagedWorktreeScriptFiles } from "./WorktreeReadinessShared.ts";
 
 const emptySnapshot = (
   scripts: OrchestrationReadModel["projects"][number]["scripts"],
@@ -38,6 +39,38 @@ const emptySnapshot = (
     pendingApprovals: [],
     latestTurnByThreadId: {},
   }) as unknown as OrchestrationReadModel;
+
+function configuredWorktreeReadiness() {
+  return {
+    version: 1 as const,
+    status: "configured" as const,
+    scanFingerprint: "scan-1",
+    lastScannedAt: "2026-01-01T00:00:00.000Z",
+    lastAppliedAt: "2026-01-01T00:00:01.000Z",
+    packageManager: "bun" as const,
+    framework: "vite" as const,
+    installCommand: "bun install",
+    devCommand: "bun run dev",
+    envStrategy: "none" as const,
+    envSourcePath: null,
+    portCount: 2,
+    generatedFiles: [".t3code/worktree/setup.sh", ".t3code/worktree/dev.sh"],
+    setupScriptCommand: ".t3code/worktree/setup.sh",
+    devScriptCommand: ".t3code/worktree/dev.sh",
+  };
+}
+
+function setupWorktreeScripts(): OrchestrationReadModel["projects"][number]["scripts"] {
+  return [
+    {
+      id: "setup-worktree",
+      name: "Setup worktree",
+      command: ".t3code/worktree/setup.sh",
+      icon: "configure",
+      runOnWorktreeCreate: true,
+    },
+  ];
+}
 
 describe("ProjectSetupScriptRunner", () => {
   it("returns no-script when no setup script exists", async () => {
@@ -284,6 +317,243 @@ describe("ProjectSetupScriptRunner", () => {
         terminalId: "setup-setup-worktree",
         data: ".t3code/worktree/setup.sh\r",
       });
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+      await fs.rm(worktreePath, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves identical managed worktree scripts before launch", async () => {
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "t3-project-root-identical-"));
+    const worktreePath = await fs.mkdtemp(path.join(os.tmpdir(), "t3-worktree-identical-"));
+    const open = vi.fn(() =>
+      Effect.succeed({
+        threadId: "thread-1",
+        terminalId: "setup-setup",
+        cwd: worktreePath,
+        worktreePath,
+        status: "running" as const,
+        pid: 123,
+        history: "",
+        exitCode: null,
+        exitSignal: null,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    const write = vi.fn(() => Effect.void);
+
+    try {
+      const managedFiles = buildManagedWorktreeScriptFiles({
+        installCommand: "bun install",
+        envStrategy: "none",
+        envSourcePath: null,
+        framework: "vite",
+        packageManager: "bun",
+        devCommand: "bun run dev",
+      });
+      for (const [relativePath, contents] of managedFiles) {
+        const absolutePath = path.join(worktreePath, relativePath);
+        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.writeFile(absolutePath, contents, "utf8");
+      }
+
+      const runner = await Effect.runPromise(
+        Effect.service(ProjectSetupScriptRunner).pipe(
+          Effect.provide(
+            ProjectSetupScriptRunnerLive.pipe(
+              Layer.provideMerge(
+                Layer.succeed(OrchestrationEngineService, {
+                  getReadModel: () =>
+                    Effect.succeed(
+                      emptySnapshot(setupWorktreeScripts(), {
+                        workspaceRoot: projectRoot,
+                        worktreeReadiness: configuredWorktreeReadiness(),
+                      }),
+                    ),
+                  readEvents: () => Stream.empty,
+                  dispatch: () => Effect.die(new Error("unused")),
+                  streamDomainEvents: Stream.empty,
+                }),
+              ),
+              Layer.provideMerge(
+                Layer.succeed(TerminalManager, {
+                  open,
+                  write,
+                  resize: () => Effect.void,
+                  clear: () => Effect.void,
+                  restart: () => Effect.die(new Error("unused")),
+                  close: () => Effect.void,
+                  subscribe: () => Effect.succeed(() => undefined),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      const result = await Effect.runPromise(
+        runner.runForThread({
+          threadId: "thread-1",
+          projectCwd: projectRoot,
+          worktreePath,
+        }),
+      );
+
+      expect(result.status).toBe("started");
+      expect(open).toHaveBeenCalledOnce();
+      expect(write).toHaveBeenCalledWith({
+        threadId: "thread-1",
+        terminalId: "setup-setup-worktree",
+        data: ".t3code/worktree/setup.sh\r",
+      });
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+      await fs.rm(worktreePath, { recursive: true, force: true });
+    }
+  });
+
+  it("fails before launch when setup.sh drifts from the configured readiness profile", async () => {
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "t3-project-root-drift-"));
+    const worktreePath = await fs.mkdtemp(path.join(os.tmpdir(), "t3-worktree-drift-"));
+    const open = vi.fn(() => Effect.die(new Error("should not open terminal")));
+    const write = vi.fn(() => Effect.void);
+
+    try {
+      const managedFiles = buildManagedWorktreeScriptFiles({
+        installCommand: "bun install",
+        envStrategy: "none",
+        envSourcePath: null,
+        framework: "vite",
+        packageManager: "bun",
+        devCommand: "bun run dev",
+      });
+      const setupFile = managedFiles.find(([relativePath]) => relativePath.endsWith("setup.sh"));
+      if (!setupFile) {
+        throw new Error("Expected setup.sh in managed worktree scripts.");
+      }
+      const setupAbsolutePath = path.join(worktreePath, setupFile[0]);
+      await fs.mkdir(path.dirname(setupAbsolutePath), { recursive: true });
+      await fs.writeFile(setupAbsolutePath, "#!/usr/bin/env zsh\necho drift\n", "utf8");
+
+      const runner = await Effect.runPromise(
+        Effect.service(ProjectSetupScriptRunner).pipe(
+          Effect.provide(
+            ProjectSetupScriptRunnerLive.pipe(
+              Layer.provideMerge(
+                Layer.succeed(OrchestrationEngineService, {
+                  getReadModel: () =>
+                    Effect.succeed(
+                      emptySnapshot(setupWorktreeScripts(), {
+                        workspaceRoot: projectRoot,
+                        worktreeReadiness: configuredWorktreeReadiness(),
+                      }),
+                    ),
+                  readEvents: () => Stream.empty,
+                  dispatch: () => Effect.die(new Error("unused")),
+                  streamDomainEvents: Stream.empty,
+                }),
+              ),
+              Layer.provideMerge(
+                Layer.succeed(TerminalManager, {
+                  open,
+                  write,
+                  resize: () => Effect.void,
+                  clear: () => Effect.void,
+                  restart: () => Effect.die(new Error("unused")),
+                  close: () => Effect.void,
+                  subscribe: () => Effect.succeed(() => undefined),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await expect(
+        Effect.runPromise(
+          runner.runForThread({
+            threadId: "thread-1",
+            projectCwd: projectRoot,
+            worktreePath,
+          }),
+        ),
+      ).rejects.toThrow("Worktree helper drift detected at .t3code/worktree/setup.sh");
+      expect(open).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+      await fs.rm(worktreePath, { recursive: true, force: true });
+    }
+  });
+
+  it("fails before launch when dev.sh drifts from the configured readiness profile", async () => {
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "t3-project-root-dev-drift-"));
+    const worktreePath = await fs.mkdtemp(path.join(os.tmpdir(), "t3-worktree-dev-drift-"));
+    const open = vi.fn(() => Effect.die(new Error("should not open terminal")));
+    const write = vi.fn(() => Effect.void);
+
+    try {
+      const managedFiles = buildManagedWorktreeScriptFiles({
+        installCommand: "bun install",
+        envStrategy: "none",
+        envSourcePath: null,
+        framework: "vite",
+        packageManager: "bun",
+        devCommand: "bun run dev",
+      });
+      const devFile = managedFiles.find(([relativePath]) => relativePath.endsWith("dev.sh"));
+      if (!devFile) {
+        throw new Error("Expected dev.sh in managed worktree scripts.");
+      }
+      const devAbsolutePath = path.join(worktreePath, devFile[0]);
+      await fs.mkdir(path.dirname(devAbsolutePath), { recursive: true });
+      await fs.writeFile(devAbsolutePath, "#!/usr/bin/env zsh\necho drift\n", "utf8");
+
+      const runner = await Effect.runPromise(
+        Effect.service(ProjectSetupScriptRunner).pipe(
+          Effect.provide(
+            ProjectSetupScriptRunnerLive.pipe(
+              Layer.provideMerge(
+                Layer.succeed(OrchestrationEngineService, {
+                  getReadModel: () =>
+                    Effect.succeed(
+                      emptySnapshot(setupWorktreeScripts(), {
+                        workspaceRoot: projectRoot,
+                        worktreeReadiness: configuredWorktreeReadiness(),
+                      }),
+                    ),
+                  readEvents: () => Stream.empty,
+                  dispatch: () => Effect.die(new Error("unused")),
+                  streamDomainEvents: Stream.empty,
+                }),
+              ),
+              Layer.provideMerge(
+                Layer.succeed(TerminalManager, {
+                  open,
+                  write,
+                  resize: () => Effect.void,
+                  clear: () => Effect.void,
+                  restart: () => Effect.die(new Error("unused")),
+                  close: () => Effect.void,
+                  subscribe: () => Effect.succeed(() => undefined),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await expect(
+        Effect.runPromise(
+          runner.runForThread({
+            threadId: "thread-1",
+            projectCwd: projectRoot,
+            worktreePath,
+          }),
+        ),
+      ).rejects.toThrow("Worktree helper drift detected at .t3code/worktree/dev.sh");
+      expect(open).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
     } finally {
       await fs.rm(projectRoot, { recursive: true, force: true });
       await fs.rm(worktreePath, { recursive: true, force: true });

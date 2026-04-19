@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
+import { basename, join as joinPath, resolve as resolvePath } from "node:path";
 
 import {
   APP_BASE_NAME,
@@ -21,10 +24,55 @@ const MAX_HASH_OFFSET = 3000;
 const MAX_PORT = 65535;
 const DESKTOP_DEV_LOOPBACK_HOST = "127.0.0.1";
 const DEV_PORT_PROBE_HOSTS = ["127.0.0.1", "0.0.0.0", "::1", "::"] as const;
+const DEV_WORKTREE_HOMES_DIR_NAME = "dev-worktrees";
 
 export const DEFAULT_T3_HOME = Effect.map(Effect.service(Path.Path), (path) =>
   path.join(homedir(), APP_HOME_DIR_NAME),
 );
+
+function slugifyPathSegment(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug.length > 0 ? slug : "workspace";
+}
+
+export function resolveWorktreeRootForDevHome(cwd: string): string {
+  const resolvedCwd = resolvePath(cwd);
+
+  try {
+    const stdout = execFileSync("git", ["-C", resolvedCwd, "rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const trimmed = stdout.trim();
+    if (trimmed.length > 0) {
+      return resolvePath(trimmed);
+    }
+  } catch {
+    // Fall back to the current working directory when git metadata is unavailable.
+  }
+
+  return resolvedCwd;
+}
+
+export function buildWorktreeScopedDevHome(baseHome: string, worktreeRoot: string): string {
+  const normalizedBaseHome = resolvePath(baseHome);
+  const normalizedWorktreeRoot = resolvePath(worktreeRoot);
+  const worktreeName = slugifyPathSegment(basename(normalizedWorktreeRoot));
+  const worktreeHash = createHash("sha256")
+    .update(normalizedWorktreeRoot)
+    .digest("hex")
+    .slice(0, 12);
+
+  return joinPath(
+    normalizedBaseHome,
+    DEV_WORKTREE_HOMES_DIR_NAME,
+    `${worktreeName}-${worktreeHash}`,
+  );
+}
 
 const MODE_ARGS = {
   dev: [
@@ -118,7 +166,8 @@ function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, neve
       return path.resolve(configured);
     }
 
-    return yield* DEFAULT_T3_HOME;
+    const defaultHome = yield* DEFAULT_T3_HOME;
+    return buildWorktreeScopedDevHome(defaultHome, resolveWorktreeRootForDevHome(process.cwd()));
   });
 }
 
