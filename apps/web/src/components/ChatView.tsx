@@ -3586,6 +3586,7 @@ export default function ChatView(props: ChatViewProps) {
               onIsAtEndChange={onIsAtEndChange}
               teamTasks={teamTaskInlineViews}
               onOpenChildThread={openThreadById}
+              onOpenForkSourceThread={openThreadById}
               onForkUserMessage={openForkThreadDialog}
               forkOrigin={activeThread.forkOrigin}
             />

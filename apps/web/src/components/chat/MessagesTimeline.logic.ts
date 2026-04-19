@@ -4,6 +4,7 @@ import {
   type MessageId,
   type ProviderKind,
   type OrchestrationThreadForkOrigin,
+  type ThreadId,
 } from "@t3tools/contracts";
 import type { TeamTaskInlineView } from "./TeamTaskInlineBlock";
 
@@ -46,6 +47,7 @@ export type MessagesTimelineRow =
       kind: "fork-separator";
       id: string;
       createdAt: string;
+      sourceThreadId: ThreadId;
       sourceThreadTitle: string;
     }
   | { kind: "team-tasks"; id: string; createdAt: string; tasks: readonly TeamTaskInlineView[] }
@@ -278,6 +280,7 @@ export function deriveMessagesTimelineRows(input: {
       kind: "fork-separator",
       id: `fork-separator:${input.forkOrigin.forkedAt}`,
       createdAt: input.forkOrigin.importedUntilAt,
+      sourceThreadId: input.forkOrigin.sourceThreadId,
       sourceThreadTitle: input.forkOrigin.sourceThreadTitle,
     };
     const firstPostForkIndex = nextRows.findIndex(
@@ -327,7 +330,10 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return a.proposedPlan === (b as typeof a).proposedPlan;
 
     case "fork-separator":
-      return a.sourceThreadTitle === (b as typeof a).sourceThreadTitle;
+      return (
+        a.sourceThreadId === (b as typeof a).sourceThreadId &&
+        a.sourceThreadTitle === (b as typeof a).sourceThreadTitle
+      );
 
     case "team-tasks":
       return a.tasks === (b as typeof a).tasks;

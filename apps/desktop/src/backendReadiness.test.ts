@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BackendReadinessAbortedError,
   isBackendReadinessAborted,
+  isHttpRedirectResponse,
   waitForHttpReady,
 } from "./backendReadiness";
 
@@ -84,6 +85,11 @@ describe("waitForHttpReady", () => {
   it("recognizes aborted readiness errors", () => {
     expect(isBackendReadinessAborted(new BackendReadinessAbortedError())).toBe(true);
     expect(isBackendReadinessAborted(new Error("nope"))).toBe(false);
+  });
+
+  it("recognizes redirect responses", () => {
+    expect(isHttpRedirectResponse(new Response(null, { status: 302 }))).toBe(true);
+    expect(isHttpRedirectResponse(new Response(null, { status: 200 }))).toBe(false);
   });
 
   it("supports custom readiness predicates", async () => {

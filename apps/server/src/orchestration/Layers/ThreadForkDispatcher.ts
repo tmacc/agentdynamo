@@ -1,3 +1,6 @@
+import { readdirSync, rmSync } from "node:fs";
+import path from "node:path";
+
 import {
   CommandId,
   MessageId,
@@ -8,9 +11,13 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
-import { Effect, Layer, Option, Schema } from "effect";
+import { Cause, Effect, Layer, Option, Schema } from "effect";
 
-import { cloneAttachmentForThread } from "../../attachmentStore.ts";
+import {
+  cloneAttachmentForThread,
+  resolveAttachmentPath,
+  toSafeThreadAttachmentSegment,
+} from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { GitStatusBroadcaster } from "../../git/Services/GitStatusBroadcaster.ts";
@@ -59,6 +66,46 @@ function timestampAt(baseTimeMs: number, offset: number): string {
   return new Date(baseTimeMs + offset).toISOString();
 }
 
+const cleanupClonedAttachments = (paths: ReadonlyArray<string>) =>
+  Effect.forEach(
+    paths,
+    (path) =>
+      Effect.sync(() => {
+        rmSync(path, { force: true });
+      }).pipe(Effect.ignoreCause({ log: true })),
+    { concurrency: 1, discard: true },
+  ).pipe(Effect.asVoid);
+
+const cleanupThreadAttachmentFiles = (input: {
+  readonly attachmentsDir: string;
+  readonly threadId: ThreadId;
+}) => {
+  const threadSegment = toSafeThreadAttachmentSegment(input.threadId);
+  if (!threadSegment) {
+    return Effect.void;
+  }
+
+  return Effect.sync(() => {
+    const pendingDirs = [input.attachmentsDir];
+    while (pendingDirs.length > 0) {
+      const currentDir = pendingDirs.pop();
+      if (!currentDir) {
+        continue;
+      }
+      for (const entry of readdirSync(currentDir, { withFileTypes: true })) {
+        const entryPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          pendingDirs.push(entryPath);
+          continue;
+        }
+        if (entry.name.startsWith(`${threadSegment}-`)) {
+          rmSync(entryPath, { force: true });
+        }
+      }
+    }
+  }).pipe(Effect.ignoreCause({ log: true }), Effect.asVoid);
+};
+
 const makeThreadForkDispatcher = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const materializer = yield* ThreadForkMaterializer;
@@ -99,164 +146,204 @@ const makeThreadForkDispatcher = Effect.gen(function* () {
       }
 
       const childThreadId = ThreadId.make(crypto.randomUUID());
-      const forkedAt = new Date().toISOString();
-      const defaultTitle = `Fork of ${sourceThread.value.title}`;
-      const materialized = yield* materializer.materialize({
-        sourceThreadId: input.sourceThreadId,
-        sourceUserMessageId: input.sourceUserMessageId,
-      });
+      const cleanupCreatedThread = () =>
+        orchestrationEngine
+          .dispatch({
+            type: "thread.delete",
+            commandId: serverCommandId("fork-thread-delete"),
+            threadId: childThreadId,
+          })
+          .pipe(Effect.ignoreCause({ log: true }), Effect.asVoid);
 
-      const workspace = yield* prepareWorkspace({
-        threadId: childThreadId,
-        projectId: sourceThread.value.projectId,
-        projectCwd: sourceProject.value.workspaceRoot,
-        currentBranch: null,
-        currentWorktreePath: null,
-        ...(input.mode === "worktree" && input.baseBranch
-          ? {
-              prepareWorktree: {
-                projectCwd: sourceProject.value.workspaceRoot,
-                baseBranch: input.baseBranch,
-                branch: buildTemporaryWorktreeBranchName(),
-              },
-            }
-          : {}),
-        runSetupScript: input.mode === "worktree",
-        setupFailureMode: "fail-request",
-        cleanupOnFailure: true,
-      }).pipe(
-        Effect.mapError((cause) =>
-          toForkThreadError(cause, "Failed to prepare the fork workspace."),
-        ),
-      );
+      let cleanupWorkspace: Effect.Effect<void, never, never> = Effect.void;
+      const clonedAttachmentPaths: string[] = [];
+      let forkCompleted = false;
 
-      const combinedRows = sortForkRows([
-        ...materialized.importedMessages.map((source) => ({ kind: "message" as const, source })),
-        ...materialized.importedProposedPlans.map((source) => ({ kind: "plan" as const, source })),
-      ]);
+      const cleanupForkAttempt = () =>
+        Effect.uninterruptible(
+          cleanupClonedAttachments(clonedAttachmentPaths).pipe(
+            Effect.andThen(
+              cleanupThreadAttachmentFiles({
+                attachmentsDir: serverConfig.attachmentsDir,
+                threadId: childThreadId,
+              }),
+            ),
+            Effect.andThen(cleanupWorkspace),
+            Effect.andThen(cleanupCreatedThread()),
+          ),
+        );
 
-      const baseTimeMs = Date.parse(forkedAt);
-      const clonedMessages = new Map<string, OrchestrationMessage>();
-      const clonedPlans = new Map<string, OrchestrationProposedPlan>();
-      let importedUntilAt = forkedAt;
+      return yield* Effect.gen(function* () {
+        const forkedAt = new Date().toISOString();
+        const defaultTitle = `Fork of ${sourceThread.value.title}`;
+        const materialized = yield* materializer.materialize({
+          sourceThreadId: input.sourceThreadId,
+          sourceUserMessageId: input.sourceUserMessageId,
+        });
 
-      for (const [index, row] of combinedRows.entries()) {
-        const syntheticTimestamp = timestampAt(baseTimeMs, index + 1);
-        importedUntilAt = syntheticTimestamp;
-        if (row.kind === "message") {
-          const attachments =
-            row.source.attachments && row.source.attachments.length > 0
-              ? yield* Effect.forEach(
-                  row.source.attachments,
-                  (attachment) =>
-                    cloneAttachmentForThread({
-                      attachmentsDir: serverConfig.attachmentsDir,
-                      targetThreadId: childThreadId,
-                      attachment,
-                    }),
-                  { concurrency: 1 },
-                ).pipe(
-                  Effect.mapError((cause) =>
-                    toForkThreadError(cause, "Failed to clone imported attachments."),
-                  ),
-                )
-              : undefined;
+        const workspace = yield* prepareWorkspace({
+          threadId: childThreadId,
+          projectId: sourceThread.value.projectId,
+          projectCwd: sourceProject.value.workspaceRoot,
+          currentBranch: null,
+          currentWorktreePath: null,
+          ...(input.mode === "worktree" && input.baseBranch
+            ? {
+                prepareWorktree: {
+                  projectCwd: sourceProject.value.workspaceRoot,
+                  baseBranch: input.baseBranch,
+                  branch: buildTemporaryWorktreeBranchName(),
+                },
+              }
+            : {}),
+          runSetupScript: input.mode === "worktree",
+          setupFailureMode: "fail-request",
+          cleanupOnFailure: true,
+        }).pipe(
+          Effect.mapError((cause) =>
+            toForkThreadError(cause, "Failed to prepare the fork workspace."),
+          ),
+        );
+        cleanupWorkspace = workspace.cleanup;
 
-          clonedMessages.set(row.source.id, {
-            id: MessageId.make(`message:${crypto.randomUUID()}`),
-            role: row.source.role,
-            text: row.source.text,
-            ...(attachments ? { attachments } : {}),
+        const combinedRows = sortForkRows([
+          ...materialized.importedMessages.map((source) => ({ kind: "message" as const, source })),
+          ...materialized.importedProposedPlans.map((source) => ({
+            kind: "plan" as const,
+            source,
+          })),
+        ]);
+
+        const baseTimeMs = Date.parse(forkedAt);
+        const clonedMessages = new Map<string, OrchestrationMessage>();
+        const clonedPlans = new Map<string, OrchestrationProposedPlan>();
+        let importedUntilAt = forkedAt;
+
+        for (const [index, row] of combinedRows.entries()) {
+          const syntheticTimestamp = timestampAt(baseTimeMs, index - combinedRows.length);
+          importedUntilAt = syntheticTimestamp;
+          if (row.kind === "message") {
+            const attachments =
+              row.source.attachments && row.source.attachments.length > 0
+                ? yield* Effect.forEach(
+                    row.source.attachments,
+                    (attachment) =>
+                      cloneAttachmentForThread({
+                        attachmentsDir: serverConfig.attachmentsDir,
+                        targetThreadId: childThreadId,
+                        attachment,
+                      }).pipe(
+                        Effect.catchCause((cause) =>
+                          Effect.fail(
+                            new OrchestrationForkThreadError({
+                              message: "Failed to clone imported attachments.",
+                              cause: Cause.squash(cause),
+                            }),
+                          ),
+                        ),
+                        Effect.flatMap((clonedAttachment) => {
+                          const clonedAttachmentPath = resolveAttachmentPath({
+                            attachmentsDir: serverConfig.attachmentsDir,
+                            attachment: clonedAttachment,
+                          });
+                          if (!clonedAttachmentPath) {
+                            return Effect.fail(
+                              new OrchestrationForkThreadError({
+                                message: "Failed to resolve a cloned attachment path.",
+                              }),
+                            );
+                          }
+                          clonedAttachmentPaths.push(clonedAttachmentPath);
+                          return Effect.succeed(clonedAttachment);
+                        }),
+                      ),
+                    { concurrency: 1 },
+                  ).pipe(
+                    Effect.mapError((cause) =>
+                      toForkThreadError(cause, "Failed to clone imported attachments."),
+                    ),
+                  )
+                : undefined;
+
+            clonedMessages.set(row.source.id, {
+              id: MessageId.make(`message:${crypto.randomUUID()}`),
+              role: row.source.role,
+              text: row.source.text,
+              ...(attachments ? { attachments } : {}),
+              turnId: null,
+              streaming: row.source.role === "assistant" ? false : row.source.streaming,
+              createdAt: syntheticTimestamp,
+              updatedAt: syntheticTimestamp,
+            });
+            continue;
+          }
+
+          clonedPlans.set(String(row.source.id), {
+            id: `plan:${crypto.randomUUID()}`,
             turnId: null,
-            streaming: row.source.role === "assistant" ? false : row.source.streaming,
+            planMarkdown: row.source.planMarkdown,
+            implementedAt: row.source.implementedAt === null ? null : syntheticTimestamp,
+            implementationThreadId:
+              row.source.implementedAt === null ? null : row.source.implementationThreadId,
             createdAt: syntheticTimestamp,
             updatedAt: syntheticTimestamp,
           });
-          continue;
         }
 
-        clonedPlans.set(String(row.source.id), {
-          id: `plan:${crypto.randomUUID()}`,
-          turnId: null,
-          planMarkdown: row.source.planMarkdown,
-          implementedAt: row.source.implementedAt === null ? null : syntheticTimestamp,
-          implementationThreadId:
-            row.source.implementedAt === null ? null : row.source.implementationThreadId,
-          createdAt: syntheticTimestamp,
-          updatedAt: syntheticTimestamp,
-        });
-      }
-
-      const cleanupCreatedThread = () =>
-        projectionSnapshotQuery.getThreadShellById(childThreadId).pipe(
-          Effect.flatMap((thread) =>
-            Option.isNone(thread)
-              ? Effect.void
-              : orchestrationEngine
-                  .dispatch({
-                    type: "thread.delete",
-                    commandId: serverCommandId("fork-thread-delete"),
-                    threadId: childThreadId,
-                  })
-                  .pipe(Effect.ignoreCause({ log: true }), Effect.asVoid),
-          ),
-          Effect.ignoreCause({ log: true }),
-        );
-
-      yield* orchestrationEngine
-        .dispatch({
-          type: "thread.fork",
-          commandId: serverCommandId("thread-fork"),
-          threadId: childThreadId,
-          projectId: sourceThread.value.projectId,
-          title: defaultTitle,
-          modelSelection: sourceThread.value.modelSelection,
-          runtimeMode: sourceThread.value.runtimeMode,
-          interactionMode: sourceThread.value.interactionMode,
-          branch: input.mode === "worktree" ? workspace.branch : null,
-          worktreePath: input.mode === "worktree" ? workspace.worktreePath : null,
-          forkOrigin: {
-            sourceThreadId: input.sourceThreadId,
-            sourceThreadTitle: sourceThread.value.title,
-            sourceUserMessageId: input.sourceUserMessageId,
-            importedUntilAt,
-            forkedAt,
-          },
-          clonedMessages: [...clonedMessages.values()],
-          clonedProposedPlans: [...clonedPlans.values()],
-          createdAt: forkedAt,
-        })
-        .pipe(
-          Effect.mapError((cause) =>
-            toForkThreadError(cause, "Failed to create the forked thread."),
-          ),
-          Effect.tapError(() =>
-            workspace.cleanup.pipe(
-              Effect.flatMap(() => cleanupCreatedThread()),
-              Effect.ignoreCause({ log: true }),
+        yield* orchestrationEngine
+          .dispatch({
+            type: "thread.fork",
+            commandId: serverCommandId("thread-fork"),
+            threadId: childThreadId,
+            projectId: sourceThread.value.projectId,
+            title: defaultTitle,
+            modelSelection: sourceThread.value.modelSelection,
+            runtimeMode: sourceThread.value.runtimeMode,
+            interactionMode: sourceThread.value.interactionMode,
+            branch: input.mode === "worktree" ? workspace.branch : null,
+            worktreePath: input.mode === "worktree" ? workspace.worktreePath : null,
+            forkOrigin: {
+              sourceThreadId: input.sourceThreadId,
+              sourceThreadTitle: sourceThread.value.title,
+              sourceUserMessageId: input.sourceUserMessageId,
+              importedUntilAt,
+              forkedAt,
+            },
+            clonedMessages: [...clonedMessages.values()],
+            clonedProposedPlans: [...clonedPlans.values()],
+            createdAt: forkedAt,
+          })
+          .pipe(
+            Effect.mapError((cause) =>
+              toForkThreadError(cause, "Failed to create the forked thread."),
             ),
+          );
+
+        return yield* projectionSnapshotQuery.getThreadShellById(childThreadId).pipe(
+          Effect.mapError((cause) => toForkThreadError(cause, "Failed to load the forked thread.")),
+          Effect.flatMap((thread) =>
+            Option.match(thread, {
+              onNone: () =>
+                Effect.fail(
+                  new OrchestrationForkThreadError({
+                    message: "The forked thread was created but could not be loaded.",
+                  }),
+                ),
+              onSome: (loadedThread) =>
+                Effect.succeed({
+                  thread: loadedThread,
+                } satisfies OrchestrationForkThreadResult),
+            }),
           ),
         );
-
-      const threadShell = yield* projectionSnapshotQuery.getThreadShellById(childThreadId).pipe(
-        Effect.mapError((cause) => toForkThreadError(cause, "Failed to load the forked thread.")),
-        Effect.flatMap((thread) =>
-          Option.match(thread, {
-            onNone: () =>
-              Effect.fail(
-                new OrchestrationForkThreadError({
-                  message: "The forked thread was created but could not be loaded.",
-                }),
-              ),
-            onSome: (loadedThread) =>
-              Effect.succeed({
-                thread: loadedThread,
-              } satisfies OrchestrationForkThreadResult),
+      }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            forkCompleted = true;
           }),
         ),
+        Effect.ensuring(Effect.suspend(() => (forkCompleted ? Effect.void : cleanupForkAttempt()))),
       );
-
-      return threadShell;
     }).pipe(Effect.mapError((cause) => toForkThreadError(cause, "Failed to fork thread.")));
 
   return {

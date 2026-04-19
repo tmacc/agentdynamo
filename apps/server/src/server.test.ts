@@ -3260,6 +3260,57 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("normalizes fork failures consistently across websocket and HTTP routes", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          threadForkDispatcher: {
+            forkThread: () => Effect.fail(new Error("boom") as never),
+          },
+        },
+      });
+
+      const sessionCookie = yield* getAuthenticatedSessionCookieHeader();
+      const wsUrl = appendSessionCookieToWsUrl(
+        yield* getWsServerUrl("/ws", { authenticated: false }),
+        sessionCookie,
+      );
+      const wsResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.forkThread]({
+            sourceThreadId: defaultThreadId,
+            sourceUserMessageId: MessageId.make("message-source-error"),
+            mode: "local",
+          }),
+        ).pipe(Effect.result),
+      );
+
+      assertTrue(wsResult._tag === "Failure");
+      assert.equal(wsResult.failure._tag, "OrchestrationForkThreadError");
+      assert.equal(wsResult.failure.message, "Failed to fork thread.");
+
+      const url = yield* getHttpServerUrl("/api/orchestration/fork-thread");
+      const response = yield* Effect.promise(() =>
+        fetch(url, {
+          method: "POST",
+          headers: {
+            cookie: sessionCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            sourceThreadId: defaultThreadId,
+            sourceUserMessageId: MessageId.make("message-source-error-http"),
+            mode: "local",
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as { readonly error: string };
+
+      assert.equal(response.status, 400);
+      assert.equal(body.error, "Failed to fork thread.");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("enriches replayed project events with repository identity metadata", () =>
     Effect.gen(function* () {
       const repositoryIdentity = {
