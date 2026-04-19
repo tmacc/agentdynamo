@@ -114,6 +114,49 @@ describe("MessagesTimeline", () => {
     }
   });
 
+  it("opens the source thread when the fork separator is clicked", async () => {
+    const props = {
+      ...buildProps(),
+      onOpenForkSourceThread: vi.fn(),
+    };
+    const screen = await render(
+      <MessagesTimeline
+        {...props}
+        timelineEntries={[
+          {
+            id: "imported-user-entry",
+            kind: "message",
+            createdAt: "2026-01-01T00:00:01.000Z",
+            message: {
+              id: MessageId.make("imported-user"),
+              role: "user",
+              text: "Imported question",
+              turnId: null,
+              createdAt: "2026-01-01T00:00:01.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        forkOrigin={{
+          sourceThreadId: "thread-source" as never,
+          sourceThreadTitle: "Parent thread",
+          sourceUserMessageId: "message-source" as never,
+          importedUntilAt: "2026-01-01T00:00:02.000Z",
+          forkedAt: "2026-01-01T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    try {
+      const separatorButton = page.getByRole("button", { name: "Forked from Parent thread" });
+      await expect.element(separatorButton).toBeVisible();
+      await separatorButton.click();
+      expect(props.onOpenForkSourceThread).toHaveBeenCalledWith("thread-source");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("snaps to the bottom when timeline rows appear after an initially empty render", async () => {
     const requestAnimationFrameSpy = vi
       .spyOn(window, "requestAnimationFrame")

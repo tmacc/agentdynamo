@@ -103,6 +103,55 @@ describe("orchestration projector", () => {
     ]);
   });
 
+  it("retains forkOrigin when applying thread.created events", async () => {
+    const now = new Date().toISOString();
+    const model = createEmptyReadModel(now);
+
+    const next = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-forked",
+          occurredAt: now,
+          commandId: "cmd-thread-fork",
+          payload: {
+            threadId: "thread-forked",
+            projectId: "project-1",
+            title: "Fork of demo",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            forkOrigin: {
+              sourceThreadId: "thread-source",
+              sourceThreadTitle: "demo",
+              sourceUserMessageId: "message-source",
+              importedUntilAt: "2026-01-01T00:00:00.999Z",
+              forkedAt: "2026-01-01T00:00:01.000Z",
+            },
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+
+    expect(next.threads[0]?.forkOrigin).toEqual({
+      sourceThreadId: "thread-source",
+      sourceThreadTitle: "demo",
+      sourceUserMessageId: "message-source",
+      importedUntilAt: "2026-01-01T00:00:00.999Z",
+      forkedAt: "2026-01-01T00:00:01.000Z",
+    });
+  });
+
   it("fails when event payload cannot be decoded by runtime schema", async () => {
     const now = new Date().toISOString();
     const model = createEmptyReadModel(now);

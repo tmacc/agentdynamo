@@ -278,6 +278,7 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
     teamParentThreadId: thread.teamParentThreadId ?? null,
     teamParentTaskId: thread.teamParentTaskId ?? null,
     teamRoleLabel: thread.teamRoleLabel ?? null,
@@ -313,6 +314,7 @@ function mapThreadShell(
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
     teamParentThreadId: thread.teamParentThreadId ?? null,
     teamParentTaskId: thread.teamParentTaskId ?? null,
     teamRoleLabel: thread.teamRoleLabel ?? null,
@@ -337,6 +339,7 @@ function mapThreadShell(
     latestTurn: thread.latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
     teamParentThreadId: thread.teamParentThreadId ?? null,
     teamParentTaskId: thread.teamParentTaskId ?? null,
     teamRoleLabel: thread.teamRoleLabel ?? null,
@@ -371,6 +374,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
     teamParentThreadId: thread.teamParentThreadId ?? null,
     teamParentTaskId: thread.teamParentTaskId ?? null,
     teamRoleLabel: thread.teamRoleLabel ?? null,
@@ -448,6 +452,11 @@ function sidebarThreadSummariesEqual(
     latestTurnsEqual(left.latestTurn, right.latestTurn) &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
+    left.forkOrigin?.sourceThreadId === right.forkOrigin?.sourceThreadId &&
+    left.forkOrigin?.sourceThreadTitle === right.forkOrigin?.sourceThreadTitle &&
+    left.forkOrigin?.sourceUserMessageId === right.forkOrigin?.sourceUserMessageId &&
+    left.forkOrigin?.importedUntilAt === right.forkOrigin?.importedUntilAt &&
+    left.forkOrigin?.forkedAt === right.forkOrigin?.forkedAt &&
     left.teamParentThreadId === right.teamParentThreadId &&
     left.teamParentTaskId === right.teamParentTaskId &&
     left.teamRoleLabel === right.teamRoleLabel &&
@@ -477,6 +486,11 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left.updatedAt === right.updatedAt &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
+    left.forkOrigin?.sourceThreadId === right.forkOrigin?.sourceThreadId &&
+    left.forkOrigin?.sourceThreadTitle === right.forkOrigin?.sourceThreadTitle &&
+    left.forkOrigin?.sourceUserMessageId === right.forkOrigin?.sourceUserMessageId &&
+    left.forkOrigin?.importedUntilAt === right.forkOrigin?.importedUntilAt &&
+    left.forkOrigin?.forkedAt === right.forkOrigin?.forkedAt &&
     left.teamParentThreadId === right.teamParentThreadId &&
     left.teamParentTaskId === right.teamParentTaskId &&
     left.teamRoleLabel === right.teamRoleLabel &&
@@ -1354,6 +1368,7 @@ function applyEnvironmentOrchestrationEvent(
           interactionMode: event.payload.interactionMode,
           branch: event.payload.branch,
           worktreePath: event.payload.worktreePath,
+          ...(event.payload.forkOrigin ? { forkOrigin: event.payload.forkOrigin } : {}),
           latestTurn: null,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
@@ -2061,6 +2076,7 @@ interface AppStore extends AppState {
     environmentId: EnvironmentId,
   ) => void;
   syncServerThreadDetail: (thread: OrchestrationThread, environmentId: EnvironmentId) => void;
+  seedThreadShell: (thread: OrchestrationThreadShell, environmentId: EnvironmentId) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent, environmentId: EnvironmentId) => void;
   applyOrchestrationEvents: (
     events: ReadonlyArray<OrchestrationEvent>,
@@ -2083,6 +2099,17 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => syncServerShellSnapshot(state, snapshot, environmentId)),
   syncServerThreadDetail: (thread, environmentId) =>
     set((state) => syncServerThreadDetail(state, thread, environmentId)),
+  seedThreadShell: (thread, environmentId) =>
+    set((state) =>
+      commitEnvironmentState(
+        state,
+        environmentId,
+        writeThreadShellState(
+          getStoredEnvironmentState(state, environmentId),
+          mapThreadShell(thread, environmentId),
+        ),
+      ),
+    ),
   applyOrchestrationEvent: (event, environmentId) =>
     set((state) => applyOrchestrationEvent(state, event, environmentId)),
   applyOrchestrationEvents: (events, environmentId) =>

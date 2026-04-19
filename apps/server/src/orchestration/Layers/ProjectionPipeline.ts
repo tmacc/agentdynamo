@@ -595,6 +595,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
             hasActionableProposedPlan: 0,
+            forkSourceThreadId: event.payload.forkOrigin?.sourceThreadId ?? null,
+            forkSourceThreadTitle: event.payload.forkOrigin?.sourceThreadTitle ?? null,
+            forkSourceUserMessageId: event.payload.forkOrigin?.sourceUserMessageId ?? null,
+            forkImportedUntilAt: event.payload.forkOrigin?.importedUntilAt ?? null,
+            forkedAt: event.payload.forkOrigin?.forkedAt ?? null,
             deletedAt: null,
           });
           return;
