@@ -4,7 +4,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pingdotgg/t3code",
+    "url": "https://github.com/tmacc/agentdynamo2",
     "directory": "apps/server"
   },
   "bin": {
@@ -18,7 +18,7 @@
     "dev": "bun run src/bin.ts",
     "build": "node scripts/cli.ts build",
     "start": "node dist/bin.mjs",
-    "prepare": "effect-language-service patch",
+    "prepare": "node ../../scripts/run-effect-language-service-prepare.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

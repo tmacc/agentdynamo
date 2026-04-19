@@ -2,13 +2,13 @@ import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import Migration0029 from "./029_RepairProjectionBoardCardLinkedThreadUniqueness.ts";
+import Migration0030 from "./030_RepairProjectionBoardCardLinkedThreadUniqueness.ts";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("029_RepairProjectionBoardCardLinkedThreadUniqueness", (it) => {
+layer("030_RepairProjectionBoardCardLinkedThreadUniqueness", (it) => {
   it.effect("keeps the oldest linked card per thread and unlinks later duplicates", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -113,7 +113,7 @@ layer("029_RepairProjectionBoardCardLinkedThreadUniqueness", (it) => {
           )
       `;
 
-      yield* Migration0029;
+      yield* Migration0030;
 
       const rows = yield* sql<{
         readonly cardId: string;
@@ -154,7 +154,7 @@ layer("029_RepairProjectionBoardCardLinkedThreadUniqueness", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 27 });
+      yield* runMigrations({ toMigrationInclusive: 28 });
       yield* sql`
         DELETE FROM projection_board_cards
       `;
@@ -190,8 +190,8 @@ layer("029_RepairProjectionBoardCardLinkedThreadUniqueness", (it) => {
           )
       `;
 
-      yield* Migration0029;
-      yield* Migration0029;
+      yield* Migration0030;
+      yield* Migration0030;
 
       const rows = yield* sql<{
         readonly cardId: string;

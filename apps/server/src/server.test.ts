@@ -95,6 +95,10 @@ import {
 import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./serverLifecycleEvents.ts";
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings.ts";
+import {
+  AnalyticsService,
+  type AnalyticsServiceShape,
+} from "./telemetry/Services/AnalyticsService.ts";
 import { TerminalManager, type TerminalManagerShape } from "./terminal/Services/Manager.ts";
 import {
   BrowserTraceCollector,
@@ -336,6 +340,7 @@ const buildAppUnderTest = (options?: {
     keybindings?: Partial<KeybindingsShape>;
     providerRegistry?: Partial<ProviderRegistryShape>;
     serverSettings?: Partial<ServerSettingsShape>;
+    analytics?: Partial<AnalyticsServiceShape>;
     open?: Partial<OpenShape>;
     gitCore?: Partial<GitCoreShape>;
     gitManager?: Partial<GitManagerShape>;
@@ -444,6 +449,11 @@ const buildAppUnderTest = (options?: {
           Layer.provideMerge(gitStatusBroadcasterLayer),
           Layer.provide(gitCoreLayer),
         );
+    const analyticsLayer = Layer.mock(AnalyticsService)({
+      record: () => Effect.void,
+      flush: Effect.void,
+      ...options?.layers?.analytics,
+    });
 
     const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
@@ -550,6 +560,7 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(threadBootstrapDispatcherLayer),
+      Layer.provide(analyticsLayer),
       Layer.provide(
         Layer.mock(TeamCoordinatorSessionRegistry)({
           getCoordinatorSessionConfig: () =>
@@ -603,6 +614,7 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.serverRuntimeStartup,
         }),
       ),
+      Layer.provide(analyticsLayer),
       Layer.provide(
         Layer.mock(ServerEnvironment)({
           getEnvironmentId: Effect.succeed(testEnvironmentDescriptor.environmentId),

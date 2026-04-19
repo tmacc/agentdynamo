@@ -39,9 +39,10 @@ import Migration0023 from "./Migrations/023_ProjectionThreadShellSummary.ts";
 import Migration0024 from "./Migrations/024_BackfillProjectionThreadShellSummary.ts";
 import Migration0025 from "./Migrations/025_ProjectionThreadTeamTasks.ts";
 import Migration0026 from "./Migrations/026_CleanupInvalidProjectionPendingApprovals.ts";
-import Migration0027 from "./Migrations/027_ProjectionBoardCards.ts";
-import Migration0028 from "./Migrations/028_ProjectionBoardDismissedGhosts.ts";
-import Migration0029 from "./Migrations/029_RepairProjectionBoardCardLinkedThreadUniqueness.ts";
+import Migration0027 from "./Migrations/027_ProjectionProjectsWorktreeReadiness.ts";
+import Migration0028 from "./Migrations/028_ProjectionBoardCards.ts";
+import Migration0029 from "./Migrations/029_ProjectionBoardDismissedGhosts.ts";
+import Migration0030 from "./Migrations/030_RepairProjectionBoardCardLinkedThreadUniqueness.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -80,9 +81,10 @@ export const migrationEntries = [
   [24, "BackfillProjectionThreadShellSummary", Migration0024],
   [25, "ProjectionThreadTeamTasks", Migration0025],
   [26, "CleanupInvalidProjectionPendingApprovals", Migration0026],
-  [27, "ProjectionBoardCards", Migration0027],
-  [28, "ProjectionBoardDismissedGhosts", Migration0028],
-  [29, "RepairProjectionBoardCardLinkedThreadUniqueness", Migration0029],
+  [27, "ProjectionProjectsWorktreeReadiness", Migration0027],
+  [28, "ProjectionBoardCards", Migration0028],
+  [29, "ProjectionBoardDismissedGhosts", Migration0029],
+  [30, "RepairProjectionBoardCardLinkedThreadUniqueness", Migration0030],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

@@ -252,6 +252,7 @@ function mapProject(
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     scripts: mapProjectScripts(project.scripts),
+    worktreeReadiness: project.worktreeReadiness ?? null,
   };
 }
 
@@ -1314,6 +1315,9 @@ function applyEnvironmentOrchestrationEvent(
           : {}),
         ...(event.payload.scripts !== undefined
           ? { scripts: mapProjectScripts(event.payload.scripts) }
+          : {}),
+        ...(event.payload.worktreeReadiness !== undefined
+          ? { worktreeReadiness: event.payload.worktreeReadiness ?? null }
           : {}),
         updatedAt: event.payload.updatedAt,
       };

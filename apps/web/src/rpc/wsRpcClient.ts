@@ -67,6 +67,10 @@ export interface WsRpcClient {
   };
   readonly projects: {
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
+    readonly scanWorktreeReadiness: RpcUnaryMethod<typeof WS_METHODS.projectsScanWorktreeReadiness>;
+    readonly applyWorktreeReadiness: RpcUnaryMethod<
+      typeof WS_METHODS.projectsApplyWorktreeReadiness
+    >;
     readonly writeFile: RpcUnaryMethod<typeof WS_METHODS.projectsWriteFile>;
     readonly getIntelligence: RpcUnaryMethod<typeof WS_METHODS.projectsGetIntelligence>;
     readonly readIntelligenceSurface: RpcUnaryMethod<
@@ -155,6 +159,10 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     projects: {
       searchEntries: (input) =>
         transport.request((client) => client[WS_METHODS.projectsSearchEntries](input)),
+      scanWorktreeReadiness: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsScanWorktreeReadiness](input)),
+      applyWorktreeReadiness: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsApplyWorktreeReadiness](input)),
       writeFile: (input) =>
         transport.request((client) => client[WS_METHODS.projectsWriteFile](input)),
       getIntelligence: (input) =>

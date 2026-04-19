@@ -3,6 +3,9 @@ import { Effect, Layer } from "effect";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
+import { materializeManagedWorktreeScripts } from "./WorktreeReadinessShared.ts";
+import { WorktreeRuntimeEnvProvisionerLive } from "./WorktreeRuntimeEnvProvisioner.ts";
+import { WorktreeRuntimeEnvProvisioner } from "../Services/WorktreeRuntimeEnvProvisioner.ts";
 import {
   type ProjectSetupScriptRunnerShape,
   ProjectSetupScriptRunner,
@@ -11,6 +14,7 @@ import {
 const makeProjectSetupScriptRunner = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const terminalManager = yield* TerminalManager;
+  const worktreeRuntimeEnvProvisioner = yield* WorktreeRuntimeEnvProvisioner;
 
   const runForThread: ProjectSetupScriptRunnerShape["runForThread"] = (input) =>
     Effect.gen(function* () {
@@ -26,6 +30,28 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
 
       if (!project) {
         return yield* Effect.fail(new Error("Project was not found for setup script execution."));
+      }
+
+      const readinessProfile =
+        project.worktreeReadiness?.status === "configured" ? project.worktreeReadiness : null;
+
+      if (readinessProfile) {
+        yield* worktreeRuntimeEnvProvisioner.ensureEnvFile({
+          projectCwd: project.workspaceRoot,
+          worktreePath: input.worktreePath,
+          portCount: readinessProfile.portCount,
+        });
+        yield* Effect.tryPromise(() =>
+          materializeManagedWorktreeScripts({
+            rootPath: input.worktreePath,
+            installCommand: readinessProfile.installCommand,
+            envStrategy: readinessProfile.envStrategy,
+            envSourcePath: readinessProfile.envSourcePath,
+            framework: readinessProfile.framework,
+            packageManager: readinessProfile.packageManager,
+            devCommand: readinessProfile.devCommand,
+          }),
+        );
       }
 
       const script = setupProjectScript(project.scripts);
@@ -72,4 +98,4 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
 export const ProjectSetupScriptRunnerLive = Layer.effect(
   ProjectSetupScriptRunner,
   makeProjectSetupScriptRunner,
-);
+).pipe(Layer.provideMerge(WorktreeRuntimeEnvProvisionerLive));
