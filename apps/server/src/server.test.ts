@@ -15,6 +15,7 @@ import {
   TerminalNotRunningError,
   type OrchestrationCommand,
   type OrchestrationEvent,
+  OrchestrationForkThreadError,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ResolvedKeybindingRule,
@@ -78,6 +79,10 @@ import {
   ThreadBootstrapDispatcher,
   type ThreadBootstrapDispatcherShape,
 } from "./orchestration/Services/ThreadBootstrapDispatcher.ts";
+import {
+  ThreadForkDispatcher,
+  type ThreadForkDispatcherShape,
+} from "./orchestration/Services/ThreadForkDispatcher.ts";
 import { ThreadBootstrapDispatcherLive } from "./orchestration/Layers/ThreadBootstrapDispatcher.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import {
@@ -349,6 +354,7 @@ const buildAppUnderTest = (options?: {
     projectIntelligenceResolver?: Partial<ProjectIntelligenceResolverShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
     threadBootstrapDispatcher?: Partial<ThreadBootstrapDispatcherShape>;
+    threadForkDispatcher?: Partial<ThreadForkDispatcherShape>;
     teamCoordinatorSessionRegistry?: Partial<TeamCoordinatorSessionRegistryShape>;
     teamOrchestrationService?: Partial<TeamOrchestrationServiceShape>;
   };
@@ -444,6 +450,15 @@ const buildAppUnderTest = (options?: {
       flush: Effect.void,
       ...options?.layers?.analytics,
     });
+    const threadForkDispatcherLayer = Layer.mock(ThreadForkDispatcher)({
+      forkThread: () =>
+        Effect.fail(
+          new OrchestrationForkThreadError({
+            message: "thread forking is not configured in this server test harness",
+          }),
+        ),
+      ...options?.layers?.threadForkDispatcher,
+    });
 
     const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
@@ -533,6 +548,7 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provide(threadBootstrapDispatcherLayer),
       Layer.provide(analyticsLayer),
+      Layer.provide(threadForkDispatcherLayer),
       Layer.provide(
         Layer.mock(TeamCoordinatorSessionRegistry)({
           getCoordinatorSessionConfig: () =>
@@ -3241,6 +3257,57 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.deepEqual(replayResult, []);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("normalizes fork failures consistently across websocket and HTTP routes", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          threadForkDispatcher: {
+            forkThread: () => Effect.fail(new Error("boom") as never),
+          },
+        },
+      });
+
+      const sessionCookie = yield* getAuthenticatedSessionCookieHeader();
+      const wsUrl = appendSessionCookieToWsUrl(
+        yield* getWsServerUrl("/ws", { authenticated: false }),
+        sessionCookie,
+      );
+      const wsResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.forkThread]({
+            sourceThreadId: defaultThreadId,
+            sourceUserMessageId: MessageId.make("message-source-error"),
+            mode: "local",
+          }),
+        ).pipe(Effect.result),
+      );
+
+      assertTrue(wsResult._tag === "Failure");
+      assert.equal(wsResult.failure._tag, "OrchestrationForkThreadError");
+      assert.equal(wsResult.failure.message, "Failed to fork thread.");
+
+      const url = yield* getHttpServerUrl("/api/orchestration/fork-thread");
+      const response = yield* Effect.promise(() =>
+        fetch(url, {
+          method: "POST",
+          headers: {
+            cookie: sessionCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            sourceThreadId: defaultThreadId,
+            sourceUserMessageId: MessageId.make("message-source-error-http"),
+            mode: "local",
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as { readonly error: string };
+
+      assert.equal(response.status, 400);
+      assert.equal(body.error, "Failed to fork thread.");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

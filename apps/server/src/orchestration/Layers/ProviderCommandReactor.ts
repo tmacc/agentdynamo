@@ -81,9 +81,23 @@ const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const DEFAULT_THREAD_TITLE = "New thread";
 
-function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolean {
+function defaultForkThreadTitle(sourceTitle: string): string {
+  return `Fork of ${sourceTitle}`;
+}
+
+function canReplaceThreadTitle(
+  currentTitle: string,
+  titleSeed?: string,
+  forkOrigin?: { readonly sourceThreadTitle: string } | undefined,
+): boolean {
   const trimmedCurrentTitle = currentTitle.trim();
   if (trimmedCurrentTitle === DEFAULT_THREAD_TITLE) {
+    return true;
+  }
+  if (
+    forkOrigin !== undefined &&
+    trimmedCurrentTitle === defaultForkThreadTitle(forkOrigin.sourceThreadTitle).trim()
+  ) {
     return true;
   }
 
@@ -91,6 +105,37 @@ function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolea
   return trimmedTitleSeed !== undefined && trimmedTitleSeed.length > 0
     ? trimmedCurrentTitle === trimmedTitleSeed
     : false;
+}
+
+function isFirstLiveUserMessageTurn(input: {
+  readonly thread: {
+    readonly messages: ReadonlyArray<{
+      readonly id: MessageId;
+      readonly role: "user" | "assistant" | "system";
+      readonly createdAt: string;
+    }>;
+    readonly forkOrigin?: {
+      readonly importedUntilAt: string;
+    };
+  };
+  readonly messageId: MessageId;
+}): boolean {
+  if (input.thread.forkOrigin === undefined) {
+    return input.thread.messages.filter((entry) => entry.role === "user").length === 1;
+  }
+
+  const liveUserMessages = input.thread.messages
+    .filter(
+      (entry) =>
+        entry.role === "user" &&
+        entry.createdAt.localeCompare(input.thread.forkOrigin!.importedUntilAt) > 0,
+    )
+    .toSorted(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+    );
+
+  return liveUserMessages.length > 0 && liveUserMessages[0]?.id === input.messageId;
 }
 
 function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
@@ -622,7 +667,7 @@ const make = Effect.gen(function* () {
 
         const thread = yield* resolveThread(input.threadId);
         if (!thread) return;
-        if (!canReplaceThreadTitle(thread.title, input.titleSeed)) {
+        if (!canReplaceThreadTitle(thread.title, input.titleSeed, thread.forkOrigin)) {
           return;
         }
 
@@ -670,8 +715,10 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const isFirstUserMessageTurn =
-      thread.messages.filter((entry) => entry.role === "user").length === 1;
+    const isFirstUserMessageTurn = isFirstLiveUserMessageTurn({
+      thread,
+      messageId: event.payload.messageId,
+    });
     if (isFirstUserMessageTurn) {
       const generationCwd =
         resolveThreadWorkspaceCwd({
@@ -691,7 +738,7 @@ const make = Effect.gen(function* () {
         ...generationInput,
       }).pipe(Effect.forkScoped);
 
-      if (canReplaceThreadTitle(thread.title, event.payload.titleSeed)) {
+      if (canReplaceThreadTitle(thread.title, event.payload.titleSeed, thread.forkOrigin)) {
         yield* maybeGenerateThreadTitleForFirstTurn({
           threadId: event.payload.threadId,
           cwd: generationCwd,

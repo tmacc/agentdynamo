@@ -297,6 +297,7 @@ export function projectEvent(
             updatedAt: payload.updatedAt,
             archivedAt: null,
             deletedAt: null,
+            ...(payload.forkOrigin ? { forkOrigin: payload.forkOrigin } : {}),
             ...deriveChildTeamSummary(nextBase.threads, payload.threadId),
             messages: [],
             teamTasks: [],

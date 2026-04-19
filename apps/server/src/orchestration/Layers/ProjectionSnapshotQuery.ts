@@ -13,6 +13,7 @@ import {
   ProjectWorktreeReadinessProfile,
   TurnId,
   type OrchestrationCheckpointSummary,
+  type OrchestrationThreadForkOrigin,
   type OrchestrationLatestTurn,
   type OrchestrationMessage,
   type OrchestrationProjectShell,
@@ -111,6 +112,33 @@ const ProjectionCountsRowSchema = Schema.Struct({
 const WorkspaceRootLookupInput = Schema.Struct({
   workspaceRoot: Schema.String,
 });
+
+function mapForkOriginFromThreadRow(
+  row: Schema.Schema.Type<typeof ProjectionThread>,
+): OrchestrationThreadForkOrigin | undefined {
+  if (
+    row.forkSourceThreadId == null ||
+    row.forkSourceThreadTitle == null ||
+    row.forkSourceUserMessageId == null ||
+    row.forkImportedUntilAt == null ||
+    row.forkedAt == null
+  ) {
+    return undefined;
+  }
+
+  return {
+    sourceThreadId: row.forkSourceThreadId,
+    sourceThreadTitle: row.forkSourceThreadTitle,
+    sourceUserMessageId: row.forkSourceUserMessageId,
+    importedUntilAt: row.forkImportedUntilAt,
+    forkedAt: row.forkedAt,
+  };
+}
+
+function forkOriginFields(row: Schema.Schema.Type<typeof ProjectionThread>) {
+  const forkOrigin = mapForkOriginFromThreadRow(row);
+  return forkOrigin ? { forkOrigin } : {};
+}
 const ProjectIdLookupInput = Schema.Struct({
   projectId: ProjectId,
 });
@@ -310,6 +338,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
+          fork_source_thread_id AS "forkSourceThreadId",
+          fork_source_thread_title AS "forkSourceThreadTitle",
+          fork_source_user_message_id AS "forkSourceUserMessageId",
+          fork_imported_until_at AS "forkImportedUntilAt",
+          forked_at AS "forkedAt",
           deleted_at AS "deletedAt"
         FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
@@ -591,6 +624,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
+          fork_source_thread_id AS "forkSourceThreadId",
+          fork_source_thread_title AS "forkSourceThreadTitle",
+          fork_source_user_message_id AS "forkSourceUserMessageId",
+          fork_imported_until_at AS "forkImportedUntilAt",
+          forked_at AS "forkedAt",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE thread_id = ${threadId}
@@ -1071,6 +1109,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 interactionMode: row.interactionMode,
                 branch: row.branch,
                 worktreePath: row.worktreePath,
+                ...forkOriginFields(row),
                 latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
@@ -1244,6 +1283,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                       interactionMode: row.interactionMode,
                       branch: row.branch,
                       worktreePath: row.worktreePath,
+                      ...forkOriginFields(row),
                       latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                       createdAt: row.createdAt,
                       updatedAt: row.updatedAt,
@@ -1459,6 +1499,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         interactionMode: threadRow.value.interactionMode,
         branch: threadRow.value.branch,
         worktreePath: threadRow.value.worktreePath,
+        ...forkOriginFields(threadRow.value),
         latestTurn: Option.isSome(latestTurnRow) ? mapLatestTurn(latestTurnRow.value) : null,
         createdAt: threadRow.value.createdAt,
         updatedAt: threadRow.value.updatedAt,
@@ -1579,6 +1620,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         interactionMode: threadRow.value.interactionMode,
         branch: threadRow.value.branch,
         worktreePath: threadRow.value.worktreePath,
+        ...forkOriginFields(threadRow.value),
         latestTurn: Option.isSome(latestTurnRow) ? mapLatestTurn(latestTurnRow.value) : null,
         createdAt: threadRow.value.createdAt,
         updatedAt: threadRow.value.updatedAt,
