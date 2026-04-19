@@ -10,7 +10,10 @@ import { OrchestrationEngineService } from "../../orchestration/Services/Orchest
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
 import { ProjectSetupScriptRunner } from "../Services/ProjectSetupScriptRunner.ts";
 import { ProjectSetupScriptRunnerLive } from "./ProjectSetupScriptRunner.ts";
-import { buildManagedWorktreeScriptFiles } from "./WorktreeReadinessShared.ts";
+import {
+  buildManagedWorktreeScriptFiles,
+  resolveWorktreeRuntimeEnvFilePath,
+} from "./WorktreeReadinessShared.ts";
 
 const emptySnapshot = (
   scripts: OrchestrationReadModel["projects"][number]["scripts"],
@@ -70,6 +73,10 @@ function setupWorktreeScripts(): OrchestrationReadModel["projects"][number]["scr
       runOnWorktreeCreate: true,
     },
   ];
+}
+
+async function initializeGitWorktree(worktreePath: string): Promise<void> {
+  await fs.mkdir(path.join(worktreePath, ".git"), { recursive: true });
 }
 
 describe("ProjectSetupScriptRunner", () => {
@@ -224,6 +231,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
+      await initializeGitWorktree(worktreePath);
       const runner = await Effect.runPromise(
         Effect.service(ProjectSetupScriptRunner).pipe(
           Effect.provide(
@@ -310,8 +318,10 @@ describe("ProjectSetupScriptRunner", () => {
         fs.readFile(path.join(worktreePath, ".t3code/worktree/dev.sh"), "utf8"),
       ).resolves.toContain("bun run dev");
       await expect(
-        fs.readFile(path.join(worktreePath, ".t3code/worktree.local.env"), "utf8"),
-      ).resolves.toContain("T3CODE_PRIMARY_PORT=");
+        fs.readFile(path.join(worktreePath, ".t3code/worktree/setup.sh"), "utf8"),
+      ).resolves.toContain('git -C "$WORKTREE_ROOT" rev-parse --absolute-git-dir');
+      const runtimeEnvPath = await resolveWorktreeRuntimeEnvFilePath(worktreePath);
+      await expect(fs.readFile(runtimeEnvPath, "utf8")).resolves.toContain("T3CODE_PRIMARY_PORT=");
       expect(write).toHaveBeenCalledWith({
         threadId: "thread-1",
         terminalId: "setup-setup-worktree",
@@ -343,6 +353,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
+      await initializeGitWorktree(worktreePath);
       const managedFiles = buildManagedWorktreeScriptFiles({
         installCommand: "bun install",
         envStrategy: "none",
@@ -419,6 +430,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
+      await initializeGitWorktree(worktreePath);
       const managedFiles = buildManagedWorktreeScriptFiles({
         installCommand: "bun install",
         envStrategy: "none",
@@ -493,6 +505,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
+      await initializeGitWorktree(worktreePath);
       const managedFiles = buildManagedWorktreeScriptFiles({
         installCommand: "bun install",
         envStrategy: "none",
