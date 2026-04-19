@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { Data } from "effect";
 import type {
   ProjectScript,
   ProjectWorktreeReadinessEnvStrategy,
@@ -25,6 +26,11 @@ const WORKTREE_PORT_RANGE_START = 41000;
 const WORKTREE_PORT_RANGE_END = 61000;
 const DEFAULT_PORT_COUNT = 5;
 const execFileAsync = promisify(execFile);
+
+class GitTrackedPathCheckError extends Data.TaggedError("GitTrackedPathCheckError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 type PackageJson = {
   packageManager?: string;
@@ -748,22 +754,57 @@ export function buildTrackedWorktreeLocalEnvWarning(
   };
 }
 
-export async function isGitTrackedPath(projectCwd: string, relativePath: string): Promise<boolean> {
+export function normalizeGitTrackedPathCheckError(input: {
+  readonly projectCwd: string;
+  readonly relativePath: string;
+  readonly error: unknown;
+}): GitTrackedPathCheckError {
+  if (input.error instanceof GitTrackedPathCheckError) {
+    return input.error;
+  }
+  const detail =
+    typeof input.error === "object" && input.error !== null
+      ? (() => {
+          const stderr = "stderr" in input.error ? input.error.stderr : undefined;
+          if (typeof stderr === "string" && stderr.trim().length > 0) {
+            return stderr.trim();
+          }
+          const message = "message" in input.error ? input.error.message : undefined;
+          if (typeof message === "string" && message.trim().length > 0) {
+            return message.trim();
+          }
+          return null;
+        })()
+      : null;
+  return new GitTrackedPathCheckError({
+    message: `Failed to determine whether ${input.relativePath} is tracked by git in ${input.projectCwd}.${detail ? ` ${detail}` : ""}`,
+    cause: input.error,
+  });
+}
+
+export async function getGitTrackedPathStatus(
+  projectCwd: string,
+  relativePath: string,
+): Promise<"tracked" | "untracked"> {
   try {
     await execFileAsync("git", ["ls-files", "--error-unmatch", "--", relativePath], {
       cwd: projectCwd,
     });
-    return true;
+    return "tracked";
   } catch (error) {
     const code =
       typeof error === "object" && error !== null && "code" in error
         ? (error as { code?: unknown }).code
         : undefined;
-    if (code === 1 || code === 128) {
-      return false;
+    if (code === 1) {
+      return "untracked";
     }
-    return false;
+    throw normalizeGitTrackedPathCheckError({ projectCwd, relativePath, error });
   }
+}
+
+export async function isGitTrackedPath(projectCwd: string, relativePath: string): Promise<boolean> {
+  return (await getGitTrackedPathStatus(projectCwd, relativePath)) === "tracked";
 }
 
 export async function assertGitPathIsUntracked(
