@@ -2030,6 +2030,319 @@ describe("ProviderRuntimeIngestion", () => {
     expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
   });
 
+  it("finalizes the latest plan snapshot when a turn completes successfully without a final plan update", async () => {
+    const harness = await createHarness();
+    const startedAt = new Date().toISOString();
+    const planUpdatedAt = new Date(Date.parse(startedAt) + 1_000).toISOString();
+    const completedAt = planUpdatedAt;
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-plan-finalization"),
+      provider: "codex",
+      createdAt: startedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-plan-finalization"),
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-plan-finalization",
+    );
+
+    harness.emit({
+      type: "turn.plan.updated",
+      eventId: asEventId("evt-turn-plan-updated-plan-finalization"),
+      provider: "codex",
+      createdAt: planUpdatedAt,
+      sessionSequence: 10,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-plan-finalization"),
+      payload: {
+        explanation: "Wrap up the task list",
+        plan: [
+          { step: "Inspect code paths", status: "completed" },
+          { step: "Finalize sidebar task list", status: "inProgress" },
+          { step: "Write regression coverage", status: "pending" },
+        ],
+      },
+    });
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-plan-finalization"),
+      provider: "codex",
+      createdAt: completedAt,
+      sessionSequence: 11,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-plan-finalization"),
+      payload: {
+        state: "completed",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "ready" &&
+        entry.activities.filter(
+          (activity: ProviderRuntimeTestActivity) =>
+            activity.kind === "turn.plan.updated" && activity.turnId === "turn-plan-finalization",
+        ).length === 2,
+    );
+
+    const planActivities = thread.activities.filter(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "turn.plan.updated" && activity.turnId === "turn-plan-finalization",
+    );
+    expect(planActivities).toHaveLength(2);
+
+    const finalizedActivity = planActivities[1];
+    const finalTurnActivities = thread.activities.filter(
+      (activity: ProviderRuntimeTestActivity) => activity.turnId === "turn-plan-finalization",
+    );
+    const finalizedPayload =
+      finalizedActivity?.payload && typeof finalizedActivity.payload === "object"
+        ? (finalizedActivity.payload as Record<string, unknown>)
+        : undefined;
+
+    expect(finalizedActivity?.id).toBe("evt-turn-completed-plan-finalization:turn-plan-finalized");
+    expect(finalizedActivity?.summary).toBe("Plan updated");
+    expect(finalizedActivity?.createdAt).toBe(completedAt);
+    expect(finalizedActivity?.sequence).toBe(11);
+    expect(finalTurnActivities.at(-1)?.id).toBe(
+      "evt-turn-completed-plan-finalization:turn-plan-finalized",
+    );
+    expect(finalizedPayload?.explanation).toBe("Wrap up the task list");
+    expect(finalizedPayload?.plan).toEqual([
+      { step: "Inspect code paths", status: "completed" },
+      { step: "Finalize sidebar task list", status: "completed" },
+      { step: "Write regression coverage", status: "completed" },
+    ]);
+  });
+
+  it("does not synthesize a finalized plan when the last plan snapshot is already complete", async () => {
+    const harness = await createHarness();
+    const startedAt = new Date().toISOString();
+    const planUpdatedAt = new Date(Date.parse(startedAt) + 1_000).toISOString();
+    const completedAt = new Date(Date.parse(startedAt) + 2_000).toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-plan-already-complete"),
+      provider: "codex",
+      createdAt: startedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-plan-already-complete"),
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-plan-already-complete",
+    );
+
+    harness.emit({
+      type: "turn.plan.updated",
+      eventId: asEventId("evt-turn-plan-updated-plan-already-complete"),
+      provider: "codex",
+      createdAt: planUpdatedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-plan-already-complete"),
+      payload: {
+        explanation: "Already finished",
+        plan: [
+          { step: "Inspect code paths", status: "completed" },
+          { step: "Finalize sidebar task list", status: "completed" },
+        ],
+      },
+    });
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-plan-already-complete"),
+      provider: "codex",
+      createdAt: completedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-plan-already-complete"),
+      payload: {
+        state: "completed",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) => entry.session?.status === "ready" && entry.session?.activeTurnId === null,
+    );
+
+    const planActivities = thread.activities.filter(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "turn.plan.updated" && activity.turnId === "turn-plan-already-complete",
+    );
+    expect(planActivities).toHaveLength(1);
+    expect(planActivities[0]?.id).toBe("evt-turn-plan-updated-plan-already-complete");
+    expect(
+      thread.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-turn-completed-plan-already-complete:turn-plan-finalized",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not finalize plans for failed, interrupted, or cancelled turns", async () => {
+    const states = ["failed", "interrupted", "cancelled"] as const;
+
+    for (const state of states) {
+      const harness = await createHarness();
+      const startedAt = new Date().toISOString();
+      const planUpdatedAt = new Date(Date.parse(startedAt) + 1_000).toISOString();
+      const completedAt = new Date(Date.parse(startedAt) + 2_000).toISOString();
+      const turnId = asTurnId(`turn-plan-${state}`);
+
+      harness.emit({
+        type: "turn.started",
+        eventId: asEventId(`evt-turn-started-plan-${state}`),
+        provider: "codex",
+        createdAt: startedAt,
+        threadId: asThreadId("thread-1"),
+        turnId,
+      });
+
+      await waitForThread(
+        harness.engine,
+        (thread) => thread.session?.status === "running" && thread.session?.activeTurnId === turnId,
+      );
+
+      harness.emit({
+        type: "turn.plan.updated",
+        eventId: asEventId(`evt-turn-plan-updated-plan-${state}`),
+        provider: "codex",
+        createdAt: planUpdatedAt,
+        threadId: asThreadId("thread-1"),
+        turnId,
+        payload: {
+          explanation: "Still open",
+          plan: [
+            { step: "Inspect code paths", status: "completed" },
+            { step: "Finalize sidebar task list", status: "inProgress" },
+          ],
+        },
+      });
+      harness.emit({
+        type: "turn.completed",
+        eventId: asEventId(`evt-turn-completed-plan-${state}`),
+        provider: "codex",
+        createdAt: completedAt,
+        threadId: asThreadId("thread-1"),
+        turnId,
+        payload: {
+          state,
+        },
+      });
+
+      await harness.drain();
+
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find((entry) => entry.id === "thread-1");
+      const planActivities =
+        thread?.activities.filter(
+          (activity: ProviderRuntimeTestActivity) =>
+            activity.kind === "turn.plan.updated" && activity.turnId === turnId,
+        ) ?? [];
+      expect(planActivities).toHaveLength(1);
+      expect(planActivities[0]?.id).toBe(`evt-turn-plan-updated-plan-${state}`);
+      expect(
+        thread?.activities.some(
+          (activity: ProviderRuntimeTestActivity) =>
+            activity.id === `evt-turn-completed-plan-${state}:turn-plan-finalized`,
+        ) ?? false,
+      ).toBe(false);
+
+      if (state === "failed") {
+        expect(thread?.session?.status).toBe("error");
+      } else {
+        expect(thread?.session?.status).toBe("ready");
+      }
+      expect(thread?.session?.activeTurnId).toBeNull();
+    }
+  });
+
+  it("does not finalize a stale or rejected completion for a non-active turn", async () => {
+    const harness = await createHarness();
+    const activeTurnId = asTurnId("turn-active-plan-finalization");
+    const staleTurnId = asTurnId("turn-stale-plan-finalization");
+    const createdAt = new Date().toISOString();
+    const planUpdatedAt = new Date(Date.parse(createdAt) + 1_000).toISOString();
+    const completedAt = new Date(Date.parse(createdAt) + 2_000).toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-running-plan-finalization"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId,
+          updatedAt: createdAt,
+          lastError: null,
+        },
+        createdAt,
+      }),
+    );
+
+    harness.emit({
+      type: "turn.plan.updated",
+      eventId: asEventId("evt-turn-plan-updated-stale-plan-finalization"),
+      provider: "codex",
+      createdAt: planUpdatedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: staleTurnId,
+      payload: {
+        explanation: "Stale completion should not finalize this plan",
+        plan: [
+          { step: "Inspect code paths", status: "completed" },
+          { step: "Finalize sidebar task list", status: "inProgress" },
+        ],
+      },
+    });
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-stale-plan-finalization"),
+      provider: "codex",
+      createdAt: completedAt,
+      sessionSequence: 99,
+      threadId: asThreadId("thread-1"),
+      turnId: staleTurnId,
+      payload: {
+        state: "completed",
+      },
+    });
+
+    await harness.drain();
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === "thread-1");
+    const planActivities =
+      thread?.activities.filter(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "turn.plan.updated" && activity.turnId === staleTurnId,
+      ) ?? [];
+    expect(planActivities).toHaveLength(1);
+    expect(planActivities[0]?.id).toBe("evt-turn-plan-updated-stale-plan-finalization");
+    expect(
+      thread?.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-turn-completed-stale-plan-finalization:turn-plan-finalized",
+      ) ?? false,
+    ).toBe(false);
+    expect(thread?.session?.status).toBe("running");
+    expect(thread?.session?.activeTurnId).toBe(activeTurnId);
+  });
+
   it("projects context window updates into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
