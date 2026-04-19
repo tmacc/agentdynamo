@@ -12,6 +12,10 @@ import {
 } from "../components/DiffPanelShell";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
 import {
+  type AgentInspectorRouteSearch,
+  parseAgentInspectorRouteSearch,
+} from "../agentInspectorRouteSearch";
+import {
   type DiffRouteSearch,
   parseDiffRouteSearch,
   stripDiffSearchParams,
@@ -307,13 +311,19 @@ function ChatThreadRouteView() {
 
 export const Route = createFileRoute("/_chat/$environmentId/$threadId")({
   validateSearch: (search) => ({
+    ...parseAgentInspectorRouteSearch(search),
     ...parseProjectIntelligenceRouteSearch(search),
     ...parseDiffRouteSearch(search),
     ...parseBoardRouteSearch(search),
   }),
   search: {
     middlewares: [
-      retainSearchParams<DiffRouteSearch & ProjectIntelligenceRouteSearch & BoardRouteSearch>([
+      retainSearchParams<
+        AgentInspectorRouteSearch &
+          DiffRouteSearch &
+          ProjectIntelligenceRouteSearch &
+          BoardRouteSearch
+      >([
         "diff",
         "intel",
         "intelEnvironmentId",

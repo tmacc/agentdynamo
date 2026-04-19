@@ -3,6 +3,9 @@ import { scopeProjectRef } from "@t3tools/client-runtime";
 import { describe, expect, it } from "vitest";
 
 import {
+  selectNavigableSidebarThreadsAcrossEnvironments,
+  selectNavigableSidebarThreadsForProjectRef,
+  selectNavigableSidebarThreadsForProjectRefs,
   selectProjectsAcrossEnvironments,
   selectSidebarThreadsAcrossEnvironments,
   selectSidebarThreadsForProjectRef,
@@ -29,6 +32,7 @@ const threadP2 = ThreadId.make("thread-shared-primary-2");
 const threadR1 = ThreadId.make("thread-shared-remote-1");
 const threadL1 = ThreadId.make("thread-local-only-1");
 const threadRO1 = ThreadId.make("thread-remote-only-1");
+const threadChildP1 = ThreadId.make("thread-shared-primary-child");
 
 const SHARED_REPO_CANONICAL_KEY = "github.com/example/shared-repo";
 
@@ -207,6 +211,40 @@ function makeFixtureState(): AppState {
     environmentStateById: {
       [primaryEnvId]: primaryEnvState,
       [remoteEnvId]: remoteEnvState,
+    },
+  };
+}
+
+function makeFixtureStateWithChildThread(): AppState {
+  const state = makeFixtureState();
+  const primaryEnvironmentState = state.environmentStateById[primaryEnvId]!;
+  const childThread = makeSidebarThreadSummary({
+    id: threadChildP1,
+    environmentId: primaryEnvId,
+    projectId: sharedProjectPrimaryId,
+    title: "Shared primary child thread",
+    teamParentThreadId: threadP1,
+  });
+
+  return {
+    ...state,
+    environmentStateById: {
+      ...state.environmentStateById,
+      [primaryEnvId]: {
+        ...primaryEnvironmentState,
+        threadIds: [...primaryEnvironmentState.threadIds, threadChildP1],
+        threadIdsByProjectId: {
+          ...primaryEnvironmentState.threadIdsByProjectId,
+          [sharedProjectPrimaryId]: [
+            ...(primaryEnvironmentState.threadIdsByProjectId[sharedProjectPrimaryId] ?? []),
+            threadChildP1,
+          ],
+        },
+        sidebarThreadSummaryById: {
+          ...primaryEnvironmentState.sidebarThreadSummaryById,
+          [threadChildP1]: childThread,
+        },
+      },
     },
   };
 }
@@ -404,6 +442,18 @@ describe("environment grouping", () => {
     });
   });
 
+  describe("selectNavigableSidebarThreadsAcrossEnvironments", () => {
+    it("filters child agent threads out of primary navigation", () => {
+      const state = makeFixtureStateWithChildThread();
+      const threads = selectNavigableSidebarThreadsAcrossEnvironments(state);
+      expect(threads).toHaveLength(5);
+      const ids = new Set(threads.map((thread) => thread.id));
+      expect(ids).not.toContain(threadChildP1);
+      expect(ids).toContain(threadP1);
+      expect(ids).toContain(threadP2);
+    });
+  });
+
   describe("selectSidebarThreadsForProjectRef", () => {
     it("returns threads for a single project ref", () => {
       const state = makeFixtureState();
@@ -422,6 +472,15 @@ describe("environment grouping", () => {
       const state = makeFixtureState();
       const ref = scopeProjectRef(EnvironmentId.make("nonexistent"), sharedProjectPrimaryId);
       expect(selectSidebarThreadsForProjectRef(state, ref)).toEqual([]);
+    });
+  });
+
+  describe("selectNavigableSidebarThreadsForProjectRef", () => {
+    it("filters child agent threads for a single project ref", () => {
+      const state = makeFixtureStateWithChildThread();
+      const ref = scopeProjectRef(primaryEnvId, sharedProjectPrimaryId);
+      const threads = selectNavigableSidebarThreadsForProjectRef(state, ref);
+      expect(threads.map((thread) => thread.id)).toEqual([threadP1, threadP2]);
     });
   });
 
@@ -479,6 +538,22 @@ describe("environment grouping", () => {
       // Only returns threads from the valid ref
       expect(threads).toHaveLength(2);
       expect(threads.map((t) => t.id)).toEqual([threadP1, threadP2]);
+    });
+  });
+
+  describe("selectNavigableSidebarThreadsForProjectRefs", () => {
+    it("filters child agent threads when combining multiple project refs", () => {
+      const state = makeFixtureStateWithChildThread();
+      const refs = [
+        scopeProjectRef(primaryEnvId, sharedProjectPrimaryId),
+        scopeProjectRef(remoteEnvId, sharedProjectRemoteId),
+      ];
+      const threads = selectNavigableSidebarThreadsForProjectRefs(state, refs);
+      const ids = new Set(threads.map((thread) => thread.id));
+      expect(ids).toContain(threadP1);
+      expect(ids).toContain(threadP2);
+      expect(ids).toContain(threadR1);
+      expect(ids).not.toContain(threadChildP1);
     });
   });
 
