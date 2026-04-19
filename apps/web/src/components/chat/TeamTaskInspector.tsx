@@ -9,6 +9,7 @@ import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { Badge } from "../ui/badge";
 import {
+  isTeamTaskChildThreadReady,
   TeamTaskDetailContent,
   TeamTaskPresentationView,
   TeamTaskStatusBadge,
@@ -76,6 +77,7 @@ const InspectorTaskCard = memo(function InspectorTaskCard(props: {
   const provider = view.task.modelSelection.provider as ProviderPickerKind;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[provider];
   const iconClass = providerIconClassName(provider, "text-muted-foreground/70");
+  const childThreadReady = isTeamTaskChildThreadReady(view);
 
   const handleSelect = useCallback(() => {
     onSelectTask(view.task.childThreadId);
@@ -128,10 +130,21 @@ const InspectorTaskCard = memo(function InspectorTaskCard(props: {
         view={view}
         includeModelDetails
         className="mt-3"
+        supplementaryNote={
+          childThreadReady
+            ? undefined
+            : "This task has started, but its child thread is still being prepared."
+        }
         action={
-          <Button size="sm" variant="outline" onClick={handleOpenThread}>
-            Open child thread
-          </Button>
+          childThreadReady ? (
+            <Button size="sm" variant="outline" onClick={handleOpenThread}>
+              Open child thread
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" disabled>
+              Child thread not ready
+            </Button>
+          )
         }
       />
     </div>
