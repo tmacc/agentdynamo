@@ -1,4 +1,10 @@
-import { type EnvironmentId, type MessageId, type TurnId } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  type MessageId,
+  type OrchestrationThreadForkOrigin,
+  type ThreadId,
+  type TurnId,
+} from "@t3tools/contracts";
 import {
   createContext,
   memo,
@@ -20,6 +26,7 @@ import {
   CheckIcon,
   CircleAlertIcon,
   EyeIcon,
+  GitForkIcon,
   GlobeIcon,
   HammerIcon,
   type LucideIcon,
@@ -87,6 +94,8 @@ interface TimelineRowSharedState {
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onOpenChildThread: (threadId: import("@t3tools/contracts").ThreadId) => void;
+  onOpenForkSourceThread: (threadId: ThreadId) => void;
+  onForkUserMessage: (messageId: MessageId) => void;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -120,6 +129,9 @@ interface MessagesTimelineProps {
   onIsAtEndChange: (isAtEnd: boolean) => void;
   teamTasks?: readonly TeamTaskInlineView[];
   onOpenChildThread?: (threadId: import("@t3tools/contracts").ThreadId) => void;
+  onOpenForkSourceThread?: (threadId: ThreadId) => void;
+  onForkUserMessage?: (messageId: MessageId) => void;
+  forkOrigin?: OrchestrationThreadForkOrigin | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,8 +163,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onIsAtEndChange,
   teamTasks,
   onOpenChildThread,
+  onOpenForkSourceThread,
+  onForkUserMessage,
+  forkOrigin,
 }: MessagesTimelineProps) {
   const noopOpenChildThread = useCallback(() => {}, []);
+  const noopOpenForkSourceThread = useCallback(() => {}, []);
+  const noopForkUserMessage = useCallback(() => {}, []);
   const rawRows = useMemo(
     () =>
       deriveMessagesTimelineRows({
@@ -164,6 +181,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         revertTurnCountByUserMessageId,
         userMessageSwitchInfoByMessageId,
         teamTasks,
+        forkOrigin,
       }),
     [
       timelineEntries,
@@ -174,6 +192,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       revertTurnCountByUserMessageId,
       userMessageSwitchInfoByMessageId,
       teamTasks,
+      forkOrigin,
     ],
   );
   const rows = useStableRows(rawRows);
@@ -222,6 +241,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onImageExpand,
       onOpenTurnDiff,
       onOpenChildThread: onOpenChildThread ?? noopOpenChildThread,
+      onOpenForkSourceThread: onOpenForkSourceThread ?? noopOpenForkSourceThread,
+      onForkUserMessage: onForkUserMessage ?? noopForkUserMessage,
     }),
     [
       activeTurnInProgress,
@@ -239,7 +260,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onImageExpand,
       onOpenTurnDiff,
       onOpenChildThread,
+      onOpenForkSourceThread,
+      onForkUserMessage,
       noopOpenChildThread,
+      noopOpenForkSourceThread,
+      noopForkUserMessage,
     ],
   );
 
@@ -314,6 +339,20 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
     >
       {row.kind === "work" && <WorkGroupSection groupedEntries={row.groupedEntries} />}
 
+      {row.kind === "fork-separator" && (
+        <div className="my-3 flex items-center gap-3">
+          <span className="h-px flex-1 bg-border" />
+          <button
+            type="button"
+            onClick={() => ctx.onOpenForkSourceThread(row.sourceThreadId)}
+            className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80 transition-colors hover:cursor-pointer hover:border-border/90 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            Forked from {row.sourceThreadTitle}
+          </button>
+          <span className="h-px flex-1 bg-border" />
+        </div>
+      )}
+
       {row.kind === "message" &&
         row.message.role === "user" &&
         (() => {
@@ -374,6 +413,17 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
                     {displayedUserMessage.copyText && (
                       <MessageCopyButton text={displayedUserMessage.copyText} />
                     )}
+                    {row.showForkButton ? (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="outline"
+                        onClick={() => ctx.onForkUserMessage(row.message.id)}
+                        title="Fork from this message"
+                      >
+                        <GitForkIcon className="size-3" />
+                      </Button>
+                    ) : null}
                     {canRevertAgentWork && (
                       <Button
                         type="button"

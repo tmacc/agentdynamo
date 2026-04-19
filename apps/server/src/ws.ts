@@ -37,10 +37,12 @@ import { GitManager } from "./git/Services/GitManager";
 import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
+import { enqueueAndExecuteForkThread } from "./orchestration/forkThreadExecution";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ThreadBootstrapDispatcher } from "./orchestration/Services/ThreadBootstrapDispatcher";
+import { ThreadForkDispatcher } from "./orchestration/Services/ThreadForkDispatcher";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -194,8 +196,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
       const threadBootstrapDispatcher = yield* ThreadBootstrapDispatcher;
-      const serverCommandId = (tag: string) =>
-        CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
+      const threadForkDispatcher = yield* ThreadForkDispatcher;
 
       const loadAuthAccessSnapshot = () =>
         Effect.all({
@@ -449,6 +450,16 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                     }),
               ),
             ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.forkThread]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.forkThread,
+            enqueueAndExecuteForkThread({
+              startup,
+              threadForkDispatcher,
+              forkInput: input,
+            }),
             { "rpc.aggregate": "orchestration" },
           ),
         [ORCHESTRATION_WS_METHODS.getTurnDiff]: (input) =>

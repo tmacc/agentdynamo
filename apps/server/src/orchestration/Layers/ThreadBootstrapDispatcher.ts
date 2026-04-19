@@ -14,6 +14,7 @@ import {
   ThreadBootstrapDispatcher,
   type ThreadBootstrapDispatcherShape,
 } from "../Services/ThreadBootstrapDispatcher.ts";
+import { prepareThreadWorkspace } from "../threadWorkspaceBootstrap.ts";
 
 const serverCommandId = (tag: string): CommandId =>
   CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
@@ -42,11 +43,6 @@ const makeThreadBootstrapDispatcher = Effect.gen(function* () {
   const git = yield* GitCore;
   const gitStatusBroadcaster = yield* GitStatusBroadcaster;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
-
-  const refreshGitStatus = (cwd: string) =>
-    gitStatusBroadcaster
-      .refreshStatus(cwd)
-      .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
   const appendSetupScriptActivity = (input: {
     readonly threadId: Extract<OrchestrationCommand, { type: "thread.turn.start" }>["threadId"];
@@ -80,6 +76,7 @@ const makeThreadBootstrapDispatcher = Effect.gen(function* () {
       let targetProjectId = bootstrap?.createThread?.projectId;
       let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
       let targetWorktreePath = bootstrap?.createThread?.worktreePath ?? null;
+      let targetBranch = bootstrap?.createThread?.branch ?? null;
 
       const cleanupCreatedThread = () =>
         createdThread
@@ -168,42 +165,11 @@ const makeThreadBootstrapDispatcher = Effect.gen(function* () {
         );
       };
 
-      const runSetupProgram = () =>
-        bootstrap?.runSetupScript && targetWorktreePath
-          ? (() => {
-              const worktreePath = targetWorktreePath;
-              const requestedAt = new Date().toISOString();
-              return projectSetupScriptRunner
-                .runForThread({
-                  threadId: command.threadId,
-                  ...(targetProjectId ? { projectId: targetProjectId } : {}),
-                  ...(targetProjectCwd ? { projectCwd: targetProjectCwd } : {}),
-                  worktreePath,
-                })
-                .pipe(
-                  Effect.matchEffect({
-                    onFailure: (error) =>
-                      recordSetupScriptLaunchFailure({
-                        error,
-                        requestedAt,
-                        worktreePath,
-                      }),
-                    onSuccess: (setupResult) => {
-                      if (setupResult.status !== "started") {
-                        return Effect.void;
-                      }
-                      return recordSetupScriptStarted({
-                        requestedAt,
-                        worktreePath,
-                        scriptId: setupResult.scriptId,
-                        scriptName: setupResult.scriptName,
-                        terminalId: setupResult.terminalId,
-                      });
-                    },
-                  }),
-                );
-            })()
-          : Effect.void;
+      const prepareWorkspace = prepareThreadWorkspace({
+        git,
+        gitStatusBroadcaster,
+        projectSetupScriptRunner,
+      });
 
       const bootstrapProgram = Effect.gen(function* () {
         if (bootstrap?.createThread) {
@@ -223,25 +189,76 @@ const makeThreadBootstrapDispatcher = Effect.gen(function* () {
           createdThread = true;
         }
 
-        if (bootstrap?.prepareWorktree) {
-          const worktree = yield* git.createWorktree({
-            cwd: bootstrap.prepareWorktree.projectCwd,
-            branch: bootstrap.prepareWorktree.baseBranch,
-            newBranch: bootstrap.prepareWorktree.branch,
-            path: null,
-          });
-          targetWorktreePath = worktree.worktree.path;
-          yield* orchestrationEngine.dispatch({
-            type: "thread.meta.update",
-            commandId: serverCommandId("bootstrap-thread-meta-update"),
-            threadId: command.threadId,
-            branch: worktree.worktree.branch,
-            worktreePath: targetWorktreePath,
-          });
-          yield* refreshGitStatus(targetWorktreePath);
-        }
-
-        yield* runSetupProgram();
+        const workspace = yield* prepareWorkspace({
+          threadId: command.threadId,
+          ...(targetProjectId ? { projectId: targetProjectId } : {}),
+          ...(targetProjectCwd ? { projectCwd: targetProjectCwd } : {}),
+          currentBranch: targetBranch,
+          currentWorktreePath: targetWorktreePath,
+          ...(bootstrap?.prepareWorktree
+            ? {
+                prepareWorktree: {
+                  projectCwd: bootstrap.prepareWorktree.projectCwd,
+                  baseBranch: bootstrap.prepareWorktree.baseBranch,
+                  ...(bootstrap.prepareWorktree.branch
+                    ? { branch: bootstrap.prepareWorktree.branch }
+                    : {}),
+                },
+              }
+            : {}),
+          ...(bootstrap?.runSetupScript !== undefined
+            ? { runSetupScript: bootstrap.runSetupScript }
+            : {}),
+          setupFailureMode: "ignore",
+          cleanupOnFailure: false,
+          onWorktreeCreated: ({ branch, worktreePath }) =>
+            orchestrationEngine
+              .dispatch({
+                type: "thread.meta.update",
+                commandId: serverCommandId("bootstrap-thread-meta-update"),
+                threadId: command.threadId,
+                branch,
+                worktreePath,
+              })
+              .pipe(
+                Effect.asVoid,
+                Effect.mapError((cause) =>
+                  cause instanceof Error
+                    ? cause
+                    : new Error("Failed to update thread metadata after worktree creation.", {
+                        cause,
+                      }),
+                ),
+              ),
+          onSetupLaunchFailure: ({ error, requestedAt, worktreePath }) =>
+            recordSetupScriptLaunchFailure({
+              error,
+              requestedAt,
+              worktreePath,
+            }).pipe(
+              Effect.mapError((cause: unknown) =>
+                cause instanceof Error
+                  ? cause
+                  : new Error("Failed to record setup launch failure.", { cause }),
+              ),
+            ),
+          onSetupStarted: ({ requestedAt, worktreePath, scriptId, scriptName, terminalId }) =>
+            recordSetupScriptStarted({
+              requestedAt,
+              worktreePath,
+              scriptId,
+              scriptName,
+              terminalId,
+            }).pipe(
+              Effect.mapError((cause: unknown) =>
+                cause instanceof Error
+                  ? cause
+                  : new Error("Failed to record setup start.", { cause }),
+              ),
+            ),
+        });
+        targetWorktreePath = workspace.worktreePath;
+        targetBranch = workspace.branch;
 
         return yield* orchestrationEngine
           .dispatch(finalTurnStartCommand)

@@ -44,6 +44,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_approval_count,
           pending_user_input_count,
           has_actionable_proposed_plan,
+          fork_source_thread_id,
+          fork_source_thread_title,
+          fork_source_user_message_id,
+          fork_imported_until_at,
+          forked_at,
           deleted_at
         )
         VALUES (
@@ -63,6 +68,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.pendingApprovalCount},
           ${row.pendingUserInputCount},
           ${row.hasActionableProposedPlan},
+          ${row.forkSourceThreadId ?? null},
+          ${row.forkSourceThreadTitle ?? null},
+          ${row.forkSourceUserMessageId ?? null},
+          ${row.forkImportedUntilAt ?? null},
+          ${row.forkedAt ?? null},
           ${row.deletedAt}
         )
         ON CONFLICT (thread_id)
@@ -82,6 +92,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_approval_count = excluded.pending_approval_count,
           pending_user_input_count = excluded.pending_user_input_count,
           has_actionable_proposed_plan = excluded.has_actionable_proposed_plan,
+          fork_source_thread_id = excluded.fork_source_thread_id,
+          fork_source_thread_title = excluded.fork_source_thread_title,
+          fork_source_user_message_id = excluded.fork_source_user_message_id,
+          fork_imported_until_at = excluded.fork_imported_until_at,
+          forked_at = excluded.forked_at,
           deleted_at = excluded.deleted_at
       `,
   });
@@ -108,6 +123,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
+          fork_source_thread_id AS "forkSourceThreadId",
+          fork_source_thread_title AS "forkSourceThreadTitle",
+          fork_source_user_message_id AS "forkSourceUserMessageId",
+          fork_imported_until_at AS "forkImportedUntilAt",
+          forked_at AS "forkedAt",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE thread_id = ${threadId}
@@ -136,6 +156,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
+          fork_source_thread_id AS "forkSourceThreadId",
+          fork_source_thread_title AS "forkSourceThreadTitle",
+          fork_source_user_message_id AS "forkSourceUserMessageId",
+          fork_imported_until_at AS "forkImportedUntilAt",
+          forked_at AS "forkedAt",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE project_id = ${projectId}

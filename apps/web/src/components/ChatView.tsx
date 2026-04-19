@@ -14,6 +14,7 @@ import {
   type ThreadId,
   type TurnId,
   type KeybindingCommand,
+  type OrchestrationThreadShell,
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
@@ -138,6 +139,7 @@ import { selectThreadTerminalState, useTerminalStateStore } from "../terminalSta
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
+import { ForkThreadDialog } from "./ForkThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { TeamAgentPills } from "./chat/TeamAgentPills";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -337,6 +339,11 @@ type ChatViewProps =
       routeKind: "draft";
       draftId: DraftId;
     };
+
+interface ForkThreadDialogState {
+  key: number;
+  sourceUserMessageId: MessageId;
+}
 
 interface TerminalLaunchContext {
   threadId: ThreadId;
@@ -706,6 +713,7 @@ export default function ChatView(props: ChatViewProps) {
     ),
   );
   const setStoreThreadError = useStore((store) => store.setError);
+  const seedThreadShell = useStore((store) => store.seedThreadShell);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const activeThreadLastVisitedAt = useUiStateStore((store) =>
     routeKind === "server" ? store.threadLastVisitedAtById[routeThreadKey] : undefined,
@@ -790,6 +798,9 @@ export default function ChatView(props: ChatViewProps) {
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
+  const [forkThreadDialogState, setForkThreadDialogState] = useState<ForkThreadDialogState | null>(
+    null,
+  );
   const [terminalLaunchContext, setTerminalLaunchContext] = useState<TerminalLaunchContext | null>(
     null,
   );
@@ -1044,6 +1055,31 @@ export default function ChatView(props: ChatViewProps) {
   const closePullRequestDialog = useCallback(() => {
     setPullRequestDialogState(null);
   }, []);
+
+  const openForkThreadDialog = useCallback((sourceUserMessageId: MessageId) => {
+    setForkThreadDialogState({
+      sourceUserMessageId,
+      key: Date.now(),
+    });
+  }, []);
+
+  const closeForkThreadDialog = useCallback(() => {
+    setForkThreadDialogState(null);
+  }, []);
+
+  const handleForkedThread = useCallback(
+    async (forkedThread: OrchestrationThreadShell) => {
+      seedThreadShell(forkedThread, environmentId);
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId,
+          threadId: forkedThread.id,
+        },
+      });
+    },
+    [environmentId, navigate, seedThreadShell],
+  );
 
   const openOrReuseProjectDraftThread = useCallback(
     async (input: { branch: string; worktreePath: string | null; envMode: DraftThreadEnvMode }) => {
@@ -3550,6 +3586,9 @@ export default function ChatView(props: ChatViewProps) {
               onIsAtEndChange={onIsAtEndChange}
               teamTasks={teamTaskInlineViews}
               onOpenChildThread={openThreadById}
+              onOpenForkSourceThread={openThreadById}
+              onForkUserMessage={openForkThreadDialog}
+              forkOrigin={activeThread.forkOrigin}
             />
 
             {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
@@ -3687,6 +3726,24 @@ export default function ChatView(props: ChatViewProps) {
             />
           ) : null}
           {worktreeReadinessDialog}
+          {forkThreadDialogState && routeKind === "server" ? (
+            <ForkThreadDialog
+              key={forkThreadDialogState.key}
+              open
+              environmentId={activeThread.environmentId}
+              sourceThreadId={activeThread.id}
+              sourceUserMessageId={forkThreadDialogState.sourceUserMessageId}
+              sourceThreadTitle={activeThread.title}
+              defaultMode={envMode}
+              baseBranch={activeThreadBranch}
+              onOpenChange={(open) => {
+                if (!open) {
+                  closeForkThreadDialog();
+                }
+              }}
+              onForked={handleForkedThread}
+            />
+          ) : null}
         </div>
         {/* end chat column */}
 
