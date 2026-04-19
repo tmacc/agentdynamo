@@ -475,6 +475,8 @@ export function useBoardStatus(environmentId: EnvironmentId, projectId: ProjectI
 const subscriptions = new Map<string, BoardSubscriptionEntry>();
 const NOOP = () => undefined;
 
+type BoardSubscriptionAttachResult = "attached" | "unchanged" | "disconnected";
+
 function readBoardSubscriptionSource(environmentId: EnvironmentId): {
   api: ReturnType<typeof readEnvironmentApi> | undefined;
   source: unknown;
@@ -494,7 +496,7 @@ function readBoardSubscriptionSource(environmentId: EnvironmentId): {
   };
 }
 
-function attachBoardSubscription(entry: BoardSubscriptionEntry): boolean {
+function attachBoardSubscription(entry: BoardSubscriptionEntry): BoardSubscriptionAttachResult {
   const { api, source } = readBoardSubscriptionSource(entry.environmentId);
   if (!api || !source) {
     if (entry.currentSource !== null) {
@@ -505,14 +507,15 @@ function attachBoardSubscription(entry: BoardSubscriptionEntry): boolean {
     useBoardStore
       .getState()
       .setStatus(entry.environmentId, entry.projectId, "error", "Environment not connected.");
-    return false;
+    return "disconnected";
   }
 
   if (entry.currentSource === source && entry.unsubscribe !== NOOP) {
-    return true;
+    return "unchanged";
   }
 
   entry.unsubscribe();
+  useBoardStore.getState().setStatus(entry.environmentId, entry.projectId, "loading");
   entry.unsubscribe = api.board.subscribeProject(
     { projectId: entry.projectId },
     (event: BoardStreamEvent) => {
@@ -536,7 +539,7 @@ function attachBoardSubscription(entry: BoardSubscriptionEntry): boolean {
     },
   );
   entry.currentSource = source;
-  return true;
+  return "attached";
 }
 
 /**
@@ -570,7 +573,6 @@ export function acquireBoardSubscription(
   useBoardStore.getState().setStatus(environmentId, projectId, "loading");
   entry.unsubscribeConnectionListener = subscribeEnvironmentConnections(() => {
     try {
-      useBoardStore.getState().setStatus(environmentId, projectId, "loading");
       attachBoardSubscription(entry);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
