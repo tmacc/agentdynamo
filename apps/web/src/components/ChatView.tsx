@@ -38,6 +38,10 @@ import { usePrimaryEnvironmentId } from "../environments/primary";
 import { readEnvironmentApi } from "../environmentApi";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
+import {
+  parseAgentInspectorRouteSearch,
+  stripAgentInspectorSearchParams,
+} from "../agentInspectorRouteSearch";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import {
   collapseExpandedComposerCursor,
@@ -143,8 +147,10 @@ import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { ForkThreadDialog } from "./ForkThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { TeamAgentPills } from "./chat/TeamAgentPills";
+import { TeamTaskInspector } from "./chat/TeamTaskInspector";
 import { ChatHeader } from "./chat/ChatHeader";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
+import { TeamTaskStatusBadge, type TeamTaskPresentationView } from "./chat/TeamTaskShared";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
@@ -594,19 +600,6 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   );
 });
 
-const TEAM_STATUS_TONE: Record<
-  TeamTask["status"],
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  queued: "outline",
-  starting: "outline",
-  running: "secondary",
-  waiting: "secondary",
-  completed: "default",
-  failed: "destructive",
-  cancelled: "outline",
-};
-
 function formatTeamTaskElapsed(task: TeamTask): string | null {
   return formatElapsed(
     task.startedAt ?? task.createdAt,
@@ -626,21 +619,6 @@ function deriveTeamTaskDiffSummary(childThread: Thread | null | undefined): stri
   const additions = latestDiff.files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
   const deletions = latestDiff.files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
   return `${changedFiles} file${changedFiles === 1 ? "" : "s"} changed, +${additions}/-${deletions}`;
-}
-
-function TeamStatusBadge({ status }: { status: TeamTask["status"] }) {
-  return (
-    <Badge variant={TEAM_STATUS_TONE[status]} size="sm" className="capitalize">
-      {status}
-    </Badge>
-  );
-}
-
-interface TeamPanelTaskView {
-  task: TeamTask;
-  childThread: Thread | null;
-  diffSummary: string | null;
-  elapsed: string | null;
 }
 
 function CoordinatorBanner({
@@ -679,7 +657,7 @@ function CoordinatorBanner({
             {roleLabel}
           </Badge>
         ) : null}
-        {status ? <TeamStatusBadge status={status} /> : null}
+        {status ? <TeamTaskStatusBadge status={status} /> : null}
         {(branch || worktreePath) && (
           <span className="text-xs text-muted-foreground">
             {branch ? `Branch: ${branch}` : "Branch: n/a"}
@@ -727,7 +705,10 @@ export default function ChatView(props: ChatViewProps) {
   const navigate = useNavigate();
   const rawSearch = useSearch({
     strict: false,
-    select: (params) => parseDiffRouteSearch(params),
+    select: (params) => ({
+      ...parseAgentInspectorRouteSearch(params),
+      ...parseDiffRouteSearch(params),
+    }),
   });
   const { resolvedTheme } = useTheme();
   // Granular store selectors — avoid subscribing to prompt changes.
@@ -1632,13 +1613,18 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
-  const teamPanelTasks = useMemo<readonly TeamPanelTaskView[]>(
+  const teamPanelTasks = useMemo<readonly TeamTaskPresentationView[]>(
     () =>
       (activeThread?.teamTasks ?? []).map((task) => {
         const childThread = teamTaskChildThreadsById[task.childThreadId] ?? null;
         return {
           task,
-          childThread,
+          childThread: childThread
+            ? {
+                branch: childThread.branch,
+                worktreePath: childThread.worktreePath,
+              }
+            : null,
           diffSummary: deriveTeamTaskDiffSummary(childThread),
           elapsed: formatTeamTaskElapsed(task),
         };
@@ -1646,14 +1632,7 @@ export default function ChatView(props: ChatViewProps) {
     [activeThread?.teamTasks, teamTaskChildThreadsById],
   );
   const teamTaskInlineViews = useMemo(
-    () =>
-      activeThread?.teamParentThreadId == null
-        ? teamPanelTasks.map(({ task, diffSummary, elapsed }) => ({
-            task,
-            diffSummary,
-            elapsed,
-          }))
-        : [],
+    () => (activeThread?.teamParentThreadId == null ? teamPanelTasks : []),
     [teamPanelTasks, activeThread?.teamParentThreadId],
   );
   const teamTaskLaunchGroups = useMemo(
@@ -1664,6 +1643,18 @@ export default function ChatView(props: ChatViewProps) {
       }),
     [activeThread?.activities, teamTaskInlineViews],
   );
+  const selectedAgentChildThreadId = useMemo(() => {
+    const requestedChildThreadId = rawSearch.agentChildThreadId;
+    if (!requestedChildThreadId || activeThread?.teamParentThreadId != null) {
+      return null;
+    }
+    return (activeThread?.teamTasks ?? []).some(
+      (task) => task.childThreadId === requestedChildThreadId,
+    )
+      ? requestedChildThreadId
+      : null;
+  }, [activeThread?.teamParentThreadId, activeThread?.teamTasks, rawSearch.agentChildThreadId]);
+  const agentInspectorOpen = selectedAgentChildThreadId !== null;
   const activeTerminalLaunchContext =
     terminalLaunchContext?.threadId === activeThreadId
       ? terminalLaunchContext
@@ -1728,6 +1719,39 @@ export default function ChatView(props: ChatViewProps) {
       },
     });
   }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
+  const dismissAgentInspector = useCallback(() => {
+    if (!isServerThread) {
+      return;
+    }
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: {
+        environmentId,
+        threadId,
+      },
+      replace: true,
+      search: (previous) => stripAgentInspectorSearchParams(previous),
+    });
+  }, [environmentId, isServerThread, navigate, threadId]);
+  const inspectChildTaskById = useCallback(
+    (childThreadId: ThreadId) => {
+      if (!isServerThread || !activeThread || activeThread.teamParentThreadId != null) {
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: activeThread.environmentId,
+          threadId: activeThread.id,
+        },
+        search: (previous) => ({
+          ...stripAgentInspectorSearchParams(previous),
+          agentChildThreadId: childThreadId,
+        }),
+      });
+    },
+    [activeThread, isServerThread, navigate],
+  );
   const openThreadById = useCallback(
     (nextThreadId: ThreadId) => {
       void navigate({
@@ -1736,6 +1760,19 @@ export default function ChatView(props: ChatViewProps) {
           environmentId: activeThread?.environmentId ?? environmentId,
           threadId: nextThreadId,
         },
+      });
+    },
+    [activeThread?.environmentId, environmentId, navigate],
+  );
+  const openChildThreadById = useCallback(
+    (nextThreadId: ThreadId) => {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: activeThread?.environmentId ?? environmentId,
+          threadId: nextThreadId,
+        },
+        search: (previous) => stripAgentInspectorSearchParams(previous),
       });
     },
     [activeThread?.environmentId, environmentId, navigate],
@@ -3595,7 +3632,7 @@ export default function ChatView(props: ChatViewProps) {
               workspaceRoot={activeWorkspaceRoot}
               onIsAtEndChange={onIsAtEndChange}
               teamTaskLaunchGroups={teamTaskLaunchGroups}
-              onOpenChildThread={openThreadById}
+              onInspectChildThread={inspectChildTaskById}
               onOpenForkSourceThread={openThreadById}
               onForkUserMessage={openForkThreadDialog}
               forkOrigin={activeThread.forkOrigin}
@@ -3618,7 +3655,7 @@ export default function ChatView(props: ChatViewProps) {
 
           {/* Agent pills — shown when inline blocks are scrolled out of view */}
           {showScrollToBottom && teamTaskInlineViews.length > 0 && (
-            <TeamAgentPills tasks={teamTaskInlineViews} onOpenThread={openThreadById} />
+            <TeamAgentPills tasks={teamTaskInlineViews} onInspectThread={inspectChildTaskById} />
           )}
 
           {/* Input bar */}
@@ -3791,6 +3828,18 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
         </RightPanelSheet>
       ) : null}
+
+      <RightPanelSheet open={agentInspectorOpen} onClose={dismissAgentInspector}>
+        {agentInspectorOpen ? (
+          <TeamTaskInspector
+            tasks={teamPanelTasks}
+            selectedChildThreadId={selectedAgentChildThreadId}
+            onClose={dismissAgentInspector}
+            onSelectTask={inspectChildTaskById}
+            onOpenThread={openChildThreadById}
+          />
+        ) : null}
+      </RightPanelSheet>
 
       {mountedTerminalThreadRefs.map(({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
         <PersistentThreadTerminalDrawer

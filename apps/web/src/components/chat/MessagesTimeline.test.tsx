@@ -246,6 +246,7 @@ describe("MessagesTimeline", () => {
                 },
                 diffSummary: null,
                 elapsed: "1s",
+                childThread: null,
               },
             ],
           },

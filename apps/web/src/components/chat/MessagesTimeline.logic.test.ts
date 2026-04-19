@@ -34,6 +34,7 @@ function makeTeamTaskView(input: {
     },
     diffSummary: null,
     elapsed: null,
+    childThread: null,
   };
 }
 
