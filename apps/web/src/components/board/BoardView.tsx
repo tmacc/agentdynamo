@@ -18,6 +18,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import {
   acquireBoardSubscription,
@@ -53,7 +54,7 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
     [environmentId, projectId],
   );
   const project = useStore((s) => selectProjectByRef(s, projectRef));
-  const threads = useStore((s) => selectSidebarThreadsForProjectRef(s, projectRef));
+  const threads = useStore(useShallow((s) => selectSidebarThreadsForProjectRef(s, projectRef)));
 
   const cards = useBoardCards(environmentId, projectId);
   const dismissedGhostThreadIds = useBoardDismissedGhostThreadIds(environmentId, projectId);
