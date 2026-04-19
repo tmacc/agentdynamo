@@ -373,17 +373,18 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
       yield* ProviderService;
     }).pipe(Effect.provide(providerLayer));
 
-    const persistedProvider = yield* Effect.gen(function* () {
-      const directory = yield* ProviderSessionDirectory;
-      return yield* directory.getProvider(asThreadId("thread-stale"));
-    }).pipe(Effect.provide(directoryLayer));
-    assert.equal(persistedProvider, "codex");
-
     const runtime = yield* Effect.gen(function* () {
       const repository = yield* ProviderSessionRuntimeRepository;
-      return yield* repository.getByThreadId({ threadId: asThreadId("thread-stale") });
+      return yield* repository.getByThreadIdAndProvider({
+        threadId: asThreadId("thread-stale"),
+        providerName: "codex",
+      });
     }).pipe(Effect.provide(runtimeRepositoryLayer));
     assert.equal(Option.isSome(runtime), true);
+    if (Option.isSome(runtime)) {
+      assert.equal(runtime.value.providerName, "codex");
+      assert.equal(runtime.value.slotState, "expired");
+    }
 
     const legacyTableRows = yield* Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -455,11 +456,15 @@ it.effect(
 
       const persistedAfterStopAll = yield* Effect.gen(function* () {
         const repository = yield* ProviderSessionRuntimeRepository;
-        return yield* repository.getByThreadId({ threadId: startedSession.threadId });
+        return yield* repository.getByThreadIdAndProvider({
+          threadId: startedSession.threadId,
+          providerName: "codex",
+        });
       }).pipe(Effect.provide(runtimeRepositoryLayer));
       assert.equal(Option.isSome(persistedAfterStopAll), true);
       if (Option.isSome(persistedAfterStopAll)) {
         assert.equal(persistedAfterStopAll.value.status, "stopped");
+        assert.equal(persistedAfterStopAll.value.slotState, "expired");
         assert.deepEqual(persistedAfterStopAll.value.resumeCursor, updatedResumeCursor);
       }
 
@@ -577,6 +582,13 @@ routing.layer("ProviderServiceLive routing", (it) => {
       routing.codex.startSession.mockClear();
       routing.codex.sendTurn.mockClear();
 
+      yield* provider.startSession(session.threadId, {
+        provider: "codex",
+        threadId: session.threadId,
+        cwd: "/tmp/project",
+        runtimeMode: "full-access",
+      });
+
       yield* provider.sendTurn({
         threadId: session.threadId,
         input: "after-stop",
@@ -643,22 +655,25 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
       yield* provider.stopSession({ threadId: initial.threadId });
 
-      const persistedAfterStop = yield* runtimeRepository.getByThreadId({
+      const persistedAfterStop = yield* runtimeRepository.getByThreadIdAndProvider({
         threadId: initial.threadId,
+        providerName: "codex",
       });
       assert.equal(Option.isSome(persistedAfterStop), true);
       if (Option.isSome(persistedAfterStop)) {
         assert.equal(persistedAfterStop.value.status, "stopped");
+        assert.equal(persistedAfterStop.value.slotState, "expired");
         assert.deepEqual(persistedAfterStop.value.resumeCursor, initial.resumeCursor);
       }
 
       routing.codex.startSession.mockClear();
       routing.codex.sendTurn.mockClear();
 
-      yield* provider.sendTurn({
+      yield* provider.startSession(initial.threadId, {
+        provider: "codex",
         threadId: initial.threadId,
-        input: "resume after reap",
-        attachments: [],
+        cwd: "/tmp/project-reap-preserve",
+        runtimeMode: "full-access",
       });
 
       assert.equal(routing.codex.startSession.mock.calls.length, 1);
@@ -676,7 +691,6 @@ routing.layer("ProviderServiceLive routing", (it) => {
         assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
         assert.equal(startPayload.threadId, initial.threadId);
       }
-      assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
     }),
   );
 

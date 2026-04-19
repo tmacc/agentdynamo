@@ -591,6 +591,41 @@ function sendShellThreadUpsert(
   });
 }
 
+function pushThreadSnapshot(
+  threadId: ThreadId,
+  update: (
+    thread: OrchestrationReadModel["threads"][number],
+  ) => OrchestrationReadModel["threads"][number],
+): void {
+  const threadIndex = fixture.snapshot.threads.findIndex((entry) => entry.id === threadId);
+  if (threadIndex < 0) {
+    throw new Error(`Expected thread ${threadId} in snapshot.`);
+  }
+
+  const currentThread = fixture.snapshot.threads[threadIndex];
+  if (!currentThread) {
+    throw new Error(`Expected thread ${threadId} in snapshot.`);
+  }
+
+  const nextThread = update(currentThread);
+  const nextThreads = [...fixture.snapshot.threads];
+  nextThreads[threadIndex] = nextThread;
+  fixture.snapshot = {
+    ...fixture.snapshot,
+    snapshotSequence: fixture.snapshot.snapshotSequence + 1,
+    threads: nextThreads,
+  };
+
+  rpcHarness.emitStreamValue(ORCHESTRATION_WS_METHODS.subscribeThread, {
+    kind: "snapshot",
+    snapshot: {
+      snapshotSequence: fixture.snapshot.snapshotSequence,
+      thread: nextThread,
+    },
+  });
+  sendShellThreadUpsert(threadId, { session: nextThread.session });
+}
+
 async function waitForWsClient(): Promise<void> {
   await vi.waitFor(
     () => {
@@ -5513,6 +5548,189 @@ describe("ChatView timeline estimator parity (full app)", () => {
               model: "claude-opus-4-6",
             },
           });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps repeated same-thread provider flips aligned with the selected provider and active session", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-provider-switch-repeat" as MessageId,
+        targetText: "repeat provider switch",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = withDualProviderModels(nextFixture.serverConfig);
+      },
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const providerPicker = await waitForElement(
+        findComposerProviderModelPicker,
+        "Unable to find provider model picker.",
+      );
+
+      providerPicker.click();
+      await page.getByRole("menuitem", { name: "Claude" }).hover();
+      await page.getByRole("menuitemradio", { name: "Claude Opus 4.6" }).click();
+
+      await vi.waitFor(
+        () => {
+          const hint = document.querySelector<HTMLElement>('[data-testid="provider-switch-hint"]');
+          expect(hint?.textContent).toContain("Next turn switches from Codex to Claude.");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      useComposerDraftStore.getState().setPrompt(THREAD_REF, "First switch to Claude");
+      await waitForLayout();
+      (await waitForSendButton()).click();
+
+      await vi.waitFor(
+        () => {
+          const dispatchRequests = wsRequests.filter(
+            (request) => request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand,
+          ) as Array<
+            | {
+                _tag: string;
+                type?: string;
+                modelSelection?: { provider?: string; model?: string };
+              }
+            | undefined
+          >;
+
+          expect(dispatchRequests[1]).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            type: "thread.turn.start",
+            modelSelection: {
+              provider: "claudeAgent",
+              model: "claude-opus-4-6",
+            },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      pushThreadSnapshot(THREAD_ID, (thread) => ({
+        ...thread,
+        session: {
+          ...(thread.session ?? {
+            threadId: THREAD_ID,
+            status: "ready" as const,
+            runtimeMode: "approval-required" as const,
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: isoAt(120),
+          }),
+          providerName: "claudeAgent",
+          updatedAt: isoAt(120),
+        },
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+        },
+      }));
+      wsRequests.length = 0;
+
+      providerPicker.click();
+      await page.getByRole("menuitem", { name: "Codex" }).hover();
+      await page.getByRole("menuitemradio", { name: "GPT-5" }).click();
+
+      await vi.waitFor(
+        () => {
+          const hint = document.querySelector<HTMLElement>('[data-testid="provider-switch-hint"]');
+          expect(hint?.textContent).toContain("Next turn switches from Claude to Codex.");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      useComposerDraftStore.getState().setPrompt(THREAD_REF, "Switch back to Codex");
+      await waitForLayout();
+      (await waitForSendButton()).click();
+
+      await vi.waitFor(
+        () => {
+          const dispatchRequests = wsRequests.filter(
+            (request) => request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand,
+          ) as Array<
+            | {
+                _tag: string;
+                type?: string;
+                modelSelection?: { provider?: string; model?: string };
+              }
+            | undefined
+          >;
+
+          expect(dispatchRequests[1]).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            type: "thread.turn.start",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5",
+            },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("surfaces switch request failures as a visible thread error instead of a silent no-op", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-provider-switch-error" as MessageId,
+        targetText: "provider switch error",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = withDualProviderModels(nextFixture.serverConfig);
+      },
+      resolveRpc: (body) => {
+        if (
+          body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+          body.type === "thread.turn.start"
+        ) {
+          throw new Error("Switch to Claude failed");
+        }
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const providerPicker = await waitForElement(
+        findComposerProviderModelPicker,
+        "Unable to find provider model picker.",
+      );
+      providerPicker.click();
+      await page.getByRole("menuitem", { name: "Claude" }).hover();
+      await page.getByRole("menuitemradio", { name: "Claude Opus 4.6" }).click();
+
+      useComposerDraftStore.getState().setPrompt(THREAD_REF, "Trigger switch failure");
+      await waitForLayout();
+      (await waitForSendButton()).click();
+
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Failed to send message.");
         },
         { timeout: 8_000, interval: 16 },
       );
