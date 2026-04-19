@@ -115,6 +115,11 @@ interface PullRequestRemoteSelection {
   requiresSelection: boolean;
 }
 
+interface RemoteRepositoryContext {
+  repositoryNameWithOwner: string | null;
+  ownerLogin: string | null;
+}
+
 function parseRepositoryNameFromPullRequestUrl(url: string): string | null {
   const trimmed = url.trim();
   const match = /^https:\/\/github\.com\/[^/]+\/([^/]+)\/pull\/\d+(?:\/.*)?$/i.exec(trimmed);
@@ -818,20 +823,32 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const resolveRemoteRepositoryContext = Effect.fn("resolveRemoteRepositoryContext")(function* (
     cwd: string,
     remoteName: string | null,
+    urlPreference: "fetch-first" | "push-first" = "fetch-first",
   ) {
     if (!remoteName) {
       return {
         repositoryNameWithOwner: null,
         ownerLogin: null,
-      };
+      } satisfies RemoteRepositoryContext;
     }
 
-    const remoteUrl = yield* readConfigValueNullable(cwd, `remote.${remoteName}.url`);
-    const repositoryNameWithOwner = parseGitHubRepositoryNameWithOwnerFromRemoteUrl(remoteUrl);
+    const [fetchUrl, pushUrl] = yield* Effect.all(
+      [
+        readConfigValueNullable(cwd, `remote.${remoteName}.url`),
+        readConfigValueNullable(cwd, `remote.${remoteName}.pushurl`),
+      ],
+      { concurrency: "unbounded" },
+    );
+    const candidateUrls =
+      urlPreference === "push-first" ? [pushUrl, fetchUrl] : [fetchUrl, pushUrl];
+    const repositoryNameWithOwner =
+      candidateUrls
+        .map((url) => parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url))
+        .find((value): value is string => value !== null) ?? null;
     return {
       repositoryNameWithOwner,
       ownerLogin: parseRepositoryOwnerLogin(repositoryNameWithOwner),
-    };
+    } satisfies RemoteRepositoryContext;
   });
 
   const resolvePullRequestBaseRepository = Effect.fn("resolvePullRequestBaseRepository")(function* (
@@ -856,6 +873,10 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const resolveBranchHeadContext = Effect.fn("resolveBranchHeadContext")(function* (
     cwd: string,
     details: { branch: string; upstreamRef: string | null },
+    baseRepository: RemoteRepositoryContext = {
+      repositoryNameWithOwner: null,
+      ownerLogin: null,
+    },
   ) {
     const remoteName = yield* readConfigValueNullable(cwd, `branch.${details.branch}.remote`);
     const headBranchFromUpstream = details.upstreamRef
@@ -865,22 +886,18 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     const shouldProbeLocalBranchSelector =
       headBranchFromUpstream.length === 0 || headBranch === details.branch;
 
-    const [remoteRepository, originRepository] = yield* Effect.all(
-      [
-        resolveRemoteRepositoryContext(cwd, remoteName),
-        resolveRemoteRepositoryContext(cwd, "origin"),
-      ],
-      { concurrency: "unbounded" },
+    const remoteRepository = yield* resolveRemoteRepositoryContext(cwd, remoteName, "push-first");
+    const normalizedHeadRepository = normalizeOptionalRepositoryNameWithOwner(
+      remoteRepository.repositoryNameWithOwner,
+    );
+    const normalizedBaseRepository = normalizeOptionalRepositoryNameWithOwner(
+      baseRepository.repositoryNameWithOwner,
     );
 
     const isCrossRepository =
-      remoteRepository.repositoryNameWithOwner !== null &&
-      originRepository.repositoryNameWithOwner !== null
-        ? remoteRepository.repositoryNameWithOwner.toLowerCase() !==
-          originRepository.repositoryNameWithOwner.toLowerCase()
-        : remoteName !== null &&
-          remoteName !== "origin" &&
-          remoteRepository.repositoryNameWithOwner !== null;
+      normalizedHeadRepository !== null && normalizedBaseRepository !== null
+        ? normalizedHeadRepository !== normalizedBaseRepository
+        : false;
 
     const ownerHeadSelector =
       remoteRepository.ownerLogin && headBranch.length > 0
@@ -888,11 +905,9 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         : null;
     const remoteAliasHeadSelector =
       remoteName && headBranch.length > 0 ? `${remoteName}:${headBranch}` : null;
-    const shouldProbeRemoteOwnedSelectors =
-      isCrossRepository || (remoteName !== null && remoteName !== "origin");
 
     const headSelectors: string[] = [];
-    if (isCrossRepository && shouldProbeRemoteOwnedSelectors) {
+    if (isCrossRepository) {
       appendUnique(headSelectors, ownerHeadSelector);
       appendUnique(
         headSelectors,
@@ -903,20 +918,14 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       appendUnique(headSelectors, details.branch);
     }
     appendUnique(headSelectors, headBranch !== details.branch ? headBranch : null);
-    if (!isCrossRepository && shouldProbeRemoteOwnedSelectors) {
-      appendUnique(headSelectors, ownerHeadSelector);
-      appendUnique(
-        headSelectors,
-        remoteAliasHeadSelector !== ownerHeadSelector ? remoteAliasHeadSelector : null,
-      );
-    }
 
     return {
       localBranch: details.branch,
       headBranch,
       headSelectors,
-      preferredHeadSelector:
-        ownerHeadSelector && isCrossRepository ? ownerHeadSelector : headBranch,
+      preferredHeadSelector: isCrossRepository
+        ? (ownerHeadSelector ?? remoteAliasHeadSelector ?? headBranch)
+        : headBranch,
       remoteName,
       headRepositoryNameWithOwner: remoteRepository.repositoryNameWithOwner,
       headRepositoryOwnerLogin: remoteRepository.ownerLogin,
@@ -968,12 +977,12 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     cwd: string,
     details: { branch: string; upstreamRef: string | null },
   ) {
-    const headContext = yield* resolveBranchHeadContext(cwd, details);
     const baseRepositoryContext = yield* resolvePullRequestBaseRepository(cwd);
     const baseRepository = baseRepositoryContext.repositoryNameWithOwner;
     if (baseRepositoryContext.selection.requiresSelection) {
       return null;
     }
+    const headContext = yield* resolveBranchHeadContext(cwd, details, baseRepositoryContext);
     const parsedByNumber = new Map<number, PullRequestInfo>();
 
     for (const headSelector of headContext.headSelectors) {
@@ -1083,10 +1092,17 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       finalBranchContext?.hasUpstream === true;
 
     if (shouldLookupExistingOpenPr && finalBranchContext) {
-      latestOpenPr = yield* resolveBranchHeadContext(cwd, {
-        branch: finalBranchContext.branch,
-        upstreamRef: finalBranchContext.upstreamRef,
-      }).pipe(
+      latestOpenPr = yield* resolveBranchHeadContext(
+        cwd,
+        {
+          branch: finalBranchContext.branch,
+          upstreamRef: finalBranchContext.upstreamRef,
+        },
+        {
+          repositoryNameWithOwner: baseRepository,
+          ownerLogin: parseRepositoryOwnerLogin(baseRepository),
+        },
+      ).pipe(
         Effect.flatMap((headContext) => findOpenPr(cwd, headContext, baseRepository)),
         Effect.catch(() => Effect.succeed(null)),
       );
@@ -1345,12 +1361,16 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       );
     }
 
-    const headContext = yield* resolveBranchHeadContext(cwd, {
-      branch,
-      upstreamRef: details.upstreamRef,
-    });
     const baseRepositoryContext = yield* resolvePullRequestBaseRepository(cwd);
     const baseRepository = baseRepositoryContext.repositoryNameWithOwner;
+    const headContext = yield* resolveBranchHeadContext(
+      cwd,
+      {
+        branch,
+        upstreamRef: details.upstreamRef,
+      },
+      baseRepositoryContext,
+    );
     if (baseRepositoryContext.selection.requiresSelection) {
       return yield* gitManagerError(
         "runPrStep",
