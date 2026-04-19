@@ -2,6 +2,7 @@ import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
   CommandId,
+  EventId,
   MessageId,
   type OrchestrationEvent,
   type OrchestrationProposedPlanId,
@@ -157,6 +158,112 @@ function requestKindFromCanonicalRequestType(
     default:
       return undefined;
   }
+}
+
+type NormalizedPlanStep = {
+  readonly step: string;
+  readonly status: "pending" | "inProgress" | "completed";
+};
+
+type NormalizedPlanActivityPayload = {
+  readonly explanation?: string;
+  readonly plan: ReadonlyArray<NormalizedPlanStep>;
+};
+
+function compareProjectedThreadActivityOrder(
+  left: OrchestrationThreadActivity,
+  right: OrchestrationThreadActivity,
+): number {
+  if (left.sequence !== undefined && right.sequence !== undefined) {
+    if (left.sequence !== right.sequence) {
+      return left.sequence - right.sequence;
+    }
+  } else if (left.sequence !== undefined) {
+    return 1;
+  } else if (right.sequence !== undefined) {
+    return -1;
+  }
+
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
+function findLatestPlanUpdatedActivityForTurn(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  turnId: TurnId,
+): OrchestrationThreadActivity | null {
+  return (
+    activities
+      .filter(
+        (activity) => activity.kind === "turn.plan.updated" && sameId(activity.turnId, turnId),
+      )
+      .toSorted(compareProjectedThreadActivityOrder)
+      .at(-1) ?? null
+  );
+}
+
+function parsePlanUpdatedActivityPayload(
+  activity: OrchestrationThreadActivity | null,
+): NormalizedPlanActivityPayload | null {
+  if (!activity) {
+    return null;
+  }
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  if (!payload) {
+    return null;
+  }
+
+  const rawPlan = payload.plan;
+  if (!Array.isArray(rawPlan)) {
+    return null;
+  }
+
+  const plan = rawPlan
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const record = entry as Record<string, unknown>;
+      if (typeof record.step !== "string" || record.step.length === 0) {
+        return null;
+      }
+      const status =
+        record.status === "completed" || record.status === "inProgress" ? record.status : "pending";
+      return {
+        step: record.step,
+        status,
+      } satisfies NormalizedPlanStep;
+    })
+    .filter((step): step is NormalizedPlanStep => step !== null);
+
+  if (plan.length === 0) {
+    return null;
+  }
+
+  return {
+    ...(typeof payload.explanation === "string" ? { explanation: payload.explanation } : {}),
+    plan,
+  };
+}
+
+function buildFinalizedPlanUpdatedPayload(
+  payload: NormalizedPlanActivityPayload | null,
+): NormalizedPlanActivityPayload | null {
+  if (!payload) {
+    return null;
+  }
+  if (payload.plan.every((step) => step.status === "completed")) {
+    return null;
+  }
+  return {
+    ...(payload.explanation !== undefined ? { explanation: payload.explanation } : {}),
+    plan: payload.plan.map((step) => ({
+      step: step.step,
+      status: "completed" as const,
+    })),
+  };
 }
 
 function runtimeEventToActivities(
@@ -1140,6 +1247,34 @@ const make = Effect.fn("make")(function* () {
           turnId,
           updatedAt: now,
         });
+
+        if (
+          shouldApplyThreadLifecycle &&
+          normalizeRuntimeTurnState(event.payload.state) === "completed"
+        ) {
+          const finalizedPlanPayload = buildFinalizedPlanUpdatedPayload(
+            parsePlanUpdatedActivityPayload(
+              findLatestPlanUpdatedActivityForTurn(thread.activities, turnId),
+            ),
+          );
+          if (finalizedPlanPayload) {
+            yield* orchestrationEngine.dispatch({
+              type: "thread.activity.append",
+              commandId: providerCommandId(event, "thread-plan-finalize-append"),
+              threadId: thread.id,
+              activity: {
+                id: EventId.make(`${event.eventId}:turn-plan-finalized`),
+                createdAt: now,
+                tone: "info",
+                kind: "turn.plan.updated",
+                summary: "Plan updated",
+                payload: finalizedPlanPayload,
+                turnId,
+              },
+              createdAt: now,
+            });
+          }
+        }
       }
     }
 
