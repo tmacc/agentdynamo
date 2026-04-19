@@ -6,6 +6,7 @@ import {
   type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
+import { scopeProjectRef } from "@t3tools/client-runtime";
 import {
   createContext,
   memo,
@@ -24,6 +25,7 @@ import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
+  BookmarkPlusIcon,
   CheckIcon,
   CircleAlertIcon,
   EyeIcon,
@@ -71,6 +73,9 @@ import {
   textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+import { SavedPromptDialog } from "./SavedPromptDialog";
+import { toastManager } from "../ui/toast";
+import { deriveSavedPromptTitle, useSavedPromptStore } from "~/savedPromptStore";
 
 // ---------------------------------------------------------------------------
 // Context — shared state consumed by every row component via useContext.
@@ -98,6 +103,7 @@ interface TimelineRowSharedState {
   onOpenChildThread: (threadId: import("@t3tools/contracts").ThreadId) => void;
   onOpenForkSourceThread: (threadId: ThreadId) => void;
   onForkUserMessage: (messageId: MessageId) => void;
+  onSaveUserPrompt: (text: string) => void;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -174,6 +180,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const noopOpenChildThread = useCallback(() => {}, []);
   const noopOpenForkSourceThread = useCallback(() => {}, []);
   const noopForkUserMessage = useCallback(() => {}, []);
+  const createSavedPromptSnippet = useSavedPromptStore((store) => store.createSnippet);
+  const currentProjectRef =
+    activeThreadProjectId !== undefined
+      ? scopeProjectRef(activeThreadEnvironmentId, activeThreadProjectId)
+      : null;
+  const [pendingSavedPromptText, setPendingSavedPromptText] = useState<string | null>(null);
   const rawRows = useMemo(
     () =>
       deriveMessagesTimelineRows({
@@ -226,6 +238,57 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
   }, [listRef, onIsAtEndChange, rows.length]);
 
+  const handleSaveUserPrompt = useCallback((text: string) => {
+    if (text.trim().length === 0) {
+      return;
+    }
+    setPendingSavedPromptText(text);
+  }, []);
+
+  const handleConfirmSaveUserPrompt = useCallback(
+    async (input: { title: string; scope: "project" | "global" }) => {
+      if (!pendingSavedPromptText) {
+        return;
+      }
+      const result = createSavedPromptSnippet({
+        title: input.title,
+        body: pendingSavedPromptText,
+        scope: input.scope,
+        projectRef: currentProjectRef,
+      });
+      if (result.status === "invalid") {
+        toastManager.add({
+          title: "Unable to save prompt",
+          description: "Saved prompts need text and, for project scope, a current project.",
+          type: "error",
+        });
+        return;
+      }
+      if (result.status === "duplicate") {
+        toastManager.add({
+          title: "Prompt already saved",
+          description:
+            result.snippet.scope === "project"
+              ? "This project already has that saved prompt."
+              : "That saved prompt already exists for all projects.",
+          type: "info",
+        });
+        setPendingSavedPromptText(null);
+        return;
+      }
+      toastManager.add({
+        title: `Saved "${result.snippet.title}"`,
+        description:
+          result.snippet.scope === "project"
+            ? "Available in this project."
+            : "Available in all projects.",
+        type: "success",
+      });
+      setPendingSavedPromptText(null);
+    },
+    [createSavedPromptSnippet, currentProjectRef, pendingSavedPromptText],
+  );
+
   // Memoised context value — only changes on state transitions, NOT on
   // every streaming chunk. Callbacks from ChatView are useCallback-stable.
   const sharedState = useMemo<TimelineRowSharedState>(
@@ -248,6 +311,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenChildThread: onOpenChildThread ?? noopOpenChildThread,
       onOpenForkSourceThread: onOpenForkSourceThread ?? noopOpenForkSourceThread,
       onForkUserMessage: onForkUserMessage ?? noopForkUserMessage,
+      onSaveUserPrompt: handleSaveUserPrompt,
     }),
     [
       activeTurnInProgress,
@@ -268,6 +332,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenChildThread,
       onOpenForkSourceThread,
       onForkUserMessage,
+      handleSaveUserPrompt,
       noopOpenChildThread,
       noopOpenForkSourceThread,
       noopForkUserMessage,
@@ -296,23 +361,40 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }
 
   return (
-    <TimelineRowCtx.Provider value={sharedState}>
-      <LegendList<MessagesTimelineRow>
-        ref={listRef}
-        data={rows}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        estimatedItemSize={90}
-        initialScrollAtEnd
-        maintainScrollAtEnd
-        maintainScrollAtEndThreshold={0.1}
-        maintainVisibleContentPosition
-        onScroll={handleScroll}
-        className="h-full overflow-x-hidden overscroll-y-contain px-3 sm:px-5"
-        ListHeaderComponent={<div className="h-3 sm:h-4" />}
-        ListFooterComponent={<div className="h-3 sm:h-4" />}
+    <>
+      <TimelineRowCtx.Provider value={sharedState}>
+        <LegendList<MessagesTimelineRow>
+          ref={listRef}
+          data={rows}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          estimatedItemSize={90}
+          initialScrollAtEnd
+          maintainScrollAtEnd
+          maintainScrollAtEndThreshold={0.1}
+          maintainVisibleContentPosition
+          onScroll={handleScroll}
+          className="h-full overflow-x-hidden overscroll-y-contain px-3 sm:px-5"
+          ListHeaderComponent={<div className="h-3 sm:h-4" />}
+          ListFooterComponent={<div className="h-3 sm:h-4" />}
+        />
+      </TimelineRowCtx.Provider>
+
+      <SavedPromptDialog
+        open={pendingSavedPromptText !== null}
+        mode="create"
+        initialTitle={deriveSavedPromptTitle(pendingSavedPromptText ?? "")}
+        initialScope={currentProjectRef ? "project" : "global"}
+        projectScopeAvailable={currentProjectRef !== null}
+        bodyPreview={pendingSavedPromptText ?? ""}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingSavedPromptText(null);
+          }
+        }}
+        onConfirm={handleConfirmSaveUserPrompt}
       />
-    </TimelineRowCtx.Provider>
+    </>
   );
 });
 
@@ -419,6 +501,18 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
                     {displayedUserMessage.copyText && (
                       <MessageCopyButton text={displayedUserMessage.copyText} />
                     )}
+                    {displayedUserMessage.visibleText.trim().length > 0 ? (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="outline"
+                        onClick={() => ctx.onSaveUserPrompt(displayedUserMessage.visibleText)}
+                        title="Save prompt"
+                        data-testid="save-prompt-button"
+                      >
+                        <BookmarkPlusIcon className="size-3" />
+                      </Button>
+                    ) : null}
                     {row.showForkButton ? (
                       <Button
                         type="button"
