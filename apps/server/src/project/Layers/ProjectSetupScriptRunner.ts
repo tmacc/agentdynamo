@@ -41,7 +41,7 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
           worktreePath: input.worktreePath,
           portCount: readinessProfile.portCount,
         });
-        yield* Effect.tryPromise(() =>
+        yield* Effect.promise(() =>
           materializeManagedWorktreeScripts({
             rootPath: input.worktreePath,
             installCommand: readinessProfile.installCommand,
@@ -50,6 +50,9 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
             framework: readinessProfile.framework,
             packageManager: readinessProfile.packageManager,
             devCommand: readinessProfile.devCommand,
+            policy: {
+              mode: "bootstrap_safe",
+            },
           }),
         );
       }

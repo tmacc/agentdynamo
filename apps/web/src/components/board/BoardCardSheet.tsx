@@ -55,6 +55,10 @@ function cardTextValue(value: string | null | undefined): string {
   return value ?? "";
 }
 
+function normalizeCardTitleDraft(value: string): string {
+  return value.trim();
+}
+
 /**
  * Right-side drawer that slides in when the user opens a board card. Hosts
  * inline editors for title / description / seeded prompt, plus the linked-
@@ -185,13 +189,22 @@ export function BoardCardSheet({
   );
 
   const handleTitleCommit = useCallback(() => {
-    const next = title.trim();
+    const next = normalizeCardTitleDraft(title);
     if (next.length === 0) {
       // Revert: title is required.
       setTitle(card.title);
+      setDirty((currentDirty) =>
+        currentDirty.title ? { ...currentDirty, title: false } : currentDirty,
+      );
       return;
     }
-    if (next === card.title) return;
+    setTitle(next);
+    if (next === card.title) {
+      setDirty((currentDirty) =>
+        currentDirty.title ? { ...currentDirty, title: false } : currentDirty,
+      );
+      return;
+    }
     void commit({ title: next });
   }, [card.title, commit, title]);
 

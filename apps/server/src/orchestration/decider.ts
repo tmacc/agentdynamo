@@ -11,6 +11,7 @@ import {
   isActiveTeamTaskStatus,
   listActiveTeamTasks,
   requireBoardCardInProject,
+  requireBoardCardLinkedThreadMatches,
   requireBoardThreadLinkAvailable,
   requireProject,
   requireProjectAbsent,
@@ -1103,11 +1104,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         projectId: command.projectId,
       });
-      yield* requireBoardCardInProject({
+      const card = yield* requireBoardCardInProject({
         command,
         cardId: command.cardId,
         projectId: command.projectId,
         repository: boardCardRepository,
+      });
+      yield* requireBoardCardLinkedThreadMatches({
+        command,
+        card,
+        expectedThreadId: command.previousThreadId,
       });
       return {
         ...withEventBase({

@@ -1499,6 +1499,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           if (Option.isNone(existingRow)) {
             return;
           }
+          if (existingRow.value.linkedThreadId !== event.payload.previousThreadId) {
+            return;
+          }
           yield* projectionBoardCardRepository.upsert({
             ...existingRow.value,
             linkedThreadId: null,

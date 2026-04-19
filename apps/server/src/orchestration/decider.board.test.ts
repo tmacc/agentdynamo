@@ -239,4 +239,121 @@ describe("decider board invariants", () => {
       ),
     ).rejects.toThrow("already linked to board card 'card-other'");
   });
+
+  it("rejects board.card.unlinkThread when the linked thread has changed", async () => {
+    const now = new Date().toISOString();
+    const readModel = await createBoardReadModel(now);
+
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "board.card.unlinkThread",
+            commandId: CommandId.make("cmd-board-unlink-stale"),
+            cardId: "card-a" as FeatureCard["id"],
+            projectId: asProjectId("project-a"),
+            previousThreadId: asThreadId("thread-a"),
+            updatedAt: now as FeatureCard["updatedAt"],
+          },
+          readModel,
+        }).pipe(
+          Effect.provideService(
+            ProjectionBoardCardRepository,
+            createBoardCardRepositoryStub({
+              getById: () =>
+                Effect.succeed(
+                  Option.some(
+                    makeCard({
+                      id: "card-a" as FeatureCard["id"],
+                      linkedThreadId: asThreadId("thread-b"),
+                    }),
+                  ),
+                ),
+            }),
+          ),
+        ),
+      ),
+    ).rejects.toThrow(
+      "expected linked thread 'thread-a' but is currently linked to thread 'thread-b'",
+    );
+  });
+
+  it("rejects board.card.unlinkThread when the card is already unlinked", async () => {
+    const now = new Date().toISOString();
+    const readModel = await createBoardReadModel(now);
+
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "board.card.unlinkThread",
+            commandId: CommandId.make("cmd-board-unlink-missing"),
+            cardId: "card-a" as FeatureCard["id"],
+            projectId: asProjectId("project-a"),
+            previousThreadId: null,
+            updatedAt: now as FeatureCard["updatedAt"],
+          },
+          readModel,
+        }).pipe(
+          Effect.provideService(
+            ProjectionBoardCardRepository,
+            createBoardCardRepositoryStub({
+              getById: () =>
+                Effect.succeed(
+                  Option.some(
+                    makeCard({
+                      id: "card-a" as FeatureCard["id"],
+                      linkedThreadId: null,
+                    }),
+                  ),
+                ),
+            }),
+          ),
+        ),
+      ),
+    ).rejects.toThrow("is not currently linked to a thread");
+  });
+
+  it("emits board.card-thread-unlinked when the linked thread matches", async () => {
+    const now = new Date().toISOString();
+    const readModel = await createBoardReadModel(now);
+
+    const eventResult = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "board.card.unlinkThread",
+          commandId: CommandId.make("cmd-board-unlink"),
+          cardId: "card-a" as FeatureCard["id"],
+          projectId: asProjectId("project-a"),
+          previousThreadId: asThreadId("thread-a"),
+          updatedAt: now as FeatureCard["updatedAt"],
+        },
+        readModel,
+      }).pipe(
+        Effect.provideService(
+          ProjectionBoardCardRepository,
+          createBoardCardRepositoryStub({
+            getById: () =>
+              Effect.succeed(
+                Option.some(
+                  makeCard({
+                    id: "card-a" as FeatureCard["id"],
+                    linkedThreadId: asThreadId("thread-a"),
+                  }),
+                ),
+              ),
+          }),
+        ),
+      ),
+    );
+    const event = Array.isArray(eventResult) ? eventResult.at(0) : eventResult;
+
+    expect(event?.type).toBe("board.card-thread-unlinked");
+    expect(event?.payload).toEqual({
+      cardId: "card-a",
+      projectId: asProjectId("project-a"),
+      previousThreadId: asThreadId("thread-a"),
+      updatedAt: now,
+    });
+  });
 });
