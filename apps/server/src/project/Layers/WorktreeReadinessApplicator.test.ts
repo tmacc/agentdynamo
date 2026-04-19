@@ -46,6 +46,13 @@ function makeReadModel(project: Partial<OrchestrationReadModel["projects"][numbe
 }
 
 describe("WorktreeReadinessApplicator", () => {
+  it("keeps worktree.local.env ignored by default in the repo root", async () => {
+    const repoGitignorePath = path.resolve(import.meta.dirname, "../../../../../.gitignore");
+    await expect(fs.readFile(repoGitignorePath, "utf8")).resolves.toContain(
+      ".t3code/worktree.local.env",
+    );
+  });
+
   it("records a telemetry event when readiness is applied", async () => {
     const projectCwd = await fs.mkdtemp(path.join(os.tmpdir(), "t3-readiness-apply-"));
     const record = vi.fn(() => Effect.void);
@@ -121,10 +128,10 @@ describe("WorktreeReadinessApplicator", () => {
       );
 
       expect(result.profile.status).toBe("configured");
-      expect(result.updatedGitignore).toBe(false);
       expect(result.writtenFiles).toEqual(
         expect.arrayContaining([".t3code/worktree/setup.sh", ".t3code/worktree/dev.sh"]),
       );
+      expect(result.updatedGitignore).toBe(false);
       await expect(fs.readFile(path.join(projectCwd, ".gitignore"), "utf8")).resolves.toBe(
         "node_modules/\n",
       );
