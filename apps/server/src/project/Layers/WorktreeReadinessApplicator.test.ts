@@ -76,7 +76,7 @@ describe("WorktreeReadinessApplicator", () => {
         ),
       );
       await fs.writeFile(path.join(projectCwd, ".env.local"), "PORT=3000\n");
-      await fs.writeFile(path.join(projectCwd, ".gitignore"), ".t3code/worktree.local.env\n");
+      await fs.writeFile(path.join(projectCwd, ".gitignore"), "node_modules/\n", "utf8");
 
       const analysis = await computeReadinessAnalysis({
         projectCwd,
@@ -132,6 +132,9 @@ describe("WorktreeReadinessApplicator", () => {
         expect.arrayContaining([".t3code/worktree/setup.sh", ".t3code/worktree/dev.sh"]),
       );
       expect(result.updatedGitignore).toBe(false);
+      await expect(fs.readFile(path.join(projectCwd, ".gitignore"), "utf8")).resolves.toBe(
+        "node_modules/\n",
+      );
       expect(dispatchedCommands.at(-1)?.type).toBe("project.meta.update");
       expect(record).toHaveBeenCalledWith(
         "project.worktree_readiness.applied",
@@ -141,6 +144,7 @@ describe("WorktreeReadinessApplicator", () => {
           envStrategy: "symlink_root",
           overwriteManagedFiles: false,
           writtenFileCount: 2,
+          updatedGitignore: false,
         }),
       );
     } finally {
