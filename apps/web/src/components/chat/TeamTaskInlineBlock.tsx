@@ -1,62 +1,22 @@
 import { memo, useState, useCallback } from "react";
 import type { ThreadId } from "@t3tools/contracts";
-import { ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
+import { ChevronRightIcon, EyeIcon } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "../ui/collapsible";
 import { PROVIDER_ICON_BY_PROVIDER, providerIconClassName } from "./ProviderModelPicker";
 import { cn } from "~/lib/utils";
-import type { TeamTask } from "../../types";
 import type { ProviderPickerKind } from "../../session-logic";
+import {
+  formatTeamTaskStatusLabel,
+  isActiveTeamTaskStatus,
+  TeamTaskDetailContent,
+  type TeamTaskPresentationView,
+} from "./TeamTaskShared";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface TeamTaskInlineView {
-  task: TeamTask;
-  diffSummary: string | null;
-  elapsed: string | null;
-}
+export type TeamTaskInlineView = TeamTaskPresentationView;
 
 interface TeamTaskInlineBlockProps {
-  tasks: readonly TeamTaskInlineView[];
-  onOpenThread: (threadId: ThreadId) => void;
-}
-
-// ---------------------------------------------------------------------------
-// Status helpers
-// ---------------------------------------------------------------------------
-
-const STATUS_CLASS: Record<TeamTask["status"], string> = {
-  queued: "text-muted-foreground",
-  starting: "text-muted-foreground",
-  running: "text-muted-foreground",
-  waiting: "text-muted-foreground",
-  completed: "text-muted-foreground",
-  failed: "text-destructive",
-  cancelled: "text-muted-foreground/60",
-};
-
-function statusLabel(status: TeamTask["status"]): string {
-  switch (status) {
-    case "queued":
-    case "starting":
-      return "starting\u2026";
-    case "running":
-    case "waiting":
-      return "running\u2026";
-    case "completed":
-      return "completed";
-    case "failed":
-      return "failed";
-    case "cancelled":
-      return "cancelled";
-  }
-}
-
-function isActive(status: TeamTask["status"]): boolean {
-  return (
-    status === "queued" || status === "starting" || status === "running" || status === "waiting"
-  );
+  tasks: readonly TeamTaskPresentationView[];
+  onInspectThread: (threadId: ThreadId) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,24 +25,24 @@ function isActive(status: TeamTask["status"]): boolean {
 
 const TaskRow = memo(function TaskRow({
   view,
-  onOpenThread,
+  onInspectThread,
 }: {
-  view: TeamTaskInlineView;
-  onOpenThread: (threadId: ThreadId) => void;
+  view: TeamTaskPresentationView;
+  onInspectThread: (threadId: ThreadId) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const { task, diffSummary, elapsed } = view;
+  const { task, elapsed } = view;
   const provider = task.modelSelection.provider as ProviderPickerKind;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[provider];
   const iconClass = providerIconClassName(provider, "text-muted-foreground/70");
-  const active = isActive(task.status);
+  const active = isActiveTeamTaskStatus(task.status);
 
-  const handleOpenThread = useCallback(
+  const handleInspectThread = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      onOpenThread(task.childThreadId);
+      onInspectThread(task.childThreadId);
     },
-    [onOpenThread, task.childThreadId],
+    [onInspectThread, task.childThreadId],
   );
 
   return (
@@ -109,28 +69,34 @@ const TaskRow = memo(function TaskRow({
           {task.roleLabel ?? task.title}
         </span>
         <span className="shrink-0 text-muted-foreground/60">&mdash;</span>
-        <span className={cn("shrink-0", STATUS_CLASS[task.status], active && "animate-pulse")}>
-          {statusLabel(task.status)}
+        <span
+          className={cn(
+            "shrink-0 text-muted-foreground",
+            task.status === "failed" && "text-destructive",
+            task.status === "cancelled" && "text-muted-foreground/60",
+            active && "animate-pulse",
+          )}
+        >
+          {formatTeamTaskStatusLabel(task.status)}
         </span>
         {elapsed && !active && <span className="shrink-0 text-muted-foreground/50">{elapsed}</span>}
       </CollapsibleTrigger>
 
       <CollapsiblePanel>
-        <div className="space-y-1 py-1.5 pl-[34px] pr-2 text-xs text-muted-foreground">
-          {diffSummary && <div>{diffSummary}</div>}
-          {task.latestSummary && (
-            <div className="line-clamp-3 text-foreground/70">{task.latestSummary}</div>
-          )}
-          {task.errorText && <div className="line-clamp-3 text-destructive">{task.errorText}</div>}
-          <button
-            type="button"
-            className="mt-0.5 inline-flex cursor-pointer items-center gap-1 text-primary/80 transition-colors hover:text-primary"
-            onClick={handleOpenThread}
-          >
-            Open thread
-            <ExternalLinkIcon className="size-3" />
-          </button>
-        </div>
+        <TeamTaskDetailContent
+          view={view}
+          className="px-2 pb-1.5 pl-[34px] pt-1.5"
+          action={
+            <button
+              type="button"
+              className="inline-flex cursor-pointer items-center gap-1 text-primary/80 transition-colors hover:text-primary"
+              onClick={handleInspectThread}
+            >
+              Inspect task
+              <EyeIcon className="size-3" />
+            </button>
+          }
+        />
       </CollapsiblePanel>
     </Collapsible>
   );
@@ -142,7 +108,7 @@ const TaskRow = memo(function TaskRow({
 
 export const TeamTaskInlineBlocks = memo(function TeamTaskInlineBlocks({
   tasks,
-  onOpenThread,
+  onInspectThread,
 }: TeamTaskInlineBlockProps) {
   if (tasks.length === 0) return null;
 
@@ -152,7 +118,7 @@ export const TeamTaskInlineBlocks = memo(function TeamTaskInlineBlocks({
       data-team-task-inline-blocks
     >
       {tasks.map((view) => (
-        <TaskRow key={view.task.id} view={view} onOpenThread={onOpenThread} />
+        <TaskRow key={view.task.id} view={view} onInspectThread={onInspectThread} />
       ))}
     </div>
   );

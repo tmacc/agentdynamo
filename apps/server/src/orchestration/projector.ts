@@ -8,6 +8,7 @@ import {
 import { Effect, Schema } from "effect";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
+import { materializeActivitySequence } from "./materializeActivitySequence.ts";
 import {
   MessageSentPayloadSchema,
   ProjectCreatedPayload,
@@ -808,10 +809,11 @@ export function projectEvent(
           if (!thread) {
             return nextBase;
           }
+          const activity = materializeActivitySequence(payload.activity, event.sequence);
 
           const activities = [
             ...thread.activities.filter((entry) => entry.id !== payload.activity.id),
-            payload.activity,
+            activity,
           ]
             .toSorted(compareThreadActivities)
             .slice(-500);

@@ -1,4 +1,9 @@
-import { type EnvironmentId, type FeatureCard, type ProjectId } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  type FeatureCard,
+  type ProjectId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import {
   ArchiveIcon,
   CheckCircle2Icon,
@@ -15,6 +20,7 @@ import { memo, useCallback } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { clearBoardRouteSearchParams } from "../../boardRouteSearch";
+import { clearAgentInspectorSearchParams } from "../../agentInspectorRouteSearch";
 import { cn } from "../../lib/utils";
 import {
   deleteBoardCard,
@@ -179,12 +185,37 @@ export const BoardLiveCard = memo(function BoardLiveCard({
       search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
     }).catch(() => undefined);
   }, [navigate, thread.environmentId, thread.id]);
+  const inspectTeamTask = useCallback(
+    (childThreadId: ThreadId) => {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: thread.environmentId, threadId: thread.id },
+        search: (previous) => ({
+          ...clearAgentInspectorSearchParams(
+            clearBoardRouteSearchParams(previous as Record<string, unknown>),
+          ),
+          agentChildThreadId: childThreadId,
+        }),
+      }).catch(() => undefined);
+    },
+    [navigate, thread.environmentId, thread.id],
+  );
 
   return (
     <Card className={cn("group relative", KANBAN_CARD_CLASSES, "transition hover:shadow-md")}>
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={openThread}
+        onKeyDown={(event) => {
+          if (event.currentTarget !== event.target) {
+            return;
+          }
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openThread();
+          }
+        }}
         className="flex w-full items-start justify-between gap-2 p-3 text-left"
       >
         <div className="min-w-0 flex-1">
@@ -198,7 +229,7 @@ export const BoardLiveCard = memo(function BoardLiveCard({
           {teamTasks.length > 0 ? (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {teamTasks.map((pill) => (
-                <TeamTaskPill key={pill.threadId} pill={pill} />
+                <TeamTaskPill key={pill.threadId} pill={pill} onInspectTask={inspectTeamTask} />
               ))}
             </div>
           ) : null}
@@ -217,7 +248,7 @@ export const BoardLiveCard = memo(function BoardLiveCard({
             </Tooltip>
           ) : null}
         </div>
-      </button>
+      </div>
       {isGhost ? (
         <div className="flex items-center justify-end border-t px-3 py-1 text-xs text-muted-foreground">
           <Button
@@ -331,13 +362,23 @@ function PrBadge({ pr }: { readonly pr: NonNullable<ThreadPr> }) {
   );
 }
 
-function TeamTaskPill({ pill }: { readonly pill: BoardTeamTaskPill }) {
+function TeamTaskPill(props: {
+  readonly pill: BoardTeamTaskPill;
+  readonly onInspectTask: (threadId: ThreadId) => void;
+}) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs text-muted-foreground">
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        props.onInspectTask(props.pill.threadId);
+      }}
+      className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-accent/40 hover:text-foreground"
+    >
       <LinkIcon className="size-2" />
-      <span className="truncate">{pill.roleLabel ?? "team task"}</span>
-      {pill.status ? <span className="opacity-70">· {pill.status}</span> : null}
-    </span>
+      <span className="truncate">{props.pill.roleLabel ?? "team task"}</span>
+      {props.pill.status ? <span className="opacity-70">· {props.pill.status}</span> : null}
+    </button>
   );
 }
 

@@ -80,7 +80,7 @@ export const BoardColumn = memo(function BoardColumn({
     <div
       ref={setDroppableRef}
       className={cn(
-        "flex min-h-0 w-[19rem] flex-shrink-0 flex-col overflow-hidden rounded-lg border bg-muted/30",
+        "flex h-full min-h-0 w-[19rem] flex-shrink-0 flex-col overflow-hidden rounded-lg border bg-muted/30",
         isOver && "bg-muted/60 ring-2 ring-primary/40",
       )}
     >

@@ -5,10 +5,11 @@ import path from "node:path";
 import { Effect, Layer } from "effect";
 
 import {
+  LEGACY_WORKTREE_LOCAL_ENV_PATH,
   normalizePortBlockBase,
   readWorktreeLocalEnv,
+  resolveWorktreeRuntimeEnvFilePath,
   serializeWorktreeLocalEnv,
-  WORKTREE_LOCAL_ENV_PATH,
 } from "./WorktreeReadinessShared.ts";
 import {
   WorktreeRuntimeEnvProvisioner,
@@ -32,16 +33,29 @@ function canListen(port: number): Promise<boolean> {
   });
 }
 
-const makeWorktreeRuntimeEnvProvisioner = Effect.gen(function* () {
+const makeWorktreeRuntimeEnvProvisioner = Effect.sync(() => {
   const ensureEnvFile: WorktreeRuntimeEnvProvisionerShape["ensureEnvFile"] = (input) =>
     Effect.promise(async () => {
-      const envFilePath = path.join(input.worktreePath, WORKTREE_LOCAL_ENV_PATH);
+      const envFilePath = await resolveWorktreeRuntimeEnvFilePath(input.worktreePath);
       const existing = await readWorktreeLocalEnv(envFilePath);
       if (existing) {
         return {
           envFilePath,
           created: false,
           values: existing,
+        } satisfies WorktreeRuntimeEnvProvisionedFile;
+      }
+
+      const legacyEnvFilePath = path.join(input.worktreePath, LEGACY_WORKTREE_LOCAL_ENV_PATH);
+      const legacyValues = await readWorktreeLocalEnv(legacyEnvFilePath);
+      if (legacyValues) {
+        await fs.mkdir(path.dirname(envFilePath), { recursive: true });
+        await fs.writeFile(envFilePath, serializeWorktreeLocalEnv(legacyValues), "utf8");
+        await fs.rm(legacyEnvFilePath, { force: true });
+        return {
+          envFilePath,
+          created: false,
+          values: legacyValues,
         } satisfies WorktreeRuntimeEnvProvisionedFile;
       }
 

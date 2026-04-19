@@ -61,9 +61,9 @@ import { isMacPlatform, newCommandId } from "../lib/utils";
 import {
   selectProjectByRef,
   selectProjectsAcrossEnvironments,
-  selectSidebarThreadsForProjectRef,
-  selectSidebarThreadsForProjectRefs,
-  selectSidebarThreadsAcrossEnvironments,
+  selectNavigableSidebarThreadsAcrossEnvironments,
+  selectNavigableSidebarThreadsForProjectRef,
+  selectNavigableSidebarThreadsForProjectRefs,
   selectThreadByRef,
   useStore,
 } from "../store";
@@ -982,7 +982,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     useShallow(
       useMemo(
         () => (state: import("../store").AppState) =>
-          selectSidebarThreadsForProjectRef(
+          selectNavigableSidebarThreadsForProjectRef(
             state,
             scopeProjectRef(project.environmentId, project.id),
           ),
@@ -1006,7 +1006,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           otherMemberRefs.length === 0
             ? () => [] as SidebarThreadSummary[]
             : (state: import("../store").AppState) =>
-                selectSidebarThreadsForProjectRefs(state, otherMemberRefs),
+                selectNavigableSidebarThreadsForProjectRefs(state, otherMemberRefs),
         [otherMemberRefs],
       ),
     ),
@@ -2219,7 +2219,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 
 export default function Sidebar() {
   const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
-  const sidebarThreads = useStore(useShallow(selectSidebarThreadsAcrossEnvironments));
+  const sidebarThreads = useStore(useShallow(selectNavigableSidebarThreadsAcrossEnvironments));
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
@@ -2447,10 +2447,7 @@ export default function Sidebar() {
   }, []);
 
   const visibleThreads = useMemo(
-    () =>
-      sidebarThreads.filter(
-        (thread) => thread.archivedAt === null && thread.teamParentThreadId == null,
-      ),
+    () => sidebarThreads.filter((thread) => thread.archivedAt === null),
     [sidebarThreads],
   );
   const sortedProjects = useMemo(() => {
