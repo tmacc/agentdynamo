@@ -207,6 +207,31 @@ describe("deriveBoardColumns", () => {
     }
   });
 
+  it("keeps a linked ideas card in ideas even when its top-level thread is in progress", () => {
+    const t = makeThread({ id: "t-ideas-run" as unknown as ThreadId, session: runningSession() });
+    const card = makeCard({
+      id: "card-ideas-run" as unknown as FeatureCardId,
+      column: "ideas",
+      linkedThreadId: t.id,
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT,
+      cards: [card],
+      threads: [t],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    const ideas = result.find((column) => column.kind === "ideas");
+    expect(ideas?.items).toHaveLength(1);
+    expect(ideas?.items[0]?.kind).toBe("user-card");
+    if (ideas?.items[0]?.kind === "user-card") {
+      expect(ideas.items[0].card.id).toBe(card.id);
+    }
+    expect(result.find((column) => column.kind === "in-progress")?.items).toEqual([]);
+  });
+
   it("moves settled threads with a completed turn to Review", () => {
     const t = makeThread({
       id: "t-2" as unknown as ThreadId,

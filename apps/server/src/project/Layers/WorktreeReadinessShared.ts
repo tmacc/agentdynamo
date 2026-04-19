@@ -16,7 +16,8 @@ import type {
 
 export const WORKTREE_SETUP_SCRIPT_PATH = ".t3code/worktree/setup.sh";
 export const WORKTREE_DEV_SCRIPT_PATH = ".t3code/worktree/dev.sh";
-export const WORKTREE_LOCAL_ENV_PATH = ".t3code/worktree.local.env";
+export const WORKTREE_GIT_ENV_RELATIVE_PATH = "t3code/worktree.local.env";
+export const LEGACY_WORKTREE_LOCAL_ENV_PATH = ".t3code/worktree.local.env";
 export const WORKTREE_MANAGED_HEADER =
   "# T3 Code managed file. Reapply Worktree Readiness to regenerate this file.";
 const WORKTREE_PORT_RANGE_START = 41000;
@@ -269,6 +270,48 @@ function buildFrameworkDevInvocation(input: {
   }
 }
 
+export async function resolveWorktreeGitAdminDir(worktreePath: string): Promise<string> {
+  const gitPath = path.join(worktreePath, ".git");
+
+  let gitStat: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    gitStat = await fs.stat(gitPath);
+  } catch {
+    throw new Error(`Worktree '${worktreePath}' is not a Git checkout.`);
+  }
+
+  if (gitStat.isDirectory()) {
+    return gitPath;
+  }
+
+  if (!gitStat.isFile()) {
+    throw new Error(`Worktree '${worktreePath}' is not a Git checkout.`);
+  }
+
+  const pointer = await fs.readFile(gitPath, "utf8");
+  const match = pointer.match(/^gitdir:\s*(.+)\s*$/im);
+  if (!match?.[1]) {
+    throw new Error(`Worktree '${worktreePath}' has an invalid .git pointer file.`);
+  }
+
+  const resolvedGitDir = path.resolve(worktreePath, match[1].trim());
+  try {
+    const resolvedStat = await fs.stat(resolvedGitDir);
+    if (!resolvedStat.isDirectory()) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(`Worktree '${worktreePath}' points to a missing Git admin dir.`);
+  }
+
+  return resolvedGitDir;
+}
+
+export async function resolveWorktreeRuntimeEnvFilePath(worktreePath: string): Promise<string> {
+  const gitAdminDir = await resolveWorktreeGitAdminDir(worktreePath);
+  return path.join(gitAdminDir, WORKTREE_GIT_ENV_RELATIVE_PATH);
+}
+
 export function buildSetupScriptContent(input: {
   readonly installCommand: string | null;
   readonly envStrategy: ProjectWorktreeReadinessEnvStrategy;
@@ -308,7 +351,8 @@ ${WORKTREE_MANAGED_HEADER}
 SCRIPT_DIR=\${0:A:h}
 WORKTREE_ROOT=\${SCRIPT_DIR:h:h}
 PROJECT_ROOT=\${T3CODE_PROJECT_ROOT:-$WORKTREE_ROOT}
-LOCAL_ENV_PATH="$WORKTREE_ROOT/${WORKTREE_LOCAL_ENV_PATH}"
+GIT_DIR="$(git -C "$WORKTREE_ROOT" rev-parse --absolute-git-dir)"
+LOCAL_ENV_PATH="$GIT_DIR/${WORKTREE_GIT_ENV_RELATIVE_PATH}"
 
 mkdir -p "$WORKTREE_ROOT/.t3code"
 if [[ ! -f "$LOCAL_ENV_PATH" ]]; then
@@ -338,7 +382,8 @@ ${WORKTREE_MANAGED_HEADER}
 
 SCRIPT_DIR=\${0:A:h}
 WORKTREE_ROOT=\${SCRIPT_DIR:h:h}
-LOCAL_ENV_PATH="$WORKTREE_ROOT/${WORKTREE_LOCAL_ENV_PATH}"
+GIT_DIR="$(git -C "$WORKTREE_ROOT" rev-parse --absolute-git-dir)"
+LOCAL_ENV_PATH="$GIT_DIR/${WORKTREE_GIT_ENV_RELATIVE_PATH}"
 
 if [[ -f "$LOCAL_ENV_PATH" ]]; then
   source "$LOCAL_ENV_PATH"
@@ -352,9 +397,7 @@ exec ${invocation}
 `;
 }
 
-export function buildManagedScripts(input: {
-  readonly recommendation: ProjectWorktreeReadinessRecommendation;
-}): ReadonlyArray<ProjectScript> {
+export function buildManagedScripts(): ReadonlyArray<ProjectScript> {
   const setupCommand = WORKTREE_SETUP_SCRIPT_PATH;
   const devCommand = WORKTREE_DEV_SCRIPT_PATH;
   return [
@@ -721,18 +764,6 @@ export async function materializeManagedWorktreeScripts(input: {
   return {
     files: results,
   };
-}
-
-export async function ensureGitignoreEntry(projectCwd: string, entry: string): Promise<boolean> {
-  const gitignorePath = path.join(projectCwd, ".gitignore");
-  const existing = (await readOptionalFile(gitignorePath)) ?? "";
-  const normalized = existing.split(/\r?\n/);
-  if (normalized.includes(entry)) {
-    return false;
-  }
-  const next = `${existing.trimEnd()}${existing.length > 0 ? "\n" : ""}${entry}\n`;
-  await fs.writeFile(gitignorePath, next, "utf8");
-  return true;
 }
 
 export async function readWorktreeLocalEnv(

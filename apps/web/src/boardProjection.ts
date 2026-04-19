@@ -296,6 +296,17 @@ export function deriveBoardColumns(input: DeriveBoardColumnsInput): BoardColumnD
     }
 
     const column = classificationByThreadId.get(thread.id) ?? "hidden";
+    if (card.column !== "planned") {
+      claimedTopLevelThreadIds.add(thread.id);
+      workItems.push({
+        kind: "stored-card",
+        id: card.id,
+        column: card.column,
+        card,
+      });
+      continue;
+    }
+
     if (column === "hidden") {
       workItems.push({
         kind: "stored-card",
