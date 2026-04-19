@@ -151,6 +151,35 @@ function makeCard(overrides: Partial<FeatureCard> = {}): FeatureCard {
 }
 
 describe("decider board invariants", () => {
+  it("rejects board.card.create when a linked card is created in ideas", async () => {
+    const now = new Date().toISOString();
+    const readModel = await createBoardReadModel(now);
+
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "board.card.create",
+            commandId: CommandId.make("cmd-board-create-ideas-link"),
+            cardId: "card-a" as FeatureCard["id"],
+            projectId: asProjectId("project-a"),
+            title: "Card" as FeatureCard["title"],
+            description: null,
+            seededPrompt: null,
+            column: "ideas",
+            sortOrder: 0,
+            linkedThreadId: asThreadId("thread-a"),
+            linkedProposedPlanId: null,
+            createdAt: now as FeatureCard["createdAt"],
+          },
+          readModel,
+        }).pipe(
+          Effect.provideService(ProjectionBoardCardRepository, createBoardCardRepositoryStub()),
+        ),
+      ),
+    ).rejects.toThrow("must be in 'planned' before it can link to a thread");
+  });
+
   it("rejects board.card.create when the linked thread belongs to another project", async () => {
     const now = new Date().toISOString();
     const readModel = await createBoardReadModel(now);
@@ -238,6 +267,79 @@ describe("decider board invariants", () => {
         ),
       ),
     ).rejects.toThrow("already linked to board card 'card-other'");
+  });
+
+  it("rejects board.card.linkThread when the existing card is in ideas", async () => {
+    const now = new Date().toISOString();
+    const readModel = await createBoardReadModel(now);
+
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "board.card.linkThread",
+            commandId: CommandId.make("cmd-board-link-ideas"),
+            cardId: "card-a" as FeatureCard["id"],
+            projectId: asProjectId("project-a"),
+            threadId: asThreadId("thread-a"),
+            updatedAt: now as FeatureCard["updatedAt"],
+          },
+          readModel,
+        }).pipe(
+          Effect.provideService(
+            ProjectionBoardCardRepository,
+            createBoardCardRepositoryStub({
+              getById: () =>
+                Effect.succeed(
+                  Option.some(
+                    makeCard({
+                      id: "card-a" as FeatureCard["id"],
+                      column: "ideas",
+                    }),
+                  ),
+                ),
+            }),
+          ),
+        ),
+      ),
+    ).rejects.toThrow("must be in 'planned' before it can link to a thread");
+  });
+
+  it("rejects board.card.move when a linked card moves back to ideas", async () => {
+    const now = new Date().toISOString();
+    const readModel = await createBoardReadModel(now);
+
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "board.card.move",
+            commandId: CommandId.make("cmd-board-move-linked-ideas"),
+            cardId: "card-a" as FeatureCard["id"],
+            projectId: asProjectId("project-a"),
+            toColumn: "ideas",
+            sortOrder: 0,
+            updatedAt: now as FeatureCard["updatedAt"],
+          },
+          readModel,
+        }).pipe(
+          Effect.provideService(
+            ProjectionBoardCardRepository,
+            createBoardCardRepositoryStub({
+              getById: () =>
+                Effect.succeed(
+                  Option.some(
+                    makeCard({
+                      id: "card-a" as FeatureCard["id"],
+                      linkedThreadId: asThreadId("thread-a"),
+                    }),
+                  ),
+                ),
+            }),
+          ),
+        ),
+      ),
+    ).rejects.toThrow("is linked to a thread and cannot move to 'ideas'");
   });
 
   it("rejects board.card.unlinkThread when the linked thread has changed", async () => {

@@ -8,11 +8,9 @@ import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import {
   buildManagedScripts,
   computeReadinessAnalysis,
-  ensureGitignoreEntry,
   materializeManagedWorktreeScripts,
   mergeReadinessScripts,
   WORKTREE_DEV_SCRIPT_PATH,
-  WORKTREE_LOCAL_ENV_PATH,
   WORKTREE_SETUP_SCRIPT_PATH,
 } from "./WorktreeReadinessShared.ts";
 import {
@@ -81,14 +79,11 @@ const makeWorktreeReadinessApplicator = Effect.gen(function* () {
         .filter((file) => file.action !== "preserved")
         .map((file) => file.path);
 
-      const updatedGitignore = yield* Effect.tryPromise(() =>
-        ensureGitignoreEntry(input.projectCwd, WORKTREE_LOCAL_ENV_PATH),
-      );
+      // Runtime env is now stored under the worktree's git-admin dir, so apply no longer mutates
+      // the repo .gitignore. Keep the field for wire compatibility.
+      const updatedGitignore = false;
 
-      const nextScripts = mergeReadinessScripts(
-        project.scripts,
-        buildManagedScripts({ recommendation }),
-      );
+      const nextScripts = mergeReadinessScripts(project.scripts, buildManagedScripts());
       const now = new Date().toISOString();
       const profile = {
         version: 1,
