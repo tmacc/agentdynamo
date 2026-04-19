@@ -6,9 +6,11 @@ import { Effect, Layer } from "effect";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import {
+  buildTrackedWorktreeLocalEnvWarning,
   buildManagedScripts,
   computeReadinessAnalysis,
   ensureGitignoreEntry,
+  isGitTrackedPath,
   materializeManagedWorktreeScripts,
   mergeReadinessScripts,
   WORKTREE_DEV_SCRIPT_PATH,
@@ -84,6 +86,11 @@ const makeWorktreeReadinessApplicator = Effect.gen(function* () {
       const updatedGitignore = yield* Effect.tryPromise(() =>
         ensureGitignoreEntry(input.projectCwd, WORKTREE_LOCAL_ENV_PATH),
       );
+      const warnings = (yield* Effect.tryPromise(() =>
+        isGitTrackedPath(input.projectCwd, WORKTREE_LOCAL_ENV_PATH),
+      ))
+        ? [buildTrackedWorktreeLocalEnvWarning()]
+        : [];
 
       const nextScripts = mergeReadinessScripts(
         project.scripts,
@@ -121,12 +128,14 @@ const makeWorktreeReadinessApplicator = Effect.gen(function* () {
         scripts: nextScripts,
         writtenFiles,
         updatedGitignore,
+        warnings,
       };
 
       yield* Effect.logInfo("worktree readiness applied", {
         projectId: input.projectId,
         writtenFileCount: writtenFiles.length,
         updatedGitignore,
+        warningCount: warnings.length,
         envStrategy: profile.envStrategy,
         portCount: profile.portCount,
       });

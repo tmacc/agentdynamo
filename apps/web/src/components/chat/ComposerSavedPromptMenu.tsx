@@ -1,6 +1,6 @@
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { BookmarkIcon, EllipsisIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { type SavedPromptSnippet, useSavedPromptStore } from "~/savedPromptStore";
 import { Badge } from "../ui/badge";
@@ -16,6 +16,7 @@ interface ComposerSavedPromptMenuProps {
   projectRef: ScopedProjectRef | null;
   onSelectSnippet: (snippet: SavedPromptSnippet) => void;
   onRenameSnippet: (snippet: SavedPromptSnippet) => void;
+  onRequestDeleteSnippet: (snippet: SavedPromptSnippet) => void;
 }
 
 export function ComposerSavedPromptMenu({
@@ -24,17 +25,16 @@ export function ComposerSavedPromptMenu({
   projectRef,
   onSelectSnippet,
   onRenameSnippet,
+  onRequestDeleteSnippet,
 }: ComposerSavedPromptMenuProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const snippetsById = useSavedPromptStore((store) => store.snippetsById);
   const listVisibleSnippets = useSavedPromptStore((store) => store.listVisibleSnippets);
   const changeSnippetScope = useSavedPromptStore((store) => store.changeSnippetScope);
-  const deleteSnippet = useSavedPromptStore((store) => store.deleteSnippet);
 
-  const groups = useMemo(
-    () => listVisibleSnippets(projectRef, query),
-    [listVisibleSnippets, projectRef, query],
-  );
+  void snippetsById;
+  const groups = listVisibleSnippets(projectRef, query);
 
   useEffect(() => {
     if (!open) {
@@ -163,7 +163,8 @@ export function ComposerSavedPromptMenu({
                               <MenuItem
                                 variant="destructive"
                                 onClick={() => {
-                                  deleteSnippet(snippet.id);
+                                  setOpen(false);
+                                  onRequestDeleteSnippet(snippet);
                                 }}
                               >
                                 Delete

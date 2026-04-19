@@ -114,7 +114,7 @@ export function useEnsureWorktreeReadiness(environmentId: EnvironmentId) {
     );
     try {
       const api = ensureEnvironmentApi(environmentId);
-      await api.projects.applyWorktreeReadiness({
+      const result = await api.projects.applyWorktreeReadiness({
         projectId: pending.project.id,
         projectCwd: pending.project.cwd,
         scanFingerprint: pending.scanResult.scanFingerprint,
@@ -128,6 +128,13 @@ export function useEnsureWorktreeReadiness(environmentId: EnvironmentId) {
             : (pending.scanResult.recommendation.envSourcePath ?? null),
         portCount: pending.scanResult.recommendation.portCount,
         overwriteManagedFiles: pending.overwriteManagedFiles,
+      });
+      result.warnings.forEach((warning) => {
+        toastManager.add({
+          type: warning.severity === "warning" ? "warning" : "info",
+          title: "Worktree readiness warning",
+          description: warning.message,
+        });
       });
       closePending(true);
     } catch (error) {

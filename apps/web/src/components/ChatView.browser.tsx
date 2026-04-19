@@ -5771,6 +5771,56 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("confirms before deleting a saved prompt and removes it after confirmation", async () => {
+    useSavedPromptStore.getState().createSnippet({
+      title: "Delete me",
+      body: "Temporary snippet body",
+      scope: "global",
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-saved-delete-target" as MessageId,
+        targetText: "saved prompt delete thread",
+      }),
+    });
+
+    try {
+      await page.getByTestId("saved-prompt-trigger").click();
+      await page.getByRole("button", { name: "Actions for Delete me" }).click();
+      await page.getByRole("menuitem", { name: "Delete" }).click();
+
+      await expect.element(page.getByText("Delete saved prompt?")).toBeVisible();
+      await page.getByRole("button", { name: "Cancel" }).click();
+
+      await page.getByTestId("saved-prompt-trigger").click();
+      await expect.element(page.getByText("Delete me")).toBeVisible();
+
+      await page.getByRole("button", { name: "Actions for Delete me" }).click();
+      await page.getByRole("menuitem", { name: "Delete" }).click();
+      await page.getByRole("button", { name: "Delete" }).click();
+
+      await vi.waitFor(
+        () => {
+          expect(
+            useSavedPromptStore
+              .getState()
+              .listVisibleSnippets(scopeProjectRef(LOCAL_ENVIRONMENT_ID, PROJECT_ID))
+              .flatMap((group) => group.items)
+              .some((snippet) => snippet.title === "Delete me"),
+          ).toBe(false);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      await page.getByTestId("saved-prompt-trigger").click();
+      await page.getByTestId("saved-prompt-search").fill("Delete me");
+      await expect.element(page.getByText("No matching saved prompts.")).toBeVisible();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps saved prompts out of slash-command and skill discovery", async () => {
     useSavedPromptStore.getState().createSnippet({
       title: "Snippet only",
