@@ -5,7 +5,6 @@ import {
   CommandId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
-  OrchestrationForkThreadError,
   OrchestrationDispatchCommandError,
   FilesystemBrowseError,
   type OrchestrationEvent,
@@ -38,6 +37,7 @@ import { GitManager } from "./git/Services/GitManager";
 import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
+import { enqueueAndExecuteForkThread } from "./orchestration/forkThreadExecution";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
@@ -455,29 +455,11 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [ORCHESTRATION_WS_METHODS.forkThread]: (input) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.forkThread,
-            startup
-              .enqueueCommand(
-                threadForkDispatcher.forkThread(input).pipe(
-                  Effect.mapError((cause) =>
-                    Schema.is(OrchestrationForkThreadError)(cause)
-                      ? cause
-                      : new OrchestrationForkThreadError({
-                          message: "Failed to fork thread",
-                          cause,
-                        }),
-                  ),
-                ),
-              )
-              .pipe(
-                Effect.mapError((cause) =>
-                  Schema.is(OrchestrationForkThreadError)(cause)
-                    ? cause
-                    : new OrchestrationForkThreadError({
-                        message: "Failed to fork thread",
-                        cause,
-                      }),
-                ),
-              ),
+            enqueueAndExecuteForkThread({
+              startup,
+              threadForkDispatcher,
+              forkInput: input,
+            }),
             { "rpc.aggregate": "orchestration" },
           ),
         [ORCHESTRATION_WS_METHODS.getTurnDiff]: (input) =>

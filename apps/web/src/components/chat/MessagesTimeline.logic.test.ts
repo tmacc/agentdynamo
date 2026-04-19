@@ -505,6 +505,7 @@ describe("deriveMessagesTimelineRows", () => {
       kind: "fork-separator",
       id: "fork-separator:2026-01-01T00:00:00.000Z",
       createdAt: "2026-01-01T00:00:02.000Z",
+      sourceThreadId: "thread-source",
       sourceThreadTitle: "Parent thread",
     });
   });
@@ -542,6 +543,58 @@ describe("deriveMessagesTimelineRows", () => {
     });
 
     expect(rows.at(-1)?.kind).toBe("fork-separator");
+  });
+
+  it("keeps an immediate post-fork message after the separator when imported rows are backdated", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "imported-user-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:00.998Z",
+          message: {
+            id: "imported-user" as never,
+            role: "user",
+            text: "Imported question",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:00.998Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "post-fork-user-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          message: {
+            id: "post-fork-user" as never,
+            role: "user",
+            text: "New question",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:01.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map(),
+      forkOrigin: {
+        sourceThreadId: "thread-source" as never,
+        sourceThreadTitle: "Parent thread",
+        sourceUserMessageId: "message-source" as never,
+        importedUntilAt: "2026-01-01T00:00:00.999Z",
+        forkedAt: "2026-01-01T00:00:01.000Z",
+      },
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "fork-separator", "message"]);
+    expect(rows[2]).toMatchObject({
+      kind: "message",
+      createdAt: "2026-01-01T00:00:01.000Z",
+    });
   });
 });
 

@@ -65,7 +65,11 @@ import {
   writeSavedEnvironmentRegistry,
   writeSavedEnvironmentSecret,
 } from "./clientPersistence";
-import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
+import {
+  isBackendReadinessAborted,
+  isHttpRedirectResponse,
+  waitForHttpReady,
+} from "./backendReadiness";
 import { waitForBackendStartupReady } from "./backendStartupReadiness";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { resolveDesktopServerExposure } from "./serverExposure";
@@ -2045,7 +2049,9 @@ async function bootstrap(): Promise<void> {
   if (isDevelopment) {
     mainWindow = createWindow();
     writeDesktopLogHeader("bootstrap main window created");
-    void waitForBackendHttpReady(backendHttpUrl)
+    void waitForBackendHttpReady(backendHttpUrl, {
+      isReady: (response) => response.ok || isHttpRedirectResponse(response),
+    })
       .then(() => {
         writeDesktopLogHeader("bootstrap backend ready");
       })

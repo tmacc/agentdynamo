@@ -50,6 +50,10 @@ export function isBackendReadinessAborted(error: unknown): error is BackendReadi
   return error instanceof BackendReadinessAbortedError;
 }
 
+export function isHttpRedirectResponse(response: Response): boolean {
+  return response.status >= 300 && response.status < 400;
+}
+
 export async function waitForHttpReady(
   baseUrl: string,
   options?: WaitForHttpReadyOptions,
