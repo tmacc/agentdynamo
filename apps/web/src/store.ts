@@ -36,6 +36,7 @@ import {
   type ThreadTurnState,
   type TurnDiffSummary,
 } from "./types";
+import { isUserFacingTopLevelThread } from "./threadNavigation";
 import { resolveEnvironmentHttpUrl } from "./environments/runtime";
 import { sanitizeThreadErrorMessage } from "./rpc/transportError";
 import { getThreadFromEnvironmentState } from "./threadDerivation";
@@ -1912,6 +1913,12 @@ export function selectSidebarThreadsAcrossEnvironments(state: AppState): Sidebar
   );
 }
 
+export function selectNavigableSidebarThreadsAcrossEnvironments(
+  state: AppState,
+): SidebarThreadSummary[] {
+  return selectSidebarThreadsAcrossEnvironments(state).filter(isUserFacingTopLevelThread);
+}
+
 export function selectSidebarThreadsForProjectRef(
   state: AppState,
   ref: ScopedProjectRef | null | undefined,
@@ -1928,6 +1935,13 @@ export function selectSidebarThreadsForProjectRef(
   });
 }
 
+export function selectNavigableSidebarThreadsForProjectRef(
+  state: AppState,
+  ref: ScopedProjectRef | null | undefined,
+): SidebarThreadSummary[] {
+  return selectSidebarThreadsForProjectRef(state, ref).filter(isUserFacingTopLevelThread);
+}
+
 export function selectSidebarThreadsForProjectRefs(
   state: AppState,
   refs: readonly ScopedProjectRef[],
@@ -1935,6 +1949,13 @@ export function selectSidebarThreadsForProjectRefs(
   if (refs.length === 0) return [];
   if (refs.length === 1) return selectSidebarThreadsForProjectRef(state, refs[0]);
   return refs.flatMap((ref) => selectSidebarThreadsForProjectRef(state, ref));
+}
+
+export function selectNavigableSidebarThreadsForProjectRefs(
+  state: AppState,
+  refs: readonly ScopedProjectRef[],
+): SidebarThreadSummary[] {
+  return selectSidebarThreadsForProjectRefs(state, refs).filter(isUserFacingTopLevelThread);
 }
 
 export function selectBootstrapCompleteForActiveEnvironment(state: AppState): boolean {

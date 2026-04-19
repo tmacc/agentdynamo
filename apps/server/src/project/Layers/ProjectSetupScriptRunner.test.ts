@@ -12,7 +12,12 @@ import { OrchestrationEngineService } from "../../orchestration/Services/Orchest
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
 import { ProjectSetupScriptRunner } from "../Services/ProjectSetupScriptRunner.ts";
 import { ProjectSetupScriptRunnerLive } from "./ProjectSetupScriptRunner.ts";
-import { buildManagedWorktreeScriptFiles } from "./WorktreeReadinessShared.ts";
+import {
+  buildManagedWorktreeScriptFiles,
+  resolveWorktreeRuntimeEnvFilePath,
+  LEGACY_WORKTREE_LOCAL_ENV_PATH,
+  WORKTREE_MANAGED_HEADER,
+} from "./WorktreeReadinessShared.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -78,6 +83,40 @@ function setupWorktreeScripts(): OrchestrationReadModel["projects"][number]["scr
       runOnWorktreeCreate: true,
     },
   ];
+}
+
+async function initializeGitWorktree(worktreePath: string): Promise<void> {
+  await initGitRepo(worktreePath);
+}
+
+async function writeManagedWorktreeScripts(
+  worktreePath: string,
+  runtimeEnvPathMode: "git-admin" | "legacy-worktree" = "git-admin",
+): Promise<void> {
+  const managedFiles = buildManagedWorktreeScriptFiles({
+    installCommand: "bun install",
+    envStrategy: "none",
+    envSourcePath: null,
+    framework: "vite",
+    packageManager: "bun",
+    devCommand: "bun run dev",
+    runtimeEnvPathMode,
+  });
+  for (const [relativePath, contents] of managedFiles) {
+    const absolutePath = path.join(worktreePath, relativePath);
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, contents, "utf8");
+  }
+}
+
+async function writeLegacyRuntimeEnvFile(
+  worktreePath: string,
+  contents = "HOST=127.0.0.1\nPORT=45000\nT3CODE_PRIMARY_PORT=45000\nT3CODE_PORT_1=45000\n",
+): Promise<string> {
+  const legacyEnvPath = path.join(worktreePath, LEGACY_WORKTREE_LOCAL_ENV_PATH);
+  await fs.mkdir(path.dirname(legacyEnvPath), { recursive: true });
+  await fs.writeFile(legacyEnvPath, contents, "utf8");
+  return legacyEnvPath;
 }
 
 describe("ProjectSetupScriptRunner", () => {
@@ -232,7 +271,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
-      await initGitRepo(worktreePath);
+      await initializeGitWorktree(worktreePath);
       const runner = await Effect.runPromise(
         Effect.service(ProjectSetupScriptRunner).pipe(
           Effect.provide(
@@ -319,8 +358,10 @@ describe("ProjectSetupScriptRunner", () => {
         fs.readFile(path.join(worktreePath, ".t3code/worktree/dev.sh"), "utf8"),
       ).resolves.toContain("bun run dev");
       await expect(
-        fs.readFile(path.join(worktreePath, ".t3code/worktree.local.env"), "utf8"),
-      ).resolves.toContain("T3CODE_PRIMARY_PORT=");
+        fs.readFile(path.join(worktreePath, ".t3code/worktree/setup.sh"), "utf8"),
+      ).resolves.toContain('git -C "$WORKTREE_ROOT" rev-parse --absolute-git-dir');
+      const runtimeEnvPath = await resolveWorktreeRuntimeEnvFilePath(worktreePath);
+      await expect(fs.readFile(runtimeEnvPath, "utf8")).resolves.toContain("T3CODE_PRIMARY_PORT=");
       expect(write).toHaveBeenCalledWith({
         threadId: "thread-1",
         terminalId: "setup-setup-worktree",
@@ -352,7 +393,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
-      await initGitRepo(worktreePath);
+      await initializeGitWorktree(worktreePath);
       const managedFiles = buildManagedWorktreeScriptFiles({
         installCommand: "bun install",
         envStrategy: "none",
@@ -422,6 +463,239 @@ describe("ProjectSetupScriptRunner", () => {
     }
   });
 
+  it("auto-refreshes legacy generated helpers before migrating the legacy env file", async () => {
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "t3-project-root-legacy-"));
+    const worktreePath = await fs.mkdtemp(path.join(os.tmpdir(), "t3-worktree-legacy-"));
+    const open = vi.fn(() =>
+      Effect.succeed({
+        threadId: "thread-1",
+        terminalId: "setup-setup",
+        cwd: worktreePath,
+        worktreePath,
+        status: "running" as const,
+        pid: 123,
+        history: "",
+        exitCode: null,
+        exitSignal: null,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    const write = vi.fn(() => Effect.void);
+
+    try {
+      await initializeGitWorktree(worktreePath);
+      await writeManagedWorktreeScripts(worktreePath, "legacy-worktree");
+      const legacyEnvPath = await writeLegacyRuntimeEnvFile(worktreePath);
+
+      const runner = await Effect.runPromise(
+        Effect.service(ProjectSetupScriptRunner).pipe(
+          Effect.provide(
+            ProjectSetupScriptRunnerLive.pipe(
+              Layer.provideMerge(
+                Layer.succeed(OrchestrationEngineService, {
+                  getReadModel: () =>
+                    Effect.succeed(
+                      emptySnapshot(setupWorktreeScripts(), {
+                        workspaceRoot: projectRoot,
+                        worktreeReadiness: configuredWorktreeReadiness(),
+                      }),
+                    ),
+                  readEvents: () => Stream.empty,
+                  dispatch: () => Effect.die(new Error("unused")),
+                  streamDomainEvents: Stream.empty,
+                }),
+              ),
+              Layer.provideMerge(
+                Layer.succeed(TerminalManager, {
+                  open,
+                  write,
+                  resize: () => Effect.void,
+                  clear: () => Effect.void,
+                  restart: () => Effect.die(new Error("unused")),
+                  close: () => Effect.void,
+                  subscribe: () => Effect.succeed(() => undefined),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      const result = await Effect.runPromise(
+        runner.runForThread({
+          threadId: "thread-1",
+          projectCwd: projectRoot,
+          worktreePath,
+        }),
+      );
+
+      expect(result.status).toBe("started");
+      await expect(
+        fs.readFile(path.join(worktreePath, ".t3code/worktree/setup.sh"), "utf8"),
+      ).resolves.toContain('git -C "$WORKTREE_ROOT" rev-parse --absolute-git-dir');
+      await expect(
+        fs.readFile(path.join(worktreePath, ".t3code/worktree/dev.sh"), "utf8"),
+      ).resolves.toContain('git -C "$WORKTREE_ROOT" rev-parse --absolute-git-dir');
+      const runtimeEnvPath = await resolveWorktreeRuntimeEnvFilePath(worktreePath);
+      await expect(fs.readFile(runtimeEnvPath, "utf8")).resolves.toContain("T3CODE_PRIMARY_PORT=");
+      await expect(fs.access(legacyEnvPath)).rejects.toThrow();
+      expect(write).toHaveBeenCalledWith({
+        threadId: "thread-1",
+        terminalId: "setup-setup-worktree",
+        data: ".t3code/worktree/setup.sh\r",
+      });
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+      await fs.rm(worktreePath, { recursive: true, force: true });
+    }
+  });
+
+  it("fails before env migration when setup.sh is unmanaged drift", async () => {
+    const projectRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "t3-project-root-unmanaged-legacy-drift-"),
+    );
+    const worktreePath = await fs.mkdtemp(
+      path.join(os.tmpdir(), "t3-worktree-unmanaged-legacy-drift-"),
+    );
+    const open = vi.fn(() => Effect.die(new Error("should not open terminal")));
+    const write = vi.fn(() => Effect.void);
+
+    try {
+      await initializeGitWorktree(worktreePath);
+      await writeManagedWorktreeScripts(worktreePath);
+      await fs.writeFile(
+        path.join(worktreePath, ".t3code/worktree/setup.sh"),
+        "#!/usr/bin/env zsh\necho unmanaged drift\n",
+        "utf8",
+      );
+      const legacyEnvPath = await writeLegacyRuntimeEnvFile(worktreePath);
+
+      const runner = await Effect.runPromise(
+        Effect.service(ProjectSetupScriptRunner).pipe(
+          Effect.provide(
+            ProjectSetupScriptRunnerLive.pipe(
+              Layer.provideMerge(
+                Layer.succeed(OrchestrationEngineService, {
+                  getReadModel: () =>
+                    Effect.succeed(
+                      emptySnapshot(setupWorktreeScripts(), {
+                        workspaceRoot: projectRoot,
+                        worktreeReadiness: configuredWorktreeReadiness(),
+                      }),
+                    ),
+                  readEvents: () => Stream.empty,
+                  dispatch: () => Effect.die(new Error("unused")),
+                  streamDomainEvents: Stream.empty,
+                }),
+              ),
+              Layer.provideMerge(
+                Layer.succeed(TerminalManager, {
+                  open,
+                  write,
+                  resize: () => Effect.void,
+                  clear: () => Effect.void,
+                  restart: () => Effect.die(new Error("unused")),
+                  close: () => Effect.void,
+                  subscribe: () => Effect.succeed(() => undefined),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await expect(
+        Effect.runPromise(
+          runner.runForThread({
+            threadId: "thread-1",
+            projectCwd: projectRoot,
+            worktreePath,
+          }),
+        ),
+      ).rejects.toThrow("Worktree helper drift detected at .t3code/worktree/setup.sh");
+      await expect(fs.access(legacyEnvPath)).resolves.toBeUndefined();
+      await expect(
+        fs.access(await resolveWorktreeRuntimeEnvFilePath(worktreePath)),
+      ).rejects.toThrow();
+      expect(open).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+      await fs.rm(worktreePath, { recursive: true, force: true });
+    }
+  });
+
+  it("fails before env migration when dev.sh is arbitrary managed drift", async () => {
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "t3-project-root-managed-drift-"));
+    const worktreePath = await fs.mkdtemp(path.join(os.tmpdir(), "t3-worktree-managed-drift-"));
+    const open = vi.fn(() => Effect.die(new Error("should not open terminal")));
+    const write = vi.fn(() => Effect.void);
+
+    try {
+      await initializeGitWorktree(worktreePath);
+      await writeManagedWorktreeScripts(worktreePath);
+      await fs.writeFile(
+        path.join(worktreePath, ".t3code/worktree/dev.sh"),
+        `#!/usr/bin/env zsh\n${WORKTREE_MANAGED_HEADER}\necho managed drift\n`,
+        "utf8",
+      );
+      const legacyEnvPath = await writeLegacyRuntimeEnvFile(worktreePath);
+
+      const runner = await Effect.runPromise(
+        Effect.service(ProjectSetupScriptRunner).pipe(
+          Effect.provide(
+            ProjectSetupScriptRunnerLive.pipe(
+              Layer.provideMerge(
+                Layer.succeed(OrchestrationEngineService, {
+                  getReadModel: () =>
+                    Effect.succeed(
+                      emptySnapshot(setupWorktreeScripts(), {
+                        workspaceRoot: projectRoot,
+                        worktreeReadiness: configuredWorktreeReadiness(),
+                      }),
+                    ),
+                  readEvents: () => Stream.empty,
+                  dispatch: () => Effect.die(new Error("unused")),
+                  streamDomainEvents: Stream.empty,
+                }),
+              ),
+              Layer.provideMerge(
+                Layer.succeed(TerminalManager, {
+                  open,
+                  write,
+                  resize: () => Effect.void,
+                  clear: () => Effect.void,
+                  restart: () => Effect.die(new Error("unused")),
+                  close: () => Effect.void,
+                  subscribe: () => Effect.succeed(() => undefined),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await expect(
+        Effect.runPromise(
+          runner.runForThread({
+            threadId: "thread-1",
+            projectCwd: projectRoot,
+            worktreePath,
+          }),
+        ),
+      ).rejects.toThrow("Worktree helper drift detected at .t3code/worktree/dev.sh");
+      await expect(fs.access(legacyEnvPath)).resolves.toBeUndefined();
+      await expect(
+        fs.access(await resolveWorktreeRuntimeEnvFilePath(worktreePath)),
+      ).rejects.toThrow();
+      expect(open).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+      await fs.rm(worktreePath, { recursive: true, force: true });
+    }
+  });
+
   it("fails before launch when setup.sh drifts from the configured readiness profile", async () => {
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "t3-project-root-drift-"));
     const worktreePath = await fs.mkdtemp(path.join(os.tmpdir(), "t3-worktree-drift-"));
@@ -429,7 +703,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
-      await initGitRepo(worktreePath);
+      await initializeGitWorktree(worktreePath);
       const managedFiles = buildManagedWorktreeScriptFiles({
         installCommand: "bun install",
         envStrategy: "none",
@@ -504,7 +778,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
-      await initGitRepo(worktreePath);
+      await initializeGitWorktree(worktreePath);
       const managedFiles = buildManagedWorktreeScriptFiles({
         installCommand: "bun install",
         envStrategy: "none",

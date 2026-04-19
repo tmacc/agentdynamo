@@ -5,8 +5,8 @@ import { OrchestrationEngineService } from "../../orchestration/Services/Orchest
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
 import {
   assertGitPathIsUntracked,
+  LEGACY_WORKTREE_LOCAL_ENV_PATH,
   materializeManagedWorktreeScripts,
-  WORKTREE_LOCAL_ENV_PATH,
 } from "./WorktreeReadinessShared.ts";
 import { WorktreeRuntimeEnvProvisionerLive } from "./WorktreeRuntimeEnvProvisioner.ts";
 import { WorktreeRuntimeEnvProvisioner } from "../Services/WorktreeRuntimeEnvProvisioner.ts";
@@ -41,13 +41,8 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
 
       if (readinessProfile) {
         yield* Effect.promise(() =>
-          assertGitPathIsUntracked(input.worktreePath, WORKTREE_LOCAL_ENV_PATH),
+          assertGitPathIsUntracked(input.worktreePath, LEGACY_WORKTREE_LOCAL_ENV_PATH),
         );
-        yield* worktreeRuntimeEnvProvisioner.ensureEnvFile({
-          projectCwd: project.workspaceRoot,
-          worktreePath: input.worktreePath,
-          portCount: readinessProfile.portCount,
-        });
         yield* Effect.promise(() =>
           materializeManagedWorktreeScripts({
             rootPath: input.worktreePath,
@@ -62,6 +57,11 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
             },
           }),
         );
+        yield* worktreeRuntimeEnvProvisioner.ensureEnvFile({
+          projectCwd: project.workspaceRoot,
+          worktreePath: input.worktreePath,
+          portCount: readinessProfile.portCount,
+        });
       }
 
       const script = setupProjectScript(project.scripts);

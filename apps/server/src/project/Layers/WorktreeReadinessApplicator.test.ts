@@ -54,6 +54,13 @@ function makeReadModel(project: Partial<OrchestrationReadModel["projects"][numbe
 }
 
 describe("WorktreeReadinessApplicator", () => {
+  it("keeps worktree.local.env ignored by default in the repo root", async () => {
+    const repoGitignorePath = path.resolve(import.meta.dirname, "../../../../../.gitignore");
+    await expect(fs.readFile(repoGitignorePath, "utf8")).resolves.toContain(
+      ".t3code/worktree.local.env",
+    );
+  });
+
   it("records a telemetry event when readiness is applied", async () => {
     const projectCwd = await fs.mkdtemp(path.join(os.tmpdir(), "t3-readiness-apply-"));
     const record = vi.fn(() => Effect.void);
@@ -78,6 +85,7 @@ describe("WorktreeReadinessApplicator", () => {
       );
       await fs.writeFile(path.join(projectCwd, ".env.local"), "PORT=3000\n");
       await initGitRepo(projectCwd);
+      await fs.writeFile(path.join(projectCwd, ".gitignore"), "node_modules/\n", "utf8");
 
       const analysis = await computeReadinessAnalysis({
         projectCwd,
@@ -133,8 +141,9 @@ describe("WorktreeReadinessApplicator", () => {
         expect.arrayContaining([".t3code/worktree/setup.sh", ".t3code/worktree/dev.sh"]),
       );
       expect(result.warnings).toEqual([]);
-      await expect(fs.readFile(path.join(projectCwd, ".gitignore"), "utf8")).resolves.toContain(
-        ".t3code/worktree.local.env",
+      expect(result.updatedGitignore).toBe(false);
+      await expect(fs.readFile(path.join(projectCwd, ".gitignore"), "utf8")).resolves.toBe(
+        "node_modules/\n",
       );
       expect(dispatchedCommands.at(-1)?.type).toBe("project.meta.update");
       expect(record).toHaveBeenCalledWith(
@@ -145,6 +154,7 @@ describe("WorktreeReadinessApplicator", () => {
           envStrategy: "symlink_root",
           overwriteManagedFiles: false,
           writtenFileCount: 2,
+          updatedGitignore: false,
         }),
       );
     } finally {

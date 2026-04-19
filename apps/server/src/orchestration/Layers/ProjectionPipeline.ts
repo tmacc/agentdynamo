@@ -48,6 +48,8 @@ import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
+import { materializeActivitySequence } from "../materializeActivitySequence.ts";
+import { compareProjectionActivitiesByOrder } from "../projectionActivityOrder.ts";
 import {
   attachmentRelativePath,
   parseAttachmentIdFromRelativePath,
@@ -114,11 +116,7 @@ function derivePendingUserInputCountFromActivities(
   activities: ReadonlyArray<ProjectionThreadActivity>,
 ): number {
   const openRequestIds = new Set<string>();
-  const ordered = [...activities].toSorted(
-    (left, right) =>
-      left.createdAt.localeCompare(right.createdAt) ||
-      left.activityId.localeCompare(right.activityId),
-  );
+  const ordered = [...activities].toSorted(compareProjectionActivitiesByOrder);
 
   for (const activity of ordered) {
     const requestId = extractActivityRequestId(activity.payload);
@@ -913,21 +911,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       "applyThreadActivitiesProjection",
     )(function* (event, _attachmentSideEffects) {
       switch (event.type) {
-        case "thread.activity-appended":
+        case "thread.activity-appended": {
+          const activity = materializeActivitySequence(event.payload.activity, event.sequence);
           yield* projectionThreadActivityRepository.upsert({
-            activityId: event.payload.activity.id,
+            activityId: activity.id,
             threadId: event.payload.threadId,
-            turnId: event.payload.activity.turnId,
-            tone: event.payload.activity.tone,
-            kind: event.payload.activity.kind,
-            summary: event.payload.activity.summary,
-            payload: event.payload.activity.payload,
-            ...(event.payload.activity.sequence !== undefined
-              ? { sequence: event.payload.activity.sequence }
-              : {}),
-            createdAt: event.payload.activity.createdAt,
+            turnId: activity.turnId,
+            tone: activity.tone,
+            kind: activity.kind,
+            summary: activity.summary,
+            payload: activity.payload,
+            ...(activity.sequence !== undefined ? { sequence: activity.sequence } : {}),
+            createdAt: activity.createdAt,
           });
           return;
+        }
 
         case "thread.reverted": {
           const existingRows = yield* projectionThreadActivityRepository.listByThreadId({
