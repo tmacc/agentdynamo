@@ -64,6 +64,46 @@ export interface DeriveBoardColumnsInput {
   readonly dismissedGhostThreadIds: ReadonlySet<ThreadId>;
 }
 
+type TopLevelThreadBoardState = "in-progress" | "review" | "done" | "hidden";
+
+type CanonicalBoardWorkItem =
+  | {
+      readonly kind: "stored-card";
+      readonly id: FeatureCard["id"];
+      readonly column: "ideas" | "planned";
+      readonly card: FeatureCard;
+    }
+  | {
+      readonly kind: "linked-thread";
+      readonly id: FeatureCard["id"];
+      readonly column: "in-progress" | "review" | "done";
+      readonly card: FeatureCard;
+      readonly thread: SidebarThreadSummary;
+      readonly teamTasks: ReadonlyArray<BoardTeamTaskPill>;
+      readonly pr: ThreadPr | null;
+      readonly doneReason: "archived" | "pr-merged" | null;
+    }
+  | {
+      readonly kind: "ghost-thread";
+      readonly id: ThreadId;
+      readonly column: "in-progress";
+      readonly thread: SidebarThreadSummary;
+      readonly teamTasks: ReadonlyArray<BoardTeamTaskPill>;
+    }
+  | {
+      readonly kind: "unlinked-thread";
+      readonly id: ThreadId;
+      readonly column: "review" | "done";
+      readonly thread: SidebarThreadSummary;
+      readonly pr: ThreadPr | null;
+      readonly doneReason: "archived" | "pr-merged" | null;
+    };
+
+type StoredCardWorkItem = Extract<CanonicalBoardWorkItem, { kind: "stored-card" }>;
+type LinkedThreadWorkItem = Extract<CanonicalBoardWorkItem, { kind: "linked-thread" }>;
+type GhostThreadWorkItem = Extract<CanonicalBoardWorkItem, { kind: "ghost-thread" }>;
+type UnlinkedThreadWorkItem = Extract<CanonicalBoardWorkItem, { kind: "unlinked-thread" }>;
+
 function bySortOrder(a: FeatureCard, b: FeatureCard): number {
   if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
   return a.createdAt.localeCompare(b.createdAt);
@@ -72,6 +112,12 @@ function bySortOrder(a: FeatureCard, b: FeatureCard): number {
 function byUpdatedAtDesc(a: SidebarThreadSummary, b: SidebarThreadSummary): number {
   const left = a.updatedAt ?? a.createdAt;
   const right = b.updatedAt ?? b.createdAt;
+  return right.localeCompare(left);
+}
+
+function byDoneAtDesc(a: SidebarThreadSummary, b: SidebarThreadSummary): number {
+  const left = a.archivedAt ?? a.updatedAt ?? a.createdAt;
+  const right = b.archivedAt ?? b.updatedAt ?? b.createdAt;
   return right.localeCompare(left);
 }
 
@@ -113,21 +159,84 @@ function collectTeamTaskPills(
   }));
 }
 
+function classifyTopLevelThread(
+  thread: SidebarThreadSummary,
+  pr: ThreadPr | null,
+): TopLevelThreadBoardState {
+  if (isThreadInProgress(thread)) return "in-progress";
+  if (threadDoneReason(thread, pr)) return "done";
+  if (isThreadReview(thread)) return "review";
+  return "hidden";
+}
+
+function workItemToBoardItem(item: CanonicalBoardWorkItem): BoardItem {
+  switch (item.kind) {
+    case "stored-card":
+      return {
+        kind: "user-card",
+        card: item.card,
+      };
+
+    case "linked-thread":
+      switch (item.column) {
+        case "in-progress":
+          return {
+            kind: "live-thread",
+            thread: item.thread,
+            linkedCard: item.card,
+            teamTasks: item.teamTasks,
+            isGhost: false,
+          };
+        case "review":
+          return {
+            kind: "review-thread",
+            thread: item.thread,
+            linkedCard: item.card,
+            pr: item.pr,
+          };
+        case "done":
+          return {
+            kind: "done-thread",
+            thread: item.thread,
+            linkedCard: item.card,
+            pr: item.pr,
+            reason: item.doneReason ?? "archived",
+          };
+      }
+
+    case "ghost-thread":
+      return {
+        kind: "live-thread",
+        thread: item.thread,
+        linkedCard: null,
+        teamTasks: item.teamTasks,
+        isGhost: true,
+      };
+
+    case "unlinked-thread":
+      if (item.column === "review") {
+        return {
+          kind: "review-thread",
+          thread: item.thread,
+          linkedCard: null,
+          pr: item.pr,
+        };
+      }
+      return {
+        kind: "done-thread",
+        thread: item.thread,
+        linkedCard: null,
+        pr: item.pr,
+        reason: item.doneReason ?? "archived",
+      };
+  }
+}
+
 export function deriveBoardColumns(input: DeriveBoardColumnsInput): BoardColumnData[] {
   const { cards, threads, gitStatusByThreadId, dismissedGhostThreadIds } = input;
 
   // Cards (visible = not archived).
   const liveCards = cards.filter((c) => c.archivedAt === null);
-  const ideas = liveCards.filter((c) => c.column === "ideas").toSorted(bySortOrder);
-  const planned = liveCards.filter((c) => c.column === "planned").toSorted(bySortOrder);
-
-  // Card lookup by linked thread.
-  const cardByThreadId = new Map<ThreadId, FeatureCard>();
-  for (const card of liveCards) {
-    if (card.linkedThreadId) {
-      cardByThreadId.set(card.linkedThreadId, card);
-    }
-  }
 
   // Bucket threads by parent for team-task pill rendering.
   const teamChildrenByParentId = new Map<ThreadId, SidebarThreadSummary[]>();
@@ -141,6 +250,10 @@ export function deriveBoardColumns(input: DeriveBoardColumnsInput): BoardColumnD
 
   // We only show top-level (non-child) threads as cards; children are pills.
   const topLevelThreads = threads.filter((t) => !t.teamParentThreadId);
+  const topLevelThreadById = new Map<ThreadId, SidebarThreadSummary>();
+  for (const thread of topLevelThreads) {
+    topLevelThreadById.set(thread.id, thread);
+  }
 
   // Pre-compute PR status for each thread.
   const prByThreadId = new Map<ThreadId, ThreadPr | null>();
@@ -149,67 +262,147 @@ export function deriveBoardColumns(input: DeriveBoardColumnsInput): BoardColumnD
     prByThreadId.set(t.id, resolveThreadPr(t.branch, status));
   }
 
-  // In Progress: running threads.
-  const inProgressThreads = topLevelThreads.filter(isThreadInProgress).toSorted(byUpdatedAtDesc);
-  const inProgressItems: BoardItem[] = inProgressThreads
-    .filter((t) => {
-      // Hide dismissed ghost cards (unlinked threads the user hid).
-      if (cardByThreadId.has(t.id)) return true; // linked cards always show
-      return !dismissedGhostThreadIds.has(t.id);
-    })
-    .map((t) => ({
-      kind: "live-thread" as const,
-      thread: t,
-      linkedCard: cardByThreadId.get(t.id) ?? null,
-      teamTasks: collectTeamTaskPills(t, teamChildrenByParentId),
-      isGhost: !cardByThreadId.has(t.id),
-    }));
+  const classificationByThreadId = new Map<ThreadId, TopLevelThreadBoardState>();
+  for (const thread of topLevelThreads) {
+    classificationByThreadId.set(
+      thread.id,
+      classifyTopLevelThread(thread, prByThreadId.get(thread.id) ?? null),
+    );
+  }
 
-  // Review: settled turns, not archived, not in-progress.
-  const reviewThreads = topLevelThreads.filter(isThreadReview).toSorted(byUpdatedAtDesc);
-  const reviewItems: BoardItem[] = reviewThreads
-    .filter((t) => {
-      const pr = prByThreadId.get(t.id) ?? null;
-      // If PR is merged, the thread belongs in Done, not Review.
-      if (pr?.state === "merged") return false;
-      return true;
-    })
-    .map((t) => ({
-      kind: "review-thread" as const,
-      thread: t,
-      linkedCard: cardByThreadId.get(t.id) ?? null,
-      pr: prByThreadId.get(t.id) ?? null,
-    }));
+  const claimedTopLevelThreadIds = new Set<ThreadId>();
+  const workItems: CanonicalBoardWorkItem[] = [];
 
-  // Done: archived threads OR threads whose PR is merged.
-  const doneItems: BoardItem[] = topLevelThreads
-    .map((t) => {
-      const pr = prByThreadId.get(t.id) ?? null;
-      const reason = threadDoneReason(t, pr);
-      if (!reason) return null;
-      return {
-        kind: "done-thread" as const,
-        thread: t,
-        linkedCard: cardByThreadId.get(t.id) ?? null,
-        pr,
-        reason,
-      };
-    })
-    .filter((item): item is Extract<BoardItem, { kind: "done-thread" }> => item !== null)
-    .toSorted((a, b) => {
-      const ta = a.thread.archivedAt ?? a.thread.updatedAt ?? a.thread.createdAt;
-      const tb = b.thread.archivedAt ?? b.thread.updatedAt ?? b.thread.createdAt;
-      return tb.localeCompare(ta);
+  for (const card of liveCards) {
+    if (card.linkedThreadId === null) {
+      workItems.push({
+        kind: "stored-card",
+        id: card.id,
+        column: card.column,
+        card,
+      });
+      continue;
+    }
+
+    const thread = topLevelThreadById.get(card.linkedThreadId) ?? null;
+    if (thread === null) {
+      workItems.push({
+        kind: "stored-card",
+        id: card.id,
+        column: card.column,
+        card,
+      });
+      continue;
+    }
+
+    const column = classificationByThreadId.get(thread.id) ?? "hidden";
+    if (column === "hidden") {
+      workItems.push({
+        kind: "stored-card",
+        id: card.id,
+        column: card.column,
+        card,
+      });
+      continue;
+    }
+
+    claimedTopLevelThreadIds.add(thread.id);
+    const pr = prByThreadId.get(thread.id) ?? null;
+    workItems.push({
+      kind: "linked-thread",
+      id: card.id,
+      column,
+      card,
+      thread,
+      teamTasks: collectTeamTaskPills(thread, teamChildrenByParentId),
+      pr,
+      doneReason: threadDoneReason(thread, pr),
     });
+  }
+
+  for (const thread of topLevelThreads) {
+    if (claimedTopLevelThreadIds.has(thread.id)) {
+      continue;
+    }
+
+    const column = classificationByThreadId.get(thread.id) ?? "hidden";
+    const pr = prByThreadId.get(thread.id) ?? null;
+    if (column === "in-progress") {
+      if (dismissedGhostThreadIds.has(thread.id)) {
+        continue;
+      }
+      workItems.push({
+        kind: "ghost-thread",
+        id: thread.id,
+        column,
+        thread,
+        teamTasks: collectTeamTaskPills(thread, teamChildrenByParentId),
+      });
+      continue;
+    }
+
+    if (column === "review" || column === "done") {
+      workItems.push({
+        kind: "unlinked-thread",
+        id: thread.id,
+        column,
+        thread,
+        pr,
+        doneReason: threadDoneReason(thread, pr),
+      });
+    }
+  }
+
+  const ideasItems = workItems
+    .filter(
+      (item): item is StoredCardWorkItem => item.kind === "stored-card" && item.column === "ideas",
+    )
+    .toSorted((left, right) => bySortOrder(left.card, right.card))
+    .map(workItemToBoardItem);
+
+  const plannedItems = workItems
+    .filter(
+      (item): item is StoredCardWorkItem =>
+        item.kind === "stored-card" && item.column === "planned",
+    )
+    .toSorted((left, right) => bySortOrder(left.card, right.card))
+    .map(workItemToBoardItem);
+
+  const inProgressItems = workItems
+    .filter(
+      (item): item is LinkedThreadWorkItem | GhostThreadWorkItem =>
+        item.column === "in-progress" &&
+        (item.kind === "linked-thread" || item.kind === "ghost-thread"),
+    )
+    .toSorted((left, right) => byUpdatedAtDesc(left.thread, right.thread))
+    .map(workItemToBoardItem);
+
+  const reviewItems = workItems
+    .filter(
+      (item): item is LinkedThreadWorkItem | UnlinkedThreadWorkItem =>
+        item.column === "review" &&
+        (item.kind === "linked-thread" || item.kind === "unlinked-thread"),
+    )
+    .toSorted((left, right) => byUpdatedAtDesc(left.thread, right.thread))
+    .map(workItemToBoardItem);
+
+  const doneItems = workItems
+    .filter(
+      (item): item is LinkedThreadWorkItem | UnlinkedThreadWorkItem =>
+        item.column === "done" &&
+        (item.kind === "linked-thread" || item.kind === "unlinked-thread"),
+    )
+    .toSorted((left, right) => byDoneAtDesc(left.thread, right.thread))
+    .map(workItemToBoardItem);
 
   return [
     {
       kind: "ideas",
-      items: ideas.map((card) => ({ kind: "user-card" as const, card })),
+      items: ideasItems,
     },
     {
       kind: "planned",
-      items: planned.map((card) => ({ kind: "user-card" as const, card })),
+      items: plannedItems,
     },
     {
       kind: "in-progress",
