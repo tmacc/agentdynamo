@@ -145,6 +145,43 @@ describe("deriveBoardColumns", () => {
     expect(item?.kind === "live-thread" && item.isGhost).toBe(true);
   });
 
+  it("keeps child agent threads as pills instead of top-level board cards", () => {
+    const parent = makeThread({
+      id: "t-parent" as unknown as ThreadId,
+      session: runningSession(),
+    });
+    const child = makeThread({
+      id: "t-child" as unknown as ThreadId,
+      session: runningSession(),
+      teamParentThreadId: parent.id,
+      teamRoleLabel: "Reviewer",
+      teamStatus: "running",
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT,
+      cards: [],
+      threads: [parent, child],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+    const col = result.find((column) => column.kind === "in-progress");
+    expect(col?.items).toHaveLength(1);
+    const item = col?.items[0];
+    expect(item?.kind).toBe("live-thread");
+    if (item?.kind !== "live-thread") {
+      throw new Error("Expected a live-thread board item");
+    }
+    expect(item.thread.id).toBe(parent.id);
+    expect(item.teamTasks).toEqual([
+      {
+        threadId: child.id,
+        roleLabel: "Reviewer",
+        status: "running",
+      },
+    ]);
+  });
+
   it("hides dismissed ghost threads", () => {
     const t = makeThread({ id: "t-1" as unknown as ThreadId, session: runningSession() });
     const result = deriveBoardColumns({
