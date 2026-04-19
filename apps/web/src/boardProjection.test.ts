@@ -208,10 +208,65 @@ describe("deriveBoardColumns", () => {
       gitStatusByThreadId: new Map(),
       dismissedGhostThreadIds: new Set([t.id]),
     });
+    expect(result.find((c) => c.kind === "planned")?.items).toEqual([]);
     const col = result.find((c) => c.kind === "in-progress");
     expect(col?.items).toHaveLength(1);
     const item = col?.items[0];
     expect(item?.kind === "live-thread" && item.isGhost).toBe(false);
+  });
+
+  it("renders a linked running thread only once by consuming the planned card", () => {
+    const t = makeThread({ id: "t-run" as unknown as ThreadId, session: runningSession() });
+    const card = makeCard({
+      id: "card-run" as unknown as FeatureCardId,
+      column: "planned",
+      linkedThreadId: t.id,
+      title: "Run fix" as unknown as FeatureCard["title"],
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT,
+      cards: [card],
+      threads: [t],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((c) => c.kind === "planned")?.items).toEqual([]);
+    const inProgress = result.find((c) => c.kind === "in-progress");
+    expect(inProgress?.items).toHaveLength(1);
+    const item = inProgress?.items[0];
+    expect(item?.kind).toBe("live-thread");
+    if (item?.kind === "live-thread") {
+      expect(item.linkedCard?.id).toBe(card.id);
+      expect(item.linkedCard?.title).toBe(card.title);
+      expect(item.isGhost).toBe(false);
+    }
+  });
+
+  it("keeps a linked ideas card in ideas even when its top-level thread is in progress", () => {
+    const t = makeThread({ id: "t-ideas-run" as unknown as ThreadId, session: runningSession() });
+    const card = makeCard({
+      id: "card-ideas-run" as unknown as FeatureCardId,
+      column: "ideas",
+      linkedThreadId: t.id,
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT,
+      cards: [card],
+      threads: [t],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    const ideas = result.find((column) => column.kind === "ideas");
+    expect(ideas?.items).toHaveLength(1);
+    expect(ideas?.items[0]?.kind).toBe("user-card");
+    if (ideas?.items[0]?.kind === "user-card") {
+      expect(ideas.items[0].card.id).toBe(card.id);
+    }
+    expect(result.find((column) => column.kind === "in-progress")?.items).toEqual([]);
   });
 
   it("moves settled threads with a completed turn to Review", () => {
@@ -237,6 +292,42 @@ describe("deriveBoardColumns", () => {
     expect(result.find((c) => c.kind === "in-progress")?.items).toHaveLength(0);
   });
 
+  it("renders a linked review thread only once by consuming the planned card", () => {
+    const t = makeThread({
+      id: "t-review" as unknown as ThreadId,
+      session: settledSession(),
+      latestTurn: {
+        turnId: "turn-review" as unknown as TurnId,
+        state: "completed",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        completedAt: "2026-01-01T00:00:10.000Z",
+        sourceProposedPlan: null,
+      } as unknown as SidebarThreadSummary["latestTurn"],
+    });
+    const card = makeCard({
+      id: "card-review" as unknown as FeatureCardId,
+      column: "planned",
+      linkedThreadId: t.id,
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT,
+      cards: [card],
+      threads: [t],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((c) => c.kind === "planned")?.items).toEqual([]);
+    const review = result.find((c) => c.kind === "review");
+    expect(review?.items).toHaveLength(1);
+    const item = review?.items[0];
+    expect(item?.kind).toBe("review-thread");
+    if (item?.kind === "review-thread") {
+      expect(item.linkedCard?.id).toBe(card.id);
+    }
+  });
+
   it("moves archived threads to Done", () => {
     const t = makeThread({
       id: "t-3" as unknown as ThreadId,
@@ -253,6 +344,36 @@ describe("deriveBoardColumns", () => {
     expect(col?.items).toHaveLength(1);
     const item = col?.items[0];
     expect(item?.kind === "done-thread" && item.reason).toBe("archived");
+  });
+
+  it("renders a linked done thread only once by consuming the planned card", () => {
+    const t = makeThread({
+      id: "t-done" as unknown as ThreadId,
+      archivedAt: "2026-01-02T00:00:00.000Z",
+    });
+    const card = makeCard({
+      id: "card-done" as unknown as FeatureCardId,
+      column: "planned",
+      linkedThreadId: t.id,
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT,
+      cards: [card],
+      threads: [t],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((c) => c.kind === "planned")?.items).toEqual([]);
+    const done = result.find((c) => c.kind === "done");
+    expect(done?.items).toHaveLength(1);
+    const item = done?.items[0];
+    expect(item?.kind).toBe("done-thread");
+    if (item?.kind === "done-thread") {
+      expect(item.linkedCard?.id).toBe(card.id);
+      expect(item.reason).toBe("archived");
+    }
   });
 
   it("moves Review threads with a merged PR to Done", () => {
@@ -289,5 +410,118 @@ describe("deriveBoardColumns", () => {
     expect(doneCol?.items).toHaveLength(1);
     const doneItem = doneCol?.items[0];
     expect(doneItem?.kind === "done-thread" && doneItem.reason).toBe("pr-merged");
+  });
+
+  it("keeps a linked card in planned when the linked top-level thread is missing", () => {
+    const card = makeCard({
+      id: "card-missing-thread" as unknown as FeatureCardId,
+      column: "planned",
+      linkedThreadId: "thread-missing" as unknown as ThreadId,
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT,
+      cards: [card],
+      threads: [],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    const planned = result.find((c) => c.kind === "planned");
+    expect(planned?.items).toHaveLength(1);
+    expect(planned?.items[0]?.kind === "user-card" && planned.items[0].card.id).toBe(card.id);
+  });
+
+  it("keeps a linked card in planned when the linked top-level thread is hidden", () => {
+    const t = makeThread({
+      id: "t-hidden" as unknown as ThreadId,
+      session: settledSession(),
+      latestTurn: null,
+    });
+    const card = makeCard({
+      id: "card-hidden-thread" as unknown as FeatureCardId,
+      column: "planned",
+      linkedThreadId: t.id,
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT,
+      cards: [card],
+      threads: [t],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    const planned = result.find((c) => c.kind === "planned");
+    expect(planned?.items).toHaveLength(1);
+    expect(planned?.items[0]?.kind === "user-card" && planned.items[0].card.id).toBe(card.id);
+    expect(result.find((c) => c.kind === "review")?.items).toEqual([]);
+    expect(result.find((c) => c.kind === "done")?.items).toEqual([]);
+  });
+
+  it("keeps a linked card in planned when the linked thread is only a child task", () => {
+    const childThread = makeThread({
+      id: "t-child" as unknown as ThreadId,
+      teamParentThreadId: "t-parent" as unknown as ThreadId,
+      session: runningSession(),
+    });
+    const card = makeCard({
+      id: "card-child-thread" as unknown as FeatureCardId,
+      column: "planned",
+      linkedThreadId: childThread.id,
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT,
+      cards: [card],
+      threads: [childThread],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    const planned = result.find((c) => c.kind === "planned");
+    expect(planned?.items).toHaveLength(1);
+    expect(planned?.items[0]?.kind === "user-card" && planned.items[0].card.id).toBe(card.id);
+    expect(result.find((c) => c.kind === "in-progress")?.items).toEqual([]);
+  });
+
+  it("never renders the same linked card in both planned and a derived column", () => {
+    const t = makeThread({ id: "t-invariant" as unknown as ThreadId, session: runningSession() });
+    const card = makeCard({
+      id: "card-invariant" as unknown as FeatureCardId,
+      column: "planned",
+      linkedThreadId: t.id,
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT,
+      cards: [card],
+      threads: [t],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    const plannedCardIds = new Set(
+      (result.find((c) => c.kind === "planned")?.items ?? []).flatMap((item) =>
+        item.kind === "user-card" ? [item.card.id] : [],
+      ),
+    );
+    const derivedLinkedCardIds = new Set(
+      result
+        .filter((column) => column.kind !== "ideas" && column.kind !== "planned")
+        .flatMap((column) => column.items)
+        .flatMap((item) => {
+          if (item.kind === "live-thread") {
+            return item.linkedCard ? [item.linkedCard.id] : [];
+          }
+          if (item.kind === "review-thread" || item.kind === "done-thread") {
+            return item.linkedCard ? [item.linkedCard.id] : [];
+          }
+          return [];
+        }),
+    );
+
+    expect(plannedCardIds.has(card.id)).toBe(false);
+    expect(derivedLinkedCardIds.has(card.id)).toBe(true);
   });
 });
