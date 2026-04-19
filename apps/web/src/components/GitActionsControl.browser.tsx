@@ -25,10 +25,12 @@ function createDeferredPromise<T>() {
 const {
   activeRunStackedActionDeferredRef,
   activeDraftThreadRef,
+  getPullRequestRemoteOptionsSpy,
   hasServerThreadRef,
   invalidateGitQueriesSpy,
   refreshGitStatusSpy,
   runStackedActionMutateAsyncSpy,
+  setPullRequestRemoteSpy,
   setDraftThreadContextSpy,
   setThreadBranchSpy,
   toastAddSpy,
@@ -38,10 +40,16 @@ const {
 } = vi.hoisted(() => ({
   activeRunStackedActionDeferredRef: { current: createDeferredPromise<never>() },
   activeDraftThreadRef: { current: null as unknown },
+  getPullRequestRemoteOptionsSpy: vi.fn(async () => ({
+    requiresSelection: false,
+    selectedRemoteName: null,
+    candidates: [],
+  })),
   hasServerThreadRef: { current: true },
   invalidateGitQueriesSpy: vi.fn(() => Promise.resolve()),
   refreshGitStatusSpy: vi.fn(() => Promise.resolve(null)),
   runStackedActionMutateAsyncSpy: vi.fn(() => activeRunStackedActionDeferredRef.current.promise),
+  setPullRequestRemoteSpy: vi.fn(() => Promise.resolve()),
   setDraftThreadContextSpy: vi.fn(),
   setThreadBranchSpy: vi.fn(),
   toastAddSpy: vi.fn(() => "toast-1"),
@@ -130,6 +138,15 @@ vi.mock("~/localApi", () => ({
     throw new Error("ensureLocalApi not implemented in browser test");
   }),
   readLocalApi: vi.fn(() => null),
+}));
+
+vi.mock("~/environmentApi", () => ({
+  readEnvironmentApi: vi.fn(() => ({
+    git: {
+      getPullRequestRemoteOptions: getPullRequestRemoteOptionsSpy,
+      setPullRequestRemote: setPullRequestRemoteSpy,
+    },
+  })),
 }));
 
 vi.mock("~/composerDraftStore", async () => {
@@ -294,13 +311,15 @@ describe("GitActionsControl thread-scoped progress toast", () => {
       }
       quickActionButton.click();
 
-      expect(toastAddSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { threadRef: scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID) },
-          title: "Pushing...",
-          type: "loading",
-        }),
-      );
+      await vi.waitFor(() => {
+        expect(toastAddSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: { threadRef: scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID) },
+            title: "Pushing...",
+            type: "loading",
+          }),
+        );
+      });
 
       await vi.advanceTimersByTimeAsync(1_000);
 

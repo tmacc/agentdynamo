@@ -26,6 +26,12 @@ import type {
 
 import type { GitCommandError } from "@t3tools/contracts";
 
+export interface GitRemote {
+  readonly remoteName: string;
+  readonly fetchUrl: string;
+  readonly pushUrl: string | null;
+}
+
 export interface ExecuteGitInput {
   readonly operation: string;
   readonly cwd: string;
@@ -204,6 +210,20 @@ export interface GitCoreShape {
     cwd: string,
     key: string,
   ) => Effect.Effect<string | null, GitCommandError>;
+
+  /**
+   * Persist a local Git config value for the repository.
+   */
+  readonly setConfigValue: (
+    cwd: string,
+    key: string,
+    value: string,
+  ) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * List configured remotes with fetch/push URLs.
+   */
+  readonly listRemotes: (cwd: string) => Effect.Effect<ReadonlyArray<GitRemote>, GitCommandError>;
 
   /**
    * Determine whether the provided cwd is inside a git work tree.
