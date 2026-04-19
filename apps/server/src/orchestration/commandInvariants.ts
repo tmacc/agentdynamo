@@ -278,6 +278,39 @@ export function requireBoardCardLinkedThreadMatches(input: {
   );
 }
 
+export function requireBoardCardColumnAllowsThreadLink(input: {
+  readonly command: OrchestrationCommand;
+  readonly card: Pick<FeatureCard, "id" | "column">;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.card.column === "planned") {
+    return Effect.void;
+  }
+
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Board card '${input.card.id}' must be in 'planned' before it can link to a thread.`,
+    ),
+  );
+}
+
+export function requireBoardCardMoveAllowed(input: {
+  readonly command: OrchestrationCommand;
+  readonly card: Pick<FeatureCard, "id" | "linkedThreadId">;
+  readonly toColumn: FeatureCard["column"];
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.card.linkedThreadId === null || input.toColumn !== "ideas") {
+    return Effect.void;
+  }
+
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Board card '${input.card.id}' is linked to a thread and cannot move to 'ideas'.`,
+    ),
+  );
+}
+
 export function requireBoardThreadLinkAvailable(input: {
   readonly command: OrchestrationCommand;
   readonly threadId: ThreadId;

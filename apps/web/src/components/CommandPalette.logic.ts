@@ -3,6 +3,7 @@ import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import { type ReactNode } from "react";
 import { sortThreads } from "../lib/threadSort";
 import { formatRelativeTimeLabel } from "../timestampFormat";
+import { isUserFacingTopLevelThread } from "../threadNavigation";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 
 export const RECENT_THREAD_LIMIT = 12;
@@ -106,7 +107,14 @@ export function buildProjectActionItems(input: {
 
 export type BuildThreadActionItemsThread = Pick<
   SidebarThreadSummary,
-  "archivedAt" | "branch" | "createdAt" | "environmentId" | "id" | "projectId" | "title"
+  | "archivedAt"
+  | "branch"
+  | "createdAt"
+  | "environmentId"
+  | "id"
+  | "projectId"
+  | "teamParentThreadId"
+  | "title"
 > & {
   updatedAt?: string | undefined;
   latestUserMessageAt?: string | null;
@@ -124,7 +132,9 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null),
+    input.threads.filter(
+      (thread) => thread.archivedAt === null && isUserFacingTopLevelThread(thread),
+    ),
     input.sortOrder,
   );
   const visibleThreads =

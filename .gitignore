@@ -15,6 +15,7 @@ build/
 release/
 release-mock/
 .t3
+.t3code/worktree.local.env
 .idea/
 apps/web/.playwright
 apps/web/playwright-report
@@ -23,3 +24,4 @@ apps/web/src/components/__screenshots__
 __screenshots__/
 .tanstack
 squashfs-root/
+.t3code/worktree.local.env

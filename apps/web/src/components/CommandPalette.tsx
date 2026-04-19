@@ -68,7 +68,7 @@ import { getLatestThreadForProject } from "../lib/threadSort";
 import { cn, isMacPlatform, isWindowsPlatform, newCommandId, newProjectId } from "../lib/utils";
 import {
   selectProjectsAcrossEnvironments,
-  selectSidebarThreadsAcrossEnvironments,
+  selectNavigableSidebarThreadsAcrossEnvironments,
   useStore,
 } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
@@ -220,7 +220,7 @@ function OpenCommandPaletteDialog() {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
-  const threads = useStore(useShallow(selectSidebarThreadsAcrossEnvironments));
+  const threads = useStore(useShallow(selectNavigableSidebarThreadsAcrossEnvironments));
   const keybindings = useServerKeybindings();
   const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
   const currentView = viewStack.at(-1) ?? null;

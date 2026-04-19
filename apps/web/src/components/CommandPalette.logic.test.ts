@@ -165,6 +165,30 @@ describe("buildThreadActionItems", () => {
     expect(items.map((item) => item.value)).toEqual(["thread:thread-active"]);
   });
 
+  it("filters child agent threads out of thread search items", () => {
+    const items = buildThreadActionItems({
+      threads: [
+        makeThread({
+          id: ThreadId.make("thread-parent"),
+          title: "Parent thread",
+          updatedAt: "2026-03-19T00:00:00.000Z",
+        }),
+        makeThread({
+          id: ThreadId.make("thread-child"),
+          title: "Child thread",
+          teamParentThreadId: ThreadId.make("thread-parent"),
+          updatedAt: "2026-03-20T00:00:00.000Z",
+        }),
+      ],
+      projectTitleById: new Map([[PROJECT_ID, "Project"]]),
+      sortOrder: "updated_at",
+      icon: null,
+      runThread: async (_thread) => undefined,
+    });
+
+    expect(items.map((item) => item.value)).toEqual(["thread:thread-parent"]);
+  });
+
   it("passes through optional leading and trailing thread status content", () => {
     const items = buildThreadActionItems({
       threads: [

@@ -6,7 +6,7 @@ import {
   type OrchestrationThreadForkOrigin,
   type ThreadId,
 } from "@t3tools/contracts";
-import type { TeamTaskInlineView } from "./TeamTaskInlineBlock";
+import type { TeamTaskLaunchGroup } from "./teamTaskTimeline";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
@@ -50,7 +50,7 @@ export type MessagesTimelineRow =
       sourceThreadId: ThreadId;
       sourceThreadTitle: string;
     }
-  | { kind: "team-tasks"; id: string; createdAt: string; tasks: readonly TeamTaskInlineView[] }
+  | { kind: "team-task-group"; id: string; createdAt: string; tasks: TeamTaskLaunchGroup["tasks"] }
   | { kind: "working"; id: string; createdAt: string | null };
 
 export interface StableMessagesTimelineRowsState {
@@ -62,6 +62,21 @@ export interface UserMessageSwitchInfo {
   fromProvider: ProviderKind;
   toProvider: ProviderKind;
   toModel: string;
+}
+
+function insertRowByCreatedAt(
+  rows: MessagesTimelineRow[],
+  row: Extract<MessagesTimelineRow, { createdAt: string }>,
+) {
+  const insertionIndex = rows.findIndex(
+    (candidate) =>
+      candidate.createdAt !== null && candidate.createdAt.localeCompare(row.createdAt) > 0,
+  );
+  if (insertionIndex < 0) {
+    rows.push(row);
+    return;
+  }
+  rows.splice(insertionIndex, 0, row);
 }
 
 export function computeMessageDurationStart(
@@ -177,7 +192,7 @@ export function deriveMessagesTimelineRows(input: {
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
   userMessageSwitchInfoByMessageId: ReadonlyMap<MessageId, UserMessageSwitchInfo>;
-  teamTasks?: readonly TeamTaskInlineView[] | undefined;
+  teamTaskLaunchGroups?: readonly TeamTaskLaunchGroup[] | undefined;
   forkOrigin?: OrchestrationThreadForkOrigin | undefined;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
@@ -254,16 +269,12 @@ export function deriveMessagesTimelineRows(input: {
     });
   }
 
-  if (input.teamTasks && input.teamTasks.length > 0) {
-    const earliestCreatedAt = input.teamTasks.reduce(
-      (earliest, view) => (view.task.createdAt < earliest ? view.task.createdAt : earliest),
-      input.teamTasks[0]!.task.createdAt,
-    );
-    nextRows.push({
-      kind: "team-tasks",
-      id: "team-tasks-inline",
-      createdAt: earliestCreatedAt,
-      tasks: input.teamTasks,
+  for (const launchGroup of input.teamTaskLaunchGroups ?? []) {
+    insertRowByCreatedAt(nextRows, {
+      kind: "team-task-group",
+      id: launchGroup.id,
+      createdAt: launchGroup.createdAt,
+      tasks: launchGroup.tasks,
     });
   }
 
@@ -283,16 +294,7 @@ export function deriveMessagesTimelineRows(input: {
       sourceThreadId: input.forkOrigin.sourceThreadId,
       sourceThreadTitle: input.forkOrigin.sourceThreadTitle,
     };
-    const firstPostForkIndex = nextRows.findIndex(
-      (row) =>
-        row.createdAt !== null &&
-        row.createdAt.localeCompare(input.forkOrigin!.importedUntilAt) > 0,
-    );
-    if (firstPostForkIndex < 0) {
-      nextRows.push(separatorRow);
-    } else {
-      nextRows.splice(firstPostForkIndex, 0, separatorRow);
-    }
+    insertRowByCreatedAt(nextRows, separatorRow);
   }
 
   return nextRows;
@@ -335,7 +337,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.sourceThreadTitle === (b as typeof a).sourceThreadTitle
       );
 
-    case "team-tasks":
+    case "team-task-group":
       return a.tasks === (b as typeof a).tasks;
 
     case "work":
