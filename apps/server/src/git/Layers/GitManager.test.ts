@@ -1019,7 +1019,15 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         const repoDir = yield* makeTempDir("t3code-git-manager-");
         yield* initRepo(repoDir);
         const forkDir = yield* createBareRemote();
+        const upstreamDir = yield* createBareRemote();
         yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
+        yield* configureRemote(
+          repoDir,
+          "upstream",
+          upstreamDir,
+          "upstream",
+          "pingdotgg/codething-mvp",
+        );
         yield* runGit(repoDir, ["checkout", "-b", "statemachine"]);
         fs.writeFileSync(path.join(repoDir, "fork-pr.txt"), "fork pr\n");
         yield* runGit(repoDir, ["add", "fork-pr.txt"]);
@@ -1032,6 +1040,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           "remote.fork-seed.url",
           "git@github.com:jasonLaster/codething-mvp.git",
         ]);
+        yield* runGit(repoDir, ["config", "t3.pullRequestRemote", "upstream"]);
 
         const { manager, ghCalls } = yield* makeManager({
           ghScenario: {
@@ -1071,7 +1080,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           state: "open",
         });
         expect(ghCalls).toContain(
-          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner --repo jasonLaster/codething-mvp",
+          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner --repo pingdotgg/codething-mvp",
         );
       }),
     20_000,
@@ -1767,13 +1776,22 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* initRepo(repoDir);
         yield* runGit(repoDir, ["checkout", "-b", "statemachine"]);
         const forkDir = yield* createBareRemote();
+        const upstreamDir = yield* createBareRemote();
         yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
+        yield* configureRemote(
+          repoDir,
+          "upstream",
+          upstreamDir,
+          "upstream",
+          "pingdotgg/codething-mvp",
+        );
         yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
         yield* runGit(repoDir, [
           "config",
           "remote.fork-seed.url",
           "git@github.com:octocat/codething-mvp.git",
         ]);
+        yield* runGit(repoDir, ["config", "t3.pullRequestRemote", "upstream"]);
 
         const { manager, ghCalls } = yield* makeManager({
           ghScenario: {
@@ -1918,7 +1936,15 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* initRepo(repoDir);
         yield* runGit(repoDir, ["checkout", "-b", "statemachine"]);
         const forkDir = yield* createBareRemote();
+        const upstreamDir = yield* createBareRemote();
         yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
+        yield* configureRemote(
+          repoDir,
+          "upstream",
+          upstreamDir,
+          "upstream",
+          "pingdotgg/codething-mvp",
+        );
         yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
         yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-142/statemachine"]);
         yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
@@ -1927,6 +1953,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           "remote.fork-seed.url",
           "git@github.com:octocat/codething-mvp.git",
         ]);
+        yield* runGit(repoDir, ["config", "t3.pullRequestRemote", "upstream"]);
 
         const { manager, ghCalls } = yield* makeManager({
           ghScenario: {
@@ -1988,7 +2015,15 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* initRepo(repoDir);
         yield* runGit(repoDir, ["checkout", "-b", "statemachine"]);
         const forkDir = yield* createBareRemote();
+        const upstreamDir = yield* createBareRemote();
         yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
+        yield* configureRemote(
+          repoDir,
+          "upstream",
+          upstreamDir,
+          "upstream",
+          "pingdotgg/codething-mvp",
+        );
         yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
         yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-142/statemachine"]);
         yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
@@ -1997,6 +2032,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           "remote.fork-seed.url",
           "git@github.com:octocat/codething-mvp.git",
         ]);
+        yield* runGit(repoDir, ["config", "t3.pullRequestRemote", "upstream"]);
 
         const { manager, ghCalls } = yield* makeManager({
           ghScenario: {
@@ -2174,6 +2210,137 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("uses the fork owner head selector when the selected PR remote is upstream", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/upstream-pr-target"]);
+      const originDir = yield* createBareRemote();
+      const upstreamDir = yield* createBareRemote();
+      yield* configureRemote(repoDir, "origin", originDir, "origin", "tmacc/agentdynamo2");
+      yield* configureRemote(repoDir, "upstream", upstreamDir, "upstream", "pingdotgg/t3code");
+      fs.writeFileSync(path.join(repoDir, "changes.txt"), "change\n");
+      yield* runGit(repoDir, ["add", "changes.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Feature commit"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/upstream-pr-target"]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequenceByHeadSelector: {
+            "tmacc:feature/upstream-pr-target": [
+              "[]",
+              JSON.stringify([
+                {
+                  number: 245,
+                  title: "Create PR against upstream",
+                  url: "https://github.com/pingdotgg/t3code/pull/245",
+                  baseRefName: "main",
+                  headRefName: "feature/upstream-pr-target",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "tmacc/agentdynamo2",
+                  },
+                  headRepositoryOwner: {
+                    login: "tmacc",
+                  },
+                },
+              ]),
+            ],
+          },
+        },
+      });
+
+      yield* setPullRequestRemote(manager, {
+        cwd: repoDir,
+        remoteName: "upstream",
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+      });
+
+      expect(result.pr.status).toBe("created");
+      expect(result.pr.number).toBe(245);
+      expect(
+        ghCalls.some(
+          (call) =>
+            call.includes(
+              "pr create --base main --head tmacc:feature/upstream-pr-target --title Add stacked git actions --body-file ",
+            ) && call.includes("--repo pingdotgg/t3code"),
+        ),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("derives the fork owner from pushurl when one remote fetches upstream", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/pushurl-fork-pr"]);
+      const originDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", originDir]);
+      fs.writeFileSync(path.join(repoDir, "changes.txt"), "change\n");
+      yield* runGit(repoDir, ["add", "changes.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Feature commit"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/pushurl-fork-pr"]);
+      yield* runGit(repoDir, [
+        "config",
+        "remote.origin.url",
+        "git@github.com:pingdotgg/t3code.git",
+      ]);
+      yield* runGit(repoDir, [
+        "config",
+        "remote.origin.pushurl",
+        "git@github.com:tmacc/agentdynamo2.git",
+      ]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequenceByHeadSelector: {
+            "tmacc:feature/pushurl-fork-pr": [
+              "[]",
+              JSON.stringify([
+                {
+                  number: 246,
+                  title: "Create PR using pushurl fork owner",
+                  url: "https://github.com/pingdotgg/t3code/pull/246",
+                  baseRefName: "main",
+                  headRefName: "feature/pushurl-fork-pr",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "tmacc/agentdynamo2",
+                  },
+                  headRepositoryOwner: {
+                    login: "tmacc",
+                  },
+                },
+              ]),
+            ],
+          },
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+      });
+
+      expect(result.pr.status).toBe("created");
+      expect(result.pr.number).toBe(246);
+      expect(
+        ghCalls.some(
+          (call) =>
+            call.includes(
+              "pr create --base main --head tmacc:feature/pushurl-fork-pr --title Add stacked git actions --body-file ",
+            ) && call.includes("--repo pingdotgg/t3code"),
+        ),
+      ).toBe(true);
+    }),
+  );
+
   it.effect(
     "creates a new PR instead of reusing an unrelated fork PR with the same head branch",
     () =>
@@ -2251,7 +2418,15 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
       const forkDir = yield* createBareRemote();
+      const upstreamDir = yield* createBareRemote();
       yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
+      yield* configureRemote(
+        repoDir,
+        "upstream",
+        upstreamDir,
+        "upstream",
+        "pingdotgg/codething-mvp",
+      );
       yield* runGit(repoDir, ["checkout", "-b", "statemachine"]);
       fs.writeFileSync(path.join(repoDir, "changes.txt"), "change\n");
       yield* runGit(repoDir, ["add", "changes.txt"]);
@@ -2264,6 +2439,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         "remote.fork-seed.url",
         "git@github.com:octocat/codething-mvp.git",
       ]);
+      yield* runGit(repoDir, ["config", "t3.pullRequestRemote", "upstream"]);
 
       const { manager, ghCalls } = yield* makeManager({
         ghScenario: {
