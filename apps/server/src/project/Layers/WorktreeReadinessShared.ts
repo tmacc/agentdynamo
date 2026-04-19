@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import type {
   ProjectScript,
@@ -22,6 +24,7 @@ export const WORKTREE_MANAGED_HEADER =
 const WORKTREE_PORT_RANGE_START = 41000;
 const WORKTREE_PORT_RANGE_END = 61000;
 const DEFAULT_PORT_COUNT = 5;
+const execFileAsync = promisify(execFile);
 
 type PackageJson = {
   packageManager?: string;
@@ -733,6 +736,46 @@ export async function ensureGitignoreEntry(projectCwd: string, entry: string): P
   const next = `${existing.trimEnd()}${existing.length > 0 ? "\n" : ""}${entry}\n`;
   await fs.writeFile(gitignorePath, next, "utf8");
   return true;
+}
+
+export function buildTrackedWorktreeLocalEnvWarning(
+  relativePath: string = WORKTREE_LOCAL_ENV_PATH,
+): ProjectWorktreeReadinessWarning {
+  return {
+    id: "tracked-worktree-runtime-env",
+    message: `Worktree runtime env file is tracked by git: ${relativePath}. This file is generated per worktree and must remain untracked. Remove it from git tracking and re-run Worktree Readiness.`,
+    severity: "warning",
+  };
+}
+
+export async function isGitTrackedPath(projectCwd: string, relativePath: string): Promise<boolean> {
+  try {
+    await execFileAsync("git", ["ls-files", "--error-unmatch", "--", relativePath], {
+      cwd: projectCwd,
+    });
+    return true;
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+    if (code === 1 || code === 128) {
+      return false;
+    }
+    return false;
+  }
+}
+
+export async function assertGitPathIsUntracked(
+  projectCwd: string,
+  relativePath: string,
+): Promise<void> {
+  if (!(await isGitTrackedPath(projectCwd, relativePath))) {
+    return;
+  }
+  throw new Error(
+    `Worktree runtime env file is tracked by git: ${relativePath}. This file is generated per worktree and must remain untracked. Remove it from git tracking and re-run Worktree Readiness. .gitignore does not untrack files that are already tracked.`,
+  );
 }
 
 export async function readWorktreeLocalEnv(

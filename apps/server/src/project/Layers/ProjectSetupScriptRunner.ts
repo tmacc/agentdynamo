@@ -3,7 +3,11 @@ import { Effect, Layer } from "effect";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
-import { materializeManagedWorktreeScripts } from "./WorktreeReadinessShared.ts";
+import {
+  assertGitPathIsUntracked,
+  materializeManagedWorktreeScripts,
+  WORKTREE_LOCAL_ENV_PATH,
+} from "./WorktreeReadinessShared.ts";
 import { WorktreeRuntimeEnvProvisionerLive } from "./WorktreeRuntimeEnvProvisioner.ts";
 import { WorktreeRuntimeEnvProvisioner } from "../Services/WorktreeRuntimeEnvProvisioner.ts";
 import {
@@ -36,6 +40,9 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
         project.worktreeReadiness?.status === "configured" ? project.worktreeReadiness : null;
 
       if (readinessProfile) {
+        yield* Effect.promise(() =>
+          assertGitPathIsUntracked(input.worktreePath, WORKTREE_LOCAL_ENV_PATH),
+        );
         yield* worktreeRuntimeEnvProvisioner.ensureEnvFile({
           projectCwd: project.workspaceRoot,
           worktreePath: input.worktreePath,

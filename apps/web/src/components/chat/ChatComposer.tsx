@@ -565,6 +565,7 @@ export const ChatComposer = memo(
       (store) => store.syncPersistedAttachments,
     );
     const getComposerDraft = useComposerDraftStore((store) => store.getComposerDraft);
+    const deleteSavedPromptSnippet = useSavedPromptStore((store) => store.deleteSnippet);
     const renameSavedPromptSnippet = useSavedPromptStore((store) => store.renameSnippet);
     const markSavedPromptSnippetUsed = useSavedPromptStore((store) => store.markSnippetUsed);
 
@@ -691,6 +692,8 @@ export const ChatComposer = memo(
     const [renameSavedPromptSnippetId, setRenameSavedPromptSnippetId] = useState<string | null>(
       null,
     );
+    const [pendingDeleteSavedPromptSnippet, setPendingDeleteSavedPromptSnippet] =
+      useState<SavedPromptSnippet | null>(null);
     const [pendingSavedPromptSnippet, setPendingSavedPromptSnippet] =
       useState<SavedPromptSnippet | null>(null);
     const renameSavedPromptSnippetState = useSavedPromptStore((store) =>
@@ -1067,6 +1070,22 @@ export const ChatComposer = memo(
       },
       [renameSavedPromptSnippet, renameSavedPromptSnippetState],
     );
+
+    const requestDeleteSavedPromptSnippet = useCallback((snippet: SavedPromptSnippet) => {
+      setPendingDeleteSavedPromptSnippet(snippet);
+    }, []);
+
+    const confirmDeleteSavedPromptSnippet = useCallback(() => {
+      if (!pendingDeleteSavedPromptSnippet) {
+        return;
+      }
+      deleteSavedPromptSnippet(pendingDeleteSavedPromptSnippet.id);
+      toastManager.add({
+        title: `Deleted "${pendingDeleteSavedPromptSnippet.title}"`,
+        type: "success",
+      });
+      setPendingDeleteSavedPromptSnippet(null);
+    }, [deleteSavedPromptSnippet, pendingDeleteSavedPromptSnippet]);
 
     const confirmSavedPromptSnippetReplacement = useCallback(() => {
       if (!pendingSavedPromptSnippet) {
@@ -2032,6 +2051,7 @@ export const ChatComposer = memo(
                       projectRef={activeProjectRef}
                       onSelectSnippet={requestSavedPromptSnippetApply}
                       onRenameSnippet={(snippet) => setRenameSavedPromptSnippetId(snippet.id)}
+                      onRequestDeleteSnippet={requestDeleteSavedPromptSnippet}
                     />
 
                     {isComposerFooterCompact ? (
@@ -2124,6 +2144,46 @@ export const ChatComposer = memo(
           }}
           onConfirm={({ title }) => void handleRenameSavedPromptSnippet({ title })}
         />
+
+        <Dialog
+          open={pendingDeleteSavedPromptSnippet !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setPendingDeleteSavedPromptSnippet(null);
+            }
+          }}
+        >
+          <DialogPopup className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete saved prompt?</DialogTitle>
+              <DialogDescription>
+                This removes the saved prompt from this browser.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogPanel className="space-y-3">
+              <div className="rounded-xl border border-border/70 bg-muted/25 px-3 py-2">
+                <p className="font-medium text-sm">
+                  {pendingDeleteSavedPromptSnippet?.title ?? "Saved prompt"}
+                </p>
+                <p className="mt-1 text-muted-foreground text-xs whitespace-pre-wrap">
+                  {pendingDeleteSavedPromptSnippet?.body ?? ""}
+                </p>
+              </div>
+            </DialogPanel>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPendingDeleteSavedPromptSnippet(null)}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" variant="destructive" onClick={confirmDeleteSavedPromptSnippet}>
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogPopup>
+        </Dialog>
 
         <Dialog
           open={pendingSavedPromptSnippet !== null}

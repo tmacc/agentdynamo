@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
@@ -11,6 +13,8 @@ import { TerminalManager } from "../../terminal/Services/Manager.ts";
 import { ProjectSetupScriptRunner } from "../Services/ProjectSetupScriptRunner.ts";
 import { ProjectSetupScriptRunnerLive } from "./ProjectSetupScriptRunner.ts";
 import { buildManagedWorktreeScriptFiles } from "./WorktreeReadinessShared.ts";
+
+const execFileAsync = promisify(execFile);
 
 const emptySnapshot = (
   scripts: OrchestrationReadModel["projects"][number]["scripts"],
@@ -552,6 +556,72 @@ describe("ProjectSetupScriptRunner", () => {
           }),
         ),
       ).rejects.toThrow("Worktree helper drift detected at .t3code/worktree/dev.sh");
+      expect(open).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+      await fs.rm(worktreePath, { recursive: true, force: true });
+    }
+  });
+
+  it("fails before setup launch when the worktree runtime env file is tracked by git", async () => {
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "t3-project-root-tracked-env-"));
+    const worktreePath = await fs.mkdtemp(path.join(os.tmpdir(), "t3-worktree-tracked-env-"));
+    const open = vi.fn();
+    const write = vi.fn();
+
+    try {
+      await execFileAsync("git", ["init"], { cwd: worktreePath });
+      await fs.mkdir(path.join(worktreePath, ".t3code"), { recursive: true });
+      await fs.writeFile(
+        path.join(worktreePath, ".t3code", "worktree.local.env"),
+        "T3CODE_PRIMARY_PORT=47805\n",
+      );
+      await execFileAsync("git", ["add", ".t3code/worktree.local.env"], { cwd: worktreePath });
+
+      const runner = await Effect.runPromise(
+        Effect.service(ProjectSetupScriptRunner).pipe(
+          Effect.provide(
+            ProjectSetupScriptRunnerLive.pipe(
+              Layer.provideMerge(
+                Layer.succeed(OrchestrationEngineService, {
+                  getReadModel: () =>
+                    Effect.succeed(
+                      emptySnapshot(setupWorktreeScripts(), {
+                        workspaceRoot: projectRoot,
+                        worktreeReadiness: configuredWorktreeReadiness(),
+                      }),
+                    ),
+                  readEvents: () => Stream.empty,
+                  dispatch: () => Effect.die(new Error("unused")),
+                  streamDomainEvents: Stream.empty,
+                }),
+              ),
+              Layer.provideMerge(
+                Layer.succeed(TerminalManager, {
+                  open,
+                  write,
+                  resize: () => Effect.void,
+                  clear: () => Effect.void,
+                  restart: () => Effect.die(new Error("unused")),
+                  close: () => Effect.void,
+                  subscribe: () => Effect.succeed(() => undefined),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await expect(
+        Effect.runPromise(
+          runner.runForThread({
+            threadId: "thread-1",
+            projectId: "project-1",
+            worktreePath,
+          }),
+        ),
+      ).rejects.toThrow("Worktree runtime env file is tracked by git: .t3code/worktree.local.env");
       expect(open).not.toHaveBeenCalled();
       expect(write).not.toHaveBeenCalled();
     } finally {

@@ -388,6 +388,9 @@ export const ProjectApplyWorktreeReadinessResult = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   updatedGitignore: Schema.Boolean,
+  warnings: Schema.Array(ProjectWorktreeReadinessWarning).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
 });
 export type ProjectApplyWorktreeReadinessResult = typeof ProjectApplyWorktreeReadinessResult.Type;
 
