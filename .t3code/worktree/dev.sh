@@ -17,4 +17,4 @@ export PORT="${T3CODE_PRIMARY_PORT:-${PORT:-41000}}"
 export HOST="${HOST:-127.0.0.1}"
 
 cd "$WORKTREE_ROOT"
-exec PORT="$T3CODE_PRIMARY_PORT" HOST="$HOST" bun run dev
+exec PORT="$PORT" HOST="$HOST" bun run dev

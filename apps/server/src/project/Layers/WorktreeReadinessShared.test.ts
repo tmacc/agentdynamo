@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildDevScriptContent,
   buildManagedWorktreeScriptFiles,
   materializeManagedWorktreeScripts,
   WORKTREE_MANAGED_HEADER,
@@ -116,5 +117,20 @@ describe("materializeManagedWorktreeScripts", () => {
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
+  });
+});
+
+describe("buildDevScriptContent", () => {
+  it("uses the normalized PORT fallback in the final dev invocation", () => {
+    const content = buildDevScriptContent({
+      framework: "vite",
+      packageManager: "bun",
+      devCommand: "bun run dev",
+      runtimeEnvPathMode: "git-admin",
+    });
+
+    expect(content).toContain('export PORT="${T3CODE_PRIMARY_PORT:-${PORT:-41000}}"');
+    expect(content).toContain('exec bun run dev -- --host "$HOST" --port "$PORT"');
+    expect(content).not.toContain('exec PORT="$T3CODE_PRIMARY_PORT"');
   });
 });
