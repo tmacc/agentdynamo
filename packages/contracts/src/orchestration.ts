@@ -38,6 +38,7 @@ import {
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
+  forkThread: "orchestration.forkThread",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
@@ -260,6 +261,15 @@ export const OrchestrationProposedPlan = Schema.Struct({
 });
 export type OrchestrationProposedPlan = typeof OrchestrationProposedPlan.Type;
 
+export const OrchestrationThreadForkOrigin = Schema.Struct({
+  sourceThreadId: ThreadId,
+  sourceThreadTitle: TrimmedNonEmptyString,
+  sourceUserMessageId: MessageId,
+  importedUntilAt: IsoDateTime,
+  forkedAt: IsoDateTime,
+});
+export type OrchestrationThreadForkOrigin = typeof OrchestrationThreadForkOrigin.Type;
+
 export const OrchestrationTeamTaskId = TrimmedNonEmptyString;
 export type OrchestrationTeamTaskId = typeof OrchestrationTeamTaskId.Type;
 
@@ -407,6 +417,7 @@ export const OrchestrationThread = Schema.Struct({
   teamParentTaskId: Schema.optionalKey(Schema.NullOr(OrchestrationTeamTaskId)),
   teamRoleLabel: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
   teamStatus: Schema.optionalKey(Schema.NullOr(OrchestrationTeamTaskStatus)),
+  forkOrigin: Schema.optionalKey(OrchestrationThreadForkOrigin),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
@@ -458,6 +469,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   teamParentTaskId: Schema.optionalKey(Schema.NullOr(OrchestrationTeamTaskId)),
   teamRoleLabel: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
   teamStatus: Schema.optionalKey(Schema.NullOr(OrchestrationTeamTaskStatus)),
+  forkOrigin: Schema.optionalKey(OrchestrationThreadForkOrigin),
   activeTeamTaskCount: Schema.optionalKey(NonNegativeInt),
   session: Schema.NullOr(OrchestrationSession),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
@@ -560,6 +572,27 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
+const ThreadForkCommand = Schema.Struct({
+  type: Schema.Literal("thread.fork"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
+  ),
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  forkOrigin: OrchestrationThreadForkOrigin,
+  clonedMessages: Schema.Array(OrchestrationMessage),
+  clonedProposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   createdAt: IsoDateTime,
 });
 
@@ -866,6 +899,7 @@ const ThreadTeamTaskUpsertCommand = Schema.Struct({
 });
 
 const InternalOrchestrationCommand = Schema.Union([
+  ThreadForkCommand,
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
@@ -964,6 +998,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  forkOrigin: Schema.optionalKey(OrchestrationThreadForkOrigin),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -1390,6 +1425,19 @@ export type OrchestrationGetTurnDiffInput = typeof OrchestrationGetTurnDiffInput
 export const OrchestrationGetTurnDiffResult = ThreadTurnDiff;
 export type OrchestrationGetTurnDiffResult = typeof OrchestrationGetTurnDiffResult.Type;
 
+export const OrchestrationForkThreadInput = Schema.Struct({
+  sourceThreadId: ThreadId,
+  sourceUserMessageId: MessageId,
+  mode: Schema.Literals(["local", "worktree"]),
+  baseBranch: Schema.optional(TrimmedNonEmptyString),
+});
+export type OrchestrationForkThreadInput = typeof OrchestrationForkThreadInput.Type;
+
+export const OrchestrationForkThreadResult = Schema.Struct({
+  thread: OrchestrationThreadShell,
+});
+export type OrchestrationForkThreadResult = typeof OrchestrationForkThreadResult.Type;
+
 export const OrchestrationGetFullThreadDiffInput = Schema.Struct({
   threadId: ThreadId,
   toTurnCount: NonNegativeInt,
@@ -1411,6 +1459,10 @@ export const OrchestrationRpcSchemas = {
   dispatchCommand: {
     input: ClientOrchestrationCommand,
     output: DispatchResult,
+  },
+  forkThread: {
+    input: OrchestrationForkThreadInput,
+    output: OrchestrationForkThreadResult,
   },
   getTurnDiff: {
     input: OrchestrationGetTurnDiffInput,
@@ -1452,6 +1504,14 @@ export class OrchestrationDispatchCommandError extends Schema.TaggedErrorClass<O
 
 export class OrchestrationGetTurnDiffError extends Schema.TaggedErrorClass<OrchestrationGetTurnDiffError>()(
   "OrchestrationGetTurnDiffError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export class OrchestrationForkThreadError extends Schema.TaggedErrorClass<OrchestrationForkThreadError>()(
+  "OrchestrationForkThreadError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),

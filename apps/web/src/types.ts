@@ -10,6 +10,7 @@ import type {
   OrchestrationTeamTaskStatus,
   OrchestrationTeamTaskWorkspaceMode,
   OrchestrationThreadActivity,
+  OrchestrationThreadForkOrigin,
   ProjectScript as ContractProjectScript,
   ThreadId,
   ProjectId,
@@ -142,6 +143,7 @@ export interface Thread {
   teamTasks?: TeamTask[];
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
+  forkOrigin?: OrchestrationThreadForkOrigin;
 }
 
 export interface ThreadShell {
@@ -164,6 +166,7 @@ export interface ThreadShell {
   teamRoleLabel?: string | null;
   teamStatus?: OrchestrationTeamTaskStatus | null;
   activeTeamTaskCount?: number;
+  forkOrigin?: OrchestrationThreadForkOrigin;
 }
 
 export interface ThreadTurnState {
@@ -189,6 +192,7 @@ export interface SidebarThreadSummary {
   teamRoleLabel?: string | null;
   teamStatus?: OrchestrationTeamTaskStatus | null;
   activeTeamTaskCount?: number;
+  forkOrigin?: OrchestrationThreadForkOrigin;
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
