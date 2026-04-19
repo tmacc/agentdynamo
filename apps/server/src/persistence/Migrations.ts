@@ -44,6 +44,7 @@ import Migration0028 from "./Migrations/028_ProjectionThreadsForkOrigin.ts";
 import Migration0029 from "./Migrations/029_ProjectionBoardCards.ts";
 import Migration0030 from "./Migrations/030_ProjectionBoardDismissedGhosts.ts";
 import Migration0031 from "./Migrations/031_RepairProjectionBoardCardLinkedThreadUniqueness.ts";
+import Migration0032 from "./Migrations/032_BackfillProjectionThreadActivitySequence.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -87,6 +88,7 @@ export const migrationEntries = [
   [29, "ProjectionBoardCards", Migration0029],
   [30, "ProjectionBoardDismissedGhosts", Migration0030],
   [31, "RepairProjectionBoardCardLinkedThreadUniqueness", Migration0031],
+  [32, "BackfillProjectionThreadActivitySequence", Migration0032],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
