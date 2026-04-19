@@ -6,6 +6,7 @@ import { useBoardUiStore } from "../boardUiStore";
 
 import { BoardView } from "../components/board/BoardView";
 import { ProjectIntelligenceRouteSheet } from "../components/project-intelligence/ProjectIntelligenceRouteSheet";
+import { SidebarInset } from "../components/ui/sidebar";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import {
@@ -272,13 +273,15 @@ function BoardRouteView() {
   }
 
   return (
-    <BoardView
-      environmentId={resolved.environmentId}
-      projectId={resolved.projectId}
-      onStartAgent={handleStartAgent}
-      onCloseBoard={handleCloseBoard}
-      closeBoardLabel={closeBoardLabel}
-    />
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      <BoardView
+        environmentId={resolved.environmentId}
+        projectId={resolved.projectId}
+        onStartAgent={handleStartAgent}
+        onCloseBoard={handleCloseBoard}
+        closeBoardLabel={closeBoardLabel}
+      />
+    </SidebarInset>
   );
 }
 
