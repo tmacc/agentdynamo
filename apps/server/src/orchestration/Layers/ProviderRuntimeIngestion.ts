@@ -187,6 +187,11 @@ function compareProjectedThreadActivityOrder(
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
 
+function readRuntimeEventSequence(event: ProviderRuntimeEvent): number | undefined {
+  const eventWithSequence = event as ProviderRuntimeEvent & { sessionSequence?: number };
+  return eventWithSequence.sessionSequence;
+}
+
 function findLatestPlanUpdatedActivityForTurn(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   turnId: TurnId,
@@ -1258,6 +1263,7 @@ const make = Effect.fn("make")(function* () {
             ),
           );
           if (finalizedPlanPayload) {
+            const runtimeSequence = readRuntimeEventSequence(event);
             yield* orchestrationEngine.dispatch({
               type: "thread.activity.append",
               commandId: providerCommandId(event, "thread-plan-finalize-append"),
@@ -1270,6 +1276,7 @@ const make = Effect.fn("make")(function* () {
                 summary: "Plan updated",
                 payload: finalizedPlanPayload,
                 turnId,
+                ...(runtimeSequence !== undefined ? { sequence: runtimeSequence } : {}),
               },
               createdAt: now,
             });

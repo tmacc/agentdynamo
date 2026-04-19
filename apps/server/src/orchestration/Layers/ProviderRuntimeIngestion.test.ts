@@ -2034,7 +2034,7 @@ describe("ProviderRuntimeIngestion", () => {
     const harness = await createHarness();
     const startedAt = new Date().toISOString();
     const planUpdatedAt = new Date(Date.parse(startedAt) + 1_000).toISOString();
-    const completedAt = new Date(Date.parse(startedAt) + 2_000).toISOString();
+    const completedAt = planUpdatedAt;
 
     harness.emit({
       type: "turn.started",
@@ -2057,6 +2057,7 @@ describe("ProviderRuntimeIngestion", () => {
       eventId: asEventId("evt-turn-plan-updated-plan-finalization"),
       provider: "codex",
       createdAt: planUpdatedAt,
+      sessionSequence: 10,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-plan-finalization"),
       payload: {
@@ -2073,6 +2074,7 @@ describe("ProviderRuntimeIngestion", () => {
       eventId: asEventId("evt-turn-completed-plan-finalization"),
       provider: "codex",
       createdAt: completedAt,
+      sessionSequence: 11,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-plan-finalization"),
       payload: {
@@ -2097,6 +2099,9 @@ describe("ProviderRuntimeIngestion", () => {
     expect(planActivities).toHaveLength(2);
 
     const finalizedActivity = planActivities[1];
+    const finalTurnActivities = thread.activities.filter(
+      (activity: ProviderRuntimeTestActivity) => activity.turnId === "turn-plan-finalization",
+    );
     const finalizedPayload =
       finalizedActivity?.payload && typeof finalizedActivity.payload === "object"
         ? (finalizedActivity.payload as Record<string, unknown>)
@@ -2105,6 +2110,10 @@ describe("ProviderRuntimeIngestion", () => {
     expect(finalizedActivity?.id).toBe("evt-turn-completed-plan-finalization:turn-plan-finalized");
     expect(finalizedActivity?.summary).toBe("Plan updated");
     expect(finalizedActivity?.createdAt).toBe(completedAt);
+    expect(finalizedActivity?.sequence).toBe(11);
+    expect(finalTurnActivities.at(-1)?.id).toBe(
+      "evt-turn-completed-plan-finalization:turn-plan-finalized",
+    );
     expect(finalizedPayload?.explanation).toBe("Wrap up the task list");
     expect(finalizedPayload?.plan).toEqual([
       { step: "Inspect code paths", status: "completed" },
@@ -2173,6 +2182,12 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(planActivities).toHaveLength(1);
     expect(planActivities[0]?.id).toBe("evt-turn-plan-updated-plan-already-complete");
+    expect(
+      thread.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-turn-completed-plan-already-complete:turn-plan-finalized",
+      ),
+    ).toBe(false);
   });
 
   it("does not finalize plans for failed, interrupted, or cancelled turns", async () => {
@@ -2237,6 +2252,12 @@ describe("ProviderRuntimeIngestion", () => {
         ) ?? [];
       expect(planActivities).toHaveLength(1);
       expect(planActivities[0]?.id).toBe(`evt-turn-plan-updated-plan-${state}`);
+      expect(
+        thread?.activities.some(
+          (activity: ProviderRuntimeTestActivity) =>
+            activity.id === `evt-turn-completed-plan-${state}:turn-plan-finalized`,
+        ) ?? false,
+      ).toBe(false);
 
       if (state === "failed") {
         expect(thread?.session?.status).toBe("error");
@@ -2293,6 +2314,7 @@ describe("ProviderRuntimeIngestion", () => {
       eventId: asEventId("evt-turn-completed-stale-plan-finalization"),
       provider: "codex",
       createdAt: completedAt,
+      sessionSequence: 99,
       threadId: asThreadId("thread-1"),
       turnId: staleTurnId,
       payload: {
@@ -2311,6 +2333,12 @@ describe("ProviderRuntimeIngestion", () => {
       ) ?? [];
     expect(planActivities).toHaveLength(1);
     expect(planActivities[0]?.id).toBe("evt-turn-plan-updated-stale-plan-finalization");
+    expect(
+      thread?.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-turn-completed-stale-plan-finalization:turn-plan-finalized",
+      ) ?? false,
+    ).toBe(false);
     expect(thread?.session?.status).toBe("running");
     expect(thread?.session?.activeTurnId).toBe(activeTurnId);
   });
