@@ -118,6 +118,7 @@ import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { deriveLogicalProjectKey } from "../logicalProject";
+import { deriveTeamTaskLaunchGroups } from "./chat/teamTaskTimeline";
 import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
@@ -1654,6 +1655,14 @@ export default function ChatView(props: ChatViewProps) {
           }))
         : [],
     [teamPanelTasks, activeThread?.teamParentThreadId],
+  );
+  const teamTaskLaunchGroups = useMemo(
+    () =>
+      deriveTeamTaskLaunchGroups({
+        activities: activeThread?.activities ?? [],
+        taskViews: teamTaskInlineViews,
+      }),
+    [activeThread?.activities, teamTaskInlineViews],
   );
   const activeTerminalLaunchContext =
     terminalLaunchContext?.threadId === activeThreadId
@@ -3585,7 +3594,7 @@ export default function ChatView(props: ChatViewProps) {
               timestampFormat={timestampFormat}
               workspaceRoot={activeWorkspaceRoot}
               onIsAtEndChange={onIsAtEndChange}
-              teamTasks={teamTaskInlineViews}
+              teamTaskLaunchGroups={teamTaskLaunchGroups}
               onOpenChildThread={openThreadById}
               onOpenForkSourceThread={openThreadById}
               onForkUserMessage={openForkThreadDialog}
