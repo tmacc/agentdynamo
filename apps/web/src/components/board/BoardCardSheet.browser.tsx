@@ -105,6 +105,17 @@ function findButtonByText(text: string): HTMLButtonElement | null {
   ) ?? null) as HTMLButtonElement | null;
 }
 
+function findSheetButtonByText(text: string): HTMLButtonElement | null {
+  const sheetPopup = document.querySelector('[data-slot="sheet-popup"]');
+  if (sheetPopup === null) {
+    return null;
+  }
+
+  return (Array.from(sheetPopup.querySelectorAll("button")).find((button) =>
+    button.textContent?.includes(text),
+  ) ?? null) as HTMLButtonElement | null;
+}
+
 function getMoreCardActionsButton(): HTMLButtonElement | null {
   return document.querySelector(
     'button[aria-label="More card actions"]',
@@ -416,10 +427,10 @@ describe("BoardCardSheet", () => {
 
     try {
       await waitForElement(
-        () => findButtonByText("Mark as planned"),
+        () => findSheetButtonByText("Mark as planned"),
         'Unable to find "Mark as planned" button',
       );
-      await page.getByText("Mark as planned").click();
+      findSheetButtonByText("Mark as planned")?.click();
 
       await vi.waitFor(() => {
         expect(apiHarness.dispatchCommandSpy).toHaveBeenCalledWith(
