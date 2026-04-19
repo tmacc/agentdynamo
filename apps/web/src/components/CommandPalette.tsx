@@ -16,7 +16,9 @@ import {
   CornerLeftUpIcon,
   FolderIcon,
   FolderPlusIcon,
+  LayoutGridIcon,
   MessageSquareIcon,
+  PlusIcon,
   SettingsIcon,
   SquarePenIcon,
 } from "lucide-react";
@@ -31,6 +33,7 @@ import {
   type ReactNode,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { useBoardUiStore } from "../boardUiStore";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { readEnvironmentApi } from "../environmentApi";
 import { readPrimaryEnvironmentDescriptor, usePrimaryEnvironmentId } from "../environments/primary";
@@ -691,6 +694,64 @@ function OpenCommandPaletteDialog() {
       keepOpen: true,
       run: async () => {
         openAddProjectFlow();
+      },
+    });
+  }
+
+  // Board: open / add idea / add planned — only when there's a resolvable
+  // project (active thread or active draft).
+  if (currentProjectEnvironmentId && currentProjectId) {
+    const resolvedProjectTitle = projectTitleById.get(currentProjectId) ?? "this project";
+    const openBoard = async () => {
+      await navigate({
+        to: ".",
+        search: (prev) => ({
+          ...(prev as Record<string, unknown>),
+          view: "board",
+          boardEnvironmentId: currentProjectEnvironmentId,
+          boardProjectId: currentProjectId,
+        }),
+      });
+    };
+    actionItems.push({
+      kind: "action",
+      value: "action:board-open",
+      searchTerms: ["board", "kanban", "planning", "ideas", "planned"],
+      title: (
+        <>
+          Open board for <span className="font-semibold">{resolvedProjectTitle}</span>
+        </>
+      ),
+      icon: <LayoutGridIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "board.open",
+      run: openBoard,
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:board-add-idea",
+      searchTerms: ["board", "idea", "new idea", "add idea", "capture"],
+      title: "Add idea to board",
+      icon: <PlusIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "board.addIdea",
+      run: async () => {
+        useBoardUiStore
+          .getState()
+          .requestAddCard(currentProjectEnvironmentId, currentProjectId, "ideas");
+        await openBoard();
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:board-add-planned",
+      searchTerms: ["board", "planned", "new planned", "plan", "queue"],
+      title: "Add planned item to board",
+      icon: <PlusIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "board.addPlanned",
+      run: async () => {
+        useBoardUiStore
+          .getState()
+          .requestAddCard(currentProjectEnvironmentId, currentProjectId, "planned");
+        await openBoard();
       },
     });
   }

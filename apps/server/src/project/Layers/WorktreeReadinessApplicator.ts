@@ -1,6 +1,4 @@
 import crypto from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
 
 import { CommandId } from "@t3tools/contracts";
 import { Effect, Layer } from "effect";
@@ -8,12 +6,11 @@ import { Effect, Layer } from "effect";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import {
-  buildManagedWorktreeScriptFiles,
   buildManagedScripts,
   computeReadinessAnalysis,
   ensureGitignoreEntry,
+  materializeManagedWorktreeScripts,
   mergeReadinessScripts,
-  writeExecutableFile,
   WORKTREE_DEV_SCRIPT_PATH,
   WORKTREE_LOCAL_ENV_PATH,
   WORKTREE_SETUP_SCRIPT_PATH,
@@ -65,41 +62,24 @@ const makeWorktreeReadinessApplicator = Effect.gen(function* () {
         portCount: input.portCount,
       } as const;
 
-      const managedTargets = buildManagedWorktreeScriptFiles({
-        installCommand: recommendation.installCommand,
-        envStrategy: recommendation.envStrategy,
-        envSourcePath: recommendation.envSourcePath,
-        framework: recommendation.framework,
-        packageManager: recommendation.packageManager,
-        devCommand: recommendation.devCommand,
-      });
-
-      const writtenFiles: string[] = [];
-      for (const [relativePath, nextContent] of managedTargets) {
-        const absolutePath = path.join(input.projectCwd, relativePath);
-        const existingContent = yield* Effect.tryPromise(async () => {
-          try {
-            return await fs.readFile(absolutePath, "utf8");
-          } catch {
-            return null;
-          }
-        });
-        if (
-          existingContent !== null &&
-          existingContent !== nextContent &&
-          !input.overwriteManagedFiles
-        ) {
-          return yield* Effect.fail(
-            new Error(
-              `Worktree helper already exists and requires overwrite confirmation: ${relativePath}`,
-            ),
-          );
-        }
-        if (existingContent !== nextContent) {
-          yield* Effect.tryPromise(() => writeExecutableFile(absolutePath, nextContent));
-          writtenFiles.push(relativePath);
-        }
-      }
+      const materializationResult = yield* Effect.promise(() =>
+        materializeManagedWorktreeScripts({
+          rootPath: input.projectCwd,
+          installCommand: recommendation.installCommand,
+          envStrategy: recommendation.envStrategy,
+          envSourcePath: recommendation.envSourcePath,
+          framework: recommendation.framework,
+          packageManager: recommendation.packageManager,
+          devCommand: recommendation.devCommand,
+          policy: {
+            mode: "apply_with_confirmation",
+            overwriteManagedFiles: input.overwriteManagedFiles,
+          },
+        }),
+      );
+      const writtenFiles = materializationResult.files
+        .filter((file) => file.action !== "preserved")
+        .map((file) => file.path);
 
       const updatedGitignore = yield* Effect.tryPromise(() =>
         ensureGitignoreEntry(input.projectCwd, WORKTREE_LOCAL_ENV_PATH),

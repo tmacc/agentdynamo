@@ -62,7 +62,7 @@ import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 
 vi.mock("../lib/gitStatusState", () => ({
   useGitStatus: () => ({ data: null, error: null, cause: null, isPending: false }),
-  useGitStatuses: () => new Map(),
+  useGitStatusSnapshots: () => new Map(),
   refreshGitStatus: () => Promise.resolve(null),
   resetGitStatusStateForTests: () => undefined,
 }));
@@ -94,7 +94,7 @@ let fixture: TestFixture;
 const rpcHarness = new BrowserWsRpcHarness();
 const wsRequests = rpcHarness.requests;
 let customWsRpcResolver: ((body: NormalizedWsRpcRequestBody) => unknown | undefined) | null = null;
-const wsLink = ws.link(/ws(s)?:\/\/.*/);
+const wsLink = ws.link(/^ws(s)?:\/\/[^/]+\/ws(?:\?.*)?$/);
 
 interface ViewportSpec {
   name: string;
@@ -268,6 +268,18 @@ function createMockEnvironmentApi(input: {
       subscribeShell: (() => () => undefined) as EnvironmentApi["orchestration"]["subscribeShell"],
       subscribeThread: (() => () =>
         undefined) as EnvironmentApi["orchestration"]["subscribeThread"],
+    },
+    board: {
+      listCards: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["board"]["listCards"],
+      listDismissedGhosts: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["board"]["listDismissedGhosts"],
+      subscribeProject: (() => () => undefined) as EnvironmentApi["board"]["subscribeProject"],
+      dispatchCommand: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["board"]["dispatchCommand"],
     },
   };
 }
