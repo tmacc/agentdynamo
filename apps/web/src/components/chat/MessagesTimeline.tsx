@@ -96,7 +96,7 @@ interface TimelineRowSharedState {
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
-  onOpenChildThread: (threadId: import("@t3tools/contracts").ThreadId) => void;
+  onInspectChildThread: (threadId: import("@t3tools/contracts").ThreadId) => void;
   onOpenForkSourceThread: (threadId: ThreadId) => void;
   onForkUserMessage: (messageId: MessageId) => void;
 }
@@ -132,7 +132,7 @@ interface MessagesTimelineProps {
   workspaceRoot: string | undefined;
   onIsAtEndChange: (isAtEnd: boolean) => void;
   teamTaskLaunchGroups?: readonly TeamTaskLaunchGroup[];
-  onOpenChildThread?: (threadId: import("@t3tools/contracts").ThreadId) => void;
+  onInspectChildThread?: (threadId: import("@t3tools/contracts").ThreadId) => void;
   onOpenForkSourceThread?: (threadId: ThreadId) => void;
   onForkUserMessage?: (messageId: MessageId) => void;
   forkOrigin?: OrchestrationThreadForkOrigin | undefined;
@@ -167,12 +167,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   workspaceRoot,
   onIsAtEndChange,
   teamTaskLaunchGroups,
-  onOpenChildThread,
+  onInspectChildThread,
   onOpenForkSourceThread,
   onForkUserMessage,
   forkOrigin,
 }: MessagesTimelineProps) {
-  const noopOpenChildThread = useCallback(() => {}, []);
+  const noopInspectChildThread = useCallback(() => {}, []);
   const noopOpenForkSourceThread = useCallback(() => {}, []);
   const noopForkUserMessage = useCallback(() => {}, []);
   const rawRows = useMemo(
@@ -246,7 +246,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
-      onOpenChildThread: onOpenChildThread ?? noopOpenChildThread,
+      onInspectChildThread: onInspectChildThread ?? noopInspectChildThread,
       onOpenForkSourceThread: onOpenForkSourceThread ?? noopOpenForkSourceThread,
       onForkUserMessage: onForkUserMessage ?? noopForkUserMessage,
     }),
@@ -266,10 +266,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
-      onOpenChildThread,
+      onInspectChildThread,
       onOpenForkSourceThread,
       onForkUserMessage,
-      noopOpenChildThread,
+      noopInspectChildThread,
       noopOpenForkSourceThread,
       noopForkUserMessage,
     ],
@@ -537,7 +537,7 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
 
       {row.kind === "team-task-group" && (
         <div className="min-w-0 px-1 py-0.5">
-          <TeamTaskInlineBlocks tasks={row.tasks} onOpenThread={ctx.onOpenChildThread} />
+          <TeamTaskInlineBlocks tasks={row.tasks} onInspectThread={ctx.onInspectChildThread} />
         </div>
       )}
 
