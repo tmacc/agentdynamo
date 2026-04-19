@@ -11,7 +11,7 @@ import type { ProviderPickerKind } from "../../session-logic";
 
 interface TeamAgentPillsProps {
   tasks: readonly { task: TeamTask }[];
-  onOpenThread: (threadId: ThreadId) => void;
+  onInspectThread: (threadId: ThreadId) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -40,18 +40,18 @@ function statusDotClass(status: TeamTask["status"]): string {
 
 const AgentPill = memo(function AgentPill({
   task,
-  onOpenThread,
+  onInspectThread,
 }: {
   task: TeamTask;
-  onOpenThread: (threadId: ThreadId) => void;
+  onInspectThread: (threadId: ThreadId) => void;
 }) {
   const provider = task.modelSelection.provider as ProviderPickerKind;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[provider];
   const iconClass = providerIconClassName(provider, "text-muted-foreground/70");
 
   const handleClick = useCallback(() => {
-    onOpenThread(task.childThreadId);
-  }, [onOpenThread, task.childThreadId]);
+    onInspectThread(task.childThreadId);
+  }, [onInspectThread, task.childThreadId]);
 
   return (
     <button
@@ -77,14 +77,14 @@ const AgentPill = memo(function AgentPill({
 
 export const TeamAgentPills = memo(function TeamAgentPills({
   tasks,
-  onOpenThread,
+  onInspectThread,
 }: TeamAgentPillsProps) {
   if (tasks.length === 0) return null;
 
   return (
     <div className="mx-auto flex w-full max-w-208 flex-wrap items-center gap-1.5 px-3 pb-1 sm:px-5">
       {tasks.map(({ task }) => (
-        <AgentPill key={task.id} task={task} onOpenThread={onOpenThread} />
+        <AgentPill key={task.id} task={task} onInspectThread={onInspectThread} />
       ))}
     </div>
   );
