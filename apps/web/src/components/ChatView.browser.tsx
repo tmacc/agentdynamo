@@ -69,6 +69,8 @@ vi.mock("../lib/gitStatusState", () => ({
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
 const THREAD_TITLE = "Browser test thread";
+const TEAM_CHILD_THREAD_ID = "thread-browser-test-child" as ThreadId;
+const TEAM_CHILD_THREAD_TITLE = "Browser child thread";
 const ARCHIVED_SECONDARY_THREAD_ID = "thread-secondary-project-archived" as ThreadId;
 const PROJECT_ID = "project-1" as ProjectId;
 const SECOND_PROJECT_ID = "project-2" as ProjectId;
@@ -439,6 +441,89 @@ function createSnapshotForTargetUser(options: {
   };
 }
 
+function createSnapshotWithTeamChildThread(): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: "msg-user-team-child" as MessageId,
+    targetText: "team child inspection",
+  });
+  const teamTaskCreatedAt = isoAt(240);
+
+  return {
+    ...snapshot,
+    snapshotSequence: snapshot.snapshotSequence + 1,
+    threads: [
+      {
+        ...snapshot.threads[0]!,
+        updatedAt: teamTaskCreatedAt,
+        teamTasks: [
+          {
+            id: "team-task:browser-child",
+            parentThreadId: THREAD_ID,
+            childThreadId: TEAM_CHILD_THREAD_ID,
+            title: "Review docs changes",
+            roleLabel: "Reviewer",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5",
+            },
+            workspaceMode: "worktree",
+            status: "running",
+            latestSummary: "Checking the final README and docs diff.",
+            errorText: null,
+            createdAt: teamTaskCreatedAt,
+            startedAt: isoAt(245),
+            completedAt: null,
+            updatedAt: isoAt(246),
+          },
+        ],
+      },
+      {
+        id: TEAM_CHILD_THREAD_ID,
+        projectId: PROJECT_ID,
+        title: TEAM_CHILD_THREAD_TITLE,
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5",
+        },
+        interactionMode: "default",
+        runtimeMode: "full-access",
+        branch: "agent/reviewer-browser",
+        worktreePath: "/repo/project/.worktrees/reviewer-browser",
+        latestTurn: null,
+        createdAt: teamTaskCreatedAt,
+        updatedAt: isoAt(246),
+        archivedAt: null,
+        deletedAt: null,
+        teamParentThreadId: THREAD_ID,
+        teamParentTaskId: "team-task:browser-child",
+        teamRoleLabel: "Reviewer",
+        teamStatus: "running",
+        messages: [
+          createUserMessage({
+            id: "msg-user-team-child-1" as MessageId,
+            text: "Review the docs changes in your own worktree.",
+            offsetSeconds: 250,
+          }),
+        ],
+        activities: [],
+        proposedPlans: [],
+        teamTasks: [],
+        checkpoints: [],
+        session: {
+          threadId: TEAM_CHILD_THREAD_ID,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: isoAt(246),
+        },
+      },
+    ],
+    updatedAt: isoAt(246),
+  };
+}
+
 function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
   return {
     snapshot,
@@ -522,6 +607,13 @@ function toShellThread(thread: OrchestrationReadModel["threads"][number]) {
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
     archivedAt: thread.archivedAt,
+    teamParentThreadId: thread.teamParentThreadId,
+    teamParentTaskId: thread.teamParentTaskId,
+    teamRoleLabel: thread.teamRoleLabel,
+    teamStatus: thread.teamStatus,
+    activeTeamTaskCount: (thread.teamTasks ?? []).filter((task) =>
+      ["queued", "starting", "running", "waiting"].includes(task.status),
+    ).length,
     session: thread.session,
     latestUserMessageAt:
       thread.messages.findLast((message) => message.role === "user")?.createdAt ?? null,
@@ -5200,6 +5292,107 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect
         .element(palette.getByText("Archived Docs Notes", { exact: true }))
         .not.toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps child agent threads out of the sidebar and command palette", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithTeamChildThread(),
+    });
+
+    try {
+      await expect
+        .element(page.getByText(TEAM_CHILD_THREAD_TITLE, { exact: true }))
+        .not.toBeInTheDocument();
+
+      const palette = page.getByTestId("command-palette");
+      await openCommandPaletteFromTrigger();
+
+      await expect.element(palette).toBeInTheDocument();
+      await page
+        .getByPlaceholder("Search commands, projects, and threads...")
+        .fill(TEAM_CHILD_THREAD_TITLE);
+      await expect
+        .element(palette.getByText(TEAM_CHILD_THREAD_TITLE, { exact: true }))
+        .not.toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens the team task inspector from the parent thread and can drill into the child thread", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithTeamChildThread(),
+    });
+
+    try {
+      await page.getByText("Reviewer", { exact: true }).click();
+      await page.getByText("Inspect task", { exact: true }).click();
+
+      const inspector = page.getByTestId("team-task-inspector");
+      await expect.element(inspector).toBeInTheDocument();
+      await expect
+        .element(inspector.getByText("Checking the final README and docs diff.", { exact: true }))
+        .toBeInTheDocument();
+      await expect
+        .element(inspector.getByText("Open child thread", { exact: true }))
+        .toBeInTheDocument();
+
+      await inspector.getByText("Open child thread", { exact: true }).click();
+
+      await vi.waitFor(() => {
+        expect(mounted.router.state.location.pathname).toBe(
+          `/${LOCAL_ENVIRONMENT_ID}/${TEAM_CHILD_THREAD_ID}`,
+        );
+      });
+      await expect.element(page.getByText("Child task", { exact: true })).toBeInTheDocument();
+      await expect.element(page.getByText("Coordinator:", { exact: false })).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens the team task inspector when a board pill is selected", async () => {
+    const baseSnapshot = createSnapshotWithTeamChildThread();
+    const runningBoardSnapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) => {
+        if (thread.id !== THREAD_ID || thread.session === null) {
+          return thread;
+        }
+        return {
+          ...thread,
+          session: {
+            ...thread.session,
+            status: "running" as const,
+            activeTurnId: "turn-board-pill" as TurnId,
+          },
+        };
+      }),
+    };
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: runningBoardSnapshot,
+      initialPath: `/${LOCAL_ENVIRONMENT_ID}/${THREAD_ID}?view=board&boardEnvironmentId=${LOCAL_ENVIRONMENT_ID}&boardProjectId=${PROJECT_ID}`,
+    });
+
+    try {
+      const boardTaskPill = page.getByRole("button", { name: "Reviewer · running", exact: true });
+      await expect.element(boardTaskPill).toBeInTheDocument();
+      await boardTaskPill.click();
+
+      await vi.waitFor(() => {
+        expect(mounted.router.state.location.pathname).toBe(
+          `/${LOCAL_ENVIRONMENT_ID}/${THREAD_ID}`,
+        );
+        expect(mounted.router.state.location.search.view).toBeUndefined();
+        expect(mounted.router.state.location.search.agentChildThreadId).toBe(TEAM_CHILD_THREAD_ID);
+      });
+      await expect.element(page.getByTestId("team-task-inspector")).toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }
