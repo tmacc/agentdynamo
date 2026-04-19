@@ -82,7 +82,7 @@ describe("addSavedEnvironment", () => {
   });
 
   it("rolls back persisted metadata when bearer token persistence fails", async () => {
-    const { addSavedEnvironment, resetEnvironmentServiceForTests } = await import("./service");
+    const { addSavedEnvironment } = await import("./service");
 
     await expect(
       addSavedEnvironment({
@@ -99,7 +99,5 @@ describe("addSavedEnvironment", () => {
     );
     expect(mockSetSavedEnvironmentRegistry).toHaveBeenCalledWith([]);
     expect(mockUpsert).not.toHaveBeenCalled();
-
-    await resetEnvironmentServiceForTests();
-  });
+  }, 15_000);
 });

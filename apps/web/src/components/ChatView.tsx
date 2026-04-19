@@ -93,6 +93,7 @@ import {
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { useEnsureWorktreeReadiness } from "../hooks/useEnsureWorktreeReadiness";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { BranchToolbar } from "./BranchToolbar";
@@ -935,6 +936,8 @@ export default function ChatView(props: ChatViewProps) {
   const activeProject = useStore(
     useMemo(() => createProjectSelectorByRef(activeProjectRef), [activeProjectRef]),
   );
+  const { ensureProjectWorktreeReadiness, dialog: worktreeReadinessDialog } =
+    useEnsureWorktreeReadiness(environmentId);
   const activeTeamParentTitle = useStore(
     useMemo(() => {
       if (!activeThread?.teamParentThreadId) {
@@ -2799,6 +2802,15 @@ export default function ChatView(props: ChatViewProps) {
       }
 
       const turnAttachments = await turnAttachmentsPromise;
+      if (baseBranchForWorktree) {
+        const readinessApproved = await ensureProjectWorktreeReadiness({
+          project: activeProject,
+          trigger: "thread_worktree",
+        });
+        if (!readinessApproved) {
+          return;
+        }
+      }
       const bootstrap =
         isLocalDraftThread || baseBranchForWorktree
           ? {
@@ -3663,6 +3675,7 @@ export default function ChatView(props: ChatViewProps) {
               key={pullRequestDialogState.key}
               open
               environmentId={activeThread.environmentId}
+              project={activeProject ?? null}
               threadId={activeThread.id}
               cwd={activeProject?.cwd ?? null}
               initialReference={pullRequestDialogState.initialReference}
@@ -3674,6 +3687,7 @@ export default function ChatView(props: ChatViewProps) {
               onPrepared={handlePreparedPullRequestThread}
             />
           ) : null}
+          {worktreeReadinessDialog}
         </div>
         {/* end chat column */}
 

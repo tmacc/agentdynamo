@@ -1,5 +1,18 @@
 import { Effect, Schema } from "effect";
-import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString, IsoDateTime } from "./baseSchemas";
+import {
+  NonNegativeInt,
+  PositiveInt,
+  TrimmedNonEmptyString,
+  IsoDateTime,
+  ProjectId,
+} from "./baseSchemas";
+import {
+  ProjectScript,
+  ProjectWorktreeReadinessEnvStrategy,
+  ProjectWorktreeReadinessFramework,
+  ProjectWorktreeReadinessPackageManager,
+  ProjectWorktreeReadinessProfile,
+} from "./orchestration";
 import { ServerProviderAuth, ServerProviderModel, ServerProviderState } from "./server";
 
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
@@ -271,6 +284,115 @@ export type ProjectReadIntelligenceSurfaceResult = typeof ProjectReadIntelligenc
 
 export class ProjectReadIntelligenceSurfaceError extends Schema.TaggedErrorClass<ProjectReadIntelligenceSurfaceError>()(
   "ProjectReadIntelligenceSurfaceError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export const ProjectWorktreeReadinessTrigger = Schema.Literals([
+  "thread_worktree",
+  "pull_request_worktree",
+  "team_worktree",
+]);
+export type ProjectWorktreeReadinessTrigger = typeof ProjectWorktreeReadinessTrigger.Type;
+
+export const ProjectWorktreeReadinessWarning = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  message: TrimmedNonEmptyString,
+  severity: Schema.Literals(["info", "warning"]),
+});
+export type ProjectWorktreeReadinessWarning = typeof ProjectWorktreeReadinessWarning.Type;
+
+export const ProjectWorktreeReadinessProposedScript = Schema.Struct({
+  kind: Schema.Literals(["setup", "dev"]),
+  label: TrimmedNonEmptyString,
+  command: TrimmedNonEmptyString,
+});
+export type ProjectWorktreeReadinessProposedScript =
+  typeof ProjectWorktreeReadinessProposedScript.Type;
+
+export const ProjectWorktreeReadinessProposedFile = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  managed: Schema.Boolean,
+  contentPreview: Schema.String,
+  action: Schema.Literals(["create", "update", "preserve"]),
+});
+export type ProjectWorktreeReadinessProposedFile = typeof ProjectWorktreeReadinessProposedFile.Type;
+
+export const ProjectWorktreeReadinessRecommendation = Schema.Struct({
+  packageManager: ProjectWorktreeReadinessPackageManager,
+  framework: ProjectWorktreeReadinessFramework,
+  installCommand: Schema.NullOr(TrimmedNonEmptyString),
+  devCommand: Schema.NullOr(TrimmedNonEmptyString),
+  envStrategy: ProjectWorktreeReadinessEnvStrategy,
+  envSourcePath: Schema.NullOr(TrimmedNonEmptyString),
+  portCount: NonNegativeInt,
+  confidence: Schema.Literals(["high", "medium", "low"]),
+});
+export type ProjectWorktreeReadinessRecommendation =
+  typeof ProjectWorktreeReadinessRecommendation.Type;
+
+export const ProjectScanWorktreeReadinessInput = Schema.Struct({
+  projectId: Schema.optional(ProjectId),
+  projectCwd: TrimmedNonEmptyString,
+  trigger: ProjectWorktreeReadinessTrigger,
+  effectiveBaseBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+});
+export type ProjectScanWorktreeReadinessInput = typeof ProjectScanWorktreeReadinessInput.Type;
+
+export const ProjectScanWorktreeReadinessResult = Schema.Struct({
+  configured: Schema.Boolean,
+  promptRequired: Schema.Boolean,
+  profile: Schema.optional(ProjectWorktreeReadinessProfile),
+  scanFingerprint: TrimmedNonEmptyString,
+  detectedProjectType: TrimmedNonEmptyString,
+  recommendation: ProjectWorktreeReadinessRecommendation,
+  warnings: Schema.Array(ProjectWorktreeReadinessWarning).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  proposedScripts: Schema.Array(ProjectWorktreeReadinessProposedScript).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  proposedFiles: Schema.Array(ProjectWorktreeReadinessProposedFile).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+});
+export type ProjectScanWorktreeReadinessResult = typeof ProjectScanWorktreeReadinessResult.Type;
+
+export class ProjectScanWorktreeReadinessError extends Schema.TaggedErrorClass<ProjectScanWorktreeReadinessError>()(
+  "ProjectScanWorktreeReadinessError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export const ProjectApplyWorktreeReadinessInput = Schema.Struct({
+  projectId: ProjectId,
+  projectCwd: TrimmedNonEmptyString,
+  scanFingerprint: TrimmedNonEmptyString,
+  installCommand: Schema.NullOr(TrimmedNonEmptyString),
+  devCommand: TrimmedNonEmptyString,
+  envStrategy: ProjectWorktreeReadinessEnvStrategy,
+  envSourcePath: Schema.NullOr(TrimmedNonEmptyString),
+  portCount: NonNegativeInt,
+  overwriteManagedFiles: Schema.Boolean,
+});
+export type ProjectApplyWorktreeReadinessInput = typeof ProjectApplyWorktreeReadinessInput.Type;
+
+export const ProjectApplyWorktreeReadinessResult = Schema.Struct({
+  profile: ProjectWorktreeReadinessProfile,
+  scripts: Schema.Array(ProjectScript),
+  writtenFiles: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  updatedGitignore: Schema.Boolean,
+});
+export type ProjectApplyWorktreeReadinessResult = typeof ProjectApplyWorktreeReadinessResult.Type;
+
+export class ProjectApplyWorktreeReadinessError extends Schema.TaggedErrorClass<ProjectApplyWorktreeReadinessError>()(
+  "ProjectApplyWorktreeReadinessError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),

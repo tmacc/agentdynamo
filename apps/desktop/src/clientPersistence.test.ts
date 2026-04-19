@@ -52,6 +52,7 @@ const clientSettings: ClientSettings = {
   confirmThreadArchive: true,
   confirmThreadDelete: false,
   diffWordWrap: true,
+  worktreeReadinessPromptStateByProjectId: {},
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {},
   sidebarProjectSortOrder: "manual",

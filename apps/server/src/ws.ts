@@ -17,8 +17,10 @@ import {
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  ProjectApplyWorktreeReadinessError,
   ProjectGetIntelligenceError,
   ProjectReadIntelligenceSurfaceError,
+  ProjectScanWorktreeReadinessError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
@@ -60,7 +62,11 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
 import { ProjectIntelligenceResolver } from "./project/Services/ProjectIntelligenceResolver";
+import { WorktreeReadinessApplicatorLive } from "./project/Layers/WorktreeReadinessApplicator.ts";
+import { WorktreeReadinessScannerLive } from "./project/Layers/WorktreeReadinessScanner.ts";
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver";
+import { WorktreeReadinessApplicator } from "./project/Services/WorktreeReadinessApplicator.ts";
+import { WorktreeReadinessScanner } from "./project/Services/WorktreeReadinessScanner.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerAuth } from "./auth/Services/ServerAuth";
 import {
@@ -187,6 +193,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const projectIntelligenceResolver = yield* ProjectIntelligenceResolver;
+      const worktreeReadinessScanner = yield* WorktreeReadinessScanner;
+      const worktreeReadinessApplicator = yield* WorktreeReadinessApplicator;
       const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment;
       const serverAuth = yield* ServerAuth;
@@ -714,6 +722,34 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.projectsScanWorktreeReadiness]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsScanWorktreeReadiness,
+            worktreeReadinessScanner.scan(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectScanWorktreeReadinessError({
+                    message: cause.message,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsApplyWorktreeReadiness]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsApplyWorktreeReadiness,
+            worktreeReadinessApplicator.apply(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectApplyWorktreeReadinessError({
+                    message: cause.message,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.projectsGetIntelligence]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsGetIntelligence,
@@ -1016,7 +1052,11 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           },
         }).pipe(
           Effect.provide(
-            makeWsRpcLayer(session.sessionId).pipe(Layer.provideMerge(RpcSerialization.layerJson)),
+            makeWsRpcLayer(session.sessionId).pipe(
+              Layer.provideMerge(RpcSerialization.layerJson),
+              Layer.provideMerge(WorktreeReadinessScannerLive),
+              Layer.provideMerge(WorktreeReadinessApplicatorLive),
+            ),
           ),
         );
         return yield* Effect.acquireUseRelease(
