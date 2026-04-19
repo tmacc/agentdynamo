@@ -16,6 +16,13 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+function appendRepositoryArg(
+  args: ReadonlyArray<string>,
+  repository?: string,
+): ReadonlyArray<string> {
+  return repository ? [...args, "--repo", repository] : args;
+}
+
 function normalizeGitHubCliError(operation: "execute" | "stdout", error: unknown): GitHubCliError {
   if (error instanceof Error) {
     if (error.message.includes("Command not found: gh")) {
@@ -117,18 +124,21 @@ const makeGitHubCli = Effect.sync(() => {
     listOpenPullRequests: (input) =>
       execute({
         cwd: input.cwd,
-        args: [
-          "pr",
-          "list",
-          "--head",
-          input.headSelector,
-          "--state",
-          "open",
-          "--limit",
-          String(input.limit ?? 1),
-          "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
-        ],
+        args: appendRepositoryArg(
+          [
+            "pr",
+            "list",
+            "--head",
+            input.headSelector,
+            "--state",
+            "open",
+            "--limit",
+            String(input.limit ?? 1),
+            "--json",
+            "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          ],
+          input.repository,
+        ),
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
         Effect.flatMap((raw) =>
@@ -204,23 +214,29 @@ const makeGitHubCli = Effect.sync(() => {
     createPullRequest: (input) =>
       execute({
         cwd: input.cwd,
-        args: [
-          "pr",
-          "create",
-          "--base",
-          input.baseBranch,
-          "--head",
-          input.headSelector,
-          "--title",
-          input.title,
-          "--body-file",
-          input.bodyFile,
-        ],
+        args: appendRepositoryArg(
+          [
+            "pr",
+            "create",
+            "--base",
+            input.baseBranch,
+            "--head",
+            input.headSelector,
+            "--title",
+            input.title,
+            "--body-file",
+            input.bodyFile,
+          ],
+          input.repository,
+        ),
       }).pipe(Effect.asVoid),
     getDefaultBranch: (input) =>
       execute({
         cwd: input.cwd,
-        args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+        args: appendRepositoryArg(
+          ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+          input.repository,
+        ),
       }).pipe(
         Effect.map((value) => {
           const trimmed = value.stdout.trim();

@@ -1695,6 +1695,7 @@ it.layer(TestLayer)("git integration", (it) => {
 
         expect(status).toEqual({
           isRepo: false,
+          hasAnyRemote: false,
           hasOriginRemote: false,
           isDefaultBranch: false,
           branch: null,

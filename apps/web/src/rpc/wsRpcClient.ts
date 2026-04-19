@@ -105,6 +105,10 @@ export interface WsRpcClient {
     readonly checkout: RpcUnaryMethod<typeof WS_METHODS.gitCheckout>;
     readonly init: RpcUnaryMethod<typeof WS_METHODS.gitInit>;
     readonly resolvePullRequest: RpcUnaryMethod<typeof WS_METHODS.gitResolvePullRequest>;
+    readonly getPullRequestRemoteOptions: RpcUnaryMethod<
+      typeof WS_METHODS.gitGetPullRequestRemoteOptions
+    >;
+    readonly setPullRequestRemote: RpcUnaryMethod<typeof WS_METHODS.gitSetPullRequestRemote>;
     readonly preparePullRequestThread: RpcUnaryMethod<
       typeof WS_METHODS.gitPreparePullRequestThread
     >;
@@ -224,6 +228,10 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       init: (input) => transport.request((client) => client[WS_METHODS.gitInit](input)),
       resolvePullRequest: (input) =>
         transport.request((client) => client[WS_METHODS.gitResolvePullRequest](input)),
+      getPullRequestRemoteOptions: (input) =>
+        transport.request((client) => client[WS_METHODS.gitGetPullRequestRemoteOptions](input)),
+      setPullRequestRemote: (input) =>
+        transport.request((client) => client[WS_METHODS.gitSetPullRequestRemote](input)),
       preparePullRequestThread: (input) =>
         transport.request((client) => client[WS_METHODS.gitPreparePullRequestThread](input)),
     },

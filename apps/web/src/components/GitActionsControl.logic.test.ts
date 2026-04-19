@@ -14,6 +14,7 @@ import {
 function status(overrides: Partial<GitStatusResult> = {}): GitStatusResult {
   return {
     isRepo: true,
+    hasAnyRemote: true,
     hasOriginRemote: true,
     isDefaultBranch: false,
     branch: "feature/test",
@@ -352,11 +353,9 @@ describe("when: working tree has local changes", () => {
     });
   });
 
-  it("resolveQuickAction falls back to commit when no origin remote exists", () => {
+  it("resolveQuickAction falls back to commit when no remote exists", () => {
     const quick = resolveQuickAction(
-      status({ hasWorkingTreeChanges: true, hasUpstream: false }),
-      false,
-      false,
+      status({ hasWorkingTreeChanges: true, hasUpstream: false, hasAnyRemote: false }),
       false,
     );
     assert.deepInclude(quick, {
@@ -642,21 +641,22 @@ describe("when: branch has no upstream configured", () => {
     });
   });
 
-  it("resolveQuickAction disables push-and-pr flows when no origin remote exists", () => {
+  it("resolveQuickAction disables push-and-pr flows when no remote exists", () => {
     const quick = resolveQuickAction(
       status({
+        hasAnyRemote: false,
+        hasOriginRemote: false,
         hasUpstream: false,
         aheadCount: 2,
         pr: null,
       }),
       false,
       false,
-      false,
     );
     assert.deepEqual(quick, {
       kind: "show_hint",
       label: "Push",
-      hint: 'Add an "origin" remote before pushing or creating a PR.',
+      hint: "Add a git remote before pushing or creating a PR.",
       disabled: true,
     });
   });
@@ -691,10 +691,15 @@ describe("when: branch has no upstream configured", () => {
     ]);
   });
 
-  it("buildMenuItems disables push and create PR when no origin remote exists", () => {
+  it("buildMenuItems disables push and create PR when no remote exists", () => {
     const items = buildMenuItems(
-      status({ hasUpstream: false, pr: null, aheadCount: 2 }),
-      false,
+      status({
+        hasAnyRemote: false,
+        hasOriginRemote: false,
+        hasUpstream: false,
+        pr: null,
+        aheadCount: 2,
+      }),
       false,
     );
     assert.deepEqual(items, [
