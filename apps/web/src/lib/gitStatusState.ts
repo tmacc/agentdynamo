@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { Cause } from "effect";
 import { Atom } from "effect/unstable/reactivity";
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import {
@@ -191,40 +191,59 @@ export function useGitStatusSnapshots(
     [targets],
   );
   const targetKeys = useMemo(() => targetEntries.map((entry) => entry.key), [targetEntries]);
+  const targetSignature = useMemo(() => targetKeys.join("\0"), [targetKeys]);
+  const stableTargetSetRef = useRef<{
+    readonly signature: string;
+    readonly entries: typeof targetEntries;
+    readonly keys: typeof targetKeys;
+  } | null>(null);
+  if (stableTargetSetRef.current?.signature !== targetSignature) {
+    stableTargetSetRef.current = {
+      signature: targetSignature,
+      entries: targetEntries,
+      keys: targetKeys,
+    };
+  }
   const snapshotCacheRef = useRef<GitStatusSnapshotCache | null>(null);
 
   useEffect(() => {
-    const releases = targets.map((target) =>
-      watchGitStatus({ environmentId: target.environmentId, cwd: target.cwd }),
-    );
+    const releases =
+      stableTargetSetRef.current?.entries.map((entry) =>
+        watchGitStatus({ environmentId: entry.target.environmentId, cwd: entry.target.cwd }),
+      ) ?? [];
     return () => {
       for (const release of releases) {
         release();
       }
     };
-  }, [targets]);
+  }, [targetSignature]);
 
-  return useSyncExternalStore(
-    (onStoreChange) => {
-      const unsubs = targetKeys.map((key) => subscribeGitStatusSnapshot(key, onStoreChange));
-      return () => {
-        for (const unsub of unsubs) {
-          unsub();
-        }
-      };
-    },
-    () => {
-      const nextValues = targetEntries.map((entry) => getGitStatusSnapshot(entry.target).data);
-      const nextSnapshot = buildStableGitStatusSnapshot({
-        cache: snapshotCacheRef.current,
-        keys: targetKeys,
-        values: nextValues,
-      });
-      snapshotCacheRef.current = nextSnapshot.cache;
-      return nextSnapshot.snapshot;
-    },
-    () => EMPTY_GIT_STATUS_SNAPSHOTS,
-  );
+  const subscribe = useCallback((onStoreChange: () => void) => {
+    const unsubs =
+      stableTargetSetRef.current?.keys.map((key) =>
+        subscribeGitStatusSnapshot(key, onStoreChange),
+      ) ?? [];
+    return () => {
+      for (const unsub of unsubs) {
+        unsub();
+      }
+    };
+  }, []);
+
+  const getSnapshot = useCallback(() => {
+    const stableTargetSet = stableTargetSetRef.current;
+    const nextValues =
+      stableTargetSet?.entries.map((entry) => getGitStatusSnapshot(entry.target).data) ?? [];
+    const nextSnapshot = buildStableGitStatusSnapshot({
+      cache: snapshotCacheRef.current,
+      keys: stableTargetSet?.keys ?? [],
+      values: nextValues,
+    });
+    snapshotCacheRef.current = nextSnapshot.cache;
+    return nextSnapshot.snapshot;
+  }, []);
+
+  return useSyncExternalStore(subscribe, getSnapshot, () => EMPTY_GIT_STATUS_SNAPSHOTS);
 }
 
 function unwatchGitStatus(targetKey: string): void {
