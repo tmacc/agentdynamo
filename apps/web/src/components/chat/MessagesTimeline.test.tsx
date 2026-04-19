@@ -188,4 +188,79 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("t3code/apps/web/src/session-logic.ts");
     expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
   });
+
+  it("renders anchored team task groups in the timeline instead of a footer-style team-tasks row", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "user-entry",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.make("message-user"),
+              role: "user",
+              text: "Launch a reviewer",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-entry",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: MessageId.make("message-assistant"),
+              role: "assistant",
+              text: "Reviewer launched.",
+              turnId: "turn-1" as never,
+              createdAt: "2026-03-17T19:12:32.000Z",
+              completedAt: "2026-03-17T19:12:33.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        teamTaskLaunchGroups={[
+          {
+            id: "activity-spawn-1",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            tasks: [
+              {
+                task: {
+                  id: "task-reviewer" as never,
+                  parentThreadId: "thread-parent" as never,
+                  childThreadId: "thread-child" as never,
+                  title: "Reviewer",
+                  roleLabel: "Reviewer",
+                  modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
+                  workspaceMode: "worktree",
+                  status: "failed",
+                  latestSummary: "Missing test coverage in the parser.",
+                  errorText: "Command failed.",
+                  createdAt: "2026-03-17T19:12:30.000Z",
+                  startedAt: "2026-03-17T19:12:30.500Z",
+                  completedAt: "2026-03-17T19:12:31.500Z",
+                  updatedAt: "2026-03-17T19:12:31.500Z",
+                },
+                diffSummary: null,
+                elapsed: "1s",
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const userIndex = markup.indexOf('data-timeline-row-kind="message"');
+    const groupIndex = markup.indexOf('data-timeline-row-kind="team-task-group"');
+    const assistantIndex = markup.lastIndexOf('data-timeline-row-kind="message"');
+
+    expect(groupIndex).toBeGreaterThan(userIndex);
+    expect(groupIndex).toBeLessThan(assistantIndex);
+    expect(markup).toContain("Reviewer");
+    expect(markup).toContain("failed");
+    expect(markup).not.toContain('data-timeline-row-kind="team-tasks"');
+  });
 });

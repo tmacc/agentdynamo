@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { EventId, type OrchestrationThreadActivity } from "@t3tools/contracts";
 import {
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
@@ -6,6 +7,52 @@ import {
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
 } from "./MessagesTimeline.logic";
+import { deriveTeamTaskLaunchGroups } from "./teamTaskTimeline";
+
+function makeTeamTaskView(input: {
+  id: string;
+  title: string;
+  createdAt: string;
+  status?: "queued" | "starting" | "running" | "waiting" | "completed" | "failed" | "cancelled";
+}) {
+  return {
+    task: {
+      id: input.id as never,
+      parentThreadId: "thread-parent" as never,
+      childThreadId: `thread-child:${input.id}` as never,
+      title: input.title,
+      roleLabel: input.title,
+      modelSelection: { provider: "codex" as const, model: "gpt-5.4-mini" },
+      workspaceMode: "worktree" as const,
+      status: input.status ?? "queued",
+      latestSummary: null,
+      errorText: null,
+      createdAt: input.createdAt,
+      startedAt: null,
+      completedAt: null,
+      updatedAt: input.createdAt,
+    },
+    diffSummary: null,
+    elapsed: null,
+  };
+}
+
+function makeActivity(input: {
+  id: string;
+  kind: string;
+  createdAt: string;
+  payload?: Record<string, unknown>;
+}): OrchestrationThreadActivity {
+  return {
+    id: EventId.make(input.id),
+    tone: input.kind.includes("failed") ? "error" : "info",
+    kind: input.kind,
+    summary: input.kind,
+    payload: input.payload ?? {},
+    turnId: null,
+    createdAt: input.createdAt,
+  };
+}
 
 describe("computeMessageDurationStart", () => {
   it("returns message createdAt when there is no preceding user message", () => {
@@ -596,6 +643,297 @@ describe("deriveMessagesTimelineRows", () => {
       createdAt: "2026-01-01T00:00:01.000Z",
     });
   });
+
+  it("inserts anchored team task groups in chronological order instead of appending them", () => {
+    const reviewer = makeTeamTaskView({
+      id: "task-reviewer",
+      title: "Reviewer",
+      createdAt: "2026-01-01T00:00:10.000Z",
+    });
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          message: {
+            id: "user-1" as never,
+            role: "user",
+            text: "Launch a reviewer",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "work-entry",
+          kind: "work",
+          createdAt: "2026-01-01T00:00:20.000Z",
+          entry: {
+            id: "work-1",
+            createdAt: "2026-01-01T00:00:20.000Z",
+            label: "thinking",
+            tone: "thinking",
+          },
+        },
+        {
+          id: "assistant-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:30.000Z",
+          message: {
+            id: "assistant-1" as never,
+            role: "assistant",
+            text: "Reviewer launched.",
+            turnId: "turn-1" as never,
+            createdAt: "2026-01-01T00:00:30.000Z",
+            completedAt: "2026-01-01T00:00:31.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map(),
+      teamTaskLaunchGroups: [
+        {
+          id: "activity-spawn-1",
+          createdAt: "2026-01-01T00:00:10.000Z",
+          tasks: [reviewer],
+        },
+      ],
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "team-task-group", "work", "message"]);
+  });
+
+  it("keeps fork separators ordered relative to anchored team task groups", () => {
+    const reviewer = makeTeamTaskView({
+      id: "task-reviewer",
+      title: "Reviewer",
+      createdAt: "2026-01-01T00:00:03.000Z",
+    });
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "imported-user-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          message: {
+            id: "imported-user" as never,
+            role: "user",
+            text: "Imported question",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:01.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "post-fork-user-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:04.000Z",
+          message: {
+            id: "post-fork-user" as never,
+            role: "user",
+            text: "New question",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:04.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map(),
+      teamTaskLaunchGroups: [
+        {
+          id: "activity-spawn-1",
+          createdAt: "2026-01-01T00:00:03.000Z",
+          tasks: [reviewer],
+        },
+      ],
+      forkOrigin: {
+        sourceThreadId: "thread-source" as never,
+        sourceThreadTitle: "Parent thread",
+        sourceUserMessageId: "message-source" as never,
+        importedUntilAt: "2026-01-01T00:00:02.000Z",
+        forkedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual([
+      "message",
+      "fork-separator",
+      "team-task-group",
+      "message",
+    ]);
+  });
+});
+
+describe("deriveTeamTaskLaunchGroups", () => {
+  it("groups consecutive spawn activities into one anchored launch block", () => {
+    const reviewer = makeTeamTaskView({
+      id: "task-reviewer",
+      title: "Reviewer",
+      createdAt: "2026-01-01T00:00:05.000Z",
+    });
+    const fixer = makeTeamTaskView({
+      id: "task-fixer",
+      title: "Fixer",
+      createdAt: "2026-01-01T00:00:06.000Z",
+    });
+
+    const groups = deriveTeamTaskLaunchGroups({
+      activities: [
+        makeActivity({
+          id: "activity-spawn-1",
+          kind: "team.task.spawned",
+          createdAt: "2026-01-01T00:00:05.000Z",
+          payload: { taskId: "task-reviewer" },
+        }),
+        makeActivity({
+          id: "activity-spawn-2",
+          kind: "team.task.spawned",
+          createdAt: "2026-01-01T00:00:06.000Z",
+          payload: { taskId: "task-fixer" },
+        }),
+      ],
+      taskViews: [reviewer, fixer],
+    });
+
+    expect(groups).toEqual([
+      {
+        id: "activity-spawn-1",
+        createdAt: "2026-01-01T00:00:05.000Z",
+        tasks: [reviewer, fixer],
+      },
+    ]);
+  });
+
+  it("starts a new group when a non-spawn activity appears between spawn events", () => {
+    const reviewer = makeTeamTaskView({
+      id: "task-reviewer",
+      title: "Reviewer",
+      createdAt: "2026-01-01T00:00:05.000Z",
+    });
+    const fixer = makeTeamTaskView({
+      id: "task-fixer",
+      title: "Fixer",
+      createdAt: "2026-01-01T00:00:07.000Z",
+    });
+
+    const groups = deriveTeamTaskLaunchGroups({
+      activities: [
+        makeActivity({
+          id: "activity-spawn-1",
+          kind: "team.task.spawned",
+          createdAt: "2026-01-01T00:00:05.000Z",
+          payload: { taskId: "task-reviewer" },
+        }),
+        makeActivity({
+          id: "activity-tool-1",
+          kind: "tool.updated",
+          createdAt: "2026-01-01T00:00:06.000Z",
+        }),
+        makeActivity({
+          id: "activity-spawn-2",
+          kind: "team.task.spawned",
+          createdAt: "2026-01-01T00:00:07.000Z",
+          payload: { taskId: "task-fixer" },
+        }),
+      ],
+      taskViews: [reviewer, fixer],
+    });
+
+    expect(groups).toEqual([
+      {
+        id: "activity-spawn-1",
+        createdAt: "2026-01-01T00:00:05.000Z",
+        tasks: [reviewer],
+      },
+      {
+        id: "activity-spawn-2",
+        createdAt: "2026-01-01T00:00:07.000Z",
+        tasks: [fixer],
+      },
+    ]);
+  });
+
+  it("keeps the same launch group id across task state updates", () => {
+    const queuedReviewer = makeTeamTaskView({
+      id: "task-reviewer",
+      title: "Reviewer",
+      createdAt: "2026-01-01T00:00:05.000Z",
+      status: "queued",
+    });
+    const completedReviewer = makeTeamTaskView({
+      id: "task-reviewer",
+      title: "Reviewer",
+      createdAt: "2026-01-01T00:00:05.000Z",
+      status: "completed",
+    });
+    const activities = [
+      makeActivity({
+        id: "activity-spawn-1",
+        kind: "team.task.spawned",
+        createdAt: "2026-01-01T00:00:05.000Z",
+        payload: { taskId: "task-reviewer" },
+      }),
+      makeActivity({
+        id: "activity-completed-1",
+        kind: "team.task.completed",
+        createdAt: "2026-01-01T00:00:10.000Z",
+        payload: { taskId: "task-reviewer" },
+      }),
+    ];
+
+    const queuedGroups = deriveTeamTaskLaunchGroups({
+      activities,
+      taskViews: [queuedReviewer],
+    });
+    const completedGroups = deriveTeamTaskLaunchGroups({
+      activities,
+      taskViews: [completedReviewer],
+    });
+
+    expect(queuedGroups[0]?.id).toBe("activity-spawn-1");
+    expect(completedGroups[0]?.id).toBe("activity-spawn-1");
+    expect(completedGroups[0]?.tasks[0]?.task.status).toBe("completed");
+  });
+
+  it("creates a fallback group for tasks without a matching spawn activity", () => {
+    const reviewer = makeTeamTaskView({
+      id: "task-reviewer",
+      title: "Reviewer",
+      createdAt: "2026-01-01T00:00:05.000Z",
+      status: "failed",
+    });
+
+    const groups = deriveTeamTaskLaunchGroups({
+      activities: [
+        makeActivity({
+          id: "activity-completed-1",
+          kind: "team.task.failed",
+          createdAt: "2026-01-01T00:00:10.000Z",
+          payload: { taskId: "task-reviewer" },
+        }),
+      ],
+      taskViews: [reviewer],
+    });
+
+    expect(groups).toEqual([
+      {
+        id: "team-task-fallback:task-reviewer",
+        createdAt: "2026-01-01T00:00:05.000Z",
+        tasks: [reviewer],
+      },
+    ]);
+  });
 });
 
 describe("computeStableMessagesTimelineRows", () => {
@@ -701,5 +1039,55 @@ describe("computeStableMessagesTimelineRows", () => {
 
     expect(reordered).not.toBe(initial);
     expect(reordered.result).toEqual([initial.result[1], initial.result[0]]);
+  });
+
+  it("reuses team-task-group rows when the launch group id and tasks reference are unchanged", () => {
+    const reviewer = makeTeamTaskView({
+      id: "task-reviewer",
+      title: "Reviewer",
+      createdAt: "2026-01-01T00:00:05.000Z",
+    });
+    const launchGroups = [
+      {
+        id: "activity-spawn-1",
+        createdAt: "2026-01-01T00:00:05.000Z",
+        tasks: [reviewer],
+      },
+    ];
+
+    const firstRows = deriveMessagesTimelineRows({
+      timelineEntries: [],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map(),
+      teamTaskLaunchGroups: launchGroups,
+    });
+
+    const initial = computeStableMessagesTimelineRows(firstRows, {
+      byId: new Map(),
+      result: [],
+    });
+
+    const repeatedRows = deriveMessagesTimelineRows({
+      timelineEntries: [],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+      userMessageSwitchInfoByMessageId: new Map(),
+      teamTaskLaunchGroups: launchGroups,
+    });
+    const repeated = computeStableMessagesTimelineRows(repeatedRows, initial);
+
+    expect(repeated).toBe(initial);
+    expect(repeated.result[0]).toBe(initial.result[0]);
+    expect(repeated.result[0]).toMatchObject({
+      kind: "team-task-group",
+      id: "activity-spawn-1",
+    });
   });
 });
