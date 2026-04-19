@@ -40,7 +40,7 @@ import {
 import { Button } from "../ui/button";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-import { TeamTaskInlineBlocks, type TeamTaskInlineView } from "./TeamTaskInlineBlock";
+import { TeamTaskInlineBlocks } from "./TeamTaskInlineBlock";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
@@ -54,6 +54,7 @@ import {
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
+import { type TeamTaskLaunchGroup } from "./teamTaskTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -130,7 +131,7 @@ interface MessagesTimelineProps {
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   onIsAtEndChange: (isAtEnd: boolean) => void;
-  teamTasks?: readonly TeamTaskInlineView[];
+  teamTaskLaunchGroups?: readonly TeamTaskLaunchGroup[];
   onInspectChildThread?: (threadId: import("@t3tools/contracts").ThreadId) => void;
   onOpenForkSourceThread?: (threadId: ThreadId) => void;
   onForkUserMessage?: (messageId: MessageId) => void;
@@ -165,7 +166,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
   onIsAtEndChange,
-  teamTasks,
+  teamTaskLaunchGroups,
   onInspectChildThread,
   onOpenForkSourceThread,
   onForkUserMessage,
@@ -184,7 +185,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
         userMessageSwitchInfoByMessageId,
-        teamTasks,
+        teamTaskLaunchGroups,
         forkOrigin,
       }),
     [
@@ -195,7 +196,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
       userMessageSwitchInfoByMessageId,
-      teamTasks,
+      teamTaskLaunchGroups,
       forkOrigin,
     ],
   );
@@ -534,7 +535,7 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
         </div>
       )}
 
-      {row.kind === "team-tasks" && (
+      {row.kind === "team-task-group" && (
         <div className="min-w-0 px-1 py-0.5">
           <TeamTaskInlineBlocks tasks={row.tasks} onInspectThread={ctx.onInspectChildThread} />
         </div>

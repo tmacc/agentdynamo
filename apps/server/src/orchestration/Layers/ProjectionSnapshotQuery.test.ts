@@ -945,6 +945,147 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("orders tied activity timestamps by sequence deterministically", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-1',
+          'Project 1',
+          '/tmp/project-1',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '2026-04-01T00:00:00.000Z',
+          '2026-04-01T00:00:01.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          latest_user_message_at,
+          pending_approval_count,
+          pending_user_input_count,
+          has_actionable_proposed_plan,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'thread-sequence-tie',
+          'project-1',
+          'Thread sequence tie',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access',
+          'default',
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          0,
+          0,
+          0,
+          '2026-04-01T00:00:02.000Z',
+          '2026-04-01T00:00:03.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id,
+          thread_id,
+          turn_id,
+          tone,
+          kind,
+          summary,
+          payload_json,
+          sequence,
+          created_at
+        )
+        VALUES
+          (
+            'activity-sequence-3',
+            'thread-sequence-tie',
+            NULL,
+            'info',
+            'runtime.note',
+            'sequence three',
+            '{"source":"sequence-3"}',
+            3,
+            '2026-04-01T00:00:06.000Z'
+          ),
+          (
+            'activity-sequence-1',
+            'thread-sequence-tie',
+            NULL,
+            'info',
+            'runtime.note',
+            'sequence one',
+            '{"source":"sequence-1"}',
+            1,
+            '2026-04-01T00:00:06.000Z'
+          ),
+          (
+            'activity-sequence-2',
+            'thread-sequence-tie',
+            NULL,
+            'info',
+            'runtime.note',
+            'sequence two',
+            '{"source":"sequence-2"}',
+            2,
+            '2026-04-01T00:00:06.000Z'
+          )
+      `;
+
+      const threadDetail = yield* snapshotQuery.getThreadDetailById(
+        ThreadId.make("thread-sequence-tie"),
+      );
+
+      assert.equal(threadDetail._tag, "Some");
+      if (threadDetail._tag === "Some") {
+        assert.deepEqual(
+          threadDetail.value.activities.map((activity) => ({
+            id: activity.id,
+            sequence: activity.sequence ?? null,
+          })),
+          [
+            { id: asEventId("activity-sequence-1"), sequence: 1 },
+            { id: asEventId("activity-sequence-2"), sequence: 2 },
+            { id: asEventId("activity-sequence-3"), sequence: 3 },
+          ],
+        );
+      }
+    }),
+  );
+
   it.effect("uses projection_threads.latest_turn_id for targeted thread latest turn queries", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

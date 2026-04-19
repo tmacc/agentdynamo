@@ -122,6 +122,7 @@ import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { deriveLogicalProjectKey } from "../logicalProject";
+import { deriveTeamTaskLaunchGroups } from "./chat/teamTaskTimeline";
 import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
@@ -1633,6 +1634,14 @@ export default function ChatView(props: ChatViewProps) {
   const teamTaskInlineViews = useMemo(
     () => (activeThread?.teamParentThreadId == null ? teamPanelTasks : []),
     [teamPanelTasks, activeThread?.teamParentThreadId],
+  );
+  const teamTaskLaunchGroups = useMemo(
+    () =>
+      deriveTeamTaskLaunchGroups({
+        activities: activeThread?.activities ?? [],
+        taskViews: teamTaskInlineViews,
+      }),
+    [activeThread?.activities, teamTaskInlineViews],
   );
   const selectedAgentChildThreadId = useMemo(() => {
     const requestedChildThreadId = rawSearch.agentChildThreadId;
@@ -3622,7 +3631,7 @@ export default function ChatView(props: ChatViewProps) {
               timestampFormat={timestampFormat}
               workspaceRoot={activeWorkspaceRoot}
               onIsAtEndChange={onIsAtEndChange}
-              teamTasks={teamTaskInlineViews}
+              teamTaskLaunchGroups={teamTaskLaunchGroups}
               onInspectChildThread={inspectChildTaskById}
               onOpenForkSourceThread={openThreadById}
               onForkUserMessage={openForkThreadDialog}
