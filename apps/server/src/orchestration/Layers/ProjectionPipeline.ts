@@ -49,6 +49,7 @@ import {
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
 import { materializeActivitySequence } from "../materializeActivitySequence.ts";
+import { compareProjectionActivitiesByOrder } from "../projectionActivityOrder.ts";
 import {
   attachmentRelativePath,
   parseAttachmentIdFromRelativePath,
@@ -115,11 +116,7 @@ function derivePendingUserInputCountFromActivities(
   activities: ReadonlyArray<ProjectionThreadActivity>,
 ): number {
   const openRequestIds = new Set<string>();
-  const ordered = [...activities].toSorted(
-    (left, right) =>
-      left.createdAt.localeCompare(right.createdAt) ||
-      left.activityId.localeCompare(right.activityId),
-  );
+  const ordered = [...activities].toSorted(compareProjectionActivitiesByOrder);
 
   for (const activity of ordered) {
     const requestId = extractActivityRequestId(activity.payload);

@@ -1848,6 +1848,380 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
     }),
   );
 
+  it.effect("tracks same-timestamp requested and resolved user-input activities by sequence", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+      yield* appendAndProject({
+        type: "project.created",
+        eventId: EventId.make("evt-user-input-sequence-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.make("project-user-input-sequence"),
+        occurredAt: "2026-04-13T00:10:00.000Z",
+        commandId: CommandId.make("cmd-user-input-sequence-project"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-user-input-sequence-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.make("project-user-input-sequence"),
+          title: "Project User Input Sequence",
+          workspaceRoot: "/tmp/project-user-input-sequence",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-04-13T00:10:00.000Z",
+          updatedAt: "2026-04-13T00:10:00.000Z",
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.created",
+        eventId: EventId.make("evt-user-input-sequence-thread"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-user-input-sequence"),
+        occurredAt: "2026-04-13T00:10:01.000Z",
+        commandId: CommandId.make("cmd-user-input-sequence-thread"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-user-input-sequence-thread"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.make("thread-user-input-sequence"),
+          projectId: ProjectId.make("project-user-input-sequence"),
+          title: "Thread User Input Sequence",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-04-13T00:10:01.000Z",
+          updatedAt: "2026-04-13T00:10:01.000Z",
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.activity-appended",
+        eventId: EventId.make("evt-user-input-sequence-requested"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-user-input-sequence"),
+        occurredAt: "2026-04-13T00:10:02.000Z",
+        commandId: CommandId.make("cmd-user-input-sequence-requested"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-user-input-sequence-requested"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.make("thread-user-input-sequence"),
+          activity: {
+            id: EventId.make("activity-user-input-requested-1"),
+            tone: "info",
+            kind: "user-input.requested",
+            summary: "User input requested",
+            payload: {
+              requestId: "user-input-request-sequence-1",
+            },
+            turnId: TurnId.make("turn-user-input-sequence"),
+            sequence: 1,
+            createdAt: "2026-04-13T00:10:02.000Z",
+          },
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.activity-appended",
+        eventId: EventId.make("evt-user-input-sequence-resolved"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-user-input-sequence"),
+        occurredAt: "2026-04-13T00:10:03.000Z",
+        commandId: CommandId.make("cmd-user-input-sequence-resolved"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-user-input-sequence-resolved"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.make("thread-user-input-sequence"),
+          activity: {
+            id: EventId.make("activity-user-input-resolved-1"),
+            tone: "info",
+            kind: "user-input.resolved",
+            summary: "User input resolved",
+            payload: {
+              requestId: "user-input-request-sequence-1",
+            },
+            turnId: TurnId.make("turn-user-input-sequence"),
+            sequence: 2,
+            createdAt: "2026-04-13T00:10:02.000Z",
+          },
+        },
+      });
+
+      const threadRows = yield* sql<{
+        readonly pendingUserInputCount: number;
+      }>`
+        SELECT pending_user_input_count AS "pendingUserInputCount"
+        FROM projection_threads
+        WHERE thread_id = 'thread-user-input-sequence'
+      `;
+
+      assert.deepEqual(threadRows, [{ pendingUserInputCount: 0 }]);
+    }),
+  );
+
+  it.effect(
+    "counts same-timestamp sequenced user-input requests as open without a resolution",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+          eventStore
+            .append(event)
+            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.make("evt-user-input-open-project"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.make("project-user-input-open"),
+          occurredAt: "2026-04-13T00:20:00.000Z",
+          commandId: CommandId.make("cmd-user-input-open-project"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-user-input-open-project"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.make("project-user-input-open"),
+            title: "Project User Input Open",
+            workspaceRoot: "/tmp/project-user-input-open",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: "2026-04-13T00:20:00.000Z",
+            updatedAt: "2026-04-13T00:20:00.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.make("evt-user-input-open-thread"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-user-input-open"),
+          occurredAt: "2026-04-13T00:20:01.000Z",
+          commandId: CommandId.make("cmd-user-input-open-thread"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-user-input-open-thread"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-user-input-open"),
+            projectId: ProjectId.make("project-user-input-open"),
+            title: "Thread User Input Open",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-04-13T00:20:01.000Z",
+            updatedAt: "2026-04-13T00:20:01.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-user-input-open-requested"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-user-input-open"),
+          occurredAt: "2026-04-13T00:20:02.000Z",
+          commandId: CommandId.make("cmd-user-input-open-requested"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-user-input-open-requested"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-user-input-open"),
+            activity: {
+              id: EventId.make("activity-user-input-requested-open"),
+              tone: "info",
+              kind: "user-input.requested",
+              summary: "User input requested",
+              payload: {
+                requestId: "user-input-request-open-1",
+              },
+              turnId: TurnId.make("turn-user-input-open"),
+              sequence: 1,
+              createdAt: "2026-04-13T00:20:02.000Z",
+            },
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-user-input-open-tool"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-user-input-open"),
+          occurredAt: "2026-04-13T00:20:03.000Z",
+          commandId: CommandId.make("cmd-user-input-open-tool"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-user-input-open-tool"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-user-input-open"),
+            activity: {
+              id: EventId.make("activity-z-tool-updated-open"),
+              tone: "tool",
+              kind: "tool.updated",
+              summary: "Tool updated",
+              payload: {},
+              turnId: TurnId.make("turn-user-input-open"),
+              sequence: 2,
+              createdAt: "2026-04-13T00:20:02.000Z",
+            },
+          },
+        });
+
+        const threadRows = yield* sql<{
+          readonly pendingUserInputCount: number;
+        }>`
+        SELECT pending_user_input_count AS "pendingUserInputCount"
+        FROM projection_threads
+        WHERE thread_id = 'thread-user-input-open'
+      `;
+
+        assert.deepEqual(threadRows, [{ pendingUserInputCount: 1 }]);
+      }),
+  );
+
+  it.effect(
+    "does not let same-timestamp lexical ids override activity sequence for user-input state",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+          eventStore
+            .append(event)
+            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.make("evt-user-input-lexical-project"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.make("project-user-input-lexical"),
+          occurredAt: "2026-04-13T00:30:00.000Z",
+          commandId: CommandId.make("cmd-user-input-lexical-project"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-user-input-lexical-project"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.make("project-user-input-lexical"),
+            title: "Project User Input Lexical",
+            workspaceRoot: "/tmp/project-user-input-lexical",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: "2026-04-13T00:30:00.000Z",
+            updatedAt: "2026-04-13T00:30:00.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.make("evt-user-input-lexical-thread"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-user-input-lexical"),
+          occurredAt: "2026-04-13T00:30:01.000Z",
+          commandId: CommandId.make("cmd-user-input-lexical-thread"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-user-input-lexical-thread"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-user-input-lexical"),
+            projectId: ProjectId.make("project-user-input-lexical"),
+            title: "Thread User Input Lexical",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-04-13T00:30:01.000Z",
+            updatedAt: "2026-04-13T00:30:01.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-user-input-lexical-requested"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-user-input-lexical"),
+          occurredAt: "2026-04-13T00:30:02.000Z",
+          commandId: CommandId.make("cmd-user-input-lexical-requested"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-user-input-lexical-requested"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-user-input-lexical"),
+            activity: {
+              id: EventId.make("z-requested"),
+              tone: "info",
+              kind: "user-input.requested",
+              summary: "User input requested",
+              payload: {
+                requestId: "user-input-request-lexical-1",
+              },
+              turnId: TurnId.make("turn-user-input-lexical"),
+              sequence: 1,
+              createdAt: "2026-04-13T00:30:02.000Z",
+            },
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-user-input-lexical-resolved"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-user-input-lexical"),
+          occurredAt: "2026-04-13T00:30:03.000Z",
+          commandId: CommandId.make("cmd-user-input-lexical-resolved"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-user-input-lexical-resolved"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-user-input-lexical"),
+            activity: {
+              id: EventId.make("a-resolved"),
+              tone: "info",
+              kind: "user-input.resolved",
+              summary: "User input resolved",
+              payload: {
+                requestId: "user-input-request-lexical-1",
+              },
+              turnId: TurnId.make("turn-user-input-lexical"),
+              sequence: 2,
+              createdAt: "2026-04-13T00:30:02.000Z",
+            },
+          },
+        });
+
+        const threadRows = yield* sql<{
+          readonly pendingUserInputCount: number;
+        }>`
+        SELECT pending_user_input_count AS "pendingUserInputCount"
+        FROM projection_threads
+        WHERE thread_id = 'thread-user-input-lexical'
+      `;
+
+        assert.deepEqual(threadRows, [{ pendingUserInputCount: 0 }]);
+      }),
+  );
+
   it.effect("ignores non-stale provider approval response failures", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
