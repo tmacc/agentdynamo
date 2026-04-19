@@ -6,11 +6,13 @@ import { Effect } from "effect";
 import { APP_HOME_ENV_VAR, LEGACY_APP_HOME_ENV_VAR } from "@t3tools/shared/branding";
 
 import {
+  buildWorktreeScopedDevHome,
   checkPortAvailabilityOnHosts,
   createDevRunnerEnv,
   findFirstAvailableOffset,
   resolveModePortOffsets,
   resolveOffset,
+  resolveWorktreeRootForDevHome,
 } from "./dev-runner.ts";
 
 it.layer(NodeServices.layer)("dev-runner", (it) => {
@@ -48,7 +50,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("createDevRunnerEnv", () => {
-    it.effect("defaults Dynamo home to ~/.dynamo when not provided", () =>
+    it.effect("defaults Dynamo home to a worktree-scoped path under ~/.dynamo", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
@@ -64,8 +66,25 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env[APP_HOME_ENV_VAR], resolve(homedir(), ".dynamo"));
-        assert.equal(env[LEGACY_APP_HOME_ENV_VAR], resolve(homedir(), ".dynamo"));
+        const expected = buildWorktreeScopedDevHome(
+          resolve(homedir(), ".dynamo"),
+          resolveWorktreeRootForDevHome(process.cwd()),
+        );
+
+        assert.equal(env[APP_HOME_ENV_VAR], expected);
+        assert.equal(env[LEGACY_APP_HOME_ENV_VAR], expected);
+      }),
+    );
+
+    it.effect("derives distinct worktree homes for different worktree roots", () =>
+      Effect.sync(() => {
+        const sharedHome = resolve(homedir(), ".dynamo");
+        const left = buildWorktreeScopedDevHome(sharedHome, "/tmp/repo-a");
+        const right = buildWorktreeScopedDevHome(sharedHome, "/tmp/repo-b");
+
+        assert.notEqual(left, right);
+        assert.ok(left.startsWith(resolve(sharedHome, "dev-worktrees")));
+        assert.ok(right.startsWith(resolve(sharedHome, "dev-worktrees")));
       }),
     );
 

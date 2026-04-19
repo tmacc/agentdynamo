@@ -2398,3 +2398,111 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
     }),
   );
 });
+
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-board-thread-cas-")))(
+  "OrchestrationProjectionPipeline",
+  (it) => {
+    it.effect("ignores stale board.card-thread-unlinked events when the card was relinked", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+          eventStore
+            .append(event)
+            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.make("evt-board-thread-cas-1"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.make("project-board-thread-cas"),
+          occurredAt: "2026-04-19T00:00:00.000Z",
+          commandId: CommandId.make("cmd-board-thread-cas-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-board-thread-cas-1"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.make("project-board-thread-cas"),
+            title: "Board Thread CAS",
+            workspaceRoot: "/tmp/project-board-thread-cas",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: "2026-04-19T00:00:00.000Z",
+            updatedAt: "2026-04-19T00:00:00.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "board.card-created",
+          eventId: EventId.make("evt-board-thread-cas-2"),
+          aggregateKind: "board",
+          aggregateId: ProjectId.make("project-board-thread-cas"),
+          occurredAt: "2026-04-19T00:00:01.000Z",
+          commandId: CommandId.make("cmd-board-thread-cas-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-board-thread-cas-2"),
+          metadata: {},
+          payload: {
+            cardId: "card-board-thread-cas" as never,
+            projectId: ProjectId.make("project-board-thread-cas"),
+            title: "Card" as never,
+            description: null,
+            seededPrompt: null,
+            column: "planned",
+            sortOrder: 0,
+            linkedThreadId: ThreadId.make("thread-old"),
+            linkedProposedPlanId: null,
+            createdAt: "2026-04-19T00:00:01.000Z",
+            updatedAt: "2026-04-19T00:00:01.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "board.card-thread-linked",
+          eventId: EventId.make("evt-board-thread-cas-3"),
+          aggregateKind: "board",
+          aggregateId: ProjectId.make("project-board-thread-cas"),
+          occurredAt: "2026-04-19T00:00:02.000Z",
+          commandId: CommandId.make("cmd-board-thread-cas-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-board-thread-cas-3"),
+          metadata: {},
+          payload: {
+            cardId: "card-board-thread-cas" as never,
+            projectId: ProjectId.make("project-board-thread-cas"),
+            threadId: ThreadId.make("thread-new"),
+            updatedAt: "2026-04-19T00:00:02.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "board.card-thread-unlinked",
+          eventId: EventId.make("evt-board-thread-cas-4"),
+          aggregateKind: "board",
+          aggregateId: ProjectId.make("project-board-thread-cas"),
+          occurredAt: "2026-04-19T00:00:03.000Z",
+          commandId: CommandId.make("cmd-board-thread-cas-4"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-board-thread-cas-4"),
+          metadata: {},
+          payload: {
+            cardId: "card-board-thread-cas" as never,
+            projectId: ProjectId.make("project-board-thread-cas"),
+            previousThreadId: ThreadId.make("thread-old"),
+            updatedAt: "2026-04-19T00:00:03.000Z",
+          },
+        });
+
+        const linkedThreadRows = yield* sql<{
+          readonly linkedThreadId: string | null;
+        }>`
+          SELECT linked_thread_id AS "linkedThreadId"
+          FROM projection_board_cards
+          WHERE card_id = 'card-board-thread-cas'
+        `;
+        assert.deepEqual(linkedThreadRows, [{ linkedThreadId: "thread-new" }]);
+      }),
+    );
+  },
+);

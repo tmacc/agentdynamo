@@ -248,6 +248,36 @@ export function requireBoardCardInProject(input: {
   );
 }
 
+export function requireBoardCardLinkedThreadMatches(input: {
+  readonly command: OrchestrationCommand;
+  readonly card: FeatureCard;
+  readonly expectedThreadId: ThreadId | null;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.expectedThreadId === null) {
+    return Effect.fail(
+      invariantError(
+        input.command.type,
+        `Board card '${input.card.id}' is not currently linked to a thread and cannot be unlinked.`,
+      ),
+    );
+  }
+
+  if (input.card.linkedThreadId === input.expectedThreadId) {
+    return Effect.void;
+  }
+
+  const actualThreadState =
+    input.card.linkedThreadId === null
+      ? "not linked"
+      : `linked to thread '${input.card.linkedThreadId}'`;
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Board card '${input.card.id}' expected linked thread '${input.expectedThreadId}' but is currently ${actualThreadState}.`,
+    ),
+  );
+}
+
 export function requireBoardThreadLinkAvailable(input: {
   readonly command: OrchestrationCommand;
   readonly threadId: ThreadId;

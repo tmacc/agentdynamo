@@ -180,6 +180,106 @@ describe("BoardCardSheet", () => {
     }
   });
 
+  it("normalizes title drafts before saving and reconciles future same-card title updates", async () => {
+    __setEnvironmentApiOverrideForTests(TEST_ENVIRONMENT_ID, createEnvironmentApiStub());
+    setBoardCards([makeCard()]);
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(<Harness />, { container: host });
+
+    try {
+      await waitForElement(getTitleInput, "Unable to find card title input");
+      await page.getByLabelText("Card title").fill("My title   ");
+      getTitleInput()?.blur();
+
+      await vi.waitFor(() => {
+        expect(getTitleInput()?.value).toBe("My title");
+      });
+      expect(apiHarness.dispatchCommandSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "board.card.update",
+          title: "My title",
+        }),
+      );
+
+      setBoardCards([
+        makeCard({
+          title: "My title" as FeatureCard["title"],
+          updatedAt: "2026-04-18T00:00:01.000Z" as FeatureCard["updatedAt"],
+        }),
+      ]);
+
+      await vi.waitFor(() => {
+        expect(getTitleInput()?.value).toBe("My title");
+      });
+
+      setBoardCards([
+        makeCard({
+          title: "Server retitled card" as FeatureCard["title"],
+          updatedAt: "2026-04-18T00:00:02.000Z" as FeatureCard["updatedAt"],
+        }),
+      ]);
+
+      await vi.waitFor(() => {
+        expect(getTitleInput()?.value).toBe("Server retitled card");
+      });
+    } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it("skips a title save when trimming produces the persisted title", async () => {
+    __setEnvironmentApiOverrideForTests(TEST_ENVIRONMENT_ID, createEnvironmentApiStub());
+    setBoardCards([
+      makeCard({
+        title: "My title" as FeatureCard["title"],
+      }),
+    ]);
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(<Harness />, { container: host });
+
+    try {
+      await waitForElement(getTitleInput, "Unable to find card title input");
+      await page.getByLabelText("Card title").fill("  My title  ");
+      getTitleInput()?.blur();
+
+      await vi.waitFor(() => {
+        expect(getTitleInput()?.value).toBe("My title");
+      });
+      expect(apiHarness.dispatchCommandSpy).not.toHaveBeenCalled();
+    } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it("reverts whitespace-only title drafts without dispatching a save", async () => {
+    __setEnvironmentApiOverrideForTests(TEST_ENVIRONMENT_ID, createEnvironmentApiStub());
+    setBoardCards([makeCard()]);
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(<Harness />, { container: host });
+
+    try {
+      await waitForElement(getTitleInput, "Unable to find card title input");
+      await page.getByLabelText("Card title").fill("   ");
+      getTitleInput()?.blur();
+
+      await vi.waitFor(() => {
+        expect(getTitleInput()?.value).toBe("Initial card");
+      });
+      expect(apiHarness.dispatchCommandSpy).not.toHaveBeenCalled();
+    } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
   it("keeps destructive controls disabled while archive is still pending after an optimistic update", async () => {
     apiHarness.dispatchCommandSpy.mockImplementation(async (command: { type: string }) => {
       if (command.type === "board.card.archive") {

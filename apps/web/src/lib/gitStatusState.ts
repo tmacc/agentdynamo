@@ -166,6 +166,26 @@ export function resetGitStatusStateForTests(): void {
   knownGitStatusKeys.clear();
 }
 
+export function __setGitStatusSnapshotForTests(
+  target: GitStatusTarget,
+  state: GitStatusState,
+): void {
+  const targetKey = getGitStatusTargetKey(target);
+  if (targetKey === null) {
+    return;
+  }
+  appAtomRegistry.set(gitStatusStateAtom(targetKey), state);
+  notifyGitStatusSnapshotListeners(targetKey);
+}
+
+export function __getGitStatusSnapshotListenerCountForTests(target: GitStatusTarget): number {
+  const targetKey = getGitStatusTargetKey(target);
+  if (targetKey === null) {
+    return 0;
+  }
+  return gitStatusSnapshotListeners.get(targetKey)?.size ?? 0;
+}
+
 export function useGitStatus(target: GitStatusTarget): GitStatusState {
   const targetKey = getGitStatusTargetKey(target);
   useEffect(
@@ -182,7 +202,7 @@ export function useGitStatus(target: GitStatusTarget): GitStatusState {
 export function useGitStatusSnapshots(
   targets: ReadonlyArray<GitStatusTarget>,
 ): ReadonlyMap<string, GitStatusResult | null> {
-  const targetEntries = useMemo(
+  const rawTargetEntries = useMemo(
     () =>
       targets.flatMap((target) => {
         const key = getGitStatusTargetKey(target);
@@ -190,18 +210,21 @@ export function useGitStatusSnapshots(
       }),
     [targets],
   );
-  const targetKeys = useMemo(() => targetEntries.map((entry) => entry.key), [targetEntries]);
-  const targetSignature = useMemo(() => targetKeys.join("\0"), [targetKeys]);
+  const rawTargetKeys = useMemo(
+    () => rawTargetEntries.map((entry) => entry.key),
+    [rawTargetEntries],
+  );
   const stableTargetSetRef = useRef<{
     readonly signature: string;
-    readonly entries: typeof targetEntries;
-    readonly keys: typeof targetKeys;
+    readonly entries: typeof rawTargetEntries;
+    readonly keys: typeof rawTargetKeys;
   } | null>(null);
+  const targetSignature = useMemo(() => rawTargetKeys.join("\0"), [rawTargetKeys]);
   if (stableTargetSetRef.current?.signature !== targetSignature) {
     stableTargetSetRef.current = {
       signature: targetSignature,
-      entries: targetEntries,
-      keys: targetKeys,
+      entries: rawTargetEntries,
+      keys: rawTargetKeys,
     };
   }
   const snapshotCacheRef = useRef<GitStatusSnapshotCache | null>(null);
@@ -218,17 +241,20 @@ export function useGitStatusSnapshots(
     };
   }, [targetSignature]);
 
-  const subscribe = useCallback((onStoreChange: () => void) => {
-    const unsubs =
-      stableTargetSetRef.current?.keys.map((key) =>
-        subscribeGitStatusSnapshot(key, onStoreChange),
-      ) ?? [];
-    return () => {
-      for (const unsub of unsubs) {
-        unsub();
-      }
-    };
-  }, []);
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      const unsubs =
+        stableTargetSetRef.current?.keys.map((key) =>
+          subscribeGitStatusSnapshot(key, onStoreChange),
+        ) ?? [];
+      return () => {
+        for (const unsub of unsubs) {
+          unsub();
+        }
+      };
+    },
+    [targetSignature],
+  );
 
   const getSnapshot = useCallback(() => {
     const stableTargetSet = stableTargetSetRef.current;
@@ -241,7 +267,7 @@ export function useGitStatusSnapshots(
     });
     snapshotCacheRef.current = nextSnapshot.cache;
     return nextSnapshot.snapshot;
-  }, []);
+  }, [targetSignature]);
 
   return useSyncExternalStore(subscribe, getSnapshot, () => EMPTY_GIT_STATUS_SNAPSHOTS);
 }
