@@ -23,6 +23,7 @@ export const WORKTREE_MANAGED_HEADER =
 const WORKTREE_PORT_RANGE_START = 41000;
 const WORKTREE_PORT_RANGE_END = 61000;
 const DEFAULT_PORT_COUNT = 5;
+type WorktreeRuntimeEnvPathMode = "git-admin" | "legacy-worktree";
 
 type PackageJson = {
   packageManager?: string;
@@ -312,11 +313,23 @@ export async function resolveWorktreeRuntimeEnvFilePath(worktreePath: string): P
   return path.join(gitAdminDir, WORKTREE_GIT_ENV_RELATIVE_PATH);
 }
 
+function buildRuntimeEnvPathInitialization(runtimeEnvPathMode: WorktreeRuntimeEnvPathMode): string {
+  switch (runtimeEnvPathMode) {
+    case "git-admin":
+      return `GIT_DIR="$(git -C "$WORKTREE_ROOT" rev-parse --absolute-git-dir)"
+LOCAL_ENV_PATH="$GIT_DIR/${WORKTREE_GIT_ENV_RELATIVE_PATH}"`;
+    case "legacy-worktree":
+      return `LOCAL_ENV_PATH="$WORKTREE_ROOT/${LEGACY_WORKTREE_LOCAL_ENV_PATH}"`;
+  }
+}
+
 export function buildSetupScriptContent(input: {
   readonly installCommand: string | null;
   readonly envStrategy: ProjectWorktreeReadinessEnvStrategy;
   readonly envSourcePath: string | null;
+  readonly runtimeEnvPathMode?: WorktreeRuntimeEnvPathMode;
 }): string {
+  const runtimeEnvPathMode = input.runtimeEnvPathMode ?? "git-admin";
   const envBlock =
     input.envStrategy !== "none" && input.envSourcePath
       ? `
@@ -351,8 +364,7 @@ ${WORKTREE_MANAGED_HEADER}
 SCRIPT_DIR=\${0:A:h}
 WORKTREE_ROOT=\${SCRIPT_DIR:h:h}
 PROJECT_ROOT=\${T3CODE_PROJECT_ROOT:-$WORKTREE_ROOT}
-GIT_DIR="$(git -C "$WORKTREE_ROOT" rev-parse --absolute-git-dir)"
-LOCAL_ENV_PATH="$GIT_DIR/${WORKTREE_GIT_ENV_RELATIVE_PATH}"
+${buildRuntimeEnvPathInitialization(runtimeEnvPathMode)}
 
 mkdir -p "$WORKTREE_ROOT/.t3code"
 if [[ ! -f "$LOCAL_ENV_PATH" ]]; then
@@ -372,7 +384,9 @@ export function buildDevScriptContent(input: {
   readonly framework: ProjectWorktreeReadinessFramework;
   readonly packageManager: ProjectWorktreeReadinessPackageManager;
   readonly devCommand: string;
+  readonly runtimeEnvPathMode?: WorktreeRuntimeEnvPathMode;
 }): string {
+  const runtimeEnvPathMode = input.runtimeEnvPathMode ?? "git-admin";
   const invocation = buildFrameworkDevInvocation(input);
   return `#!/usr/bin/env zsh
 set -euo pipefail
@@ -382,8 +396,7 @@ ${WORKTREE_MANAGED_HEADER}
 
 SCRIPT_DIR=\${0:A:h}
 WORKTREE_ROOT=\${SCRIPT_DIR:h:h}
-GIT_DIR="$(git -C "$WORKTREE_ROOT" rev-parse --absolute-git-dir)"
-LOCAL_ENV_PATH="$GIT_DIR/${WORKTREE_GIT_ENV_RELATIVE_PATH}"
+${buildRuntimeEnvPathInitialization(runtimeEnvPathMode)}
 
 if [[ -f "$LOCAL_ENV_PATH" ]]; then
   source "$LOCAL_ENV_PATH"
@@ -425,11 +438,15 @@ export function buildManagedWorktreeScriptFiles(input: {
   readonly framework: ProjectWorktreeReadinessFramework;
   readonly packageManager: ProjectWorktreeReadinessPackageManager;
   readonly devCommand: string | null;
+  readonly runtimeEnvPathMode?: WorktreeRuntimeEnvPathMode;
 }): ReadonlyArray<readonly [string, string]> {
+  const runtimeEnvPathMode =
+    input.runtimeEnvPathMode === undefined ? {} : { runtimeEnvPathMode: input.runtimeEnvPathMode };
   const setupContent = buildSetupScriptContent({
     installCommand: input.installCommand,
     envStrategy: input.envStrategy,
     envSourcePath: input.envSourcePath,
+    ...runtimeEnvPathMode,
   });
   const devContent = buildDevScriptContent({
     framework: input.framework,
@@ -437,6 +454,7 @@ export function buildManagedWorktreeScriptFiles(input: {
     devCommand:
       input.devCommand ??
       "zsh -lc 'echo \"No dev command configured for this worktree.\" >&2; exit 1'",
+    ...runtimeEnvPathMode,
   });
 
   return [
@@ -670,6 +688,9 @@ type ExistingManagedWorktreeScriptState =
       readonly status: "identical";
     }
   | {
+      readonly status: "legacy_managed";
+    }
+  | {
       readonly status: "drifted_managed" | "drifted_unmanaged";
       readonly existingContent: string;
     };
@@ -677,6 +698,7 @@ type ExistingManagedWorktreeScriptState =
 async function readManagedWorktreeScriptState(input: {
   readonly absolutePath: string;
   readonly expectedContent: string;
+  readonly legacyCompatibleContent?: string | null;
 }): Promise<ExistingManagedWorktreeScriptState> {
   const existingContent = await readOptionalFile(input.absolutePath);
   if (existingContent === null) {
@@ -684,6 +706,9 @@ async function readManagedWorktreeScriptState(input: {
   }
   if (existingContent === input.expectedContent) {
     return { status: "identical" };
+  }
+  if (input.legacyCompatibleContent && existingContent === input.legacyCompatibleContent) {
+    return { status: "legacy_managed" };
   }
   return {
     status: isManagedWorktreeFile(existingContent) ? "drifted_managed" : "drifted_unmanaged",
@@ -696,7 +721,7 @@ function managedWorktreeScriptDriftError(input: {
   readonly policy: ManagedWorktreeScriptWritePolicy;
   readonly state: Extract<
     ExistingManagedWorktreeScriptState,
-    { readonly status: "drifted_managed" | "drifted_unmanaged" }
+    { readonly status: "legacy_managed" | "drifted_managed" | "drifted_unmanaged" }
   >;
 }): Error {
   if (input.policy.mode === "apply_with_confirmation") {
@@ -706,7 +731,7 @@ function managedWorktreeScriptDriftError(input: {
   }
 
   const driftKind =
-    input.state.status === "drifted_managed" ? "managed helper file" : "unmanaged file";
+    input.state.status === "drifted_unmanaged" ? "unmanaged file" : "managed helper file";
   return new Error(
     `Worktree helper drift detected at ${input.relativePath} (${driftKind}). Reapply Worktree Readiness and confirm overwriting this helper before running setup.`,
   );
@@ -730,6 +755,17 @@ export async function materializeManagedWorktreeScripts(input: {
     packageManager: input.packageManager,
     devCommand: input.devCommand,
   });
+  const legacyCompatibleContentByPath = new Map(
+    buildManagedWorktreeScriptFiles({
+      installCommand: input.installCommand,
+      envStrategy: input.envStrategy,
+      envSourcePath: input.envSourcePath,
+      framework: input.framework,
+      packageManager: input.packageManager,
+      devCommand: input.devCommand,
+      runtimeEnvPathMode: "legacy-worktree",
+    }),
+  );
 
   const results: ManagedWorktreeScriptMaterializationEntry[] = [];
   for (const [relativePath, content] of files) {
@@ -737,6 +773,7 @@ export async function materializeManagedWorktreeScripts(input: {
     const existingState = await readManagedWorktreeScriptState({
       absolutePath,
       expectedContent: content,
+      legacyCompatibleContent: legacyCompatibleContentByPath.get(relativePath) ?? null,
     });
     switch (existingState.status) {
       case "missing":
@@ -746,6 +783,22 @@ export async function materializeManagedWorktreeScripts(input: {
       case "identical":
         results.push({ path: relativePath, action: "preserved" });
         break;
+      case "legacy_managed":
+        if (input.policy.mode === "bootstrap_safe") {
+          await writeExecutableFile(absolutePath, content);
+          results.push({ path: relativePath, action: "overwritten" });
+          break;
+        }
+        if (input.policy.overwriteManagedFiles) {
+          await writeExecutableFile(absolutePath, content);
+          results.push({ path: relativePath, action: "overwritten" });
+          break;
+        }
+        throw managedWorktreeScriptDriftError({
+          relativePath,
+          policy: input.policy,
+          state: existingState,
+        });
       case "drifted_managed":
       case "drifted_unmanaged":
         if (input.policy.mode === "apply_with_confirmation" && input.policy.overwriteManagedFiles) {
