@@ -1,6 +1,7 @@
 import {
   type EnvironmentId,
   type FeatureCard,
+  type FeatureCardColumn,
   type FeatureCardId,
   type FeatureCardStoredColumn,
   type GitStatusResult,
@@ -11,12 +12,15 @@ import { scopeProjectRef } from "@t3tools/client-runtime";
 import {
   DndContext,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
+  DragOverlay,
   PointerSensor,
-  closestCorners,
+  pointerWithin,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
+import { ArrowLeftIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
@@ -38,17 +42,30 @@ import {
 import { useBoardUiStore } from "../../boardUiStore";
 import { selectProjectByRef, selectSidebarThreadsForProjectRef, useStore } from "../../store";
 import { useGitStatusSnapshots } from "../../lib/gitStatusState";
+import { Button } from "../ui/button";
+import { SidebarTrigger } from "../ui/sidebar";
+import { Spinner } from "../ui/spinner";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { BoardColumn } from "./BoardColumn";
 import { BoardCardSheet } from "./BoardCardSheet";
+import { BoardUserCard } from "./BoardCard";
 import type { SidebarThreadSummary } from "../../types";
 
 interface BoardViewProps {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly onStartAgent: (card: FeatureCard) => void;
+  readonly onCloseBoard?: (() => void) | undefined;
+  readonly closeBoardLabel?: string | undefined;
 }
 
-export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewProps) {
+export function BoardView({
+  environmentId,
+  projectId,
+  onStartAgent,
+  onCloseBoard,
+  closeBoardLabel,
+}: BoardViewProps) {
   const projectRef = useMemo(
     () => scopeProjectRef(environmentId, projectId),
     [environmentId, projectId],
@@ -64,7 +81,8 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
   );
   const clearAddCardIntent = useBoardUiStore((state) => state.clearAddCardIntent);
   const [openCardId, setOpenCardId] = useState<FeatureCardId | null>(null);
-  const [activeDragCardId, setActiveDragCardId] = useState<FeatureCardId | null>(null);
+  const [activeDragCard, setActiveDragCard] = useState<FeatureCard | null>(null);
+  const [activeOverColumn, setActiveOverColumn] = useState<FeatureCardColumn | null>(null);
 
   // Subscribe to the board RPC stream for this project.
   useEffect(() => {
@@ -102,13 +120,42 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const data = event.active?.data?.current as { kind?: string; card?: FeatureCard } | undefined;
     if (data?.kind === "user-card" && data.card) {
-      setActiveDragCardId(data.card.id);
+      setActiveDragCard(data.card);
     }
   }, []);
 
+  const handleDragOver = useCallback(
+    (event: DragOverEvent) => {
+      const overId = event.over?.id as string | undefined;
+      if (!overId) {
+        setActiveOverColumn(null);
+        return;
+      }
+      // Column droppable: id is "board-column:<col>".
+      if (overId.startsWith("board-column:")) {
+        const maybeColumn = overId.slice("board-column:".length);
+        if (maybeColumn === "ideas" || maybeColumn === "planned") {
+          setActiveOverColumn(maybeColumn);
+          return;
+        }
+        setActiveOverColumn(null);
+        return;
+      }
+      // Sortable card droppable: id matches a card id; resolve its column.
+      const overCard = cards.find((c) => (c.id as unknown as string) === overId);
+      if (overCard && isStoredBoardColumn(overCard.column)) {
+        setActiveOverColumn(overCard.column);
+        return;
+      }
+      setActiveOverColumn(null);
+    },
+    [cards],
+  );
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      setActiveDragCardId(null);
+      setActiveDragCard(null);
+      setActiveOverColumn(null);
       const activeId = event.active?.id as string | undefined;
       const overId = event.over?.id as string | undefined;
       if (!activeId || !overId) return;
@@ -166,6 +213,11 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
     [cards, environmentId, projectId],
   );
 
+  const handleDragCancel = useCallback(() => {
+    setActiveDragCard(null);
+    setActiveOverColumn(null);
+  }, []);
+
   if (!project) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -175,33 +227,49 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
       <BoardHeader
         projectName={project.name}
         cardCount={cards.filter((c) => c.archivedAt === null).length}
         status={status.status}
+        onCloseBoard={onCloseBoard}
+        closeBoardLabel={closeBoardLabel}
       />
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={pointerWithin}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
       >
-        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden p-3">
-          {BOARD_COLUMN_ORDER.map((col) => (
-            <BoardColumn
-              key={col}
-              column={col}
-              items={columns.find((c) => c.kind === col)?.items ?? []}
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden scroll-smooth">
+          <div className="flex h-full min-w-full w-max gap-3 p-3 pb-2">
+            {BOARD_COLUMN_ORDER.map((col) => (
+              <BoardColumn
+                key={col}
+                column={col}
+                items={columns.find((c) => c.kind === col)?.items ?? []}
+                environmentId={environmentId}
+                projectId={projectId}
+                onStartAgent={onStartAgent}
+                onOpenCard={(card) => setOpenCardId(card.id)}
+                shouldOpenAddCard={pendingAddColumn === col}
+                onAddCardIntentHandled={() => clearAddCardIntent(environmentId, projectId)}
+                activeOverColumn={activeOverColumn}
+              />
+            ))}
+          </div>
+        </div>
+        <DragOverlay dropAnimation={{ duration: 150, easing: "cubic-bezier(0.18,0.67,0.6,1.22)" }}>
+          {activeDragCard ? (
+            <BoardUserCard
+              item={{ kind: "user-card", card: activeDragCard }}
               environmentId={environmentId}
               projectId={projectId}
-              onStartAgent={onStartAgent}
-              onOpenCard={(card) => setOpenCardId(card.id)}
-              shouldOpenAddCard={pendingAddColumn === col}
-              onAddCardIntentHandled={() => clearAddCardIntent(environmentId, projectId)}
             />
-          ))}
-        </div>
+          ) : null}
+        </DragOverlay>
       </DndContext>
       {openCardId ? (
         <BoardCardSheet
@@ -211,11 +279,6 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
           onClose={() => setOpenCardId(null)}
           onStartAgent={onStartAgent}
         />
-      ) : null}
-      {activeDragCardId ? (
-        <div aria-hidden className="sr-only">
-          dragging {activeDragCardId}
-        </div>
       ) : null}
     </div>
   );
@@ -305,19 +368,61 @@ interface BoardHeaderProps {
   readonly projectName: string;
   readonly cardCount: number;
   readonly status: "loading" | "ready" | "error" | "idle";
+  readonly onCloseBoard?: (() => void) | undefined;
+  readonly closeBoardLabel?: string | undefined;
 }
 
-function BoardHeader({ projectName, cardCount, status }: BoardHeaderProps) {
+function BoardHeader({
+  projectName,
+  cardCount,
+  status,
+  onCloseBoard,
+  closeBoardLabel,
+}: BoardHeaderProps) {
   return (
-    <div className="flex items-center justify-between border-b bg-background px-4 py-2">
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium text-foreground">{projectName}</div>
-        <div className="text-[11px] text-muted-foreground">
-          {cardCount} {cardCount === 1 ? "card" : "cards"} ·{" "}
-          <span className="capitalize">{status}</span>
-        </div>
+    <header className="flex items-center justify-between gap-3 border-b border-border bg-background px-3 py-2 sm:px-5 sm:py-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <SidebarTrigger className="size-7 shrink-0 md:hidden" />
+        <h2 className="min-w-0 truncate text-sm font-medium text-foreground" title={projectName}>
+          {projectName}
+        </h2>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {cardCount} {cardCount === 1 ? "card" : "cards"}
+        </span>
       </div>
-    </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {status === "loading" ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="inline-flex size-5 items-center justify-center text-muted-foreground">
+                  <Spinner className="size-3" />
+                </span>
+              }
+            />
+            <TooltipPopup side="bottom">Loading board</TooltipPopup>
+          </Tooltip>
+        ) : null}
+        {status === "error" ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="inline-flex h-5 items-center rounded-full bg-destructive/10 px-2 text-xs text-destructive-foreground">
+                  Error
+                </span>
+              }
+            />
+            <TooltipPopup side="bottom">Failed to load the board</TooltipPopup>
+          </Tooltip>
+        ) : null}
+        {onCloseBoard ? (
+          <Button size="xs" variant="outline" onClick={onCloseBoard}>
+            <ArrowLeftIcon className="size-3" />
+            {closeBoardLabel ?? "Close board"}
+          </Button>
+        ) : null}
+      </div>
+    </header>
   );
 }
 

@@ -105,6 +105,12 @@ function findButtonByText(text: string): HTMLButtonElement | null {
   ) ?? null) as HTMLButtonElement | null;
 }
 
+function getMoreCardActionsButton(): HTMLButtonElement | null {
+  return document.querySelector(
+    'button[aria-label="More card actions"]',
+  ) as HTMLButtonElement | null;
+}
+
 async function waitForElement<T>(getter: () => T | null, message: string): Promise<T> {
   await vi.waitFor(() => {
     expect(getter(), message).toBeTruthy();
@@ -273,6 +279,7 @@ describe("BoardCardSheet", () => {
       await vi.waitFor(() => {
         expect(getTitleInput()?.value).toBe("Initial card");
       });
+      expect(document.body.textContent).toContain("Title is required");
       expect(apiHarness.dispatchCommandSpy).not.toHaveBeenCalled();
     } finally {
       await screen.unmount();
@@ -295,11 +302,12 @@ describe("BoardCardSheet", () => {
     const screen = await render(<Harness />, { container: host });
 
     try {
-      const archiveButton = await waitForElement(
-        () => findButtonByText("Archive"),
-        'Unable to find "Archive" button',
+      const moreActionsButton = await waitForElement(
+        getMoreCardActionsButton,
+        'Unable to find "More card actions" button',
       );
-      archiveButton.click();
+      moreActionsButton.click();
+      await page.getByText("Archive").click();
 
       await vi.waitFor(() => {
         expect(getTitleInput()?.disabled).toBe(true);
@@ -333,11 +341,12 @@ describe("BoardCardSheet", () => {
     const screen = await render(<Harness />, { container: host });
 
     try {
-      const deleteButton = await waitForElement(
-        () => findButtonByText("Delete"),
-        'Unable to find "Delete" button',
+      const moreActionsButton = await waitForElement(
+        getMoreCardActionsButton,
+        'Unable to find "More card actions" button',
       );
-      deleteButton.click();
+      moreActionsButton.click();
+      await page.getByText("Delete").click();
 
       await vi.waitFor(() => {
         expect(getTitleInput()).toBeTruthy();
@@ -371,11 +380,12 @@ describe("BoardCardSheet", () => {
     const screen = await render(<Harness />, { container: host });
 
     try {
-      const deleteButton = await waitForElement(
-        () => findButtonByText("Delete"),
-        'Unable to find "Delete" button',
+      const moreActionsButton = await waitForElement(
+        getMoreCardActionsButton,
+        'Unable to find "More card actions" button',
       );
-      deleteButton.click();
+      moreActionsButton.click();
+      await page.getByText("Delete").click();
 
       await vi.waitFor(() => {
         expect(getTitleInput()).toBeTruthy();
@@ -385,6 +395,40 @@ describe("BoardCardSheet", () => {
 
       await vi.waitFor(() => {
         expect(document.querySelector('[data-testid="sheet-closed"]')).toBeTruthy();
+      });
+    } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it("promotes ideas cards to planned from the header action", async () => {
+    __setEnvironmentApiOverrideForTests(TEST_ENVIRONMENT_ID, createEnvironmentApiStub());
+    setBoardCards([
+      makeCard({
+        column: "ideas",
+      }),
+    ]);
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(<Harness />, { container: host });
+
+    try {
+      await waitForElement(
+        () => findButtonByText("Mark as planned"),
+        'Unable to find "Mark as planned" button',
+      );
+      await page.getByText("Mark as planned").click();
+
+      await vi.waitFor(() => {
+        expect(apiHarness.dispatchCommandSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "board.card.move",
+            toColumn: "planned",
+          }),
+        );
+        expect(findButtonByText("Mark as planned")).toBeNull();
       });
     } finally {
       await screen.unmount();

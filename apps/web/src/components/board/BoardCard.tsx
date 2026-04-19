@@ -3,6 +3,7 @@ import {
   ArchiveIcon,
   CheckCircle2Icon,
   CircleDotIcon,
+  EllipsisIcon,
   EyeIcon,
   GhostIcon,
   GitPullRequestIcon,
@@ -13,6 +14,7 @@ import {
 import { memo, useCallback } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
+import { clearBoardRouteSearchParams } from "../../boardRouteSearch";
 import { cn } from "../../lib/utils";
 import {
   deleteBoardCard,
@@ -24,6 +26,8 @@ import type { BoardItem, BoardTeamTaskPill } from "../../boardProjection";
 import type { ThreadPr } from "../ThreadStatusIndicators";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Card } from "../ui/card";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 interface BoardCardCommonProps {
@@ -32,6 +36,10 @@ interface BoardCardCommonProps {
   readonly onStartAgent?: (card: FeatureCard) => void;
   readonly onOpenSheet?: (card: FeatureCard) => void;
 }
+
+// Shared card chrome — small radius and subtle shadow tuned for kanban density.
+// Overrides the design-system default `rounded-2xl` for a tighter look.
+const KANBAN_CARD_CLASSES = "rounded-md shadow-sm transition-shadow";
 
 interface UserBoardCardProps extends BoardCardCommonProps {
   readonly item: Extract<BoardItem, { kind: "user-card" }>;
@@ -62,12 +70,14 @@ export const BoardUserCard = memo(function BoardUserCard({
   }, [card, onOpenSheet]);
 
   return (
-    <div
+    <Card
       ref={dragHandleRef}
       style={style}
       className={cn(
-        "group rounded-md border bg-card text-card-foreground shadow-sm transition-shadow",
-        isDragging ? "opacity-60 shadow-lg" : "hover:shadow-md",
+        "group",
+        KANBAN_CARD_CLASSES,
+        // While dragging, hide the source card so the DragOverlay shows the only copy.
+        isDragging ? "opacity-0" : "hover:shadow-md",
       )}
       {...attributes}
     >
@@ -77,6 +87,9 @@ export const BoardUserCard = memo(function BoardUserCard({
         tabIndex={0}
         onClick={handleClick}
         onKeyDown={(e) => {
+          if (e.currentTarget !== e.target) {
+            return;
+          }
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             handleClick();
@@ -108,19 +121,18 @@ export const BoardUserCard = memo(function BoardUserCard({
             ) : null}
           </div>
         </div>
-        <div className="flex items-center justify-between gap-2 border-t px-3 py-1.5 text-[10px] text-muted-foreground">
+        <div className="flex items-center justify-between gap-2 border-t px-3 py-1.5 text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
             {canStartAgent ? (
               <Button
-                size="sm"
+                size="xs"
                 variant="secondary"
-                className="h-6 gap-1 px-2 text-[11px]"
                 onClick={(e) => {
                   e.stopPropagation();
                   onStartAgent?.(card);
                 }}
               >
-                <PlayIcon className="size-2.5" />
+                <PlayIcon className="size-3" />
                 Start Agent
               </Button>
             ) : null}
@@ -143,7 +155,7 @@ export const BoardUserCard = memo(function BoardUserCard({
           />
         </div>
       </div>
-    </div>
+    </Card>
   );
 });
 
@@ -164,11 +176,12 @@ export const BoardLiveCard = memo(function BoardLiveCard({
     void navigate({
       to: "/$environmentId/$threadId",
       params: { environmentId: thread.environmentId, threadId: thread.id },
+      search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
     }).catch(() => undefined);
   }, [navigate, thread.environmentId, thread.id]);
 
   return (
-    <div className="group relative rounded-md border bg-card text-card-foreground shadow-sm transition hover:shadow-md">
+    <Card className={cn("group relative", KANBAN_CARD_CLASSES, "transition hover:shadow-md")}>
       <button
         type="button"
         onClick={openThread}
@@ -176,11 +189,11 @@ export const BoardLiveCard = memo(function BoardLiveCard({
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <CircleDotIcon className="size-3 shrink-0 animate-pulse text-emerald-500" />
+            <CircleDotIcon className="size-3 shrink-0 animate-pulse text-success" />
             <div className="truncate text-sm font-medium text-foreground">{title}</div>
           </div>
           {thread.branch ? (
-            <div className="mt-1 truncate text-[10px] text-muted-foreground">{thread.branch}</div>
+            <div className="mt-1 truncate text-xs text-muted-foreground">{thread.branch}</div>
           ) : null}
           {teamTasks.length > 0 ? (
             <div className="mt-1.5 flex flex-wrap gap-1">
@@ -206,11 +219,10 @@ export const BoardLiveCard = memo(function BoardLiveCard({
         </div>
       </button>
       {isGhost ? (
-        <div className="flex items-center justify-end border-t px-3 py-1 text-[10px] text-muted-foreground">
+        <div className="flex items-center justify-end border-t px-3 py-1 text-xs text-muted-foreground">
           <Button
-            size="sm"
+            size="xs"
             variant="ghost"
-            className="h-5 px-1 text-[10px]"
             onClick={(e) => {
               e.stopPropagation();
               dismissGhostCard({ environmentId, projectId, threadId: thread.id }).catch(
@@ -222,7 +234,7 @@ export const BoardLiveCard = memo(function BoardLiveCard({
           </Button>
         </div>
       ) : null}
-    </div>
+    </Card>
   );
 });
 
@@ -239,24 +251,27 @@ export const BoardReviewCard = memo(function BoardReviewCard({ item }: ReviewBoa
     void navigate({
       to: "/$environmentId/$threadId",
       params: { environmentId: thread.environmentId, threadId: thread.id },
+      search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
     }).catch(() => undefined);
   }, [navigate, thread.environmentId, thread.id]);
 
   return (
-    <button
-      type="button"
-      onClick={openThread}
-      className="flex w-full flex-col gap-1 rounded-md border bg-card p-3 text-left text-card-foreground shadow-sm transition hover:shadow-md"
-    >
-      <div className="flex items-center gap-1.5">
-        <EyeIcon className="size-3 shrink-0 text-amber-500" />
-        <div className="truncate text-sm font-medium text-foreground">{title}</div>
-      </div>
-      {thread.branch ? (
-        <div className="truncate text-[10px] text-muted-foreground">{thread.branch}</div>
-      ) : null}
-      {pr ? <PrBadge pr={pr} /> : null}
-    </button>
+    <Card className={cn(KANBAN_CARD_CLASSES, "transition hover:shadow-md")}>
+      <button
+        type="button"
+        onClick={openThread}
+        className="flex w-full flex-col gap-1 p-3 text-left"
+      >
+        <div className="flex items-center gap-1.5">
+          <EyeIcon className="size-3 shrink-0 text-warning" />
+          <div className="truncate text-sm font-medium text-foreground">{title}</div>
+        </div>
+        {thread.branch ? (
+          <div className="truncate text-xs text-muted-foreground">{thread.branch}</div>
+        ) : null}
+        {pr ? <PrBadge pr={pr} /> : null}
+      </button>
+    </Card>
   );
 });
 
@@ -273,32 +288,41 @@ export const BoardDoneCard = memo(function BoardDoneCard({ item }: DoneBoardCard
     void navigate({
       to: "/$environmentId/$threadId",
       params: { environmentId: thread.environmentId, threadId: thread.id },
+      search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
     }).catch(() => undefined);
   }, [navigate, thread.environmentId, thread.id]);
 
   return (
-    <button
-      type="button"
-      onClick={openThread}
-      className="flex w-full flex-col gap-1 rounded-md border border-dashed bg-card/50 p-3 text-left text-muted-foreground shadow-sm transition hover:shadow-md"
+    <Card
+      className={cn(
+        "border-dashed bg-card/50 text-muted-foreground",
+        KANBAN_CARD_CLASSES,
+        "transition hover:shadow-md",
+      )}
     >
-      <div className="flex items-center gap-1.5">
-        {reason === "pr-merged" ? (
-          <CheckCircle2Icon className="size-3 shrink-0 text-violet-500" />
-        ) : (
-          <ArchiveIcon className="size-3 shrink-0 text-muted-foreground" />
-        )}
-        <div className="truncate text-sm font-medium text-foreground/80">{title}</div>
-      </div>
-      {thread.branch ? <div className="truncate text-[10px]">{thread.branch}</div> : null}
-      {pr ? <PrBadge pr={pr} /> : null}
-    </button>
+      <button
+        type="button"
+        onClick={openThread}
+        className="flex w-full flex-col gap-1 p-3 text-left"
+      >
+        <div className="flex items-center gap-1.5">
+          {reason === "pr-merged" ? (
+            <CheckCircle2Icon className="size-3 shrink-0 text-violet-500" />
+          ) : (
+            <ArchiveIcon className="size-3 shrink-0 text-muted-foreground" />
+          )}
+          <div className="truncate text-sm font-medium text-foreground/80">{title}</div>
+        </div>
+        {thread.branch ? <div className="truncate text-xs">{thread.branch}</div> : null}
+        {pr ? <PrBadge pr={pr} /> : null}
+      </button>
+    </Card>
   );
 });
 
 function PrBadge({ pr }: { readonly pr: NonNullable<ThreadPr> }) {
   return (
-    <Badge variant="outline" className="w-fit gap-1 text-[10px]">
+    <Badge variant="outline" className="w-fit gap-1 text-xs">
       <GitPullRequestIcon className="size-3" />
       <span>
         #{pr.number} {pr.state}
@@ -309,7 +333,7 @@ function PrBadge({ pr }: { readonly pr: NonNullable<ThreadPr> }) {
 
 function TeamTaskPill({ pill }: { readonly pill: BoardTeamTaskPill }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] text-muted-foreground">
+    <span className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs text-muted-foreground">
       <LinkIcon className="size-2" />
       <span className="truncate">{pill.roleLabel ?? "team task"}</span>
       {pill.status ? <span className="opacity-70">· {pill.status}</span> : null}
@@ -323,35 +347,46 @@ interface BoardCardOverflowMenuProps {
 }
 
 function BoardCardOverflowMenu({ onArchive, onDelete }: BoardCardOverflowMenuProps) {
+  if (!onArchive && !onDelete) return null;
   return (
-    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-      {onArchive ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-5 px-1 text-[10px]"
-          onClick={(e) => {
-            e.stopPropagation();
-            onArchive();
-          }}
-        >
-          Archive
-        </Button>
-      ) : null}
-      {onDelete ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-5 px-1 text-[10px] text-destructive"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-        >
-          Delete
-        </Button>
-      ) : null}
-    </div>
+    <Menu>
+      <MenuTrigger
+        render={
+          <Button
+            aria-label="Card actions"
+            size="icon-xs"
+            variant="ghost"
+            onClick={(e) => e.stopPropagation()}
+          />
+        }
+      >
+        <EllipsisIcon aria-hidden="true" className="size-4" />
+      </MenuTrigger>
+      <MenuPopup align="end">
+        {onArchive ? (
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onArchive();
+            }}
+          >
+            <ArchiveIcon />
+            Archive
+          </MenuItem>
+        ) : null}
+        {onDelete ? (
+          <MenuItem
+            variant="destructive"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
+            Delete
+          </MenuItem>
+        ) : null}
+      </MenuPopup>
+    </Menu>
   );
 }
 

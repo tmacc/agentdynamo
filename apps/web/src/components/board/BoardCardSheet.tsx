@@ -8,6 +8,8 @@ import {
 import { scopeThreadRef } from "@t3tools/client-runtime";
 import {
   ArchiveIcon,
+  ArrowRightIcon,
+  EllipsisIcon,
   ExternalLinkIcon,
   LinkIcon,
   PlayIcon,
@@ -18,9 +20,12 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
+import { clearBoardRouteSearchParams } from "../../boardRouteSearch";
 import {
   archiveBoardCard,
+  computeSortOrderBetween,
   deleteBoardCard,
+  moveBoardCard,
   unlinkBoardCardThread,
   updateBoardCard,
   useBoardCards,
@@ -28,8 +33,11 @@ import {
 import { selectSidebarThreadSummaryByRef, useStore } from "../../store";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Section, SectionAction, SectionBody, SectionHeader, SectionLabel } from "../ui/section";
 import { Sheet, SheetFooter, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "../ui/sheet";
 import { Textarea } from "../ui/textarea";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 
 interface BoardCardSheetProps {
   readonly environmentId: EnvironmentId;
@@ -75,15 +83,17 @@ export function BoardCardSheet({
   onClose,
   onStartAgent,
 }: BoardCardSheetProps) {
-  const persistedCard =
-    useBoardCards(environmentId, projectId).find((candidate) => candidate.id === cardId) ?? null;
+  const cards = useBoardCards(environmentId, projectId);
+  const persistedCard = cards.find((candidate) => candidate.id === cardId) ?? null;
   const [title, setTitle] = useState<string>(persistedCard?.title ?? "");
   const [description, setDescription] = useState<string>(persistedCard?.description ?? "");
   const [seededPrompt, setSeededPrompt] = useState<string>(persistedCard?.seededPrompt ?? "");
   const [dirty, setDirty] = useState<BoardCardSheetDirtyState>(CLEAN_DIRTY_STATE);
   const [promptPreview, setPromptPreview] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [pendingMutation, setPendingMutation] = useState<"archive" | "delete" | null>(null);
+  const [pendingMutation, setPendingMutation] = useState<"archive" | "delete" | "promote" | null>(
+    null,
+  );
   const [pendingDeleteCardSnapshot, setPendingDeleteCardSnapshot] = useState<FeatureCard | null>(
     null,
   );
@@ -191,11 +201,13 @@ export function BoardCardSheet({
   const handleTitleCommit = useCallback(() => {
     const next = normalizeCardTitleDraft(title);
     if (next.length === 0) {
-      // Revert: title is required.
+      // Revert: title is required. Surface why so the user knows the input
+      // didn't silently swallow their edit.
       setTitle(card.title);
       setDirty((currentDirty) =>
         currentDirty.title ? { ...currentDirty, title: false } : currentDirty,
       );
+      setSaveError("Title is required");
       return;
     }
     setTitle(next);
@@ -256,6 +268,32 @@ export function BoardCardSheet({
       });
   }, [card, environmentId, onClose, persistedCard, projectId]);
 
+  const handlePromoteToPlanned = useCallback(() => {
+    if (card.column !== "ideas") return;
+    setPendingMutation("promote");
+    setSaveError(null);
+    // Place at the top of Planned: insert before the first existing Planned card.
+    const firstPlanned =
+      cards
+        .filter((c) => c.column === "planned" && c.archivedAt === null)
+        .toSorted((a, b) => a.sortOrder - b.sortOrder)
+        .at(0) ?? null;
+    const { sortOrder } = computeSortOrderBetween(cards, "planned", null, firstPlanned?.id ?? null);
+    void moveBoardCard({
+      environmentId,
+      projectId,
+      cardId: card.id,
+      toColumn: "planned",
+      sortOrder,
+    })
+      .catch((err) => {
+        setSaveError(err instanceof Error ? err.message : "Failed to promote");
+      })
+      .finally(() => {
+        setPendingMutation(null);
+      });
+  }, [card.column, card.id, cards, environmentId, projectId]);
+
   const handleStartAgent = useCallback(() => {
     onStartAgent(card);
     onClose();
@@ -265,7 +303,9 @@ export function BoardCardSheet({
   // that here to keep the button disabled while linked to a thread.
   const canDelete = card.linkedThreadId === null;
   const canStartAgent = card.column === "planned" && card.linkedThreadId === null;
+  const canPromote = card.column === "ideas";
   const isMutating = pendingMutation !== null;
+  const showOverflowMenu = !card.archivedAt || canDelete;
 
   return (
     <Sheet
@@ -275,7 +315,7 @@ export function BoardCardSheet({
       }}
     >
       <SheetPopup side="right" className="flex w-[min(92vw,520px)] max-w-[520px] flex-col p-0">
-        <SheetHeader className="border-b py-4">
+        <SheetHeader className="border-b py-4 pr-12">
           <SheetTitle className="sr-only">{title || "Untitled card"}</SheetTitle>
           <Input
             value={title}
@@ -295,87 +335,116 @@ export function BoardCardSheet({
                 handleTitleCommit();
               }
             }}
-            className="h-8 text-base font-semibold"
+            className="h-9 text-base font-semibold"
             placeholder="Untitled card"
             aria-label="Card title"
           />
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="capitalize">{card.column}</span>
+            {canPromote ? (
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={handlePromoteToPlanned}
+                disabled={isMutating}
+              >
+                Mark as planned
+                <ArrowRightIcon className="size-3" />
+              </Button>
+            ) : null}
             {card.linkedProposedPlanId ? (
               <span className="inline-flex items-center gap-1 text-violet-500">
                 <SparklesIcon className="size-3" />
                 From proposed plan
               </span>
             ) : null}
-            {card.archivedAt ? <span className="text-amber-500">Archived</span> : null}
+            {card.archivedAt ? <span className="text-warning">Archived</span> : null}
           </div>
         </SheetHeader>
 
         <SheetPanel className="flex flex-1 flex-col gap-4 p-4">
-          <Section label="Description">
-            <Textarea
-              value={description}
-              onChange={(e) => {
-                const nextDescription = e.target.value;
-                setDescription(nextDescription);
-                setDirty((currentDirty) => ({
-                  ...currentDirty,
-                  description: nextDescription !== cardTextValue(persistedCard?.description),
-                }));
-              }}
-              onBlur={handleDescriptionCommit}
-              disabled={isMutating}
-              placeholder="Add more detail about this card…"
-              className="min-h-[5rem] text-xs"
-              size="sm"
-            />
-          </Section>
-
-          <Section
-            label="Seeded prompt"
-            action={
-              <div className="flex items-center gap-1 text-[10px]">
-                <TabButton active={!promptPreview} onClick={() => setPromptPreview(false)}>
-                  Edit
-                </TabButton>
-                <TabButton active={promptPreview} onClick={() => setPromptPreview(true)}>
-                  Preview
-                </TabButton>
-              </div>
-            }
-          >
-            {promptPreview ? (
-              <div className="rounded-md border bg-muted/40 p-2 font-mono text-[11px] text-foreground whitespace-pre-wrap">
-                {effectivePrompt || (
-                  <span className="text-muted-foreground italic">
-                    (empty prompt — will fall back to the title)
-                  </span>
-                )}
-                {seededPrompt.trim().length === 0 ? (
-                  <div className="mt-2 text-[10px] text-muted-foreground">
-                    No seeded prompt — falls back to title
-                    {description.trim().length > 0 ? " + description" : ""}.
-                  </div>
-                ) : null}
-              </div>
-            ) : (
+          <Section>
+            <SectionHeader>
+              <SectionLabel>Description</SectionLabel>
+            </SectionHeader>
+            <SectionBody>
               <Textarea
-                value={seededPrompt}
+                value={description}
                 onChange={(e) => {
-                  const nextSeededPrompt = e.target.value;
-                  setSeededPrompt(nextSeededPrompt);
+                  const nextDescription = e.target.value;
+                  setDescription(nextDescription);
                   setDirty((currentDirty) => ({
                     ...currentDirty,
-                    seededPrompt: nextSeededPrompt !== cardTextValue(persistedCard?.seededPrompt),
+                    description: nextDescription !== cardTextValue(persistedCard?.description),
                   }));
                 }}
-                onBlur={handleSeededPromptCommit}
+                onBlur={handleDescriptionCommit}
                 disabled={isMutating}
-                placeholder="Optional prompt the agent is seeded with when you click Start Agent."
-                className="min-h-[6rem] font-mono text-[11px]"
+                placeholder="Add more detail about this card…"
+                className="min-h-[5rem] text-xs"
                 size="sm"
               />
-            )}
+            </SectionBody>
+          </Section>
+
+          <Section>
+            <SectionHeader>
+              <SectionLabel>Seeded prompt</SectionLabel>
+              <SectionAction>
+                <ToggleGroup
+                  variant="outline"
+                  size="xs"
+                  value={[promptPreview ? "preview" : "edit"]}
+                  onValueChange={(value) => {
+                    const next = value[0];
+                    if (next === "preview" || next === "edit") {
+                      setPromptPreview(next === "preview");
+                    }
+                  }}
+                >
+                  <Toggle aria-label="Edit prompt" value="edit">
+                    Edit
+                  </Toggle>
+                  <Toggle aria-label="Preview prompt" value="preview">
+                    Preview
+                  </Toggle>
+                </ToggleGroup>
+              </SectionAction>
+            </SectionHeader>
+            <SectionBody>
+              {promptPreview ? (
+                <div className="rounded-md border bg-muted/40 p-2 font-mono text-xs text-foreground whitespace-pre-wrap">
+                  {effectivePrompt || (
+                    <span className="text-muted-foreground italic">
+                      (empty prompt — will fall back to the title)
+                    </span>
+                  )}
+                  {seededPrompt.trim().length === 0 ? (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      No seeded prompt — falls back to title
+                      {description.trim().length > 0 ? " + description" : ""}.
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <Textarea
+                  value={seededPrompt}
+                  onChange={(e) => {
+                    const nextSeededPrompt = e.target.value;
+                    setSeededPrompt(nextSeededPrompt);
+                    setDirty((currentDirty) => ({
+                      ...currentDirty,
+                      seededPrompt: nextSeededPrompt !== cardTextValue(persistedCard?.seededPrompt),
+                    }));
+                  }}
+                  onBlur={handleSeededPromptCommit}
+                  disabled={isMutating}
+                  placeholder="Optional prompt the agent is seeded with when you click Start Agent."
+                  className="min-h-[6rem] font-mono text-xs"
+                  size="sm"
+                />
+              )}
+            </SectionBody>
           </Section>
 
           <LinkedThreadSection
@@ -386,7 +455,7 @@ export function BoardCardSheet({
           />
 
           {saveError ? (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive">
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
               {saveError}
             </div>
           ) : null}
@@ -396,9 +465,8 @@ export function BoardCardSheet({
           <div className="flex items-center gap-1">
             {canStartAgent ? (
               <Button
-                size="sm"
+                size="xs"
                 variant="secondary"
-                className="h-7 gap-1 px-2 text-[11px]"
                 onClick={handleStartAgent}
                 disabled={isMutating}
               >
@@ -408,85 +476,43 @@ export function BoardCardSheet({
             ) : null}
           </div>
           <div className="flex items-center gap-1">
-            {!card.archivedAt ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 gap-1 px-2 text-[11px]"
-                onClick={handleArchive}
-                disabled={isMutating}
-              >
-                <ArchiveIcon className="size-3" />
-                {pendingMutation === "archive" ? "Archiving..." : "Archive"}
-              </Button>
+            {showOverflowMenu ? (
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <Button
+                      aria-label="More card actions"
+                      size="icon-xs"
+                      variant="ghost"
+                      disabled={isMutating}
+                    />
+                  }
+                >
+                  <EllipsisIcon aria-hidden="true" />
+                </MenuTrigger>
+                <MenuPopup align="end">
+                  {!card.archivedAt ? (
+                    <MenuItem onClick={handleArchive} disabled={isMutating}>
+                      <ArchiveIcon />
+                      {pendingMutation === "archive" ? "Archiving…" : "Archive"}
+                    </MenuItem>
+                  ) : null}
+                  {canDelete ? (
+                    <MenuItem variant="destructive" onClick={handleDelete} disabled={isMutating}>
+                      <Trash2Icon />
+                      {pendingMutation === "delete" ? "Deleting…" : "Delete"}
+                    </MenuItem>
+                  ) : null}
+                </MenuPopup>
+              </Menu>
             ) : null}
-            {canDelete ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 gap-1 px-2 text-[11px] text-destructive"
-                onClick={handleDelete}
-                disabled={isMutating}
-              >
-                <Trash2Icon className="size-3" />
-                {pendingMutation === "delete" ? "Deleting..." : "Delete"}
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-[11px]"
-              onClick={onClose}
-              disabled={isMutating}
-            >
+            <Button size="xs" variant="outline" onClick={onClose} disabled={isMutating}>
               Close
             </Button>
           </div>
         </SheetFooter>
       </SheetPopup>
     </Sheet>
-  );
-}
-
-interface SectionProps {
-  readonly label: string;
-  readonly action?: React.ReactNode;
-  readonly children: React.ReactNode;
-}
-
-function Section({ label, action, children }: SectionProps) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-        </div>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-interface TabButtonProps {
-  readonly active: boolean;
-  readonly onClick: () => void;
-  readonly children: React.ReactNode;
-}
-
-function TabButton({ active, onClick, children }: TabButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={
-        active
-          ? "rounded-sm border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-primary"
-          : "rounded-sm border border-transparent px-1.5 py-0.5 text-muted-foreground hover:bg-muted/60"
-      }
-    >
-      {children}
-    </button>
   );
 }
 
@@ -518,6 +544,7 @@ function LinkedThreadSection({
       void navigate({
         to: "/$environmentId/$threadId",
         params: { environmentId, threadId },
+        search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
       }).catch(() => undefined);
     },
     [environmentId, navigate],
@@ -534,50 +561,47 @@ function LinkedThreadSection({
 
   if (!card.linkedThreadId) {
     return (
-      <Section label="Linked thread">
-        <div className="rounded-md border border-dashed bg-muted/30 p-2 text-[11px] text-muted-foreground">
-          No thread linked yet. Click "Start Agent" on a Planned card to create one.
-        </div>
+      <Section>
+        <SectionHeader>
+          <SectionLabel>Linked thread</SectionLabel>
+        </SectionHeader>
+        <SectionBody>
+          <div className="rounded-md border border-dashed bg-muted/30 p-2 text-xs text-muted-foreground">
+            No thread linked yet. Click "Start Agent" on a Planned card to create one.
+          </div>
+        </SectionBody>
       </Section>
     );
   }
 
   return (
-    <Section
-      label="Linked thread"
-      action={
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-5 gap-1 px-1 text-[10px]"
-          onClick={handleUnlink}
-          disabled={disabled}
-        >
-          <Unlink2Icon className="size-3" />
-          Unlink
-        </Button>
-      }
-    >
-      <div className="rounded-md border bg-card p-2">
-        <div className="flex items-center gap-1.5 text-[11px] text-foreground">
-          <LinkIcon className="size-3 shrink-0 text-muted-foreground" />
-          <span className="truncate font-medium">{thread?.title ?? "(thread unavailable)"}</span>
-        </div>
-        {thread?.branch ? (
-          <div className="mt-1 truncate text-[10px] text-muted-foreground">{thread.branch}</div>
-        ) : null}
-        <div className="mt-2 flex justify-end">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-6 gap-1 px-2 text-[10px]"
-            onClick={() => openThread(card.linkedThreadId!)}
-          >
-            <ExternalLinkIcon className="size-3" />
-            Open thread
+    <Section>
+      <SectionHeader>
+        <SectionLabel>Linked thread</SectionLabel>
+        <SectionAction>
+          <Button size="xs" variant="ghost" onClick={handleUnlink} disabled={disabled}>
+            <Unlink2Icon className="size-3" />
+            Unlink
           </Button>
+        </SectionAction>
+      </SectionHeader>
+      <SectionBody>
+        <div className="rounded-md border bg-card p-2">
+          <div className="flex items-center gap-1.5 text-xs text-foreground">
+            <LinkIcon className="size-3 shrink-0 text-muted-foreground" />
+            <span className="truncate font-medium">{thread?.title ?? "(thread unavailable)"}</span>
+          </div>
+          {thread?.branch ? (
+            <div className="mt-1 truncate text-xs text-muted-foreground">{thread.branch}</div>
+          ) : null}
+          <div className="mt-2 flex justify-end">
+            <Button size="xs" variant="outline" onClick={() => openThread(card.linkedThreadId!)}>
+              <ExternalLinkIcon className="size-3" />
+              Open thread
+            </Button>
+          </div>
         </div>
-      </div>
+      </SectionBody>
     </Section>
   );
 }

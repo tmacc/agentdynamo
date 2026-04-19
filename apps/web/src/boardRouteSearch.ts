@@ -45,3 +45,18 @@ export function stripBoardRouteSearchParams<T extends Record<string, unknown>>(
   } = params;
   return rest as Omit<T, "view" | "boardEnvironmentId" | "boardProjectId">;
 }
+
+export function clearBoardRouteSearchParams<T extends Record<string, unknown>>(
+  params: T,
+): Omit<T, "view" | "boardEnvironmentId" | "boardProjectId"> & {
+  view: undefined;
+  boardEnvironmentId: undefined;
+  boardProjectId: undefined;
+} {
+  return {
+    ...stripBoardRouteSearchParams(params),
+    view: undefined,
+    boardEnvironmentId: undefined,
+    boardProjectId: undefined,
+  };
+}

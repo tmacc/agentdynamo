@@ -10,6 +10,7 @@ import {
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { newDraftId, newThreadId } from "../lib/utils";
+import { clearBoardRouteSearchParams } from "../boardRouteSearch";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -101,6 +102,7 @@ function useNewThreadState() {
           await router.navigate({
             to: "/draft/$draftId",
             params: { draftId: storedDraftThread.draftId },
+            search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
           });
         })();
       }
@@ -147,6 +149,7 @@ function useNewThreadState() {
         await router.navigate({
           to: "/draft/$draftId",
           params: { draftId },
+          search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
         });
       })();
     },
@@ -194,6 +197,7 @@ function useFreshDraftThreadState() {
       await router.navigate({
         to: "/draft/$draftId",
         params: { draftId },
+        search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
       });
 
       return draftId;
