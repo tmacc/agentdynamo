@@ -84,12 +84,6 @@ export function BoardView({ environmentId, projectId, onStartAgent }: BoardViewP
     [gitStatusSnapshots, project?.cwd, threads],
   );
 
-  useEffect(() => {
-    if (openCardId && !cards.some((card) => card.id === openCardId)) {
-      setOpenCardId(null);
-    }
-  }, [cards, openCardId]);
-
   const columns = useMemo(
     () =>
       deriveBoardColumns({

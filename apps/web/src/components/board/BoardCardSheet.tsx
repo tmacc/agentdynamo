@@ -15,7 +15,7 @@ import {
   Trash2Icon,
   Unlink2Icon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
 import {
@@ -39,6 +39,22 @@ interface BoardCardSheetProps {
   readonly onStartAgent: (card: FeatureCard) => void;
 }
 
+interface BoardCardSheetDirtyState {
+  readonly title: boolean;
+  readonly description: boolean;
+  readonly seededPrompt: boolean;
+}
+
+const CLEAN_DIRTY_STATE: BoardCardSheetDirtyState = {
+  title: false,
+  description: false,
+  seededPrompt: false,
+};
+
+function cardTextValue(value: string | null | undefined): string {
+  return value ?? "";
+}
+
 /**
  * Right-side drawer that slides in when the user opens a board card. Hosts
  * inline editors for title / description / seeded prompt, plus the linked-
@@ -55,34 +71,89 @@ export function BoardCardSheet({
   onClose,
   onStartAgent,
 }: BoardCardSheetProps) {
-  const card =
+  const persistedCard =
     useBoardCards(environmentId, projectId).find((candidate) => candidate.id === cardId) ?? null;
-  const [title, setTitle] = useState<string>(card?.title ?? "");
-  const [description, setDescription] = useState<string>(card?.description ?? "");
-  const [seededPrompt, setSeededPrompt] = useState<string>(card?.seededPrompt ?? "");
+  const [title, setTitle] = useState<string>(persistedCard?.title ?? "");
+  const [description, setDescription] = useState<string>(persistedCard?.description ?? "");
+  const [seededPrompt, setSeededPrompt] = useState<string>(persistedCard?.seededPrompt ?? "");
+  const [dirty, setDirty] = useState<BoardCardSheetDirtyState>(CLEAN_DIRTY_STATE);
   const [promptPreview, setPromptPreview] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [pendingMutation, setPendingMutation] = useState<"archive" | "delete" | null>(null);
+  const [pendingDeleteCardSnapshot, setPendingDeleteCardSnapshot] = useState<FeatureCard | null>(
+    null,
+  );
+  const initializedCardIdRef = useRef<FeatureCardId | null>(null);
+
+  const card = persistedCard ?? (pendingMutation === "delete" ? pendingDeleteCardSnapshot : null);
 
   useEffect(() => {
-    if (card === null) {
+    if (persistedCard === null && pendingMutation !== "delete") {
       onClose();
     }
-  }, [card, onClose]);
+  }, [onClose, pendingMutation, persistedCard]);
 
-  // Reset local state when the card id changes (e.g. user opens a different
-  // card without closing the sheet first).
   useEffect(() => {
     if (card === null) {
       return;
     }
+    if (initializedCardIdRef.current === card.id) {
+      return;
+    }
+    initializedCardIdRef.current = card.id;
     setTitle(card.title);
     setDescription(card.description ?? "");
     setSeededPrompt(card.seededPrompt ?? "");
+    setDirty(CLEAN_DIRTY_STATE);
     setPromptPreview(false);
     setSaveError(null);
     setPendingMutation(null);
+    setPendingDeleteCardSnapshot(null);
   }, [card]);
+
+  useEffect(() => {
+    if (persistedCard === null || initializedCardIdRef.current !== persistedCard.id) {
+      return;
+    }
+
+    setTitle((currentTitle) => {
+      if (dirty.title) {
+        if (persistedCard.title === currentTitle) {
+          setDirty((currentDirty) =>
+            currentDirty.title ? { ...currentDirty, title: false } : currentDirty,
+          );
+        }
+        return currentTitle;
+      }
+      return persistedCard.title;
+    });
+
+    const persistedDescription = cardTextValue(persistedCard.description);
+    setDescription((currentDescription) => {
+      if (dirty.description) {
+        if (persistedDescription === currentDescription) {
+          setDirty((currentDirty) =>
+            currentDirty.description ? { ...currentDirty, description: false } : currentDirty,
+          );
+        }
+        return currentDescription;
+      }
+      return persistedDescription;
+    });
+
+    const persistedSeededPrompt = cardTextValue(persistedCard.seededPrompt);
+    setSeededPrompt((currentSeededPrompt) => {
+      if (dirty.seededPrompt) {
+        if (persistedSeededPrompt === currentSeededPrompt) {
+          setDirty((currentDirty) =>
+            currentDirty.seededPrompt ? { ...currentDirty, seededPrompt: false } : currentDirty,
+          );
+        }
+        return currentSeededPrompt;
+      }
+      return persistedSeededPrompt;
+    });
+  }, [dirty.description, dirty.seededPrompt, dirty.title, persistedCard]);
 
   if (card === null) {
     return null;
@@ -102,15 +173,15 @@ export function BoardCardSheet({
       description?: string | null;
       seededPrompt?: string | null;
     }) => {
-      if (card === null) return;
+      if (persistedCard === null) return;
       setSaveError(null);
       try {
-        await updateBoardCard({ environmentId, projectId, cardId: card.id, ...patch });
+        await updateBoardCard({ environmentId, projectId, cardId: persistedCard.id, ...patch });
       } catch (err) {
         setSaveError(err instanceof Error ? err.message : "Failed to save changes");
       }
     },
-    [card, environmentId, projectId],
+    [environmentId, persistedCard, projectId],
   );
 
   const handleTitleCommit = useCallback(() => {
@@ -156,6 +227,7 @@ export function BoardCardSheet({
   const handleDelete = useCallback(() => {
     setPendingMutation("delete");
     setSaveError(null);
+    setPendingDeleteCardSnapshot(card);
     void deleteBoardCard({ environmentId, projectId, cardId: card.id })
       .then(() => {
         onClose();
@@ -165,8 +237,11 @@ export function BoardCardSheet({
       })
       .finally(() => {
         setPendingMutation(null);
+        setPendingDeleteCardSnapshot((currentSnapshot) =>
+          persistedCard === null ? currentSnapshot : null,
+        );
       });
-  }, [card.id, environmentId, onClose, projectId]);
+  }, [card, environmentId, onClose, persistedCard, projectId]);
 
   const handleStartAgent = useCallback(() => {
     onStartAgent(card);
@@ -191,7 +266,14 @@ export function BoardCardSheet({
           <SheetTitle className="sr-only">{title || "Untitled card"}</SheetTitle>
           <Input
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              const nextTitle = e.target.value;
+              setTitle(nextTitle);
+              setDirty((currentDirty) => ({
+                ...currentDirty,
+                title: nextTitle !== card.title,
+              }));
+            }}
             onBlur={handleTitleCommit}
             disabled={isMutating}
             onKeyDown={(e) => {
@@ -220,7 +302,14 @@ export function BoardCardSheet({
           <Section label="Description">
             <Textarea
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => {
+                const nextDescription = e.target.value;
+                setDescription(nextDescription);
+                setDirty((currentDirty) => ({
+                  ...currentDirty,
+                  description: nextDescription !== cardTextValue(persistedCard?.description),
+                }));
+              }}
               onBlur={handleDescriptionCommit}
               disabled={isMutating}
               placeholder="Add more detail about this card…"
@@ -259,7 +348,14 @@ export function BoardCardSheet({
             ) : (
               <Textarea
                 value={seededPrompt}
-                onChange={(e) => setSeededPrompt(e.target.value)}
+                onChange={(e) => {
+                  const nextSeededPrompt = e.target.value;
+                  setSeededPrompt(nextSeededPrompt);
+                  setDirty((currentDirty) => ({
+                    ...currentDirty,
+                    seededPrompt: nextSeededPrompt !== cardTextValue(persistedCard?.seededPrompt),
+                  }));
+                }}
                 onBlur={handleSeededPromptCommit}
                 disabled={isMutating}
                 placeholder="Optional prompt the agent is seeded with when you click Start Agent."

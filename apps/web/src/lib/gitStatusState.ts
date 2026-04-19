@@ -6,13 +6,14 @@ import {
 } from "@t3tools/contracts";
 import { Cause } from "effect";
 import { Atom } from "effect/unstable/reactivity";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import {
   readEnvironmentConnection,
   subscribeEnvironmentConnections,
 } from "../environments/runtime";
+import { buildStableGitStatusSnapshot, type GitStatusSnapshotCache } from "./gitStatusSnapshots";
 import type { WsRpcClient } from "~/rpc/wsRpcClient";
 
 interface GitStatusState {
@@ -54,6 +55,7 @@ const EMPTY_GIT_STATUS_ATOM = Atom.make(EMPTY_GIT_STATUS_STATE).pipe(
 );
 
 const NOOP: () => void = () => undefined;
+const EMPTY_GIT_STATUS_SNAPSHOTS: ReadonlyMap<string, GitStatusResult | null> = new Map();
 const watchedGitStatuses = new Map<string, WatchedGitStatus>();
 const knownGitStatusKeys = new Set<string>();
 const gitStatusSnapshotListeners = new Map<string, Set<() => void>>();
@@ -180,9 +182,16 @@ export function useGitStatus(target: GitStatusTarget): GitStatusState {
 export function useGitStatusSnapshots(
   targets: ReadonlyArray<GitStatusTarget>,
 ): ReadonlyMap<string, GitStatusResult | null> {
-  const targetKeys = targets
-    .map((target) => getGitStatusTargetKey(target))
-    .filter((key): key is string => key !== null);
+  const targetEntries = useMemo(
+    () =>
+      targets.flatMap((target) => {
+        const key = getGitStatusTargetKey(target);
+        return key === null ? [] : ([{ key, target }] as const);
+      }),
+    [targets],
+  );
+  const targetKeys = useMemo(() => targetEntries.map((entry) => entry.key), [targetEntries]);
+  const snapshotCacheRef = useRef<GitStatusSnapshotCache | null>(null);
 
   useEffect(() => {
     const releases = targets.map((target) =>
@@ -205,17 +214,16 @@ export function useGitStatusSnapshots(
       };
     },
     () => {
-      const statuses = new Map<string, GitStatusResult | null>();
-      for (const target of targets) {
-        const key = getGitStatusTargetKey(target);
-        if (key === null) {
-          continue;
-        }
-        statuses.set(key, getGitStatusSnapshot(target).data);
-      }
-      return statuses;
+      const nextValues = targetEntries.map((entry) => getGitStatusSnapshot(entry.target).data);
+      const nextSnapshot = buildStableGitStatusSnapshot({
+        cache: snapshotCacheRef.current,
+        keys: targetKeys,
+        values: nextValues,
+      });
+      snapshotCacheRef.current = nextSnapshot.cache;
+      return nextSnapshot.snapshot;
     },
-    () => new Map(),
+    () => EMPTY_GIT_STATUS_SNAPSHOTS,
   );
 }
 

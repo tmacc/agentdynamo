@@ -184,4 +184,116 @@ describe("boardStore", () => {
 
     release();
   });
+
+  it("keeps a ready board ready when connection registry changes but the source is unchanged", () => {
+    const subscribeProject = vi.fn(
+      (_input: { projectId: ProjectId }, listener: (event: BoardStreamEvent) => void) => {
+        listener({
+          kind: "snapshot",
+          cards: [],
+          dismissedGhosts: [],
+          snapshotSequence: 3,
+        });
+        return () => undefined;
+      },
+    );
+    const connection = {
+      environmentId: ENVIRONMENT_ID,
+      client: createEnvironmentApiStub({
+        subscribeProject,
+      }),
+    };
+    runtimeHarness.connections.set(ENVIRONMENT_ID, connection);
+
+    const release = acquireBoardSubscription(ENVIRONMENT_ID, PROJECT_ID);
+
+    expect(useBoardStore.getState().statusByKey[boardKey(ENVIRONMENT_ID, PROJECT_ID)]).toBe(
+      "ready",
+    );
+    expect(subscribeProject).toHaveBeenCalledOnce();
+
+    for (const listener of runtimeHarness.listeners) {
+      listener();
+    }
+
+    expect(subscribeProject).toHaveBeenCalledOnce();
+    expect(useBoardStore.getState().statusByKey[boardKey(ENVIRONMENT_ID, PROJECT_ID)]).toBe(
+      "ready",
+    );
+
+    release();
+  });
+
+  it("reattaches and returns to ready when the connection source changes", () => {
+    const firstSubscribeProject = vi.fn(
+      (_input: { projectId: ProjectId }, listener: (event: BoardStreamEvent) => void) => {
+        listener({
+          kind: "snapshot",
+          cards: [],
+          dismissedGhosts: [],
+          snapshotSequence: 1,
+        });
+        return () => undefined;
+      },
+    );
+    const secondSubscribeProject = vi.fn(
+      (_input: { projectId: ProjectId }, listener: (event: BoardStreamEvent) => void) => {
+        listener({
+          kind: "snapshot",
+          cards: [
+            {
+              id: "card-2" as never,
+              projectId: PROJECT_ID,
+              title: "Reattached" as never,
+              description: null,
+              seededPrompt: null,
+              column: "ideas",
+              sortOrder: 10,
+              linkedThreadId: null,
+              linkedProposedPlanId: null,
+              createdAt: "2026-04-18T00:00:00.000Z" as never,
+              updatedAt: "2026-04-18T00:00:00.000Z" as never,
+              archivedAt: null,
+            },
+          ],
+          dismissedGhosts: [],
+          snapshotSequence: 2,
+        });
+        return () => undefined;
+      },
+    );
+    runtimeHarness.connections.set(ENVIRONMENT_ID, {
+      environmentId: ENVIRONMENT_ID,
+      client: createEnvironmentApiStub({
+        subscribeProject: firstSubscribeProject,
+      }),
+    });
+
+    const release = acquireBoardSubscription(ENVIRONMENT_ID, PROJECT_ID);
+
+    runtimeHarness.connections.set(ENVIRONMENT_ID, {
+      environmentId: ENVIRONMENT_ID,
+      client: createEnvironmentApiStub({
+        subscribeProject: secondSubscribeProject,
+      }),
+    });
+
+    for (const listener of runtimeHarness.listeners) {
+      listener();
+    }
+
+    expect(firstSubscribeProject).toHaveBeenCalledOnce();
+    expect(secondSubscribeProject).toHaveBeenCalledOnce();
+    expect(useBoardStore.getState().statusByKey[boardKey(ENVIRONMENT_ID, PROJECT_ID)]).toBe(
+      "ready",
+    );
+    expect(useBoardStore.getState().cardsByKey[boardKey(ENVIRONMENT_ID, PROJECT_ID)]).toEqual([
+      expect.objectContaining({
+        id: "card-2",
+        title: "Reattached",
+      }),
+    ]);
+
+    release();
+  });
 });
