@@ -95,7 +95,7 @@ export function buildProviderSwitchHandoff(input: {
   readonly fromProvider: ProviderKind;
   readonly toProvider: ProviderKind;
   readonly currentMessageId: MessageId;
-  readonly syncState?: ProviderThreadSyncState;
+  readonly incrementalSyncState?: ProviderThreadSyncState;
   readonly maxChars?: number;
   readonly maxMessages?: number;
 }): {
@@ -124,13 +124,13 @@ export function buildProviderSwitchHandoff(input: {
   );
 
   const branchMismatch =
-    input.syncState !== undefined &&
-    (input.syncState.branch ?? null) !== (input.thread.branch ?? null);
+    input.incrementalSyncState !== undefined &&
+    (input.incrementalSyncState.branch ?? null) !== (input.thread.branch ?? null);
   const worktreeMismatch =
-    input.syncState !== undefined &&
-    (input.syncState.worktreePath ?? null) !== (input.thread.worktreePath ?? null);
+    input.incrementalSyncState !== undefined &&
+    (input.incrementalSyncState.worktreePath ?? null) !== (input.thread.worktreePath ?? null);
 
-  let mode: "full" | "delta" = input.syncState ? "delta" : "full";
+  let mode: "full" | "delta" = input.incrementalSyncState ? "delta" : "full";
   let fallbackReason:
     | "branch-mismatch"
     | "worktree-mismatch"
@@ -148,10 +148,10 @@ export function buildProviderSwitchHandoff(input: {
 
   let deltaMessages = historicalMessages;
   let deltaCheckpoints = input.thread.checkpoints;
-  if (mode === "delta" && input.syncState) {
-    if (input.syncState.latestMessageId) {
+  if (mode === "delta" && input.incrementalSyncState) {
+    if (input.incrementalSyncState.latestMessageId) {
       const messageIndex = historicalMessages.findIndex(
-        (message) => message.id === input.syncState!.latestMessageId,
+        (message) => message.id === input.incrementalSyncState!.latestMessageId,
       );
       if (messageIndex === -1) {
         mode = "full";
@@ -160,9 +160,9 @@ export function buildProviderSwitchHandoff(input: {
         deltaMessages = historicalMessages.slice(messageIndex + 1);
       }
     }
-    if (mode === "delta" && input.syncState.latestCheckpointTurnId) {
+    if (mode === "delta" && input.incrementalSyncState.latestCheckpointTurnId) {
       const checkpointIndex = input.thread.checkpoints.findIndex(
-        (checkpoint) => checkpoint.turnId === input.syncState!.latestCheckpointTurnId,
+        (checkpoint) => checkpoint.turnId === input.incrementalSyncState!.latestCheckpointTurnId,
       );
       if (checkpointIndex === -1) {
         mode = "full";

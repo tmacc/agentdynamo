@@ -49,6 +49,7 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { ProviderSessionSlotState } from "../../persistence/Services/ProviderSessionRuntime.ts";
+import { isResumableProviderSlotState } from "../providerSlotState.ts";
 
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
@@ -177,15 +178,6 @@ function readPersistedSyncState(
   };
 }
 
-function isResumableSlotState(slotState: ProviderSessionSlotState | undefined): boolean {
-  return (
-    slotState === undefined ||
-    slotState === "active" ||
-    slotState === "parked" ||
-    slotState === "expired"
-  );
-}
-
 const makeProviderService = Effect.fn("makeProviderService")(function* (
   options?: ProviderServiceLiveOptions,
 ) {
@@ -255,7 +247,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       "provider.thread_id": input.binding.threadId,
     });
     return yield* Effect.gen(function* () {
-      if (!isResumableSlotState(input.binding.slotState)) {
+      if (!isResumableProviderSlotState(input.binding.slotState)) {
         return yield* toValidationError(
           input.operation,
           `Cannot recover thread '${input.binding.threadId}' because the persisted provider slot for '${input.binding.provider}' is '${input.binding.slotState}' and requires a fresh provider start/handoff.`,
@@ -359,7 +351,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       return { adapter, threadId: input.threadId, isActive: false } as const;
     }
 
-    if (!isResumableSlotState(binding.slotState)) {
+    if (!isResumableProviderSlotState(binding.slotState)) {
       return yield* toValidationError(
         input.operation,
         `Cannot route thread '${input.threadId}' because the persisted provider slot for '${binding.provider}' is '${binding.slotState}' and requires a fresh provider start/handoff.`,
@@ -440,7 +432,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           yield* directory.getBindingForProvider(threadId, input.provider),
         );
         const canReusePersistedSlot =
-          options?.resumeStrategy !== "fresh" && isResumableSlotState(persistedBinding?.slotState);
+          options?.resumeStrategy !== "fresh" &&
+          isResumableProviderSlotState(persistedBinding?.slotState);
         const persistedSyncState =
           persistedBinding && canReusePersistedSlot
             ? readPersistedSyncState(persistedBinding.runtimePayload)

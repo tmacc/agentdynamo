@@ -47,6 +47,7 @@ import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { TeamCoordinatorSessionRegistry } from "../../team/Services/TeamCoordinatorSessionRegistry.ts";
+import { isResumableProviderSlotState } from "../../provider/providerSlotState.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
@@ -213,7 +214,7 @@ describe("ProviderCommandReactor", () => {
         "resumeStrategy" in options &&
         options.resumeStrategy === "fresh"
           ? undefined
-          : persistedBinding?.slotState !== "stale" && persistedBinding?.slotState !== "error"
+          : isResumableProviderSlotState(persistedBinding?.slotState)
             ? persistedBinding?.resumeCursor
             : undefined;
       const resumeCursor =
@@ -498,6 +499,15 @@ describe("ProviderCommandReactor", () => {
       refreshStatus,
       generateBranchName,
       generateThreadTitle,
+      getBinding,
+      setBinding,
+      evictRuntimeSessionsForThread: (threadId: ThreadId) => {
+        for (let index = runtimeSessions.length - 1; index >= 0; index -= 1) {
+          if (runtimeSessions[index]?.threadId === threadId) {
+            runtimeSessions.splice(index, 1);
+          }
+        }
+      },
       stateDir,
       drain,
     };
@@ -1751,6 +1761,250 @@ describe("ProviderCommandReactor", () => {
       .find((entry) => entry.id === ThreadId.make("thread-1"))
       ?.activities.filter((activity) => activity.kind === "provider.session.switched");
     expect(switchActivities?.length).toBe(3);
+  });
+
+  it.each([
+    ["stale", "resume-stale-claude"],
+    ["stopped", "resume-stopped-claude"],
+  ] as const)(
+    "forces a full handoff and fresh start when the target %s slot is non-resumable",
+    async (slotState, resumeCursorSuffix) => {
+      const harness = await createHarness();
+      const now = new Date().toISOString();
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-turn-start-non-resumable-${slotState}-1`),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId(`user-message-non-resumable-${slotState}-1`),
+            role: "user",
+            text: "full handoff seed context",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        }),
+      );
+
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+      harness.setBinding({
+        threadId: ThreadId.make("thread-1"),
+        provider: "claudeAgent",
+        status: "stopped",
+        slotState,
+        runtimeMode: "approval-required",
+        resumeCursor: { opaque: resumeCursorSuffix },
+        runtimePayload: {
+          syncState: {
+            latestMessageId: `user-message-non-resumable-${slotState}-1`,
+            latestCheckpointTurnId: null,
+            latestTurnId: null,
+            branch: null,
+            worktreePath: null,
+            syncedAt: now,
+          },
+        },
+      });
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-turn-start-non-resumable-${slotState}-2`),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId(`user-message-non-resumable-${slotState}-2`),
+            role: "user",
+            text: "switch to claude from a non-resumable parked slot",
+            attachments: [],
+          },
+          modelSelection: {
+            provider: "claudeAgent",
+            model: "claude-opus-4-6",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        }),
+      );
+
+      await waitFor(() => harness.startSession.mock.calls.length === 2);
+      await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+
+      expect(harness.parkSession).toHaveBeenCalledTimes(1);
+      expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+        provider: "claudeAgent",
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+        },
+      });
+      expect(harness.startSession.mock.calls[1]?.[2]).toMatchObject({
+        resumeStrategy: "fresh",
+      });
+
+      const switchTurnInput = harness.sendTurn.mock.calls[1]?.[0] as { input?: string } | undefined;
+      expect(switchTurnInput?.input).toContain("Provider switch handoff for an existing thread.");
+      expect(switchTurnInput?.input).toContain("full handoff seed context");
+      expect(switchTurnInput?.input).not.toContain(
+        "Incremental provider switch catch-up for an existing thread.",
+      );
+    },
+  );
+
+  it("falls back to a full handoff, marks the target stale, and starts fresh when a parked target marker is invalid", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-invalid-marker-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-invalid-marker-1"),
+          role: "user",
+          text: "context before invalid parked marker",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    harness.setBinding({
+      threadId: ThreadId.make("thread-1"),
+      provider: "claudeAgent",
+      status: "stopped",
+      slotState: "parked",
+      runtimeMode: "approval-required",
+      resumeCursor: { opaque: "resume-invalid-marker-claude" },
+      runtimePayload: {
+        syncState: {
+          latestMessageId: "missing-message-marker",
+          latestCheckpointTurnId: null,
+          latestTurnId: null,
+          branch: null,
+          worktreePath: null,
+          syncedAt: now,
+        },
+      },
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-invalid-marker-2"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-invalid-marker-2"),
+          role: "user",
+          text: "switch to claude with invalid parked marker",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.parkSession.mock.calls.length === 2);
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+
+    expect(harness.parkSession.mock.calls[1]?.[0]).toMatchObject({
+      threadId: ThreadId.make("thread-1"),
+      provider: "claudeAgent",
+      nextSlotState: "stale",
+    });
+    expect(harness.startSession.mock.calls[1]?.[2]).toMatchObject({
+      resumeStrategy: "fresh",
+    });
+
+    const switchTurnInput = harness.sendTurn.mock.calls[1]?.[0] as { input?: string } | undefined;
+    expect(switchTurnInput?.input).toContain("Provider switch handoff for an existing thread.");
+    expect(switchTurnInput?.input).toContain("context before invalid parked marker");
+  });
+
+  it("starts the desired provider on switch even when the old thread provider has no live runtime", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-evicted-switch-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-evicted-switch-1"),
+          role: "user",
+          text: "seed codex session before eviction",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    harness.evictRuntimeSessionsForThread(ThreadId.make("thread-1"));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-evicted-switch-2"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-evicted-switch-2"),
+          role: "user",
+          text: "switch to claude after runtime eviction",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      provider: "claudeAgent",
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+      },
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(thread?.session?.providerName).toBe("claudeAgent");
+    expect(
+      thread?.activities.find((activity) => activity.kind === "provider.session.switched"),
+    ).toMatchObject({
+      payload: {
+        fromProvider: "codex",
+        toProvider: "claudeAgent",
+      },
+    });
   });
 
   it("rejects provider switching while a turn is running", async () => {
