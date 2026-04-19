@@ -265,6 +265,7 @@ const baseServerConfig: ServerConfig = {
 
 const baseGitStatus: GitStatusResult = {
   isRepo: true,
+  hasAnyRemote: true,
   hasOriginRemote: true,
   isDefaultBranch: false,
   branch: "feature/streamed",
