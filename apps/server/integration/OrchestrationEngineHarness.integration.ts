@@ -338,6 +338,7 @@ export const makeOrchestrationIntegrationHarness = (
           refreshLocalStatus: () =>
             Effect.succeed({
               isRepo: true,
+              hasAnyRemote: false,
               hasOriginRemote: false,
               isDefaultBranch: true,
               branch: "main",

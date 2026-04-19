@@ -256,6 +256,7 @@ function makeDispatcherTestLayer(options: {
         refreshStatus: () =>
           Effect.succeed({
             isRepo: true,
+            hasAnyRemote: true,
             hasOriginRemote: true,
             isDefaultBranch: false,
             branch: "fork-worktree-branch",

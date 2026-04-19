@@ -2574,6 +2574,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             localStatus: () =>
               Effect.succeed({
                 isRepo: true,
+                hasAnyRemote: true,
                 hasOriginRemote: true,
                 isDefaultBranch: true,
                 branch: "main",
@@ -2590,6 +2591,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             status: () =>
               Effect.succeed({
                 isRepo: true,
+                hasAnyRemote: true,
                 hasOriginRemote: true,
                 isDefaultBranch: true,
                 branch: "main",
@@ -2846,6 +2848,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             localStatus: () =>
               Effect.succeed({
                 isRepo: true,
+                hasAnyRemote: true,
                 hasOriginRemote: true,
                 isDefaultBranch: true,
                 branch: "main",
@@ -2867,6 +2870,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 statusCalls += 1;
                 return {
                   isRepo: true,
+                  hasAnyRemote: true,
                   hasOriginRemote: true,
                   isDefaultBranch: true,
                   branch: "main",
@@ -2923,6 +2927,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             localStatus: () =>
               Effect.succeed({
                 isRepo: true,
+                hasAnyRemote: true,
                 hasOriginRemote: true,
                 isDefaultBranch: false,
                 branch: "feature/demo",
@@ -2944,6 +2949,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 statusCalls += 1;
                 return {
                   isRepo: true,
+                  hasAnyRemote: true,
                   hasOriginRemote: true,
                   isDefaultBranch: false,
                   branch: "feature/demo",
@@ -2995,6 +3001,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             localStatus: () =>
               Effect.succeed({
                 isRepo: true,
+                hasAnyRemote: true,
                 hasOriginRemote: true,
                 isDefaultBranch: true,
                 branch: "main",
@@ -3038,6 +3045,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               localStatus: () =>
                 Effect.succeed({
                   isRepo: true,
+                  hasAnyRemote: true,
                   hasOriginRemote: true,
                   isDefaultBranch: false,
                   branch: "feature/demo",
@@ -3114,6 +3122,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   Effect.andThen(
                     Effect.succeed({
                       isRepo: true,
+                      hasAnyRemote: true,
                       hasOriginRemote: true,
                       isDefaultBranch: false,
                       branch: "feature/demo",
@@ -3535,6 +3544,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         const refreshStatus = vi.fn((_: string) =>
           Effect.succeed({
             isRepo: true,
+            hasAnyRemote: true,
             hasOriginRemote: true,
             isDefaultBranch: false,
             branch: "t3code/bootstrap-branch",

@@ -215,6 +215,7 @@ describe("ProviderCommandReactor", () => {
     const refreshStatus = vi.fn((_: string) =>
       Effect.succeed({
         isRepo: true,
+        hasAnyRemote: true,
         hasOriginRemote: true,
         isDefaultBranch: false,
         branch: "renamed-branch",
