@@ -36,11 +36,6 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
         project.worktreeReadiness?.status === "configured" ? project.worktreeReadiness : null;
 
       if (readinessProfile) {
-        yield* worktreeRuntimeEnvProvisioner.ensureEnvFile({
-          projectCwd: project.workspaceRoot,
-          worktreePath: input.worktreePath,
-          portCount: readinessProfile.portCount,
-        });
         yield* Effect.promise(() =>
           materializeManagedWorktreeScripts({
             rootPath: input.worktreePath,
@@ -55,6 +50,11 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
             },
           }),
         );
+        yield* worktreeRuntimeEnvProvisioner.ensureEnvFile({
+          projectCwd: project.workspaceRoot,
+          worktreePath: input.worktreePath,
+          portCount: readinessProfile.portCount,
+        });
       }
 
       const script = setupProjectScript(project.scripts);

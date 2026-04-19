@@ -10,8 +10,10 @@ import {
   findTeamTaskById,
   isActiveTeamTaskStatus,
   listActiveTeamTasks,
+  requireBoardCardColumnAllowsThreadLink,
   requireBoardCardInProject,
   requireBoardCardLinkedThreadMatches,
+  requireBoardCardMoveAllowed,
   requireBoardThreadLinkAvailable,
   requireProject,
   requireProjectAbsent,
@@ -896,6 +898,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         projectId: command.projectId,
       });
       if (command.linkedThreadId !== null) {
+        yield* requireBoardCardColumnAllowsThreadLink({
+          command,
+          card: {
+            id: command.cardId,
+            column: command.column,
+          },
+        });
         yield* requireThreadInProject({
           readModel,
           command,
@@ -972,11 +981,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         projectId: command.projectId,
       });
-      yield* requireBoardCardInProject({
+      const card = yield* requireBoardCardInProject({
         command,
         cardId: command.cardId,
         projectId: command.projectId,
         repository: boardCardRepository,
+      });
+      yield* requireBoardCardMoveAllowed({
+        command,
+        card,
+        toColumn: command.toColumn,
       });
       return {
         ...withEventBase({
@@ -1062,11 +1076,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         projectId: command.projectId,
       });
-      yield* requireBoardCardInProject({
+      const card = yield* requireBoardCardInProject({
         command,
         cardId: command.cardId,
         projectId: command.projectId,
         repository: boardCardRepository,
+      });
+      yield* requireBoardCardColumnAllowsThreadLink({
+        command,
+        card,
       });
       yield* requireThreadInProject({
         readModel,

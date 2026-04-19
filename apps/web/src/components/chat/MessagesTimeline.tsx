@@ -40,7 +40,7 @@ import {
 import { Button } from "../ui/button";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-import { TeamTaskInlineBlocks, type TeamTaskInlineView } from "./TeamTaskInlineBlock";
+import { TeamTaskInlineBlocks } from "./TeamTaskInlineBlock";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
@@ -54,6 +54,7 @@ import {
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
+import { type TeamTaskLaunchGroup } from "./teamTaskTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -95,7 +96,7 @@ interface TimelineRowSharedState {
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
-  onOpenChildThread: (threadId: import("@t3tools/contracts").ThreadId) => void;
+  onInspectChildThread: (threadId: import("@t3tools/contracts").ThreadId) => void;
   onOpenForkSourceThread: (threadId: ThreadId) => void;
   onForkUserMessage: (messageId: MessageId) => void;
 }
@@ -130,8 +131,8 @@ interface MessagesTimelineProps {
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   onIsAtEndChange: (isAtEnd: boolean) => void;
-  teamTasks?: readonly TeamTaskInlineView[];
-  onOpenChildThread?: (threadId: import("@t3tools/contracts").ThreadId) => void;
+  teamTaskLaunchGroups?: readonly TeamTaskLaunchGroup[];
+  onInspectChildThread?: (threadId: import("@t3tools/contracts").ThreadId) => void;
   onOpenForkSourceThread?: (threadId: ThreadId) => void;
   onForkUserMessage?: (messageId: MessageId) => void;
   forkOrigin?: OrchestrationThreadForkOrigin | undefined;
@@ -165,13 +166,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
   onIsAtEndChange,
-  teamTasks,
-  onOpenChildThread,
+  teamTaskLaunchGroups,
+  onInspectChildThread,
   onOpenForkSourceThread,
   onForkUserMessage,
   forkOrigin,
 }: MessagesTimelineProps) {
-  const noopOpenChildThread = useCallback(() => {}, []);
+  const noopInspectChildThread = useCallback(() => {}, []);
   const noopOpenForkSourceThread = useCallback(() => {}, []);
   const noopForkUserMessage = useCallback(() => {}, []);
   const rawRows = useMemo(
@@ -184,7 +185,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
         userMessageSwitchInfoByMessageId,
-        teamTasks,
+        teamTaskLaunchGroups,
         forkOrigin,
       }),
     [
@@ -195,7 +196,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
       userMessageSwitchInfoByMessageId,
-      teamTasks,
+      teamTaskLaunchGroups,
       forkOrigin,
     ],
   );
@@ -245,7 +246,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
-      onOpenChildThread: onOpenChildThread ?? noopOpenChildThread,
+      onInspectChildThread: onInspectChildThread ?? noopInspectChildThread,
       onOpenForkSourceThread: onOpenForkSourceThread ?? noopOpenForkSourceThread,
       onForkUserMessage: onForkUserMessage ?? noopForkUserMessage,
     }),
@@ -265,10 +266,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
-      onOpenChildThread,
+      onInspectChildThread,
       onOpenForkSourceThread,
       onForkUserMessage,
-      noopOpenChildThread,
+      noopInspectChildThread,
       noopOpenForkSourceThread,
       noopForkUserMessage,
     ],
@@ -534,9 +535,9 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
         </div>
       )}
 
-      {row.kind === "team-tasks" && (
+      {row.kind === "team-task-group" && (
         <div className="min-w-0 px-1 py-0.5">
-          <TeamTaskInlineBlocks tasks={row.tasks} onOpenThread={ctx.onOpenChildThread} />
+          <TeamTaskInlineBlocks tasks={row.tasks} onInspectThread={ctx.onInspectChildThread} />
         </div>
       )}
 
