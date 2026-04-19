@@ -21,7 +21,14 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { ArrowLeftIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type WheelEvent as ReactWheelEvent,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import {
@@ -83,6 +90,7 @@ export function BoardView({
   const [openCardId, setOpenCardId] = useState<FeatureCardId | null>(null);
   const [activeDragCard, setActiveDragCard] = useState<FeatureCard | null>(null);
   const [activeOverColumn, setActiveOverColumn] = useState<FeatureCardColumn | null>(null);
+  const boardStripRef = useRef<HTMLDivElement | null>(null);
 
   // Subscribe to the board RPC stream for this project.
   useEffect(() => {
@@ -218,6 +226,19 @@ export function BoardView({
     setActiveOverColumn(null);
   }, []);
 
+  const handleBoardStripWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    const element = boardStripRef.current;
+    if (!element) return;
+    if (element.scrollWidth <= element.clientWidth + 1) return;
+    if (!event.shiftKey) return;
+
+    const horizontalDelta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
+    if (horizontalDelta === 0) return;
+
+    event.preventDefault();
+    element.scrollBy({ left: horizontalDelta, behavior: "auto" });
+  }, []);
+
   if (!project) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -243,7 +264,11 @@ export function BoardView({
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden scroll-smooth">
+        <div
+          ref={boardStripRef}
+          className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden scroll-smooth"
+          onWheel={handleBoardStripWheel}
+        >
           <div className="flex h-full min-w-full w-max gap-3 p-3 pb-2">
             {BOARD_COLUMN_ORDER.map((col) => (
               <BoardColumn
