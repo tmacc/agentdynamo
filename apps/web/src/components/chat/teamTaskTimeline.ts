@@ -9,6 +9,17 @@ export interface TeamTaskLaunchGroup {
   tasks: readonly TeamTaskInlineView[];
 }
 
+function insertGroupByCreatedAt(groups: TeamTaskLaunchGroup[], group: TeamTaskLaunchGroup) {
+  const insertionIndex = groups.findIndex(
+    (candidate) => candidate.createdAt.localeCompare(group.createdAt) > 0,
+  );
+  if (insertionIndex < 0) {
+    groups.push(group);
+    return;
+  }
+  groups.splice(insertionIndex, 0, group);
+}
+
 function readTaskId(activity: OrchestrationThreadActivity): string | null {
   const payload =
     activity.payload && typeof activity.payload === "object"
@@ -75,15 +86,12 @@ export function deriveTeamTaskLaunchGroups(input: {
     if (assignedTaskIds.has(taskView.task.id)) {
       continue;
     }
-    groups.push({
+    insertGroupByCreatedAt(groups, {
       id: `team-task-fallback:${taskView.task.id}`,
       createdAt: taskView.task.createdAt,
       tasks: [taskView],
     });
   }
 
-  return groups.toSorted(
-    (left, right) =>
-      left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-  );
+  return groups;
 }

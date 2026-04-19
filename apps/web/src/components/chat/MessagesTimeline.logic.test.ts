@@ -882,7 +882,7 @@ describe("deriveTeamTaskLaunchGroups", () => {
     const groups = deriveTeamTaskLaunchGroups({
       activities: [
         makeActivity({
-          id: "activity-spawn-2",
+          id: "a-second-spawn",
           kind: "team.task.spawned",
           createdAt: "2026-01-01T00:00:05.000Z",
           sequence: 3,
@@ -895,7 +895,7 @@ describe("deriveTeamTaskLaunchGroups", () => {
           sequence: 2,
         }),
         makeActivity({
-          id: "activity-spawn-1",
+          id: "z-first-spawn",
           kind: "team.task.spawned",
           createdAt: "2026-01-01T00:00:05.000Z",
           sequence: 1,
@@ -907,12 +907,51 @@ describe("deriveTeamTaskLaunchGroups", () => {
 
     expect(groups).toEqual([
       {
-        id: "activity-spawn-1",
+        id: "z-first-spawn",
         createdAt: "2026-01-01T00:00:05.000Z",
         tasks: [reviewer],
       },
       {
-        id: "activity-spawn-2",
+        id: "a-second-spawn",
+        createdAt: "2026-01-01T00:00:05.000Z",
+        tasks: [fixer],
+      },
+    ]);
+  });
+
+  it("keeps same-timestamp activity-backed groups ahead of fallback groups", () => {
+    const reviewer = makeTeamTaskView({
+      id: "task-reviewer",
+      title: "Reviewer",
+      createdAt: "2026-01-01T00:00:05.000Z",
+    });
+    const fixer = makeTeamTaskView({
+      id: "task-fixer",
+      title: "Fixer",
+      createdAt: "2026-01-01T00:00:05.000Z",
+    });
+
+    const groups = deriveTeamTaskLaunchGroups({
+      activities: [
+        makeActivity({
+          id: "spawn-reviewer",
+          kind: "team.task.spawned",
+          createdAt: "2026-01-01T00:00:05.000Z",
+          sequence: 1,
+          payload: { taskId: "task-reviewer" },
+        }),
+      ],
+      taskViews: [reviewer, fixer],
+    });
+
+    expect(groups).toEqual([
+      {
+        id: "spawn-reviewer",
+        createdAt: "2026-01-01T00:00:05.000Z",
+        tasks: [reviewer],
+      },
+      {
+        id: "team-task-fallback:task-fixer",
         createdAt: "2026-01-01T00:00:05.000Z",
         tasks: [fixer],
       },
