@@ -247,27 +247,27 @@ function buildFrameworkDevInvocation(input: {
   switch (input.framework) {
     case "next":
       return (
-        appendScriptFlags(`-p "$T3CODE_PRIMARY_PORT" -H "$HOST"`) ??
-        `PORT="$T3CODE_PRIMARY_PORT" HOST="$HOST" ${input.devCommand}`
+        appendScriptFlags(`-p "$PORT" -H "$HOST"`) ??
+        `PORT="$PORT" HOST="$HOST" ${input.devCommand}`
       );
     case "vite":
       return (
-        appendScriptFlags(`--host "$HOST" --port "$T3CODE_PRIMARY_PORT"`) ??
-        `PORT="$T3CODE_PRIMARY_PORT" HOST="$HOST" ${input.devCommand}`
+        appendScriptFlags(`--host "$HOST" --port "$PORT"`) ??
+        `PORT="$PORT" HOST="$HOST" ${input.devCommand}`
       );
     case "astro":
       return (
-        appendScriptFlags(`--host "$HOST" --port "$T3CODE_PRIMARY_PORT"`) ??
-        `PORT="$T3CODE_PRIMARY_PORT" HOST="$HOST" ${input.devCommand}`
+        appendScriptFlags(`--host "$HOST" --port "$PORT"`) ??
+        `PORT="$PORT" HOST="$HOST" ${input.devCommand}`
       );
     case "django":
-      return `python manage.py runserver "$HOST:$T3CODE_PRIMARY_PORT"`;
+      return `python manage.py runserver "$HOST:$PORT"`;
     case "rails":
-      return `bin/rails server -b "$HOST" -p "$T3CODE_PRIMARY_PORT"`;
+      return `bin/rails server -b "$HOST" -p "$PORT"`;
     case "phoenix":
-      return `PORT="$T3CODE_PRIMARY_PORT" ${input.devCommand}`;
+      return `PORT="$PORT" ${input.devCommand}`;
     default:
-      return `PORT="$T3CODE_PRIMARY_PORT" HOST="$HOST" ${input.devCommand}`;
+      return `PORT="$PORT" HOST="$HOST" ${input.devCommand}`;
   }
 }
 
