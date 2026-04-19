@@ -524,6 +524,47 @@ function createSnapshotWithTeamChildThread(): OrchestrationReadModel {
   };
 }
 
+function createSnapshotWithPendingTeamChildThread(): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: "msg-user-team-child-pending" as MessageId,
+    targetText: "team child pending inspection",
+  });
+  const teamTaskCreatedAt = isoAt(240);
+
+  return {
+    ...snapshot,
+    snapshotSequence: snapshot.snapshotSequence + 1,
+    threads: [
+      {
+        ...snapshot.threads[0]!,
+        updatedAt: teamTaskCreatedAt,
+        teamTasks: [
+          {
+            id: "team-task:browser-child-pending",
+            parentThreadId: THREAD_ID,
+            childThreadId: TEAM_CHILD_THREAD_ID,
+            title: "Review docs changes",
+            roleLabel: "Reviewer",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5",
+            },
+            workspaceMode: "worktree",
+            status: "starting",
+            latestSummary: "Preparing a dedicated child thread for review.",
+            errorText: null,
+            createdAt: teamTaskCreatedAt,
+            startedAt: isoAt(245),
+            completedAt: null,
+            updatedAt: isoAt(246),
+          },
+        ],
+      },
+    ],
+    updatedAt: isoAt(246),
+  };
+}
+
 function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
   return {
     snapshot,
@@ -5351,6 +5392,49 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
       await expect.element(page.getByText("Child task", { exact: true })).toBeInTheDocument();
       await expect.element(page.getByText("Coordinator:", { exact: false })).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the inspector on the parent thread when the child thread is not ready yet", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithPendingTeamChildThread(),
+    });
+
+    try {
+      await page.getByText("Reviewer", { exact: true }).click();
+      await page.getByText("Inspect task", { exact: true }).click();
+
+      const inspector = page.getByTestId("team-task-inspector");
+      await expect.element(inspector).toBeInTheDocument();
+      await expect
+        .element(
+          inspector.getByText("Preparing a dedicated child thread for review.", { exact: true }),
+        )
+        .toBeInTheDocument();
+
+      const disabledButton = inspector.getByRole("button", {
+        name: "Child thread not ready",
+        exact: true,
+      });
+      await expect.element(disabledButton).toBeInTheDocument();
+      await expect.element(disabledButton).toBeDisabled();
+      await expect
+        .element(
+          inspector.getByText(
+            "This task has started, but its child thread is still being prepared.",
+            { exact: true },
+          ),
+        )
+        .toBeInTheDocument();
+      await expect
+        .element(inspector.getByText("Open child thread", { exact: true }))
+        .not.toBeInTheDocument();
+
+      expect(mounted.router.state.location.pathname).toBe(`/${LOCAL_ENVIRONMENT_ID}/${THREAD_ID}`);
+      expect(mounted.router.state.location.search.agentChildThreadId).toBe(TEAM_CHILD_THREAD_ID);
     } finally {
       await mounted.cleanup();
     }

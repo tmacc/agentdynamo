@@ -12,6 +12,10 @@ export interface TeamTaskPresentationView {
   childThread: Pick<Thread, "branch" | "worktreePath"> | null;
 }
 
+export function isTeamTaskChildThreadReady(view: TeamTaskPresentationView): boolean {
+  return view.childThread !== null;
+}
+
 const TEAM_STATUS_TONE: Record<
   TeamTask["status"],
   "default" | "secondary" | "destructive" | "outline"
@@ -63,10 +67,11 @@ export function TeamTaskStatusBadge({ status }: { status: TeamTask["status"] }) 
 export function TeamTaskDetailContent(props: {
   view: TeamTaskPresentationView;
   action?: ReactNode;
+  supplementaryNote?: ReactNode;
   className?: string;
   includeModelDetails?: boolean;
 }) {
-  const { view, action, className, includeModelDetails = false } = props;
+  const { view, action, supplementaryNote, className, includeModelDetails = false } = props;
   const { task, diffSummary, childThread } = view;
 
   return (
@@ -88,6 +93,9 @@ export function TeamTaskDetailContent(props: {
           {childThread.branch ? `Branch: ${childThread.branch}` : "Branch: n/a"}
           {childThread.worktreePath ? ` · Worktree: ${childThread.worktreePath}` : ""}
         </div>
+      ) : null}
+      {supplementaryNote ? (
+        <div className="text-muted-foreground/75">{supplementaryNote}</div>
       ) : null}
       {action ? <div className="pt-0.5">{action}</div> : null}
     </div>
