@@ -41,6 +41,7 @@ const FRESH_TARGET = { environmentId: ENVIRONMENT_ID, cwd: "/fresh" } as const;
 
 const BASE_STATUS: GitStatusResult = {
   isRepo: true,
+  hasAnyRemote: true,
   hasOriginRemote: true,
   isDefaultBranch: false,
   branch: "feature/push-status",

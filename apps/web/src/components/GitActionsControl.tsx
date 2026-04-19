@@ -1,6 +1,7 @@
 import { type ScopedThreadRef } from "@t3tools/contracts";
 import type {
   GitActionProgressEvent,
+  GitGetPullRequestRemoteOptionsResult,
   GitRunStackedActionResult,
   GitStackedAction,
   GitStatusResult,
@@ -39,6 +40,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager, type ThreadToastData } from "~/components/ui/toast";
+import { Radio, RadioGroup } from "~/components/ui/radio-group";
 import { openInPreferredEditor } from "~/editorPreferences";
 import {
   gitInitMutationOptions,
@@ -68,6 +70,10 @@ interface PendingDefaultBranchAction {
   commitMessage?: string;
   onConfirmed?: () => void;
   filePaths?: string[];
+}
+
+interface PendingPullRequestRemoteSelection extends RunGitActionWithToastInput {
+  options: GitGetPullRequestRemoteOptionsResult;
 }
 
 type GitActionToastId = ReturnType<typeof toastManager.add>;
@@ -121,12 +127,10 @@ function getMenuActionDisabledReason({
   item,
   gitStatus,
   isBusy,
-  hasOriginRemote,
 }: {
   item: GitActionMenuItem;
   gitStatus: GitStatusResult | null;
   isBusy: boolean;
-  hasOriginRemote: boolean;
 }): string | null {
   if (!item.disabled) return null;
   if (isBusy) return "Git action in progress.";
@@ -155,8 +159,8 @@ function getMenuActionDisabledReason({
     if (isBehind) {
       return "Branch is behind upstream. Pull/rebase before pushing.";
     }
-    if (!gitStatus.hasUpstream && !hasOriginRemote) {
-      return 'Add an "origin" remote before pushing.';
+    if (!gitStatus.hasUpstream && !gitStatus.hasAnyRemote) {
+      return "Add a git remote before pushing.";
     }
     if (!isAhead) {
       return "No local commits to push.";
@@ -173,8 +177,8 @@ function getMenuActionDisabledReason({
   if (hasChanges) {
     return "Commit local changes before creating a PR.";
   }
-  if (!gitStatus.hasUpstream && !hasOriginRemote) {
-    return 'Add an "origin" remote before creating a PR.';
+  if (!gitStatus.hasUpstream && !gitStatus.hasAnyRemote) {
+    return "Add a git remote before creating a PR.";
   }
   if (!isAhead) {
     return "No local commits to include in a PR.";
@@ -241,6 +245,10 @@ export default function GitActionsControl({
   const [isEditingFiles, setIsEditingFiles] = useState(false);
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
+  const [pendingPullRequestRemoteSelection, setPendingPullRequestRemoteSelection] =
+    useState<PendingPullRequestRemoteSelection | null>(null);
+  const [selectedPullRequestRemoteName, setSelectedPullRequestRemoteName] = useState("");
+  const [isSavingPullRequestRemote, setIsSavingPullRequestRemote] = useState(false);
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
   let runGitActionWithToast: (input: RunGitActionWithToastInput) => Promise<void>;
 
@@ -324,7 +332,6 @@ export default function GitActionsControl({
   });
   // Default to true while loading so we don't flash init controls.
   const isRepo = gitStatus?.isRepo ?? true;
-  const hasOriginRemote = gitStatus?.hasOriginRemote ?? false;
   const gitStatusForActions = gitStatus;
 
   const allFiles = gitStatusForActions?.workingTree.files ?? [];
@@ -387,13 +394,12 @@ export default function GitActionsControl({
   }, [gitStatusForActions?.isDefaultBranch]);
 
   const gitActionMenuItems = useMemo(
-    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasOriginRemote),
-    [gitStatusForActions, hasOriginRemote, isGitActionRunning],
+    () => buildMenuItems(gitStatusForActions, isGitActionRunning),
+    [gitStatusForActions, isGitActionRunning],
   );
   const quickAction = useMemo(
-    () =>
-      resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultBranch, hasOriginRemote),
-    [gitStatusForActions, hasOriginRemote, isDefaultBranch, isGitActionRunning],
+    () => resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultBranch),
+    [gitStatusForActions, isDefaultBranch, isGitActionRunning],
   );
   const quickActionDisabledReason = quickAction.disabled
     ? (quickAction.hint ?? "This action is currently unavailable.")
@@ -483,6 +489,36 @@ export default function GitActionsControl({
     });
   }, [gitStatusForActions, threadToastData]);
 
+  const requestPullRequestRemoteSelection = useEffectEvent(
+    async (input: RunGitActionWithToastInput) => {
+      if (input.action !== "create_pr" && input.action !== "commit_push_pr") {
+        return false;
+      }
+      if (!gitCwd || !activeEnvironmentId) {
+        throw new Error("Pull request creation is unavailable.");
+      }
+
+      const api = readEnvironmentApi(activeEnvironmentId);
+      if (!api) {
+        throw new Error("Environment API is unavailable.");
+      }
+
+      const options = await api.git.getPullRequestRemoteOptions({ cwd: gitCwd });
+      if (!options.requiresSelection) {
+        return false;
+      }
+
+      const initialRemoteName =
+        options.selectedRemoteName ?? options.candidates[0]?.remoteName ?? "";
+      setSelectedPullRequestRemoteName(initialRemoteName);
+      setPendingPullRequestRemoteSelection({
+        ...input,
+        options,
+      });
+      return true;
+    },
+  );
+
   runGitActionWithToast = useEffectEvent(
     async ({
       action,
@@ -523,6 +559,21 @@ export default function GitActionsControl({
           ...(onConfirmed ? { onConfirmed } : {}),
           ...(filePaths ? { filePaths } : {}),
         });
+        return;
+      }
+
+      if (
+        await requestPullRequestRemoteSelection({
+          action,
+          ...(commitMessage ? { commitMessage } : {}),
+          ...(onConfirmed ? { onConfirmed } : {}),
+          skipDefaultBranchPrompt,
+          ...(statusOverride ? { statusOverride } : {}),
+          ...(featureBranch ? { featureBranch } : {}),
+          ...(progressToastId ? { progressToastId } : {}),
+          ...(filePaths ? { filePaths } : {}),
+        })
+      ) {
         return;
       }
       onConfirmed?.();
@@ -700,6 +751,51 @@ export default function GitActionsControl({
       }
     },
   );
+
+  const confirmPullRequestRemoteSelection = () => {
+    if (!pendingPullRequestRemoteSelection || !selectedPullRequestRemoteName || !gitCwd) {
+      return;
+    }
+
+    const api = activeEnvironmentId ? readEnvironmentApi(activeEnvironmentId) : undefined;
+    if (!api) {
+      toastManager.add({
+        type: "error",
+        title: "Environment API is unavailable.",
+        data: threadToastData,
+      });
+      return;
+    }
+
+    setIsSavingPullRequestRemote(true);
+    void api.git
+      .setPullRequestRemote({
+        cwd: gitCwd,
+        remoteName: selectedPullRequestRemoteName,
+      })
+      .then(() => {
+        const nextAction = pendingPullRequestRemoteSelection;
+        setPendingPullRequestRemoteSelection(null);
+        setSelectedPullRequestRemoteName("");
+        toastManager.add({
+          type: "success",
+          title: `PR remote set to ${selectedPullRequestRemoteName}`,
+          data: threadToastData,
+        });
+        void runGitActionWithToast(nextAction);
+      })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not save PR remote",
+          description: error instanceof Error ? error.message : "An error occurred.",
+          data: threadToastData,
+        });
+      })
+      .finally(() => {
+        setIsSavingPullRequestRemote(false);
+      });
+  };
 
   const continuePendingDefaultBranchAction = () => {
     if (!pendingDefaultBranchAction) return;
@@ -916,7 +1012,6 @@ export default function GitActionsControl({
                   item,
                   gitStatus: gitStatusForActions,
                   isBusy: isGitActionRunning,
-                  hasOriginRemote,
                 });
                 if (item.disabled && disabledReason) {
                   return (
@@ -1135,6 +1230,67 @@ export default function GitActionsControl({
             </Button>
             <Button size="sm" disabled={noneSelected} onClick={runDialogAction}>
               Commit
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <Dialog
+        open={pendingPullRequestRemoteSelection !== null}
+        onOpenChange={(open) => {
+          if (!open && !isSavingPullRequestRemote) {
+            setPendingPullRequestRemoteSelection(null);
+            setSelectedPullRequestRemoteName("");
+          }
+        }}
+      >
+        <DialogPopup className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Choose PR remote</DialogTitle>
+            <DialogDescription>
+              This repository has multiple GitHub remotes. Choose which remote should be used for
+              pull requests. This preference is stored in the repo and reused for future PRs.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-3">
+            <RadioGroup
+              value={selectedPullRequestRemoteName}
+              onValueChange={setSelectedPullRequestRemoteName}
+            >
+              {pendingPullRequestRemoteSelection?.options.candidates.map((candidate) => (
+                <label
+                  key={candidate.remoteName}
+                  className="flex cursor-pointer items-start gap-3 rounded-lg border border-input bg-muted/30 p-3 transition-colors hover:bg-muted/50"
+                >
+                  <Radio value={candidate.remoteName} />
+                  <span className="min-w-0 space-y-1">
+                    <span className="block font-medium">{candidate.remoteName}</span>
+                    <span className="block font-mono text-xs text-muted-foreground">
+                      {candidate.repositoryNameWithOwner}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </RadioGroup>
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isSavingPullRequestRemote}
+              onClick={() => {
+                setPendingPullRequestRemoteSelection(null);
+                setSelectedPullRequestRemoteName("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!selectedPullRequestRemoteName || isSavingPullRequestRemote}
+              onClick={confirmPullRequestRemoteSelection}
+            >
+              {isSavingPullRequestRemote ? "Saving..." : "Use this remote"}
             </Button>
           </DialogFooter>
         </DialogPopup>

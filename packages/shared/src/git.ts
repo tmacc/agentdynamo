@@ -286,6 +286,7 @@ function toLocalStatusPart(status: GitStatusResult): GitStatusLocalResult {
   return {
     isRepo: status.isRepo,
     ...(status.hostingProvider ? { hostingProvider: status.hostingProvider } : {}),
+    hasAnyRemote: status.hasAnyRemote,
     hasOriginRemote: status.hasOriginRemote,
     isDefaultBranch: status.isDefaultBranch,
     branch: status.branch,
@@ -308,6 +309,7 @@ export function applyGitStatusStreamEvent(
         return mergeGitStatusParts(
           {
             isRepo: true,
+            hasAnyRemote: false,
             hasOriginRemote: false,
             isDefaultBranch: false,
             branch: null,

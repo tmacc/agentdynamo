@@ -19,6 +19,7 @@ const baseLocalStatus: GitStatusLocalResult = {
     name: "GitHub",
     baseUrl: "https://github.com",
   },
+  hasAnyRemote: true,
   hasOriginRemote: true,
   isDefaultBranch: false,
   branch: "feature/status-broadcast",
@@ -68,6 +69,10 @@ function makeTestLayer(state: {
       }),
     invalidateStatus: () => Effect.die("invalidateStatus should not be called in this test"),
     resolvePullRequest: () => Effect.die("resolvePullRequest should not be called in this test"),
+    getPullRequestRemoteOptions: () =>
+      Effect.die("getPullRequestRemoteOptions should not be called in this test"),
+    setPullRequestRemote: () =>
+      Effect.die("setPullRequestRemote should not be called in this test"),
     preparePullRequestThread: () =>
       Effect.die("preparePullRequestThread should not be called in this test"),
     runStackedAction: () => Effect.die("runStackedAction should not be called in this test"),
@@ -266,6 +271,10 @@ describe("GitStatusBroadcasterLive", () => {
           invalidateStatus: () => Effect.die("invalidateStatus should not be called in this test"),
           resolvePullRequest: () =>
             Effect.die("resolvePullRequest should not be called in this test"),
+          getPullRequestRemoteOptions: () =>
+            Effect.die("getPullRequestRemoteOptions should not be called in this test"),
+          setPullRequestRemote: () =>
+            Effect.die("setPullRequestRemote should not be called in this test"),
           preparePullRequestThread: () =>
             Effect.die("preparePullRequestThread should not be called in this test"),
           runStackedAction: () => Effect.die("runStackedAction should not be called in this test"),
