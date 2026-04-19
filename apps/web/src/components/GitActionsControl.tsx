@@ -562,8 +562,9 @@ export default function GitActionsControl({
         return;
       }
 
-      if (
-        await requestPullRequestRemoteSelection({
+      let requiresPullRequestRemoteSelection = false;
+      try {
+        requiresPullRequestRemoteSelection = await requestPullRequestRemoteSelection({
           action,
           ...(commitMessage ? { commitMessage } : {}),
           ...(onConfirmed ? { onConfirmed } : {}),
@@ -572,8 +573,17 @@ export default function GitActionsControl({
           ...(featureBranch ? { featureBranch } : {}),
           ...(progressToastId ? { progressToastId } : {}),
           ...(filePaths ? { filePaths } : {}),
-        })
-      ) {
+        });
+      } catch (err) {
+        toastManager.add({
+          type: "error",
+          title: "Could not prepare pull request action",
+          description: err instanceof Error ? err.message : "An error occurred.",
+          data: threadToastData,
+        });
+        return;
+      }
+      if (requiresPullRequestRemoteSelection) {
         return;
       }
       onConfirmed?.();
