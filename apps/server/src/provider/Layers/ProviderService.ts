@@ -177,6 +177,15 @@ function readPersistedSyncState(
   };
 }
 
+function isResumableSlotState(slotState: ProviderSessionSlotState | undefined): boolean {
+  return (
+    slotState === undefined ||
+    slotState === "active" ||
+    slotState === "parked" ||
+    slotState === "expired"
+  );
+}
+
 const makeProviderService = Effect.fn("makeProviderService")(function* (
   options?: ProviderServiceLiveOptions,
 ) {
@@ -246,6 +255,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       "provider.thread_id": input.binding.threadId,
     });
     return yield* Effect.gen(function* () {
+      if (!isResumableSlotState(input.binding.slotState)) {
+        return yield* toValidationError(
+          input.operation,
+          `Cannot recover thread '${input.binding.threadId}' because the persisted provider slot for '${input.binding.provider}' is '${input.binding.slotState}' and requires a fresh provider start/handoff.`,
+        );
+      }
+
       const adapter = yield* registry.getByProvider(input.binding.provider);
       const hasResumeCursor =
         input.binding.resumeCursor !== null && input.binding.resumeCursor !== undefined;
@@ -343,6 +359,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       return { adapter, threadId: input.threadId, isActive: false } as const;
     }
 
+    if (!isResumableSlotState(binding.slotState)) {
+      return yield* toValidationError(
+        input.operation,
+        `Cannot route thread '${input.threadId}' because the persisted provider slot for '${binding.provider}' is '${binding.slotState}' and requires a fresh provider start/handoff.`,
+      );
+    }
+
     const recovered = yield* recoverSessionForThread({ binding, operation: input.operation });
     return { adapter: recovered.adapter, threadId: input.threadId, isActive: true } as const;
   });
@@ -416,20 +439,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         const persistedBinding = Option.getOrUndefined(
           yield* directory.getBindingForProvider(threadId, input.provider),
         );
+        const canReusePersistedSlot =
+          options?.resumeStrategy !== "fresh" && isResumableSlotState(persistedBinding?.slotState);
         const persistedSyncState =
-          persistedBinding &&
-          options?.resumeStrategy !== "fresh" &&
-          persistedBinding.slotState !== "stale" &&
-          persistedBinding.slotState !== "error"
+          persistedBinding && canReusePersistedSlot
             ? readPersistedSyncState(persistedBinding.runtimePayload)
             : undefined;
         const effectiveResumeCursor =
           options?.resumeStrategy === "fresh"
             ? input.resumeCursor
             : (input.resumeCursor ??
-              (persistedBinding &&
-              persistedBinding.slotState !== "stale" &&
-              persistedBinding.slotState !== "error"
+              (persistedBinding && canReusePersistedSlot
                 ? persistedBinding.resumeCursor
                 : undefined));
         const adapter = yield* registry.getByProvider(input.provider);
