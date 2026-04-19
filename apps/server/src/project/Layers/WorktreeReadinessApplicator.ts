@@ -10,9 +10,10 @@ import {
   buildManagedScripts,
   computeReadinessAnalysis,
   ensureGitignoreEntry,
-  isGitTrackedPath,
+  getGitTrackedPathStatus,
   materializeManagedWorktreeScripts,
   mergeReadinessScripts,
+  normalizeGitTrackedPathCheckError,
   WORKTREE_DEV_SCRIPT_PATH,
   WORKTREE_LOCAL_ENV_PATH,
   WORKTREE_SETUP_SCRIPT_PATH,
@@ -86,11 +87,18 @@ const makeWorktreeReadinessApplicator = Effect.gen(function* () {
       const updatedGitignore = yield* Effect.tryPromise(() =>
         ensureGitignoreEntry(input.projectCwd, WORKTREE_LOCAL_ENV_PATH),
       );
-      const warnings = (yield* Effect.tryPromise(() =>
-        isGitTrackedPath(input.projectCwd, WORKTREE_LOCAL_ENV_PATH),
-      ))
-        ? [buildTrackedWorktreeLocalEnvWarning()]
-        : [];
+      const warnings =
+        (yield* Effect.tryPromise({
+          try: () => getGitTrackedPathStatus(input.projectCwd, WORKTREE_LOCAL_ENV_PATH),
+          catch: (error) =>
+            normalizeGitTrackedPathCheckError({
+              projectCwd: input.projectCwd,
+              relativePath: WORKTREE_LOCAL_ENV_PATH,
+              error,
+            }),
+        })) === "tracked"
+          ? [buildTrackedWorktreeLocalEnvWarning()]
+          : [];
 
       const nextScripts = mergeReadinessScripts(
         project.scripts,

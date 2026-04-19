@@ -155,6 +155,54 @@ describe("savedPromptStore", () => {
     expect(Object.keys(useSavedPromptStore.getState().snippetsById)).toHaveLength(1);
   });
 
+  it("preserves leading and trailing whitespace in the stored body", async () => {
+    getTestWindow();
+    const { resetSavedPromptStoreForTests, useSavedPromptStore } =
+      await import("./savedPromptStore");
+    resetSavedPromptStoreForTests();
+
+    const created = useSavedPromptStore.getState().createSnippet({
+      body: "\n\n# Review prompt\r\nFocus on reconnect regressions\r\n",
+      scope: "global",
+    });
+    if (created.status !== "created") {
+      throw new Error("Expected snippet to be created.");
+    }
+
+    expect(created.snippet.body).toBe("\n\n# Review prompt\nFocus on reconnect regressions\n");
+  });
+
+  it("rejects effectively empty whitespace-only bodies", async () => {
+    getTestWindow();
+    const { resetSavedPromptStoreForTests, useSavedPromptStore } =
+      await import("./savedPromptStore");
+    resetSavedPromptStoreForTests();
+
+    expect(
+      useSavedPromptStore.getState().createSnippet({
+        body: "\n  \r\n\t",
+        scope: "global",
+      }),
+    ).toEqual({ status: "invalid" });
+  });
+
+  it("derives the default title from the first non-empty line even with leading blank lines", async () => {
+    getTestWindow();
+    const { resetSavedPromptStoreForTests, useSavedPromptStore } =
+      await import("./savedPromptStore");
+    resetSavedPromptStoreForTests();
+
+    const created = useSavedPromptStore.getState().createSnippet({
+      body: "\n\n## Review prompt\nFocus on reconnect regressions",
+      scope: "global",
+    });
+    if (created.status !== "created") {
+      throw new Error("Expected snippet to be created.");
+    }
+
+    expect(created.snippet.title).toBe("Review prompt");
+  });
+
   it("changes snippet scope between project and global", async () => {
     getTestWindow();
     const { resetSavedPromptStoreForTests, useSavedPromptStore } =

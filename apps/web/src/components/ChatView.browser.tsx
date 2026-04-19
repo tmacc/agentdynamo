@@ -5727,6 +5727,30 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("preserves saved prompt whitespace when applying from the composer menu", async () => {
+    useSavedPromptStore.getState().createSnippet({
+      title: "Whitespace prompt",
+      body: "\n\nReview this diff for reconnect regressions\n",
+      scope: "global",
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-saved-prompt-whitespace-target" as MessageId,
+        targetText: "saved prompt whitespace thread",
+      }),
+    });
+
+    try {
+      await page.getByTestId("saved-prompt-trigger").click();
+      await page.getByText("Whitespace prompt").click();
+      await waitForComposerText("\n\nReview this diff for reconnect regressions\n");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("confirms before replacing an existing composer draft with a saved prompt", async () => {
     useSavedPromptStore.getState().createSnippet({
       title: "Issue write-up",

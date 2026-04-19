@@ -97,8 +97,12 @@ const EMPTY_PERSISTED_STATE: PersistedSavedPromptStoreState = Object.freeze({
   snippetsById: EMPTY_SNIPPETS_BY_ID,
 });
 
-function normalizeSavedPromptBody(value: string): string {
-  return value.replace(/\r\n?/g, "\n").trim();
+function canonicalizeSavedPromptBody(value: string): string {
+  return value.replace(/\r\n?/g, "\n");
+}
+
+function normalizeSavedPromptBodyForComparison(value: string): string {
+  return canonicalizeSavedPromptBody(value).trim();
 }
 
 function stripLeadingMarkdownHeading(value: string): string {
@@ -115,7 +119,7 @@ function normalizeSavedPromptTitle(value: string): string {
 
 export function deriveSavedPromptTitle(body: string): string {
   const firstNonEmptyLine =
-    normalizeSavedPromptBody(body)
+    normalizeSavedPromptBodyForComparison(body)
       .split("\n")
       .map((line) => line.trim())
       .find((line) => line.length > 0) ?? "";
@@ -169,9 +173,10 @@ export const useSavedPromptStore = create<SavedPromptStoreState>()(
     (set, get) => ({
       snippetsById: {},
       createSnippet: (input) => {
-        const body = normalizeSavedPromptBody(input.body);
+        const body = canonicalizeSavedPromptBody(input.body);
+        const comparisonBody = normalizeSavedPromptBodyForComparison(input.body);
         const projectKey = resolveProjectKey(input.scope, input.projectRef);
-        if (body.length === 0 || (input.scope === "project" && projectKey === null)) {
+        if (comparisonBody.length === 0 || (input.scope === "project" && projectKey === null)) {
           return { status: "invalid" };
         }
 
@@ -182,7 +187,7 @@ export const useSavedPromptStore = create<SavedPromptStoreState>()(
           (snippet) =>
             snippet.scope === input.scope &&
             snippet.projectKey === projectKey &&
-            normalizeSavedPromptBody(snippet.body) === body,
+            normalizeSavedPromptBodyForComparison(snippet.body) === comparisonBody,
         );
         if (duplicate) {
           return { status: "duplicate", snippet: duplicate };

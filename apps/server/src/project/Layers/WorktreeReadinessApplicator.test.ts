@@ -23,6 +23,10 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+async function initGitRepo(cwd: string): Promise<void> {
+  await execFileAsync("git", ["init"], { cwd });
+}
+
 function makeReadModel(project: Partial<OrchestrationReadModel["projects"][number]>) {
   return {
     snapshotSequence: 1,
@@ -73,6 +77,7 @@ describe("WorktreeReadinessApplicator", () => {
         ),
       );
       await fs.writeFile(path.join(projectCwd, ".env.local"), "PORT=3000\n");
+      await initGitRepo(projectCwd);
 
       const analysis = await computeReadinessAnalysis({
         projectCwd,
@@ -197,6 +202,89 @@ describe("WorktreeReadinessApplicator", () => {
     });
   });
 
+  it("records a telemetry failure when git tracked-status check cannot run", async () => {
+    const projectCwd = await fs.mkdtemp(path.join(os.tmpdir(), "t3-readiness-apply-non-git-"));
+    const record = vi.fn(() => Effect.void);
+
+    try {
+      await fs.writeFile(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify(
+          {
+            packageManager: "bun@1.3.9",
+            scripts: {
+              dev: "vite",
+            },
+            devDependencies: {
+              vite: "^7.0.0",
+            },
+          },
+          null,
+          2,
+        ),
+      );
+      await fs.writeFile(path.join(projectCwd, ".env.local"), "PORT=3000\n");
+
+      const analysis = await computeReadinessAnalysis({
+        projectCwd,
+        profile: null,
+      });
+      if (analysis.recommendation.devCommand === null) {
+        throw new Error("Expected a dev command recommendation for the test fixture.");
+      }
+
+      const applicator = await Effect.runPromise(
+        Effect.service(WorktreeReadinessApplicator).pipe(
+          Effect.provide(
+            WorktreeReadinessApplicatorLive.pipe(
+              Layer.provideMerge(
+                Layer.succeed(OrchestrationEngineService, {
+                  getReadModel: () => Effect.succeed(makeReadModel({ workspaceRoot: projectCwd })),
+                  readEvents: () => Stream.empty,
+                  dispatch: () => Effect.succeed({ sequence: 1 }),
+                  streamDomainEvents: Stream.empty,
+                }),
+              ),
+              Layer.provideMerge(
+                Layer.succeed(AnalyticsService, {
+                  record,
+                  flush: Effect.void,
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await expect(
+        Effect.runPromise(
+          applicator.apply({
+            projectId: ProjectId.make("project-1"),
+            projectCwd,
+            scanFingerprint: analysis.scanFingerprint,
+            installCommand: analysis.recommendation.installCommand,
+            devCommand: analysis.recommendation.devCommand,
+            envStrategy: analysis.recommendation.envStrategy,
+            envSourcePath: analysis.recommendation.envSourcePath,
+            portCount: analysis.recommendation.portCount,
+            overwriteManagedFiles: false,
+          }),
+        ),
+      ).rejects.toThrow(
+        `Failed to determine whether .t3code/worktree.local.env is tracked by git in ${projectCwd}.`,
+      );
+
+      expect(record).toHaveBeenCalledWith("project.worktree_readiness.apply_failed", {
+        overwriteManagedFiles: false,
+        envStrategy: analysis.recommendation.envStrategy,
+        portCount: analysis.recommendation.portCount,
+        failureKind: "git_tracking_check_failed",
+      });
+    } finally {
+      await fs.rm(projectCwd, { recursive: true, force: true });
+    }
+  });
+
   it("requires overwrite confirmation when a managed helper has drifted", async () => {
     const projectCwd = await fs.mkdtemp(path.join(os.tmpdir(), "t3-readiness-apply-drift-"));
     const record = vi.fn(() => Effect.void);
@@ -293,6 +381,7 @@ describe("WorktreeReadinessApplicator", () => {
     const dispatchedCommands: OrchestrationCommand[] = [];
 
     try {
+      await initGitRepo(projectCwd);
       await fs.writeFile(
         path.join(projectCwd, "package.json"),
         JSON.stringify(

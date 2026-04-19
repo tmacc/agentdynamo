@@ -16,6 +16,10 @@ import { buildManagedWorktreeScriptFiles } from "./WorktreeReadinessShared.ts";
 
 const execFileAsync = promisify(execFile);
 
+async function initGitRepo(cwd: string): Promise<void> {
+  await execFileAsync("git", ["init"], { cwd });
+}
+
 const emptySnapshot = (
   scripts: OrchestrationReadModel["projects"][number]["scripts"],
   overrides?: Partial<OrchestrationReadModel["projects"][number]>,
@@ -228,6 +232,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
+      await initGitRepo(worktreePath);
       const runner = await Effect.runPromise(
         Effect.service(ProjectSetupScriptRunner).pipe(
           Effect.provide(
@@ -347,6 +352,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
+      await initGitRepo(worktreePath);
       const managedFiles = buildManagedWorktreeScriptFiles({
         installCommand: "bun install",
         envStrategy: "none",
@@ -423,6 +429,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
+      await initGitRepo(worktreePath);
       const managedFiles = buildManagedWorktreeScriptFiles({
         installCommand: "bun install",
         envStrategy: "none",
@@ -497,6 +504,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn(() => Effect.void);
 
     try {
+      await initGitRepo(worktreePath);
       const managedFiles = buildManagedWorktreeScriptFiles({
         installCommand: "bun install",
         envStrategy: "none",
@@ -571,7 +579,7 @@ describe("ProjectSetupScriptRunner", () => {
     const write = vi.fn();
 
     try {
-      await execFileAsync("git", ["init"], { cwd: worktreePath });
+      await initGitRepo(worktreePath);
       await fs.mkdir(path.join(worktreePath, ".t3code"), { recursive: true });
       await fs.writeFile(
         path.join(worktreePath, ".t3code", "worktree.local.env"),
@@ -622,6 +630,66 @@ describe("ProjectSetupScriptRunner", () => {
           }),
         ),
       ).rejects.toThrow("Worktree runtime env file is tracked by git: .t3code/worktree.local.env");
+      expect(open).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+      await fs.rm(worktreePath, { recursive: true, force: true });
+    }
+  });
+
+  it("fails before setup launch when git tracked-status check cannot run", async () => {
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "t3-project-root-non-git-"));
+    const worktreePath = await fs.mkdtemp(path.join(os.tmpdir(), "t3-worktree-non-git-"));
+    const open = vi.fn();
+    const write = vi.fn();
+
+    try {
+      const runner = await Effect.runPromise(
+        Effect.service(ProjectSetupScriptRunner).pipe(
+          Effect.provide(
+            ProjectSetupScriptRunnerLive.pipe(
+              Layer.provideMerge(
+                Layer.succeed(OrchestrationEngineService, {
+                  getReadModel: () =>
+                    Effect.succeed(
+                      emptySnapshot(setupWorktreeScripts(), {
+                        workspaceRoot: projectRoot,
+                        worktreeReadiness: configuredWorktreeReadiness(),
+                      }),
+                    ),
+                  readEvents: () => Stream.empty,
+                  dispatch: () => Effect.die(new Error("unused")),
+                  streamDomainEvents: Stream.empty,
+                }),
+              ),
+              Layer.provideMerge(
+                Layer.succeed(TerminalManager, {
+                  open,
+                  write,
+                  resize: () => Effect.void,
+                  clear: () => Effect.void,
+                  restart: () => Effect.die(new Error("unused")),
+                  close: () => Effect.void,
+                  subscribe: () => Effect.succeed(() => undefined),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await expect(
+        Effect.runPromise(
+          runner.runForThread({
+            threadId: "thread-1",
+            projectId: "project-1",
+            worktreePath,
+          }),
+        ),
+      ).rejects.toThrow(
+        `Failed to determine whether .t3code/worktree.local.env is tracked by git in ${worktreePath}.`,
+      );
       expect(open).not.toHaveBeenCalled();
       expect(write).not.toHaveBeenCalled();
     } finally {
