@@ -28,12 +28,16 @@ import { useStore } from "../store";
 import { createAuthenticatedSessionHandlers } from "../../test/authHttpHandlers";
 import { BrowserWsRpcHarness } from "../../test/wsRpcHarness";
 
-vi.mock("../lib/gitStatusState", () => ({
-  useGitStatus: () => ({ data: null, error: null, cause: null, isPending: false }),
-  useGitStatuses: () => new Map(),
-  refreshGitStatus: () => Promise.resolve(null),
-  resetGitStatusStateForTests: () => undefined,
-}));
+vi.mock("../lib/gitStatusState", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/gitStatusState")>();
+  return {
+    ...actual,
+    useGitStatus: () => ({ data: null, error: null, cause: null, isPending: false }),
+    useGitStatusSnapshots: () => new Map(),
+    refreshGitStatus: () => Promise.resolve(null),
+    resetGitStatusStateForTests: () => undefined,
+  };
+});
 
 const THREAD_ID = "thread-kb-toast-test" as ThreadId;
 const PROJECT_ID = "project-1" as ProjectId;
