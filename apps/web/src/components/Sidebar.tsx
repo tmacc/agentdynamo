@@ -55,6 +55,7 @@ import {
 import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
+import { clearBoardRouteSearchParams } from "../boardRouteSearch";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId } from "../lib/utils";
 import {
@@ -1330,6 +1331,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       void router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
+        search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
       });
     },
     [clearSelection, router, setSelectionAnchor],
@@ -1366,6 +1368,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       void router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
+        search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
       });
     },
     [clearSelection, rangeSelectTo, router, setSelectionAnchor, toggleThreadSelection],
@@ -2371,6 +2374,7 @@ export default function Sidebar() {
       void navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
+        search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
       });
     },
     [clearSelection, navigate, setSelectionAnchor],

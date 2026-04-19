@@ -128,6 +128,24 @@ Acceptance:
 One source of truth for discoverable reusable capabilities across Codex and Claude.
 Provider-specific adapters should feed that model without forcing the web app to understand every provider-specific storage convention directly.
 
+### 7. Investigate broken cross-harness thread switching
+
+- [ ] Investigate why switching an existing thread across harnesses can stop working after repeated flips such as Claude -> Codex -> Claude -> Codex.
+
+Repro seen:
+We switched back to Claude and the app only logged the action, but Claude never actually responded.
+Switching back to Codex on the same thread still worked.
+
+Investigation targets:
+Thread/provider binding state in the web app when the active harness changes repeatedly.
+Server-side session resume/startup behavior for the same thread when moving between Claude and Codex adapters.
+Whether the Claude path is dropping the post-switch submit/request after logging the transition, or whether the response stream fails to attach after launch.
+Whether stale per-thread provider session metadata is being reused incorrectly after a previous Codex activation.
+
+Acceptance:
+Repeated harness flips on the same thread should either work reliably for both providers or fail with an explicit recoverable error.
+Switching to Claude must not result in a silent "logged but no response" state.
+
 ## External Notes
 
 These docs are worth keeping in mind while doing the work above:

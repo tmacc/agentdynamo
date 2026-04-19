@@ -13,6 +13,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { BOARD_COLUMN_LABELS, type BoardItem } from "../../boardProjection";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { ScrollArea } from "../ui/scroll-area";
 import { BoardDoneCard, BoardLiveCard, BoardReviewCard, BoardUserCard } from "./BoardCard";
 import { BoardAddCardInput } from "./BoardAddCardInput";
 
@@ -25,6 +26,13 @@ interface BoardColumnProps {
   readonly onOpenCard: (card: FeatureCard) => void;
   readonly shouldOpenAddCard: boolean;
   readonly onAddCardIntentHandled: () => void;
+  /**
+   * The column that the active drag is currently hovering over, computed at
+   * the BoardView level so that the highlight stays steady whether the pointer
+   * is over the empty column body or any of its cards (avoids flicker that
+   * would otherwise happen when toggling between sibling droppables).
+   */
+  readonly activeOverColumn: FeatureCardColumn | null;
 }
 
 export const BoardColumn = memo(function BoardColumn({
@@ -36,6 +44,7 @@ export const BoardColumn = memo(function BoardColumn({
   onOpenCard,
   shouldOpenAddCard,
   onAddCardIntentHandled,
+  activeOverColumn,
 }: BoardColumnProps) {
   const isStored = column === "ideas" || column === "planned";
   const [isAdding, setIsAdding] = useState(false);
@@ -56,17 +65,22 @@ export const BoardColumn = memo(function BoardColumn({
     [items],
   );
 
-  const { setNodeRef: setDroppableRef, isOver } = useDroppable({
+  const { setNodeRef: setDroppableRef } = useDroppable({
     id: `board-column:${column}`,
     data: { column },
     disabled: !isStored,
   });
 
+  // Use the BoardView-supplied "active over column" rather than the per-droppable
+  // `isOver` flag. The latter flickers when the pointer transitions between the
+  // column body droppable and a child sortable card.
+  const isOver = isStored && activeOverColumn === column;
+
   return (
     <div
       ref={setDroppableRef}
       className={cn(
-        "flex min-h-0 min-w-[18rem] max-w-[20rem] flex-1 flex-col overflow-hidden rounded-lg border bg-muted/30",
+        "flex min-h-0 w-[19rem] flex-shrink-0 flex-col overflow-hidden rounded-lg border bg-muted/30",
         isOver && "bg-muted/60 ring-2 ring-primary/40",
       )}
     >
@@ -75,49 +89,50 @@ export const BoardColumn = memo(function BoardColumn({
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {BOARD_COLUMN_LABELS[column]}
           </h3>
-          <span className="rounded-full bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          <span className="rounded-full bg-background px-1.5 py-0.5 text-xs text-muted-foreground">
             {items.length}
           </span>
         </div>
         {isStored ? (
           <Button
-            size="sm"
+            size="icon-xs"
             variant="ghost"
-            className="h-6 w-6 p-0"
             aria-label={`Add to ${BOARD_COLUMN_LABELS[column]}`}
             onClick={() => setIsAdding(true)}
           >
-            <PlusIcon className="size-3.5" />
+            <PlusIcon />
           </Button>
         ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
-        {isAdding ? (
-          <BoardAddCardInput
-            environmentId={environmentId}
-            projectId={projectId}
-            column={column as "ideas" | "planned"}
-            onDone={() => setIsAdding(false)}
-          />
-        ) : null}
-        <SortableContext items={userCardIds} strategy={verticalListSortingStrategy}>
-          {items.map((item) => (
-            <BoardColumnItem
-              key={keyForItem(item)}
-              item={item}
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="flex flex-col gap-2 p-2">
+          {isAdding ? (
+            <BoardAddCardInput
               environmentId={environmentId}
               projectId={projectId}
-              onStartAgent={onStartAgent}
-              onOpenCard={onOpenCard}
+              column={column as "ideas" | "planned"}
+              onDone={() => setIsAdding(false)}
             />
-          ))}
-        </SortableContext>
-        {items.length === 0 && !isAdding ? (
-          <div className="py-6 text-center text-xs text-muted-foreground/80">
-            {emptyStateCopy(column)}
-          </div>
-        ) : null}
-      </div>
+          ) : null}
+          <SortableContext items={userCardIds} strategy={verticalListSortingStrategy}>
+            {items.map((item) => (
+              <BoardColumnItem
+                key={keyForItem(item)}
+                item={item}
+                environmentId={environmentId}
+                projectId={projectId}
+                onStartAgent={onStartAgent}
+                onOpenCard={onOpenCard}
+              />
+            ))}
+          </SortableContext>
+          {items.length === 0 && !isAdding ? (
+            <div className="py-6 text-center text-xs text-muted-foreground">
+              {emptyStateCopy(column)}
+            </div>
+          ) : null}
+        </div>
+      </ScrollArea>
     </div>
   );
 });
@@ -200,7 +215,7 @@ function SortableUserCard({
 }: SortableUserCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.card.id as unknown as string,
-    data: { kind: "user-card", card: item.card },
+    data: { kind: "user-card", card: item.card, column: item.card.column },
   });
 
   const style: React.CSSProperties = {

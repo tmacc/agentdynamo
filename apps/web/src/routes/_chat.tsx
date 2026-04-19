@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, redirect, useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo } from "react";
 
+import { clearBoardRouteSearchParams } from "../boardRouteSearch";
 import { useBoardUiStore } from "../boardUiStore";
 
 import { BoardView } from "../components/board/BoardView";
@@ -179,6 +180,7 @@ function ChatRouteLayout() {
  */
 function BoardRouteView() {
   const search = useSearch({ from: "/_chat" });
+  const navigate = useNavigate();
   const { activeDraftThread, activeThread, createFreshDraftThread, defaultProjectRef } =
     useHandleNewThread();
   const appSettings = useSettings();
@@ -218,6 +220,19 @@ function BoardRouteView() {
   ]);
 
   const { handleNewThread } = useHandleNewThread();
+
+  const handleCloseBoard = useCallback(() => {
+    void navigate({
+      to: ".",
+      search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
+    }).catch(() => undefined);
+  }, [navigate]);
+
+  const closeBoardLabel = activeThread
+    ? "Back to thread"
+    : activeDraftThread
+      ? "Back to draft"
+      : "Close board";
 
   const handleStartAgent = useCallback(
     (card: FeatureCard) => {
@@ -261,6 +276,8 @@ function BoardRouteView() {
       environmentId={resolved.environmentId}
       projectId={resolved.projectId}
       onStartAgent={handleStartAgent}
+      onCloseBoard={handleCloseBoard}
+      closeBoardLabel={closeBoardLabel}
     />
   );
 }
