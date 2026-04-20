@@ -5893,7 +5893,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("compacts the footer when a wide desktop follow-up layout starts overflowing", async () => {
+  it("compacts the footer after the desktop viewport shrinks below the wide follow-up breakpoint", async () => {
     const mounted = await mountChatView({
       viewport: WIDE_FOOTER_VIEWPORT,
       snapshot: createSnapshotWithPlanFollowUpPrompt({
@@ -5906,9 +5906,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForButtonByText("Implement");
 
-      await mounted.setContainerSize({
-        width: 804,
-        height: WIDE_FOOTER_VIEWPORT.height,
+      await mounted.setViewport({
+        ...WIDE_FOOTER_VIEWPORT,
+        // The composer now measures against the real viewport width in the full app shell, so use
+        // an actual viewport resize here instead of only shrinking the test host container.
+        width: 760,
       });
 
       await expectComposerActionsContained();
