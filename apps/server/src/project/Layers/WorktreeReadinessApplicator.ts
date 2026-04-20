@@ -6,10 +6,14 @@ import { Effect, Layer } from "effect";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import {
+  buildTrackedWorktreeLocalEnvWarning,
   buildManagedScripts,
   computeReadinessAnalysis,
+  getGitTrackedPathStatus,
+  LEGACY_WORKTREE_LOCAL_ENV_PATH,
   materializeManagedWorktreeScripts,
   mergeReadinessScripts,
+  normalizeGitTrackedPathCheckError,
   WORKTREE_DEV_SCRIPT_PATH,
   WORKTREE_SETUP_SCRIPT_PATH,
 } from "./WorktreeReadinessShared.ts";
@@ -82,6 +86,18 @@ const makeWorktreeReadinessApplicator = Effect.gen(function* () {
       // Runtime env is now stored under the worktree's git-admin dir, so apply no longer mutates
       // the repo .gitignore. Keep the field for wire compatibility.
       const updatedGitignore = false;
+      const warnings =
+        (yield* Effect.tryPromise({
+          try: () => getGitTrackedPathStatus(input.projectCwd, LEGACY_WORKTREE_LOCAL_ENV_PATH),
+          catch: (error) =>
+            normalizeGitTrackedPathCheckError({
+              projectCwd: input.projectCwd,
+              relativePath: LEGACY_WORKTREE_LOCAL_ENV_PATH,
+              error,
+            }),
+        })) === "tracked"
+          ? [buildTrackedWorktreeLocalEnvWarning()]
+          : [];
 
       const nextScripts = mergeReadinessScripts(project.scripts, buildManagedScripts());
       const now = new Date().toISOString();
@@ -116,12 +132,14 @@ const makeWorktreeReadinessApplicator = Effect.gen(function* () {
         scripts: nextScripts,
         writtenFiles,
         updatedGitignore,
+        warnings,
       };
 
       yield* Effect.logInfo("worktree readiness applied", {
         projectId: input.projectId,
         writtenFileCount: writtenFiles.length,
         updatedGitignore,
+        warningCount: warnings.length,
         envStrategy: profile.envStrategy,
         portCount: profile.portCount,
       });

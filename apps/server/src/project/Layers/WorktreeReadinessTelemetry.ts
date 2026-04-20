@@ -26,6 +26,12 @@ export function classifyWorktreeReadinessFailure(error: unknown): string {
   if (message.includes("no dev command")) {
     return "missing_dev_command";
   }
+  if (message.includes("failed to determine whether") && message.includes("is tracked by git")) {
+    return "git_tracking_check_failed";
+  }
+  if (message.includes("must remain untracked") || message.includes("tracked by git")) {
+    return "tracked_local_env_file";
+  }
   return "unknown";
 }
 
@@ -71,5 +77,6 @@ export function buildWorktreeReadinessApplyTelemetryProperties(input: {
     generatedFileCount: result.profile.generatedFiles.length,
     scriptCount: result.scripts.length,
     updatedGitignore: result.updatedGitignore,
+    warningCount: result.warnings.length,
   };
 }

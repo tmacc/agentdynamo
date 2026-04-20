@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import {
   ProjectId,
@@ -18,6 +20,12 @@ import {
   buildManagedWorktreeScriptFiles,
   computeReadinessAnalysis,
 } from "./WorktreeReadinessShared.ts";
+
+const execFileAsync = promisify(execFile);
+
+async function initGitRepo(cwd: string): Promise<void> {
+  await execFileAsync("git", ["init"], { cwd });
+}
 
 function makeReadModel(project: Partial<OrchestrationReadModel["projects"][number]>) {
   return {
@@ -76,6 +84,7 @@ describe("WorktreeReadinessApplicator", () => {
         ),
       );
       await fs.writeFile(path.join(projectCwd, ".env.local"), "PORT=3000\n");
+      await initGitRepo(projectCwd);
       await fs.writeFile(path.join(projectCwd, ".gitignore"), "node_modules/\n", "utf8");
 
       const analysis = await computeReadinessAnalysis({
@@ -131,6 +140,7 @@ describe("WorktreeReadinessApplicator", () => {
       expect(result.writtenFiles).toEqual(
         expect.arrayContaining([".t3code/worktree/setup.sh", ".t3code/worktree/dev.sh"]),
       );
+      expect(result.warnings).toEqual([]);
       expect(result.updatedGitignore).toBe(false);
       await expect(fs.readFile(path.join(projectCwd, ".gitignore"), "utf8")).resolves.toBe(
         "node_modules/\n",
@@ -200,6 +210,89 @@ describe("WorktreeReadinessApplicator", () => {
       portCount: 5,
       failureKind: "project_not_found",
     });
+  });
+
+  it("records a telemetry failure when git tracked-status check cannot run", async () => {
+    const projectCwd = await fs.mkdtemp(path.join(os.tmpdir(), "t3-readiness-apply-non-git-"));
+    const record = vi.fn(() => Effect.void);
+
+    try {
+      await fs.writeFile(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify(
+          {
+            packageManager: "bun@1.3.9",
+            scripts: {
+              dev: "vite",
+            },
+            devDependencies: {
+              vite: "^7.0.0",
+            },
+          },
+          null,
+          2,
+        ),
+      );
+      await fs.writeFile(path.join(projectCwd, ".env.local"), "PORT=3000\n");
+
+      const analysis = await computeReadinessAnalysis({
+        projectCwd,
+        profile: null,
+      });
+      if (analysis.recommendation.devCommand === null) {
+        throw new Error("Expected a dev command recommendation for the test fixture.");
+      }
+
+      const applicator = await Effect.runPromise(
+        Effect.service(WorktreeReadinessApplicator).pipe(
+          Effect.provide(
+            WorktreeReadinessApplicatorLive.pipe(
+              Layer.provideMerge(
+                Layer.succeed(OrchestrationEngineService, {
+                  getReadModel: () => Effect.succeed(makeReadModel({ workspaceRoot: projectCwd })),
+                  readEvents: () => Stream.empty,
+                  dispatch: () => Effect.succeed({ sequence: 1 }),
+                  streamDomainEvents: Stream.empty,
+                }),
+              ),
+              Layer.provideMerge(
+                Layer.succeed(AnalyticsService, {
+                  record,
+                  flush: Effect.void,
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await expect(
+        Effect.runPromise(
+          applicator.apply({
+            projectId: ProjectId.make("project-1"),
+            projectCwd,
+            scanFingerprint: analysis.scanFingerprint,
+            installCommand: analysis.recommendation.installCommand,
+            devCommand: analysis.recommendation.devCommand,
+            envStrategy: analysis.recommendation.envStrategy,
+            envSourcePath: analysis.recommendation.envSourcePath,
+            portCount: analysis.recommendation.portCount,
+            overwriteManagedFiles: false,
+          }),
+        ),
+      ).rejects.toThrow(
+        `Failed to determine whether .t3code/worktree.local.env is tracked by git in ${projectCwd}.`,
+      );
+
+      expect(record).toHaveBeenCalledWith("project.worktree_readiness.apply_failed", {
+        overwriteManagedFiles: false,
+        envStrategy: analysis.recommendation.envStrategy,
+        portCount: analysis.recommendation.portCount,
+        failureKind: "git_tracking_check_failed",
+      });
+    } finally {
+      await fs.rm(projectCwd, { recursive: true, force: true });
+    }
   });
 
   it("requires overwrite confirmation when a managed helper has drifted", async () => {
@@ -298,6 +391,7 @@ describe("WorktreeReadinessApplicator", () => {
     const dispatchedCommands: OrchestrationCommand[] = [];
 
     try {
+      await initGitRepo(projectCwd);
       await fs.writeFile(
         path.join(projectCwd, "package.json"),
         JSON.stringify(
@@ -386,6 +480,97 @@ describe("WorktreeReadinessApplicator", () => {
       expect(result.writtenFiles).toContain(".t3code/worktree/setup.sh");
       await expect(fs.readFile(setupPath, "utf8")).resolves.toContain("bun install");
       expect(dispatchedCommands.at(-1)?.type).toBe("project.meta.update");
+    } finally {
+      await fs.rm(projectCwd, { recursive: true, force: true });
+    }
+  });
+
+  it("returns a warning when the worktree runtime env file is already tracked by git", async () => {
+    const projectCwd = await fs.mkdtemp(path.join(os.tmpdir(), "t3-readiness-apply-tracked-env-"));
+    const record = vi.fn(() => Effect.void);
+
+    try {
+      await execFileAsync("git", ["init"], { cwd: projectCwd });
+      await fs.writeFile(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify(
+          {
+            packageManager: "bun@1.3.9",
+            scripts: {
+              dev: "vite",
+            },
+            devDependencies: {
+              vite: "^7.0.0",
+            },
+          },
+          null,
+          2,
+        ),
+      );
+      await fs.mkdir(path.join(projectCwd, ".t3code"), { recursive: true });
+      await fs.writeFile(
+        path.join(projectCwd, ".t3code", "worktree.local.env"),
+        "T3CODE_PRIMARY_PORT=47805\n",
+      );
+      await execFileAsync("git", ["add", ".t3code/worktree.local.env"], { cwd: projectCwd });
+
+      const analysis = await computeReadinessAnalysis({
+        projectCwd,
+        profile: null,
+      });
+      if (analysis.recommendation.devCommand === null) {
+        throw new Error("Expected a dev command recommendation for the test fixture.");
+      }
+
+      const applicator = await Effect.runPromise(
+        Effect.service(WorktreeReadinessApplicator).pipe(
+          Effect.provide(
+            WorktreeReadinessApplicatorLive.pipe(
+              Layer.provideMerge(
+                Layer.succeed(OrchestrationEngineService, {
+                  getReadModel: () => Effect.succeed(makeReadModel({ workspaceRoot: projectCwd })),
+                  readEvents: () => Stream.empty,
+                  dispatch: () => Effect.succeed({ sequence: 1 }),
+                  streamDomainEvents: Stream.empty,
+                }),
+              ),
+              Layer.provideMerge(
+                Layer.succeed(AnalyticsService, {
+                  record,
+                  flush: Effect.void,
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      const result = await Effect.runPromise(
+        applicator.apply({
+          projectId: ProjectId.make("project-1"),
+          projectCwd,
+          scanFingerprint: analysis.scanFingerprint,
+          installCommand: analysis.recommendation.installCommand,
+          devCommand: analysis.recommendation.devCommand,
+          envStrategy: analysis.recommendation.envStrategy,
+          envSourcePath: analysis.recommendation.envSourcePath,
+          portCount: analysis.recommendation.portCount,
+          overwriteManagedFiles: false,
+        }),
+      );
+
+      expect(result.warnings).toEqual([
+        expect.objectContaining({
+          id: "tracked-worktree-runtime-env",
+          severity: "warning",
+        }),
+      ]);
+      expect(record).toHaveBeenCalledWith(
+        "project.worktree_readiness.applied",
+        expect.objectContaining({
+          warningCount: 1,
+        }),
+      );
     } finally {
       await fs.rm(projectCwd, { recursive: true, force: true });
     }
