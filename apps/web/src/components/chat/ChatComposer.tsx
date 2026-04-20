@@ -118,6 +118,21 @@ import {
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
+function measureVisibleComposerWidth(composerForm: HTMLFormElement): number | null {
+  const rect = composerForm.getBoundingClientRect();
+  const viewportWidth =
+    window.visualViewport?.width ?? window.innerWidth ?? document.documentElement.clientWidth;
+  const visibleViewportWidth = Math.max(
+    0,
+    Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0),
+  );
+  const measuredWidths = [composerForm.clientWidth, rect.width, visibleViewportWidth].filter(
+    (width) => width > 0,
+  );
+
+  return measuredWidths.length > 0 ? Math.min(...measuredWidths) : null;
+}
+
 const runtimeModeConfig: Record<
   RuntimeMode,
   { label: string; description: string; icon: LucideIcon }
@@ -1204,9 +1219,8 @@ export const ChatComposer = memo(
     useLayoutEffect(() => {
       const composerForm = composerFormRef.current;
       if (!composerForm) return;
-      const measureComposerFormWidth = () => composerForm.clientWidth;
       const measureFooterCompactness = () => {
-        const composerFormWidth = measureComposerFormWidth();
+        const composerFormWidth = measureVisibleComposerWidth(composerForm);
         const footerCompact = shouldUseCompactComposerFooter(composerFormWidth, {
           hasWideActions: composerFooterHasWideActions,
         });
@@ -1225,11 +1239,8 @@ export const ChatComposer = memo(
       const initialCompactness = measureFooterCompactness();
       setIsComposerPrimaryActionsCompact(initialCompactness.primaryActionsCompact);
       setIsComposerFooterCompact(initialCompactness.footerCompact);
-      if (typeof ResizeObserver === "undefined") return;
 
-      const observer = new ResizeObserver((entries) => {
-        const [entry] = entries;
-        if (!entry) return;
+      const syncCompactness = () => {
         const nextCompactness = measureFooterCompactness();
         setIsComposerPrimaryActionsCompact((previous) =>
           previous === nextCompactness.primaryActionsCompact
@@ -1239,6 +1250,14 @@ export const ChatComposer = memo(
         setIsComposerFooterCompact((previous) =>
           previous === nextCompactness.footerCompact ? previous : nextCompactness.footerCompact,
         );
+      };
+
+      if (typeof ResizeObserver === "undefined") return;
+
+      const observer = new ResizeObserver((entries) => {
+        const [entry] = entries;
+        if (!entry) return;
+        syncCompactness();
         const nextHeight = entry.contentRect.height;
         const previousHeight = composerFormHeightRef.current;
         composerFormHeightRef.current = nextHeight;
@@ -1248,8 +1267,10 @@ export const ChatComposer = memo(
       });
 
       observer.observe(composerForm);
+      window.addEventListener("resize", syncCompactness);
       return () => {
         observer.disconnect();
+        window.removeEventListener("resize", syncCompactness);
       };
     }, [
       activeThreadId,
