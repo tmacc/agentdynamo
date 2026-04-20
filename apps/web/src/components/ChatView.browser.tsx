@@ -55,6 +55,7 @@ import { getRouter } from "../router";
 import { selectBootstrapCompleteForActiveEnvironment, useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
+import { resetSavedPromptStoreForTests, useSavedPromptStore } from "../savedPromptStore";
 import { createAuthenticatedSessionHandlers } from "../../test/authHttpHandlers";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
 
@@ -1830,6 +1831,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     __resetEnvironmentApiOverridesForTests();
     resetSavedEnvironmentRegistryStoreForTests();
     resetSavedEnvironmentRuntimeStoreForTests();
+    resetSavedPromptStoreForTests();
     Reflect.deleteProperty(window, "desktopBridge");
     useComposerDraftStore.setState({
       draftsByThreadKey: {},
@@ -5891,7 +5893,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("compacts the footer when a wide desktop follow-up layout starts overflowing", async () => {
+  it("compacts the footer after the desktop viewport shrinks below the wide follow-up breakpoint", async () => {
     const mounted = await mountChatView({
       viewport: WIDE_FOOTER_VIEWPORT,
       snapshot: createSnapshotWithPlanFollowUpPrompt({
@@ -5904,9 +5906,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForButtonByText("Implement");
 
-      await mounted.setContainerSize({
-        width: 804,
-        height: WIDE_FOOTER_VIEWPORT.height,
+      await mounted.setViewport({
+        ...WIDE_FOOTER_VIEWPORT,
+        // The composer now measures against the real viewport width in the full app shell, so use
+        // an actual viewport resize here instead of only shrinking the test host container.
+        width: 760,
       });
 
       await expectComposerActionsContained();
@@ -5963,6 +5967,207 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("applies project and global saved prompts from the composer menu", async () => {
+    useSavedPromptStore.getState().createSnippet({
+      title: "Regression review",
+      body: "Review this diff for reconnect regressions",
+      scope: "project",
+      projectRef: scopeProjectRef(LOCAL_ENVIRONMENT_ID, PROJECT_ID),
+    });
+    useSavedPromptStore.getState().createSnippet({
+      title: "PM summary",
+      body: "Summarize the branch changes for a PM with no code jargon",
+      scope: "global",
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-saved-prompt-target" as MessageId,
+        targetText: "saved prompt thread",
+      }),
+    });
+
+    try {
+      await page.getByTestId("saved-prompt-trigger").click();
+      await expect.element(page.getByText("Saved prompts")).toBeVisible();
+      await expect.element(page.getByText("This project")).toBeVisible();
+      await expect.element(page.getByText("All projects")).toBeVisible();
+
+      await page.getByText("Regression review").click();
+      await waitForComposerText("Review this diff for reconnect regressions");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("preserves saved prompt whitespace when applying from the composer menu", async () => {
+    useSavedPromptStore.getState().createSnippet({
+      title: "Whitespace prompt",
+      body: "\n\nReview this diff for reconnect regressions\n",
+      scope: "global",
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-saved-prompt-whitespace-target" as MessageId,
+        targetText: "saved prompt whitespace thread",
+      }),
+    });
+
+    try {
+      await page.getByTestId("saved-prompt-trigger").click();
+      await page.getByText("Whitespace prompt").click();
+      await waitForComposerText("\n\nReview this diff for reconnect regressions\n");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("confirms before replacing an existing composer draft with a saved prompt", async () => {
+    useSavedPromptStore.getState().createSnippet({
+      title: "Issue write-up",
+      body: "Turn this thread into a polished GitHub issue",
+      scope: "project",
+      projectRef: scopeProjectRef(LOCAL_ENVIRONMENT_ID, PROJECT_ID),
+    });
+    useComposerDraftStore.getState().setPrompt(THREAD_REF, "Existing draft text");
+    useComposerDraftStore.getState().setTerminalContexts(THREAD_REF, [
+      {
+        id: "terminal-context-1",
+        threadId: THREAD_ID,
+        terminalId: "terminal-1",
+        terminalLabel: "Terminal 1",
+        lineStart: 1,
+        lineEnd: 2,
+        text: "git status",
+        createdAt: NOW_ISO,
+      },
+    ]);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-saved-replace-target" as MessageId,
+        targetText: "saved prompt replacement thread",
+      }),
+    });
+
+    try {
+      await page.getByTestId("saved-prompt-trigger").click();
+      await page.getByText("Issue write-up").click();
+      await expect.element(page.getByText("Replace current draft?")).toBeVisible();
+      await page.getByRole("button", { name: "Replace draft" }).click();
+
+      await waitForComposerText("Turn this thread into a polished GitHub issue");
+      expect(
+        useComposerDraftStore.getState().getComposerDraft(THREAD_REF)?.terminalContexts,
+      ).toEqual([]);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("confirms before deleting a saved prompt and removes it after confirmation", async () => {
+    useSavedPromptStore.getState().createSnippet({
+      title: "Delete me",
+      body: "Temporary snippet body",
+      scope: "global",
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-saved-delete-target" as MessageId,
+        targetText: "saved prompt delete thread",
+      }),
+    });
+
+    try {
+      await page.getByTestId("saved-prompt-trigger").click();
+      await page.getByRole("button", { name: "Actions for Delete me" }).click();
+      await page.getByRole("menuitem", { name: "Delete" }).click();
+
+      await expect.element(page.getByText("Delete saved prompt?")).toBeVisible();
+      await page.getByRole("button", { name: "Cancel" }).click();
+
+      await page.getByTestId("saved-prompt-trigger").click();
+      await expect.element(page.getByText("Delete me")).toBeVisible();
+
+      await page.getByRole("button", { name: "Actions for Delete me" }).click();
+      await page.getByRole("menuitem", { name: "Delete" }).click();
+      await page.getByRole("button", { name: "Delete" }).click();
+
+      await vi.waitFor(
+        () => {
+          expect(
+            useSavedPromptStore
+              .getState()
+              .listVisibleSnippets(scopeProjectRef(LOCAL_ENVIRONMENT_ID, PROJECT_ID))
+              .flatMap((group) => group.items)
+              .some((snippet) => snippet.title === "Delete me"),
+          ).toBe(false);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      await page.getByTestId("saved-prompt-trigger").click();
+      await page.getByTestId("saved-prompt-search").fill("Delete me");
+      await expect.element(page.getByText("No matching saved prompts.")).toBeVisible();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps saved prompts out of slash-command and skill discovery", async () => {
+    useSavedPromptStore.getState().createSnippet({
+      title: "Snippet only",
+      body: "This should stay in the saved prompt menu only",
+      scope: "global",
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-saved-prompt-boundary-target" as MessageId,
+        targetText: "saved prompt boundary thread",
+      }),
+      configureFixture: (nextFixture) => {
+        const provider = nextFixture.serverConfig.providers[0];
+        if (!provider) {
+          throw new Error("Expected default provider in test fixture.");
+        }
+        (
+          provider as {
+            skills: ServerConfig["providers"][number]["skills"];
+          }
+        ).skills = [
+          {
+            name: "agent-browser",
+            displayName: "Agent Browser",
+            description: "Open pages, click around, and inspect web apps.",
+            path: "/Users/test/.agents/skills/agent-browser/SKILL.md",
+            enabled: true,
+          },
+        ];
+      },
+    });
+
+    try {
+      await waitForComposerEditor();
+
+      await page.getByTestId("composer-editor").fill("/");
+      await expect.element(await waitForComposerMenuItem("slash:model")).toBeVisible();
+      await expect.element(page.getByText("Snippet only")).not.toBeInTheDocument();
+
+      await page.getByTestId("composer-editor").fill("$");
+      await expect.element(page.getByText("Agent Browser")).toBeVisible();
+      await expect.element(page.getByText("Snippet only")).not.toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }

@@ -1,11 +1,12 @@
 import "../../index.css";
 
-import { EnvironmentId, MessageId } from "@t3tools/contracts";
+import { EnvironmentId, MessageId, ProjectId } from "@t3tools/contracts";
 import { createRef } from "react";
 import type { LegendListRef } from "@legendapp/list/react";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { resetSavedPromptStoreForTests, useSavedPromptStore } from "~/savedPromptStore";
 
 const scrollToEndSpy = vi.fn();
 const getStateSpy = vi.fn(() => ({ isAtEnd: true }));
@@ -79,6 +80,7 @@ describe("MessagesTimeline", () => {
   afterEach(() => {
     scrollToEndSpy.mockReset();
     getStateSpy.mockClear();
+    resetSavedPromptStoreForTests();
     vi.restoreAllMocks();
     document.body.innerHTML = "";
   });
@@ -243,6 +245,56 @@ describe("MessagesTimeline", () => {
       await expect
         .element(page.getByTestId("user-message-switch-badge"))
         .toHaveTextContent("Switched to Claude · claude-opus-4-6");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("saves a previous user message as a project-scoped prompt", async () => {
+    const projectId = ProjectId.make("project-browser");
+    const screen = await render(
+      <MessagesTimeline
+        {...buildProps()}
+        activeThreadProjectId={projectId}
+        timelineEntries={[
+          {
+            id: "user-entry",
+            kind: "message",
+            createdAt: "2026-04-13T12:00:00.000Z",
+            message: {
+              id: MessageId.make("user-save"),
+              role: "user",
+              text: "Review this diff for regressions",
+              turnId: null,
+              createdAt: "2026-04-13T12:00:00.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+      />,
+    );
+
+    try {
+      await page.getByText("Review this diff for regressions").hover();
+      const saveButton = page.getByTestId("save-prompt-button");
+      await expect.element(saveButton).toBeVisible();
+      await saveButton.click();
+
+      await expect.element(page.getByText("Save prompt")).toBeVisible();
+      const titleInput = page.getByTestId("saved-prompt-title-input");
+      await expect.element(titleInput).toHaveValue("Review this diff for regressions");
+      await expect.element(page.getByText("This project")).toBeVisible();
+
+      await page.getByRole("button", { name: "Save" }).click();
+
+      const snippets = Object.values(useSavedPromptStore.getState().snippetsById);
+      expect(snippets).toEqual([
+        expect.objectContaining({
+          title: "Review this diff for regressions",
+          body: "Review this diff for regressions",
+          scope: "project",
+        }),
+      ]);
     } finally {
       await screen.unmount();
     }
