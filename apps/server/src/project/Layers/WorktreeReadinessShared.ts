@@ -517,7 +517,11 @@ export async function computeReadinessAnalysis(input: {
   readonly projectCwd: string;
   readonly profile?: ProjectWorktreeReadinessProfile | null;
 }): Promise<WorktreeReadinessAnalysis> {
-  const trackedFiles = [
+  // Only source/config inputs belong in the readiness fingerprint. Generated
+  // worktree helper scripts are derived outputs and may be missing in a clean
+  // checkout until readiness is applied, so including them would make the
+  // fingerprint depend on whether helpers were already materialized locally.
+  const fingerprintFiles = [
     "package.json",
     "pnpm-lock.yaml",
     "package-lock.json",
@@ -538,13 +542,11 @@ export async function computeReadinessAnalysis(input: {
     "devcontainer.json",
     "docker-compose.yml",
     "docker-compose.yaml",
-    WORKTREE_SETUP_SCRIPT_PATH,
-    WORKTREE_DEV_SCRIPT_PATH,
   ];
 
   const filePresence = new Map<string, boolean>();
   const fingerprint = crypto.createHash("sha256");
-  for (const relativePath of trackedFiles) {
+  for (const relativePath of fingerprintFiles) {
     const absolutePath = path.join(input.projectCwd, relativePath);
     const exists = await fileExists(absolutePath);
     filePresence.set(relativePath, exists);
