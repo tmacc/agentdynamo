@@ -43,12 +43,7 @@ import {
   type UserInputQuestion,
   ClaudeCodeEffort,
 } from "@t3tools/contracts";
-import {
-  applyClaudePromptEffortPrefix,
-  resolveApiModelId,
-  resolveEffort,
-  trimOrNull,
-} from "@t3tools/shared/model";
+import { applyClaudePromptEffortPrefix, resolveEffort, trimOrNull } from "@t3tools/shared/model";
 import {
   Cause,
   DateTime,
@@ -70,7 +65,7 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { buildClaudeTeamToolRegistration } from "../teamToolRegistration.ts";
-import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";
+import { getClaudeModelCapabilities, resolveClaudeApiModelId } from "./ClaudeProvider.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -226,24 +221,17 @@ function normalizeClaudeStreamMessages(cause: Cause.Cause<Error>): ReadonlyArray
 
 function getEffectiveClaudeCodeEffort(
   effort: ClaudeCodeEffort | null | undefined,
-): Exclude<ClaudeCodeEffort, "ultrathink"> | null {
+): NonNullable<ClaudeQueryOptions["effort"]> | null {
   if (!effort) {
     return null;
   }
-  return effort === "ultrathink" ? null : effort;
-}
-
-function getClaudeSdkEffort(
-  effort: Exclude<ClaudeCodeEffort, "ultrathink"> | null,
-): ClaudeQueryOptions["effort"] | undefined {
   switch (effort) {
-    case "low":
-    case "medium":
-    case "high":
-    case "max":
-      return effort;
+    case "ultrathink":
+      return null;
+    case "xhigh":
+      return "max";
     default:
-      return undefined;
+      return effort;
   }
 }
 
@@ -2840,7 +2828,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const modelSelection =
         input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
       const caps = getClaudeModelCapabilities(modelSelection?.model);
-      const apiModelId = modelSelection ? resolveApiModelId(modelSelection) : undefined;
+      const apiModelId = modelSelection ? resolveClaudeApiModelId(modelSelection) : undefined;
       const effort = (resolveEffort(caps, modelSelection?.options?.effort) ??
         null) as ClaudeCodeEffort | null;
       const fastMode = modelSelection?.options?.fastMode === true && caps.supportsFastMode;
@@ -2849,7 +2837,6 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ? modelSelection.options.thinking
           : undefined;
       const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
-      const sdkEffort = getClaudeSdkEffort(effectiveEffort);
       const runtimeModeToPermission: Record<string, PermissionMode> = {
         "auto-accept-edits": "acceptEdits",
         "full-access": "bypassPermissions",
@@ -2865,7 +2852,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(apiModelId ? { model: apiModelId } : {}),
         pathToClaudeCodeExecutable: claudeBinaryPath,
         settingSources: [...CLAUDE_SETTING_SOURCES],
-        ...(sdkEffort ? { effort: sdkEffort } : {}),
+        ...(effectiveEffort ? { effort: effectiveEffort } : {}),
         ...(permissionMode ? { permissionMode } : {}),
         ...(permissionMode === "bypassPermissions"
           ? { allowDangerouslySkipPermissions: true }
@@ -2880,13 +2867,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(Object.keys({
           ...extraArgs,
           ...teamExtraArgs,
-          ...(effectiveEffort === "xhigh" ? { effort: "xhigh" } : {}),
         }).length > 0
           ? {
               extraArgs: {
                 ...extraArgs,
                 ...teamExtraArgs,
-                ...(effectiveEffort === "xhigh" ? { effort: "xhigh" } : {}),
               },
             }
           : {}),
@@ -3056,7 +3041,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     if (modelSelection?.model) {
-      const apiModelId = resolveApiModelId(modelSelection);
+      const apiModelId = resolveClaudeApiModelId(modelSelection);
       if (context.currentApiModelId !== apiModelId) {
         yield* Effect.tryPromise({
           try: () => context.query.setModel(apiModelId),
