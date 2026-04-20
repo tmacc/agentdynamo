@@ -145,6 +145,14 @@ describe("WorktreeReadinessApplicator", () => {
       await expect(fs.readFile(path.join(projectCwd, ".gitignore"), "utf8")).resolves.toBe(
         "node_modules/\n",
       );
+      const rescanned = await computeReadinessAnalysis({
+        projectCwd,
+        profile: result.profile,
+      });
+      expect(rescanned.scanFingerprint).toBe(result.profile.scanFingerprint);
+      expect(rescanned.warnings.some((warning) => warning.id === "stale-readiness-profile")).toBe(
+        false,
+      );
       expect(dispatchedCommands.at(-1)?.type).toBe("project.meta.update");
       expect(record).toHaveBeenCalledWith(
         "project.worktree_readiness.applied",
