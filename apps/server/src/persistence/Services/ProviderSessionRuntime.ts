@@ -16,12 +16,23 @@ import type { Effect } from "effect";
 
 import type { ProviderSessionRuntimeRepositoryError } from "../Errors.ts";
 
+export const ProviderSessionSlotState = Schema.Literals([
+  "active",
+  "parked",
+  "stale",
+  "expired",
+  "error",
+  "stopped",
+]);
+export type ProviderSessionSlotState = typeof ProviderSessionSlotState.Type;
+
 export const ProviderSessionRuntime = Schema.Struct({
   threadId: ThreadId,
   providerName: Schema.String,
   adapterKey: Schema.String,
   runtimeMode: RuntimeMode,
   status: ProviderSessionRuntimeStatus,
+  slotState: ProviderSessionSlotState,
   lastSeenAt: IsoDateTime,
   resumeCursor: Schema.NullOr(Schema.Unknown),
   runtimePayload: Schema.NullOr(Schema.Unknown),
@@ -31,8 +42,22 @@ export type ProviderSessionRuntime = typeof ProviderSessionRuntime.Type;
 export const GetProviderSessionRuntimeInput = Schema.Struct({ threadId: ThreadId });
 export type GetProviderSessionRuntimeInput = typeof GetProviderSessionRuntimeInput.Type;
 
+export const GetProviderSessionRuntimeByProviderInput = Schema.Struct({
+  threadId: ThreadId,
+  providerName: Schema.String,
+});
+export type GetProviderSessionRuntimeByProviderInput =
+  typeof GetProviderSessionRuntimeByProviderInput.Type;
+
 export const DeleteProviderSessionRuntimeInput = Schema.Struct({ threadId: ThreadId });
 export type DeleteProviderSessionRuntimeInput = typeof DeleteProviderSessionRuntimeInput.Type;
+
+export const DeleteProviderSessionRuntimeByProviderInput = Schema.Struct({
+  threadId: ThreadId,
+  providerName: Schema.String,
+});
+export type DeleteProviderSessionRuntimeByProviderInput =
+  typeof DeleteProviderSessionRuntimeByProviderInput.Type;
 
 /**
  * ProviderSessionRuntimeRepositoryShape - Service API for provider runtime records.
@@ -55,6 +80,20 @@ export interface ProviderSessionRuntimeRepositoryShape {
   ) => Effect.Effect<Option.Option<ProviderSessionRuntime>, ProviderSessionRuntimeRepositoryError>;
 
   /**
+   * Read provider runtime state for a specific `(threadId, providerName)` slot.
+   */
+  readonly getByThreadIdAndProvider: (
+    input: GetProviderSessionRuntimeByProviderInput,
+  ) => Effect.Effect<Option.Option<ProviderSessionRuntime>, ProviderSessionRuntimeRepositoryError>;
+
+  /**
+   * List all provider runtime rows for one thread.
+   */
+  readonly listByThreadId: (
+    input: GetProviderSessionRuntimeInput,
+  ) => Effect.Effect<ReadonlyArray<ProviderSessionRuntime>, ProviderSessionRuntimeRepositoryError>;
+
+  /**
    * List all provider runtime rows.
    *
    * Returned in ascending last-seen order.
@@ -69,6 +108,13 @@ export interface ProviderSessionRuntimeRepositoryShape {
    */
   readonly deleteByThreadId: (
     input: DeleteProviderSessionRuntimeInput,
+  ) => Effect.Effect<void, ProviderSessionRuntimeRepositoryError>;
+
+  /**
+   * Delete provider runtime state for one `(threadId, providerName)` slot.
+   */
+  readonly deleteByThreadIdAndProvider: (
+    input: DeleteProviderSessionRuntimeByProviderInput,
   ) => Effect.Effect<void, ProviderSessionRuntimeRepositoryError>;
 }
 

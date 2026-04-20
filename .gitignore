@@ -9,6 +9,7 @@ apps/*/dist
 packages/*/dist
 .env
 .env.local
+.t3code/worktree.local.env
 build/
 .logs/
 release/
