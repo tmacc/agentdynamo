@@ -62,6 +62,7 @@ const DEFAULT_BASE_BRANCH_CANDIDATES = ["main", "master"] as const;
 const GIT_LIST_BRANCHES_DEFAULT_LIMIT = 100;
 const NON_REPOSITORY_STATUS_DETAILS = Object.freeze<GitStatusDetails>({
   isRepo: false,
+  hasAnyRemote: false,
   hasOriginRemote: false,
   isDefaultBranch: false,
   branch: null,
@@ -1015,6 +1016,21 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       Effect.map(parseRemoteNamesInGitOrder),
     );
 
+  const readRemoteUrl = (
+    cwd: string,
+    remoteName: string,
+    push: boolean,
+  ): Effect.Effect<string | null, GitCommandError> =>
+    runGitStdout(
+      push ? "GitCore.readRemoteUrl.push" : "GitCore.readRemoteUrl.fetch",
+      cwd,
+      ["config", "--get", push ? `remote.${remoteName}.pushurl` : `remote.${remoteName}.url`],
+      true,
+    ).pipe(
+      Effect.map((stdout) => stdout.trim()),
+      Effect.map((trimmed) => (trimmed.length > 0 ? trimmed : null)),
+    );
+
   const resolvePrimaryRemoteName = Effect.fn("resolvePrimaryRemoteName")(function* (cwd: string) {
     if (yield* originRemoteExists(cwd)) {
       return "origin";
@@ -1220,27 +1236,29 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       );
     }
 
-    const [unstagedNumstatStdout, stagedNumstatStdout, defaultRefResult, hasOriginRemote] =
-      yield* Effect.all(
-        [
-          runGitStdout("GitCore.statusDetails.unstagedNumstat", cwd, ["diff", "--numstat"]),
-          runGitStdout("GitCore.statusDetails.stagedNumstat", cwd, [
-            "diff",
-            "--cached",
-            "--numstat",
-          ]),
-          executeGit(
-            "GitCore.statusDetails.defaultRef",
-            cwd,
-            ["symbolic-ref", "refs/remotes/origin/HEAD"],
-            {
-              allowNonZeroExit: true,
-            },
-          ),
-          originRemoteExists(cwd).pipe(Effect.catch(() => Effect.succeed(false))),
-        ],
-        { concurrency: "unbounded" },
-      );
+    const [
+      unstagedNumstatStdout,
+      stagedNumstatStdout,
+      defaultRefResult,
+      hasOriginRemote,
+      remoteNames,
+    ] = yield* Effect.all(
+      [
+        runGitStdout("GitCore.statusDetails.unstagedNumstat", cwd, ["diff", "--numstat"]),
+        runGitStdout("GitCore.statusDetails.stagedNumstat", cwd, ["diff", "--cached", "--numstat"]),
+        executeGit(
+          "GitCore.statusDetails.defaultRef",
+          cwd,
+          ["symbolic-ref", "refs/remotes/origin/HEAD"],
+          {
+            allowNonZeroExit: true,
+          },
+        ),
+        originRemoteExists(cwd).pipe(Effect.catch(() => Effect.succeed(false))),
+        listRemoteNames(cwd).pipe(Effect.catch(() => Effect.succeed([]))),
+      ],
+      { concurrency: "unbounded" },
+    );
     const statusStdout = statusResult.stdout;
     const defaultBranch =
       defaultRefResult.code === 0
@@ -1314,6 +1332,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
 
     return {
       isRepo: true,
+      hasAnyRemote: remoteNames.length > 0,
       hasOriginRemote,
       isDefaultBranch:
         branch !== null &&
@@ -1351,6 +1370,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     statusDetails(input.cwd).pipe(
       Effect.map((details) => ({
         isRepo: details.isRepo,
+        hasAnyRemote: details.hasAnyRemote,
         hasOriginRemote: details.hasOriginRemote,
         isDefaultBranch: details.isDefaultBranch,
         branch: details.branch,
@@ -1633,6 +1653,33 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       Effect.map((stdout) => stdout.trim()),
       Effect.map((trimmed) => (trimmed.length > 0 ? trimmed : null)),
     );
+
+  const setConfigValue: GitCoreShape["setConfigValue"] = (cwd, key, value) =>
+    runGit("GitCore.setConfigValue", cwd, ["config", "--local", key, value]);
+
+  const listRemotes: GitCoreShape["listRemotes"] = Effect.fn("listRemotes")(function* (cwd) {
+    const remoteNames = yield* listRemoteNames(cwd);
+    const remotes = yield* Effect.forEach(
+      remoteNames,
+      (remoteName) =>
+        Effect.all([readRemoteUrl(cwd, remoteName, false), readRemoteUrl(cwd, remoteName, true)], {
+          concurrency: "unbounded",
+        }).pipe(
+          Effect.map(([fetchUrl, pushUrl]) =>
+            fetchUrl
+              ? {
+                  remoteName,
+                  fetchUrl,
+                  pushUrl,
+                }
+              : null,
+          ),
+        ),
+      { concurrency: "unbounded" },
+    );
+
+    return remotes.filter((remote): remote is NonNullable<typeof remote> => remote !== null);
+  });
 
   const isInsideWorkTree: GitCoreShape["isInsideWorkTree"] = (cwd) =>
     executeGit("GitCore.isInsideWorkTree", cwd, ["rev-parse", "--is-inside-work-tree"], {
@@ -2185,6 +2232,8 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     pullCurrentBranch,
     readRangeContext,
     readConfigValue,
+    setConfigValue,
+    listRemotes,
     isInsideWorkTree,
     listWorkspaceFiles,
     filterIgnoredPaths,

@@ -1,7 +1,10 @@
+import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 
+import { Data } from "effect";
 import type {
   ProjectScript,
   ProjectWorktreeReadinessEnvStrategy,
@@ -23,6 +26,12 @@ export const WORKTREE_MANAGED_HEADER =
 const WORKTREE_PORT_RANGE_START = 41000;
 const WORKTREE_PORT_RANGE_END = 61000;
 const DEFAULT_PORT_COUNT = 5;
+const execFileAsync = promisify(execFile);
+
+class GitTrackedPathCheckError extends Data.TaggedError("GitTrackedPathCheckError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 type WorktreeRuntimeEnvPathMode = "git-admin" | "legacy-worktree";
 
 type PackageJson = {
@@ -819,6 +828,80 @@ export async function materializeManagedWorktreeScripts(input: {
   };
 }
 
+export function buildTrackedWorktreeLocalEnvWarning(
+  relativePath: string = LEGACY_WORKTREE_LOCAL_ENV_PATH,
+): ProjectWorktreeReadinessWarning {
+  return {
+    id: "tracked-worktree-runtime-env",
+    message: `Worktree runtime env file is tracked by git: ${relativePath}. This file is generated per worktree and must remain untracked. Remove it from git tracking and re-run Worktree Readiness.`,
+    severity: "warning",
+  };
+}
+
+export function normalizeGitTrackedPathCheckError(input: {
+  readonly projectCwd: string;
+  readonly relativePath: string;
+  readonly error: unknown;
+}): GitTrackedPathCheckError {
+  if (input.error instanceof GitTrackedPathCheckError) {
+    return input.error;
+  }
+  const detail =
+    typeof input.error === "object" && input.error !== null
+      ? (() => {
+          const stderr = "stderr" in input.error ? input.error.stderr : undefined;
+          if (typeof stderr === "string" && stderr.trim().length > 0) {
+            return stderr.trim();
+          }
+          const message = "message" in input.error ? input.error.message : undefined;
+          if (typeof message === "string" && message.trim().length > 0) {
+            return message.trim();
+          }
+          return null;
+        })()
+      : null;
+  return new GitTrackedPathCheckError({
+    message: `Failed to determine whether ${input.relativePath} is tracked by git in ${input.projectCwd}.${detail ? ` ${detail}` : ""}`,
+    cause: input.error,
+  });
+}
+
+export async function getGitTrackedPathStatus(
+  projectCwd: string,
+  relativePath: string,
+): Promise<"tracked" | "untracked"> {
+  try {
+    await execFileAsync("git", ["ls-files", "--error-unmatch", "--", relativePath], {
+      cwd: projectCwd,
+    });
+    return "tracked";
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+    if (code === 1) {
+      return "untracked";
+    }
+    throw normalizeGitTrackedPathCheckError({ projectCwd, relativePath, error });
+  }
+}
+
+export async function isGitTrackedPath(projectCwd: string, relativePath: string): Promise<boolean> {
+  return (await getGitTrackedPathStatus(projectCwd, relativePath)) === "tracked";
+}
+
+export async function assertGitPathIsUntracked(
+  projectCwd: string,
+  relativePath: string,
+): Promise<void> {
+  if (!(await isGitTrackedPath(projectCwd, relativePath))) {
+    return;
+  }
+  throw new Error(
+    `Worktree runtime env file is tracked by git: ${relativePath}. This file is generated per worktree and must remain untracked. Remove it from git tracking and re-run Worktree Readiness. .gitignore does not untrack files that are already tracked.`,
+  );
+}
 export async function readWorktreeLocalEnv(
   envFilePath: string,
 ): Promise<Record<string, string> | null> {
