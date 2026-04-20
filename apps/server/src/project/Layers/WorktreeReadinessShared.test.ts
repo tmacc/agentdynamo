@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDevScriptContent,
   buildManagedWorktreeScriptFiles,
+  computeReadinessAnalysis,
   materializeManagedWorktreeScripts,
   WORKTREE_MANAGED_HEADER,
 } from "./WorktreeReadinessShared.ts";
@@ -113,6 +114,65 @@ describe("materializeManagedWorktreeScripts", () => {
 
       await expect(materialize(rootPath)).rejects.toThrow(
         "Worktree helper drift detected at .t3code/worktree/dev.sh (unmanaged file).",
+      );
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("does not change the readiness fingerprint when helpers are materialized", async () => {
+    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "t3-shared-fingerprint-stable-"));
+
+    try {
+      await fs.writeFile(
+        path.join(rootPath, "package.json"),
+        JSON.stringify(
+          {
+            packageManager: "bun@1.3.9",
+            scripts: {
+              dev: "vite",
+            },
+            devDependencies: {
+              vite: "^7.0.0",
+            },
+          },
+          null,
+          2,
+        ),
+      );
+      await fs.writeFile(path.join(rootPath, ".env.local"), "PORT=3000\n");
+
+      const before = await computeReadinessAnalysis({
+        projectCwd: rootPath,
+        profile: null,
+      });
+
+      await materialize(rootPath);
+
+      const after = await computeReadinessAnalysis({
+        projectCwd: rootPath,
+        profile: {
+          version: 1,
+          status: "configured",
+          scanFingerprint: before.scanFingerprint,
+          lastScannedAt: "2026-01-01T00:00:00.000Z",
+          lastAppliedAt: "2026-01-01T00:00:00.000Z",
+          packageManager: before.recommendation.packageManager,
+          framework: before.recommendation.framework,
+          installCommand: before.recommendation.installCommand,
+          devCommand: before.recommendation.devCommand,
+          envStrategy: before.recommendation.envStrategy,
+          envSourcePath: before.recommendation.envSourcePath,
+          portCount: before.recommendation.portCount,
+          generatedFiles: [".t3code/worktree/setup.sh", ".t3code/worktree/dev.sh"],
+          setupScriptCommand: ".t3code/worktree/setup.sh",
+          devScriptCommand: ".t3code/worktree/dev.sh",
+        },
+      });
+
+      expect(after.scanFingerprint).toBe(before.scanFingerprint);
+      expect(after.warnings.some((warning) => warning.id === "stale-readiness-profile")).toBe(
+        false,
       );
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
