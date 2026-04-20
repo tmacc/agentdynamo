@@ -956,6 +956,43 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.status, "ready");
           assert.strictEqual(status.installed, true);
           assert.strictEqual(status.auth.status, "authenticated");
+          assert.strictEqual(status.message, undefined);
+          assert.strictEqual(
+            status.models.some((model) => model.slug === "claude-opus-4-7"),
+            true,
+          );
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "2.1.114\n", stderr: "", code: 0 };
+              if (joined === "auth status")
+                return {
+                  stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
+                  stderr: "",
+                  code: 0,
+                };
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        ),
+      );
+
+      it.effect("hides Claude Opus 4.7 behind the minimum Claude Code version gate", () =>
+        Effect.gen(function* () {
+          const status = yield* checkClaudeProviderStatus();
+          assert.strictEqual(status.provider, "claudeAgent");
+          assert.strictEqual(status.status, "ready");
+          assert.strictEqual(status.installed, true);
+          assert.strictEqual(status.auth.status, "authenticated");
+          assert.strictEqual(
+            status.models.some((model) => model.slug === "claude-opus-4-7"),
+            false,
+          );
+          assert.strictEqual(
+            status.message,
+            "Claude Code v1.0.0 is too old for Claude Opus 4.7. Upgrade to v2.1.111 or newer to access it.",
+          );
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {

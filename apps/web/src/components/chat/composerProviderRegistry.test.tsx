@@ -28,6 +28,25 @@ const CODEX_MODELS: ReadonlyArray<ServerProviderModel> = [
 
 const CLAUDE_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
+    slug: "claude-opus-4-7",
+    name: "Claude Opus 4.7",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [
+        { value: "low", label: "Low" },
+        { value: "medium", label: "Medium" },
+        { value: "high", label: "High" },
+        { value: "xhigh", label: "Extra High", isDefault: true },
+        { value: "max", label: "Max" },
+        { value: "ultrathink", label: "Ultrathink" },
+      ],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: ["ultrathink"],
+    },
+  },
+  {
     slug: "claude-opus-4-6",
     name: "Claude Opus 4.6",
     isCustom: false,
@@ -214,6 +233,24 @@ describe("getComposerProviderState", () => {
       promptEffort: "high",
       modelOptionsForDispatch: {
         effort: "high",
+      },
+    });
+  });
+
+  it("uses xhigh as the default effort for Claude Opus 4.7", () => {
+    const state = getComposerProviderState({
+      provider: "claudeAgent",
+      model: "claude-opus-4-7",
+      models: CLAUDE_MODELS,
+      prompt: "",
+      modelOptions: undefined,
+    });
+
+    expect(state).toEqual({
+      provider: "claudeAgent",
+      promptEffort: "xhigh",
+      modelOptionsForDispatch: {
+        effort: "xhigh",
       },
     });
   });

@@ -5,6 +5,7 @@ import {
   MessageId,
   type ModelSelection,
   type OrchestrationEvent,
+  type OrchestrationThread,
   ProviderKind,
   type OrchestrationSession,
   ThreadId,
@@ -24,7 +25,12 @@ import { GitStatusBroadcaster } from "../../git/Services/GitStatusBroadcaster.ts
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
-import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import {
+  ProviderService,
+  type ProviderThreadSyncState,
+} from "../../provider/Services/ProviderService.ts";
+import type { ProviderRuntimeBinding } from "../../provider/Services/ProviderSessionDirectory.ts";
+import { isResumableProviderBinding } from "../../provider/providerSlotState.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
   ProviderCommandReactor,
@@ -196,6 +202,128 @@ function providerLabel(provider: ProviderKind): string {
   return provider === "claudeAgent" ? "Claude" : "Codex";
 }
 
+function buildThreadSyncState(
+  thread: OrchestrationThread,
+  options?: {
+    readonly excludeMessageId?: MessageId;
+  },
+): ProviderThreadSyncState {
+  const latestMessage =
+    options?.excludeMessageId !== undefined
+      ? thread.messages.filter((message) => message.id !== options.excludeMessageId).at(-1)
+      : thread.messages.at(-1);
+  const latestCheckpoint = thread.checkpoints.at(-1);
+  return {
+    latestMessageId: latestMessage?.id ?? null,
+    latestCheckpointTurnId: latestCheckpoint?.turnId ?? null,
+    latestTurnId: thread.latestTurn?.turnId ?? null,
+    branch: thread.branch ?? null,
+    worktreePath: thread.worktreePath ?? null,
+    syncedAt: thread.updatedAt,
+  };
+}
+
+function readPersistedSyncState(runtimePayload: unknown): ProviderThreadSyncState | undefined {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return undefined;
+  }
+  const raw = "syncState" in runtimePayload ? runtimePayload.syncState : undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return undefined;
+  }
+  const syncState = raw as Record<string, unknown>;
+  const syncedAt = typeof syncState.syncedAt === "string" ? syncState.syncedAt : undefined;
+  if (!syncedAt) {
+    return undefined;
+  }
+  return {
+    latestMessageId:
+      typeof syncState.latestMessageId === "string" ? syncState.latestMessageId : null,
+    latestCheckpointTurnId:
+      typeof syncState.latestCheckpointTurnId === "string"
+        ? syncState.latestCheckpointTurnId
+        : null,
+    latestTurnId: typeof syncState.latestTurnId === "string" ? syncState.latestTurnId : null,
+    branch: typeof syncState.branch === "string" ? syncState.branch : null,
+    worktreePath: typeof syncState.worktreePath === "string" ? syncState.worktreePath : null,
+    syncedAt,
+  };
+}
+
+type ProviderSwitchHandoffPreview = ReturnType<typeof buildProviderSwitchHandoff>;
+
+function planProviderSwitchCatchUp(input: {
+  readonly thread: OrchestrationThread;
+  readonly currentProvider: ProviderKind;
+  readonly targetProvider: ProviderKind;
+  readonly currentMessageId: MessageId;
+  readonly targetBinding?: ProviderRuntimeBinding;
+}): {
+  readonly handoffPreview: ProviderSwitchHandoffPreview;
+  readonly startResumeStrategy: "prefer-persisted" | "fresh";
+  readonly markTargetStale: boolean;
+  readonly targetBindingExists: boolean;
+  readonly targetBindingResumable: boolean;
+  readonly targetSlotState: ProviderRuntimeBinding["slotState"] | null;
+} {
+  const targetBindingExists = input.targetBinding !== undefined;
+  const targetSlotState = input.targetBinding?.slotState ?? null;
+  const targetBindingResumable = isResumableProviderBinding(input.targetBinding);
+  const incrementalSyncState =
+    targetBindingResumable && input.targetBinding !== undefined
+      ? readPersistedSyncState(input.targetBinding.runtimePayload)
+      : undefined;
+  const handoffPreview = buildProviderSwitchHandoff({
+    thread: input.thread,
+    fromProvider: input.currentProvider,
+    toProvider: input.targetProvider,
+    currentMessageId: input.currentMessageId,
+    ...(incrementalSyncState !== undefined ? { incrementalSyncState } : {}),
+  });
+
+  if (!targetBindingExists) {
+    return {
+      handoffPreview,
+      startResumeStrategy: "fresh",
+      markTargetStale: false,
+      targetBindingExists,
+      targetBindingResumable,
+      targetSlotState,
+    };
+  }
+
+  if (!targetBindingResumable) {
+    return {
+      handoffPreview,
+      startResumeStrategy: "fresh",
+      markTargetStale: false,
+      targetBindingExists,
+      targetBindingResumable,
+      targetSlotState,
+    };
+  }
+
+  if (handoffPreview.mode === "delta") {
+    return {
+      handoffPreview,
+      startResumeStrategy: "prefer-persisted",
+      markTargetStale: false,
+      targetBindingExists,
+      targetBindingResumable,
+      targetSlotState,
+    };
+  }
+
+  return {
+    handoffPreview,
+    startResumeStrategy: "fresh",
+    markTargetStale: handoffPreview.fallbackReason !== undefined,
+    targetBindingExists,
+    targetBindingResumable,
+    targetSlotState,
+  };
+}
+
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
@@ -312,6 +440,9 @@ const make = Effect.gen(function* () {
     createdAt: string,
     options?: {
       readonly modelSelection?: ModelSelection;
+      readonly startResumeStrategy?: "prefer-persisted" | "fresh";
+      readonly markTargetStale?: boolean;
+      readonly parkedSyncState?: ProviderThreadSyncState;
     },
   ) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -329,7 +460,6 @@ const make = Effect.gen(function* () {
     const requestedModelSelection = options?.modelSelection;
     const desiredModelSelection = requestedModelSelection ?? thread.modelSelection;
     const desiredProvider = desiredModelSelection.provider;
-    const preferredProvider: ProviderKind = currentProvider ?? desiredProvider;
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
       projects: readModel.projects,
@@ -364,16 +494,21 @@ const make = Effect.gen(function* () {
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
+      readonly resumeStrategy?: "prefer-persisted" | "fresh";
     }) =>
-      providerService.startSession(threadId, {
+      providerService.startSession(
         threadId,
-        provider: input?.provider ?? preferredProvider,
-        ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-        modelSelection: desiredModelSelection,
-        ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-        runtimeMode: desiredRuntimeMode,
-        ...(teamCoordinator ? { teamCoordinator } : {}),
-      });
+        {
+          threadId,
+          provider: input?.provider ?? desiredProvider,
+          ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+          modelSelection: desiredModelSelection,
+          ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+          runtimeMode: desiredRuntimeMode,
+          ...(teamCoordinator ? { teamCoordinator } : {}),
+        },
+        input?.resumeStrategy ? { resumeStrategy: input.resumeStrategy } : undefined,
+      );
 
     const bindSessionToThread = (session: ProviderSession) =>
       setThreadSession({
@@ -392,45 +527,65 @@ const make = Effect.gen(function* () {
       });
 
     const activeSession = yield* resolveActiveSession(threadId);
+    const runtimeModeChanged = thread.runtimeMode !== thread.session?.runtimeMode;
+    const providerChanged = currentProvider !== undefined && currentProvider !== desiredProvider;
+    const turnIsRunning =
+      thread.latestTurn?.state === "running" ||
+      thread.session?.status === "running" ||
+      (thread.session?.activeTurnId ?? null) !== null;
+    const hasPendingInteraction = hasPendingProviderInteraction(thread.activities);
+
+    if (providerChanged) {
+      if (turnIsRunning || hasPendingInteraction) {
+        const blockedBy: string[] = [];
+        if (turnIsRunning) {
+          blockedBy.push("a turn is still running");
+        }
+        if (hasPendingInteraction) {
+          blockedBy.push("provider approvals or user-input are still pending");
+        }
+        return yield* new ProviderAdapterRequestError({
+          provider: currentProvider,
+          method: "thread.turn.start",
+          detail: `Thread '${threadId}' can only switch providers between turns; ${blockedBy.join(" and ")}.`,
+        });
+      }
+
+      yield* Effect.logInfo("provider command reactor switching provider session", {
+        threadId,
+        fromProvider: currentProvider,
+        toProvider: desiredProvider,
+        hasLiveRuntime: activeSession !== undefined,
+        startResumeStrategy: options?.startResumeStrategy ?? "fresh",
+        markTargetStale: options?.markTargetStale ?? false,
+      });
+      yield* providerService.parkSession({
+        threadId,
+        provider: currentProvider,
+        syncState: options?.parkedSyncState ?? buildThreadSyncState(thread),
+        nextSlotState: "parked",
+      });
+      if (options?.markTargetStale) {
+        yield* providerService.parkSession({
+          threadId,
+          provider: desiredProvider,
+          nextSlotState: "stale",
+        });
+      }
+      const switchedSession = yield* startProviderSession({
+        provider: desiredProvider,
+        resumeStrategy: options?.startResumeStrategy ?? "fresh",
+      });
+      yield* bindSessionToThread(switchedSession);
+      return {
+        sessionThreadId: switchedSession.threadId,
+        switchedFromProvider: currentProvider,
+      } as const;
+    }
+
     const existingSessionThreadId =
       thread.session && thread.session.status !== "stopped" && activeSession ? thread.id : null;
     if (existingSessionThreadId) {
-      const runtimeModeChanged = thread.runtimeMode !== thread.session?.runtimeMode;
-      const providerChanged = currentProvider !== undefined && currentProvider !== desiredProvider;
-      const turnIsRunning =
-        thread.latestTurn?.state === "running" ||
-        thread.session?.status === "running" ||
-        (thread.session?.activeTurnId ?? null) !== null;
-      const hasPendingInteraction = hasPendingProviderInteraction(thread.activities);
-      if (providerChanged) {
-        if (turnIsRunning || hasPendingInteraction) {
-          const blockedBy: string[] = [];
-          if (turnIsRunning) {
-            blockedBy.push("a turn is still running");
-          }
-          if (hasPendingInteraction) {
-            blockedBy.push("provider approvals or user-input are still pending");
-          }
-          return yield* new ProviderAdapterRequestError({
-            provider: currentProvider,
-            method: "thread.turn.start",
-            detail: `Thread '${threadId}' can only switch providers between turns; ${blockedBy.join(" and ")}.`,
-          });
-        }
-
-        yield* Effect.logInfo("provider command reactor switching provider session", {
-          threadId,
-          fromProvider: currentProvider,
-          toProvider: desiredProvider,
-        });
-        yield* providerService.stopSession({ threadId });
-        const switchedSession = yield* startProviderSession({ provider: desiredProvider });
-        yield* bindSessionToThread(switchedSession);
-        return {
-          sessionThreadId: switchedSession.threadId,
-          switchedFromProvider: currentProvider,
-        } as const;
-      }
       const sessionModelSwitch =
         currentProvider === undefined
           ? "in-session"
@@ -474,7 +629,16 @@ const make = Effect.gen(function* () {
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(
-        resumeCursor !== undefined ? { resumeCursor } : undefined,
+        resumeCursor !== undefined
+          ? {
+              resumeCursor,
+              ...(options?.startResumeStrategy
+                ? { resumeStrategy: options.startResumeStrategy }
+                : {}),
+            }
+          : options?.startResumeStrategy
+            ? { resumeStrategy: options.startResumeStrategy }
+            : undefined,
       );
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
@@ -490,7 +654,9 @@ const make = Effect.gen(function* () {
       } as const;
     }
 
-    const startedSession = yield* startProviderSession(undefined);
+    const startedSession = yield* startProviderSession(
+      options?.startResumeStrategy ? { resumeStrategy: options.startResumeStrategy } : undefined,
+    );
     yield* bindSessionToThread(startedSession);
     return {
       sessionThreadId: startedSession.threadId,
@@ -511,11 +677,55 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
-    const ensuredSession = yield* ensureSessionForThread(
-      input.threadId,
-      input.createdAt,
-      input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {},
-    );
+    const requestedModelSelection =
+      input.modelSelection ?? threadModelSelections.get(input.threadId) ?? thread.modelSelection;
+    const currentProvider = Schema.is(ProviderKind)(thread.session?.providerName)
+      ? thread.session.providerName
+      : null;
+    const targetBinding =
+      currentProvider !== null && currentProvider !== requestedModelSelection.provider
+        ? yield* providerService.getBindingForProvider(
+            input.threadId,
+            requestedModelSelection.provider,
+          )
+        : undefined;
+    const switchPlan =
+      currentProvider !== null && currentProvider !== requestedModelSelection.provider
+        ? planProviderSwitchCatchUp({
+            thread,
+            currentProvider,
+            targetProvider: requestedModelSelection.provider,
+            currentMessageId: input.messageId,
+            ...(targetBinding !== undefined ? { targetBinding } : {}),
+          })
+        : null;
+
+    if (switchPlan !== null) {
+      yield* Effect.logInfo("provider command reactor planned provider switch catch-up", {
+        threadId: input.threadId,
+        fromProvider: currentProvider,
+        toProvider: requestedModelSelection.provider,
+        targetSlotState: switchPlan.targetSlotState,
+        targetBindingExists: switchPlan.targetBindingExists,
+        targetBindingResumable: switchPlan.targetBindingResumable,
+        handoffMode: switchPlan.handoffPreview.mode,
+        handoffFallbackReason: switchPlan.handoffPreview.fallbackReason ?? null,
+        startResumeStrategy: switchPlan.startResumeStrategy,
+      });
+    }
+
+    const ensuredSession = yield* ensureSessionForThread(input.threadId, input.createdAt, {
+      ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+      ...(switchPlan !== null
+        ? {
+            startResumeStrategy: switchPlan.startResumeStrategy,
+            markTargetStale: switchPlan.markTargetStale,
+            parkedSyncState: buildThreadSyncState(thread, {
+              excludeMessageId: input.messageId,
+            }),
+          }
+        : {}),
+    });
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
@@ -530,8 +740,6 @@ const make = Effect.gen(function* () {
       activeSession === undefined
         ? "in-session"
         : (yield* providerService.getCapabilities(activeSession.provider)).sessionModelSwitch;
-    const requestedModelSelection =
-      input.modelSelection ?? threadModelSelections.get(input.threadId) ?? thread.modelSelection;
     const modelForTurn =
       sessionModelSwitch === "unsupported"
         ? activeSession?.model !== undefined
@@ -548,12 +756,13 @@ const make = Effect.gen(function* () {
         : input.messageText;
     const providerSwitchHandoff =
       switchedFromProvider !== null
-        ? buildProviderSwitchHandoff({
+        ? (switchPlan?.handoffPreview ??
+          buildProviderSwitchHandoff({
             thread,
             fromProvider: switchedFromProvider,
             toProvider: requestedModelSelection.provider,
             currentMessageId: input.messageId,
-          })
+          }))
         : null;
     const composedInput =
       providerSwitchHandoff !== null

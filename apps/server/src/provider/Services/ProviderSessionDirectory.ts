@@ -7,6 +7,7 @@ import type {
 import { Option, Context } from "effect";
 import type { Effect } from "effect";
 
+import type { ProviderSessionSlotState } from "../../persistence/Services/ProviderSessionRuntime.ts";
 import type {
   ProviderSessionDirectoryPersistenceError,
   ProviderValidationError,
@@ -17,6 +18,7 @@ export interface ProviderRuntimeBinding {
   readonly provider: ProviderKind;
   readonly adapterKey?: string;
   readonly status?: ProviderSessionRuntimeStatus;
+  readonly slotState?: ProviderSessionSlotState;
   readonly resumeCursor?: unknown | null;
   readonly runtimePayload?: unknown | null;
   readonly runtimeMode?: RuntimeMode;
@@ -45,13 +47,30 @@ export interface ProviderSessionDirectoryShape {
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<ProviderRuntimeBinding>, ProviderSessionDirectoryReadError>;
 
+  readonly getBindingForProvider: (
+    threadId: ThreadId,
+    provider: ProviderKind,
+  ) => Effect.Effect<Option.Option<ProviderRuntimeBinding>, ProviderSessionDirectoryReadError>;
+
   readonly listBindings: () => Effect.Effect<
+    ReadonlyArray<ProviderRuntimeBindingWithMetadata>,
+    ProviderSessionDirectoryReadError
+  >;
+
+  readonly listBindingsByThreadId: (
+    threadId: ThreadId,
+  ) => Effect.Effect<
     ReadonlyArray<ProviderRuntimeBindingWithMetadata>,
     ProviderSessionDirectoryReadError
   >;
 
   readonly remove: (
     threadId: ThreadId,
+  ) => Effect.Effect<void, ProviderSessionDirectoryPersistenceError>;
+
+  readonly removeBinding: (
+    threadId: ThreadId,
+    provider: ProviderKind,
   ) => Effect.Effect<void, ProviderSessionDirectoryPersistenceError>;
 
   readonly listThreadIds: () => Effect.Effect<
