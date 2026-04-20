@@ -9,13 +9,13 @@ apps/*/dist
 packages/*/dist
 .env
 .env.local
+.t3code/worktree/
 .t3code/worktree.local.env
 build/
 .logs/
 release/
 release-mock/
 .t3
-.t3code/worktree.local.env
 .idea/
 apps/web/.playwright
 apps/web/playwright-report
