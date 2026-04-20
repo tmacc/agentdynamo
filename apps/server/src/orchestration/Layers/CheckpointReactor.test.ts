@@ -278,6 +278,7 @@ describe("CheckpointReactor", () => {
         }).pipe(
           Effect.as({
             isRepo: true,
+            hasAnyRemote: false,
             hasOriginRemote: false,
             isDefaultBranch: true,
             branch: "main",

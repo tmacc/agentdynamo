@@ -20,6 +20,7 @@ import { type WsTransport } from "./wsTransport";
 
 const baseLocalStatus: GitStatusLocalResult = {
   isRepo: true,
+  hasAnyRemote: true,
   hasOriginRemote: true,
   isDefaultBranch: false,
   branch: "feature/demo",
