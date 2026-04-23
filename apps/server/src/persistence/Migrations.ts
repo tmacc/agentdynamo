@@ -54,6 +54,7 @@ import Migration0042 from "./Migrations/042_EnsureProviderSessionRuntimeSchema.t
 import Migration0043 from "./Migrations/043_EnsureProviderSessionRuntimePrimaryKey.ts";
 import Migration0044 from "./Migrations/044_EnsureProjectionBoardTables.ts";
 import Migration0045 from "./Migrations/045_RelaxProjectionBoardLinkedThreadUniquenessForArchivedCards.ts";
+import Migration0046 from "./Migrations/046_CanonicalizeModelSelectionOptions.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -107,6 +108,7 @@ export const migrationEntries = [
   [43, "EnsureProviderSessionRuntimePrimaryKey", Migration0043],
   [44, "EnsureProjectionBoardTables", Migration0044],
   [45, "RelaxProjectionBoardLinkedThreadUniquenessForArchivedCards", Migration0045],
+  [46, "CanonicalizeModelSelectionOptions", Migration0046],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
