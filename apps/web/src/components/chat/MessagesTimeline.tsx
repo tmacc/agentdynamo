@@ -2,7 +2,9 @@ import { scopeProjectRef } from "@t3tools/client-runtime";
 import {
   type EnvironmentId,
   type MessageId,
+  type OrchestrationThreadForkOrigin,
   type ProjectId,
+  type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
 import {
@@ -27,6 +29,7 @@ import {
   CheckIcon,
   CircleAlertIcon,
   EyeIcon,
+  GitForkIcon,
   GlobeIcon,
   HammerIcon,
   type LucideIcon,
@@ -93,6 +96,8 @@ interface TimelineRowSharedState {
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadProjectId: ProjectId | undefined;
   onRevertUserMessage: (messageId: MessageId) => void;
+  onOpenForkSourceThread: (threadId: ThreadId) => void;
+  onForkUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onSaveUserPrompt: (text: string) => void;
@@ -122,7 +127,10 @@ interface MessagesTimelineProps {
   onImageExpand: (preview: ExpandedImagePreview) => void;
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadProjectId?: ProjectId;
+  forkOrigin?: OrchestrationThreadForkOrigin | undefined;
   markdownCwd: string | undefined;
+  onForkUserMessage?: (messageId: MessageId) => void;
+  onOpenForkSourceThread?: (threadId: ThreadId) => void;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
@@ -151,12 +159,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onImageExpand,
   activeThreadEnvironmentId,
   activeThreadProjectId,
+  forkOrigin,
   markdownCwd,
+  onForkUserMessage,
+  onOpenForkSourceThread,
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
   onIsAtEndChange,
 }: MessagesTimelineProps) {
+  const noopForkUserMessage = useCallback(() => {}, []);
+  const noopOpenForkSourceThread = useCallback(() => {}, []);
   const createSavedPromptSnippet = useSavedPromptStore((store) => store.createSnippet);
   const currentProjectRef =
     activeThreadProjectId !== undefined
@@ -172,6 +185,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         activeTurnStartedAt,
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
+        forkOrigin,
       }),
     [
       timelineEntries,
@@ -180,6 +194,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeTurnStartedAt,
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
+      forkOrigin,
     ],
   );
   const rows = useStableRows(rawRows);
@@ -276,6 +291,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       activeThreadEnvironmentId,
       activeThreadProjectId,
+      onForkUserMessage: onForkUserMessage ?? noopForkUserMessage,
+      onOpenForkSourceThread: onOpenForkSourceThread ?? noopOpenForkSourceThread,
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
@@ -294,10 +311,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       activeThreadEnvironmentId,
       activeThreadProjectId,
+      onForkUserMessage,
+      onOpenForkSourceThread,
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
       handleSaveUserPrompt,
+      noopForkUserMessage,
+      noopOpenForkSourceThread,
     ],
   );
 
@@ -389,6 +410,20 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
     >
       {row.kind === "work" && <WorkGroupSection groupedEntries={row.groupedEntries} />}
 
+      {row.kind === "fork-separator" && (
+        <div className="my-3 flex items-center gap-3">
+          <span className="h-px flex-1 bg-border" />
+          <button
+            type="button"
+            onClick={() => ctx.onOpenForkSourceThread(row.sourceThreadId)}
+            className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80 transition-colors hover:cursor-pointer hover:border-border/90 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            Forked from {row.sourceThreadTitle}
+          </button>
+          <span className="h-px flex-1 bg-border" />
+        </div>
+      )}
+
       {row.kind === "message" &&
         row.message.role === "user" &&
         (() => {
@@ -456,6 +491,17 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
                         data-testid="save-prompt-button"
                       >
                         <BookmarkPlusIcon className="size-3" />
+                      </Button>
+                    ) : null}
+                    {row.showForkButton ? (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="outline"
+                        onClick={() => ctx.onForkUserMessage(row.message.id)}
+                        title="Fork from this message"
+                      >
+                        <GitForkIcon className="size-3" />
                       </Button>
                     ) : null}
                     {canRevertAgentWork && (

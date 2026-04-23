@@ -6,6 +6,7 @@ import type { ModelSelection, ProviderRuntimeEvent, ProviderSession } from "@t3t
 import {
   ApprovalRequestId,
   CommandId,
+  ContextHandoffId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
@@ -405,6 +406,226 @@ describe("ProviderCommandReactor", () => {
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(thread?.title).toBe("Generated title");
+  });
+
+  it("treats the first post-fork user turn as the first live turn", async () => {
+    const harness = await createHarness();
+    const importedAt = "2026-01-01T00:00:00.999Z";
+    const forkedAt = "2026-01-01T00:00:01.000Z";
+    const liveTurnAt = "2026-01-01T00:00:01.001Z";
+    harness.generateThreadTitle.mockReturnValue(Effect.succeed({ title: "Generated fork title" }));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.fork",
+        commandId: CommandId.make("cmd-thread-fork-live"),
+        handoffId: ContextHandoffId.make("handoff-thread-fork-live"),
+        threadId: ThreadId.make("thread-2"),
+        projectId: asProjectId("project-1"),
+        title: "Fork of Thread",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        branch: null,
+        worktreePath: null,
+        forkOrigin: {
+          sourceThreadId: ThreadId.make("thread-1"),
+          sourceThreadTitle: "Thread",
+          sourceUserMessageId: asMessageId("source-user-message"),
+          importedUntilAt: importedAt,
+          forkedAt,
+        },
+        clonedMessages: [
+          {
+            id: asMessageId("fork-imported-user"),
+            role: "user",
+            text: "Imported question",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-01-01T00:00:00.998Z",
+            updatedAt: "2026-01-01T00:00:00.998Z",
+          },
+          {
+            id: asMessageId("fork-imported-assistant"),
+            role: "assistant",
+            text: "Imported answer",
+            turnId: null,
+            streaming: false,
+            createdAt: importedAt,
+            updatedAt: importedAt,
+          },
+        ],
+        clonedProposedPlans: [],
+        createdAt: forkedAt,
+      }),
+    );
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      return (
+        readModel.threads.find((entry) => entry.id === ThreadId.make("thread-2"))
+          ?.contextHandoffs[0]?.status === "pending"
+      );
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-thread-turn-start-fork-live"),
+        threadId: ThreadId.make("thread-2"),
+        message: {
+          messageId: asMessageId("fork-live-user-message"),
+          role: "user",
+          text: "Please continue from here.",
+          attachments: [],
+        },
+        titleSeed: "Please continue from here.",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: liveTurnAt,
+      }),
+    );
+
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
+      message: "Please continue from here.",
+    });
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      return (
+        readModel.threads.find((entry) => entry.id === ThreadId.make("thread-2"))?.title ===
+        "Generated fork title"
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-2"));
+    expect(thread?.title).toBe("Generated fork title");
+  });
+
+  it("includes imported fork history and proposed plans in the first live provider turn", async () => {
+    const harness = await createHarness();
+    const importedAt = "2026-01-01T00:00:00.999Z";
+    const forkedAt = "2026-01-01T00:00:01.000Z";
+    const liveTurnAt = "2026-01-01T00:00:01.001Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.fork",
+        commandId: CommandId.make("cmd-thread-fork-provider-context"),
+        handoffId: ContextHandoffId.make("handoff-thread-fork-provider-context"),
+        threadId: ThreadId.make("thread-2"),
+        projectId: asProjectId("project-1"),
+        title: "Fork of Thread",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        branch: null,
+        worktreePath: null,
+        forkOrigin: {
+          sourceThreadId: ThreadId.make("thread-1"),
+          sourceThreadTitle: "Thread",
+          sourceUserMessageId: asMessageId("source-user-message"),
+          importedUntilAt: importedAt,
+          forkedAt,
+        },
+        clonedMessages: [
+          {
+            id: asMessageId("fork-imported-user"),
+            role: "user",
+            text: "Imported question",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-01-01T00:00:00.998Z",
+            updatedAt: "2026-01-01T00:00:00.998Z",
+          },
+          {
+            id: asMessageId("fork-imported-assistant"),
+            role: "assistant",
+            text: "Imported answer",
+            turnId: null,
+            streaming: false,
+            createdAt: importedAt,
+            updatedAt: importedAt,
+          },
+        ],
+        clonedProposedPlans: [
+          {
+            id: "plan:fork-imported",
+            turnId: null,
+            planMarkdown: "- preserve imported context\n- continue from the fork",
+            implementedAt: null,
+            implementationThreadId: null,
+            createdAt: "2026-01-01T00:00:00.500Z",
+            updatedAt: "2026-01-01T00:00:00.500Z",
+          },
+        ],
+        createdAt: forkedAt,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-thread-turn-start-provider-context"),
+        threadId: ThreadId.make("thread-2"),
+        message: {
+          messageId: asMessageId("fork-live-user-message"),
+          role: "user",
+          text: "Please continue from here.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: liveTurnAt,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    const firstTurnInput = harness.sendTurn.mock.calls[0]?.[0] as { input?: string } | undefined;
+    expect(firstTurnInput?.input).toContain("Context handoff");
+    expect(firstTurnInput?.input).toContain("Reason: fork");
+    expect(firstTurnInput?.input).toContain("Source thread: Thread");
+    expect(firstTurnInput?.input).toContain("Imported question");
+    expect(firstTurnInput?.input).toContain("Imported answer");
+    expect(firstTurnInput?.input).toContain("- preserve imported context");
+    expect(firstTurnInput?.input).toContain("Please continue from here.");
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      return (
+        readModel.threads.find((entry) => entry.id === ThreadId.make("thread-2"))
+          ?.contextHandoffs[0]?.status === "delivered"
+      );
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-thread-turn-start-provider-context-second"),
+        threadId: ThreadId.make("thread-2"),
+        message: {
+          messageId: asMessageId("fork-second-live-user-message"),
+          role: "user",
+          text: "Now narrow it to reconnect edge cases only.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: "2026-01-01T00:00:02.000Z",
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+
+    const secondTurnInput = harness.sendTurn.mock.calls[1]?.[0] as { input?: string } | undefined;
+    expect(secondTurnInput?.input).toBe("Now narrow it to reconnect edge cases only.");
   });
 
   it("does not overwrite an existing custom thread title on the first turn", async () => {

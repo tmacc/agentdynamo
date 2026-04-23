@@ -43,6 +43,7 @@ import {
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
+  forkThread: "orchestration.forkThread",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
@@ -318,6 +319,55 @@ export const OrchestrationLatestTurn = Schema.Struct({
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
+export const OrchestrationThreadForkOrigin = Schema.Struct({
+  sourceThreadId: ThreadId,
+  sourceThreadTitle: TrimmedNonEmptyString,
+  sourceUserMessageId: MessageId,
+  importedUntilAt: IsoDateTime,
+  forkedAt: IsoDateTime,
+});
+export type OrchestrationThreadForkOrigin = typeof OrchestrationThreadForkOrigin.Type;
+
+export const ContextHandoffId = TrimmedNonEmptyString.pipe(Schema.brand("ContextHandoffId"));
+export type ContextHandoffId = typeof ContextHandoffId.Type;
+
+export const OrchestrationContextHandoffReason = Schema.Literals(["fork", "provider-switch"]);
+export type OrchestrationContextHandoffReason = typeof OrchestrationContextHandoffReason.Type;
+
+export const OrchestrationContextHandoffStatus = Schema.Literals(["pending", "delivered"]);
+export type OrchestrationContextHandoffStatus = typeof OrchestrationContextHandoffStatus.Type;
+
+export const OrchestrationContextHandoffRenderStats = Schema.Struct({
+  includedMessageCount: NonNegativeInt,
+  includedProposedPlanCount: NonNegativeInt,
+  includedAttachmentCount: NonNegativeInt,
+  omittedItemCount: NonNegativeInt,
+  truncated: Schema.Boolean,
+  inputCharCount: NonNegativeInt,
+});
+export type OrchestrationContextHandoffRenderStats =
+  typeof OrchestrationContextHandoffRenderStats.Type;
+
+export const OrchestrationThreadContextHandoff = Schema.Struct({
+  id: ContextHandoffId,
+  threadId: ThreadId,
+  reason: OrchestrationContextHandoffReason,
+  sourceThreadId: Schema.NullOr(ThreadId),
+  sourceThreadTitle: Schema.NullOr(TrimmedNonEmptyString),
+  sourceUserMessageId: Schema.NullOr(MessageId),
+  sourceProvider: Schema.optional(ProviderKind),
+  targetProvider: Schema.optional(ProviderKind),
+  importedUntilAt: IsoDateTime,
+  createdAt: IsoDateTime,
+  status: OrchestrationContextHandoffStatus,
+  deliveredAt: Schema.optional(IsoDateTime),
+  deliveredProvider: Schema.optional(ProviderKind),
+  deliveredTurnId: Schema.optional(TurnId),
+  deliveredLiveMessageId: Schema.optional(MessageId),
+  renderStats: Schema.optional(OrchestrationContextHandoffRenderStats),
+});
+export type OrchestrationThreadContextHandoff = typeof OrchestrationThreadContextHandoff.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -334,6 +384,10 @@ export const OrchestrationThread = Schema.Struct({
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   deletedAt: Schema.NullOr(IsoDateTime),
+  forkOrigin: Schema.optional(OrchestrationThreadForkOrigin),
+  contextHandoffs: Schema.Array(OrchestrationThreadContextHandoff).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
@@ -380,6 +434,10 @@ export const OrchestrationThreadShell = Schema.Struct({
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   session: Schema.NullOr(OrchestrationSession),
+  forkOrigin: Schema.optional(OrchestrationThreadForkOrigin),
+  contextHandoffs: Schema.Array(OrchestrationThreadContextHandoff).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   hasPendingApprovals: Schema.Boolean,
   hasPendingUserInput: Schema.Boolean,
@@ -480,6 +538,50 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
+const ThreadForkCommand = Schema.Struct({
+  type: Schema.Literal("thread.fork"),
+  commandId: CommandId,
+  handoffId: ContextHandoffId,
+  threadId: ThreadId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
+  ),
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  forkOrigin: OrchestrationThreadForkOrigin,
+  clonedMessages: Schema.Array(OrchestrationMessage),
+  clonedProposedPlans: Schema.Array(OrchestrationProposedPlan),
+  createdAt: IsoDateTime,
+});
+
+const ThreadContextHandoffMarkDeliveredCommand = Schema.Struct({
+  type: Schema.Literal("thread.context-handoff.mark-delivered"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  handoffId: ContextHandoffId,
+  liveMessageId: MessageId,
+  provider: ProviderKind,
+  turnId: TurnId,
+  renderStats: OrchestrationContextHandoffRenderStats,
+  createdAt: IsoDateTime,
+});
+
+const ThreadContextHandoffMarkDeliveryFailedCommand = Schema.Struct({
+  type: Schema.Literal("thread.context-handoff.mark-delivery-failed"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  handoffId: ContextHandoffId,
+  liveMessageId: MessageId,
+  provider: Schema.optional(ProviderKind),
+  detail: TrimmedNonEmptyString,
+  renderStats: Schema.optional(OrchestrationContextHandoffRenderStats),
   createdAt: IsoDateTime,
 });
 
@@ -758,6 +860,9 @@ const ThreadRevertCompleteCommand = Schema.Struct({
 });
 
 const InternalOrchestrationCommand = Schema.Union([
+  ThreadForkCommand,
+  ThreadContextHandoffMarkDeliveredCommand,
+  ThreadContextHandoffMarkDeliveryFailedCommand,
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
@@ -797,6 +902,9 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "thread.context-handoff-prepared",
+  "thread.context-handoff-delivered",
+  "thread.context-handoff-delivery-failed",
   "board.card-created",
   "board.card-updated",
   "board.card-moved",
@@ -850,6 +958,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  forkOrigin: Schema.optional(OrchestrationThreadForkOrigin),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -978,6 +1087,39 @@ export const ThreadTurnDiffCompletedPayload = Schema.Struct({
 export const ThreadActivityAppendedPayload = Schema.Struct({
   threadId: ThreadId,
   activity: OrchestrationThreadActivity,
+});
+
+export const ThreadContextHandoffPreparedPayload = Schema.Struct({
+  handoffId: ContextHandoffId,
+  threadId: ThreadId,
+  reason: OrchestrationContextHandoffReason,
+  sourceThreadId: Schema.NullOr(ThreadId),
+  sourceThreadTitle: Schema.NullOr(TrimmedNonEmptyString),
+  sourceUserMessageId: Schema.NullOr(MessageId),
+  sourceProvider: Schema.optional(ProviderKind),
+  targetProvider: Schema.optional(ProviderKind),
+  importedUntilAt: IsoDateTime,
+  createdAt: IsoDateTime,
+});
+
+export const ThreadContextHandoffDeliveredPayload = Schema.Struct({
+  handoffId: ContextHandoffId,
+  threadId: ThreadId,
+  liveMessageId: MessageId,
+  provider: ProviderKind,
+  turnId: TurnId,
+  renderStats: OrchestrationContextHandoffRenderStats,
+  deliveredAt: IsoDateTime,
+});
+
+export const ThreadContextHandoffDeliveryFailedPayload = Schema.Struct({
+  handoffId: ContextHandoffId,
+  threadId: ThreadId,
+  liveMessageId: MessageId,
+  provider: Schema.optional(ProviderKind),
+  detail: TrimmedNonEmptyString,
+  renderStats: Schema.optional(OrchestrationContextHandoffRenderStats),
+  failedAt: IsoDateTime,
 });
 
 export const OrchestrationEventMetadata = Schema.Struct({
@@ -1111,6 +1253,21 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.context-handoff-prepared"),
+    payload: ThreadContextHandoffPreparedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.context-handoff-delivered"),
+    payload: ThreadContextHandoffDeliveredPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.context-handoff-delivery-failed"),
+    payload: ThreadContextHandoffDeliveryFailedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
@@ -1254,6 +1411,19 @@ export type OrchestrationGetFullThreadDiffInput = typeof OrchestrationGetFullThr
 export const OrchestrationGetFullThreadDiffResult = ThreadTurnDiff;
 export type OrchestrationGetFullThreadDiffResult = typeof OrchestrationGetFullThreadDiffResult.Type;
 
+export const OrchestrationForkThreadInput = Schema.Struct({
+  sourceThreadId: ThreadId,
+  sourceUserMessageId: MessageId,
+  mode: Schema.Literals(["local", "worktree"]),
+  baseBranch: Schema.optional(TrimmedNonEmptyString),
+});
+export type OrchestrationForkThreadInput = typeof OrchestrationForkThreadInput.Type;
+
+export const OrchestrationForkThreadResult = Schema.Struct({
+  thread: OrchestrationThreadShell,
+});
+export type OrchestrationForkThreadResult = typeof OrchestrationForkThreadResult.Type;
+
 export const OrchestrationReplayEventsInput = Schema.Struct({
   fromSequenceExclusive: NonNegativeInt,
 });
@@ -1266,6 +1436,10 @@ export const OrchestrationRpcSchemas = {
   dispatchCommand: {
     input: ClientOrchestrationCommand,
     output: DispatchResult,
+  },
+  forkThread: {
+    input: OrchestrationForkThreadInput,
+    output: OrchestrationForkThreadResult,
   },
   getTurnDiff: {
     input: OrchestrationGetTurnDiffInput,
@@ -1299,6 +1473,14 @@ export class OrchestrationGetSnapshotError extends Schema.TaggedErrorClass<Orche
 
 export class OrchestrationDispatchCommandError extends Schema.TaggedErrorClass<OrchestrationDispatchCommandError>()(
   "OrchestrationDispatchCommandError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export class OrchestrationForkThreadError extends Schema.TaggedErrorClass<OrchestrationForkThreadError>()(
+  "OrchestrationForkThreadError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),

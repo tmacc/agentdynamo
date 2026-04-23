@@ -92,6 +92,11 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         pendingApprovalCount: 0,
         pendingUserInputCount: 0,
         hasActionableProposedPlan: 0,
+        forkedAt: null,
+        forkSourceThreadId: null,
+        forkSourceThreadTitle: null,
+        forkSourceUserMessageId: null,
+        forkImportedUntilAt: null,
         deletedAt: null,
       });
 

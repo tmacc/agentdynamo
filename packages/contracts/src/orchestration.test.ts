@@ -6,9 +6,12 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   OrchestrationCommand,
+  OrchestrationContextHandoffRenderStats,
   OrchestrationEvent,
   OrchestrationGetTurnDiffInput,
   OrchestrationLatestTurn,
+  OrchestrationReadModel,
+  OrchestrationShellSnapshot,
   ProjectCreatedPayload,
   ProjectMetaUpdatedPayload,
   OrchestrationProposedPlan,
@@ -31,8 +34,13 @@ const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
   ThreadTurnStartRequestedPayload,
 );
 const decodeOrchestrationLatestTurn = Schema.decodeUnknownEffect(OrchestrationLatestTurn);
+const decodeOrchestrationReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
+const decodeOrchestrationShellSnapshot = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
 const decodeOrchestrationProposedPlan = Schema.decodeUnknownEffect(OrchestrationProposedPlan);
 const decodeOrchestrationSession = Schema.decodeUnknownEffect(OrchestrationSession);
+const decodeContextHandoffRenderStats = Schema.decodeUnknownEffect(
+  OrchestrationContextHandoffRenderStats,
+);
 const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPayload);
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
@@ -307,6 +315,40 @@ it.effect("decodes thread archive and unarchive commands", () =>
   }),
 );
 
+it.effect("decodes thread fork command with context handoff id", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationCommand({
+      type: "thread.fork",
+      commandId: "cmd-fork-1",
+      handoffId: "handoff-fork-1",
+      threadId: "thread-forked",
+      projectId: "project-1",
+      title: "Fork of Source",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      forkOrigin: {
+        sourceThreadId: "thread-source",
+        sourceThreadTitle: "Source",
+        sourceUserMessageId: "message-source-user",
+        importedUntilAt: "2026-01-01T00:00:00.000Z",
+        forkedAt: "2026-01-01T00:00:01.000Z",
+      },
+      clonedMessages: [],
+      clonedProposedPlans: [],
+      createdAt: "2026-01-01T00:00:01.000Z",
+    });
+
+    assert.strictEqual(parsed.type, "thread.fork");
+    assert.strictEqual(parsed.handoffId, "handoff-fork-1");
+  }),
+);
+
 it.effect("decodes thread archived and unarchived events", () =>
   Effect.gen(function* () {
     const archived = yield* decodeOrchestrationEvent({
@@ -346,6 +388,134 @@ it.effect("decodes thread archived and unarchived events", () =>
     assert.strictEqual(archived.type, "thread.archived");
     assert.strictEqual(archived.payload.archivedAt, "2026-01-01T00:00:00.000Z");
     assert.strictEqual(unarchived.type, "thread.unarchived");
+  }),
+);
+
+it.effect("decodes context handoff events", () =>
+  Effect.gen(function* () {
+    const renderStats = yield* decodeContextHandoffRenderStats({
+      includedMessageCount: 2,
+      includedProposedPlanCount: 1,
+      includedAttachmentCount: 1,
+      omittedItemCount: 0,
+      truncated: false,
+      inputCharCount: 1200,
+    });
+
+    const eventBase = {
+      sequence: 1,
+      eventId: "event-handoff-1",
+      aggregateKind: "thread",
+      aggregateId: "thread-1",
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      commandId: "cmd-handoff-1",
+      causationEventId: null,
+      correlationId: "cmd-handoff-1",
+      metadata: {},
+    } as const;
+
+    const prepared = yield* decodeOrchestrationEvent({
+      ...eventBase,
+      type: "thread.context-handoff-prepared",
+      payload: {
+        handoffId: "handoff-1",
+        threadId: "thread-1",
+        reason: "fork",
+        sourceThreadId: "thread-source",
+        sourceThreadTitle: "Source",
+        sourceUserMessageId: "message-source-user",
+        targetProvider: "codex",
+        importedUntilAt: "2026-01-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    const delivered = yield* decodeOrchestrationEvent({
+      ...eventBase,
+      sequence: 2,
+      eventId: "event-handoff-2",
+      type: "thread.context-handoff-delivered",
+      payload: {
+        handoffId: "handoff-1",
+        threadId: "thread-1",
+        liveMessageId: "message-live",
+        provider: "codex",
+        turnId: "turn-1",
+        renderStats,
+        deliveredAt: "2026-01-01T00:00:01.000Z",
+      },
+    });
+    const failed = yield* decodeOrchestrationEvent({
+      ...eventBase,
+      sequence: 3,
+      eventId: "event-handoff-3",
+      type: "thread.context-handoff-delivery-failed",
+      payload: {
+        handoffId: "handoff-1",
+        threadId: "thread-1",
+        liveMessageId: "message-live",
+        provider: "codex",
+        detail: "Provider failed",
+        renderStats,
+        failedAt: "2026-01-01T00:00:02.000Z",
+      },
+    });
+
+    assert.strictEqual(prepared.type, "thread.context-handoff-prepared");
+    assert.strictEqual(delivered.type, "thread.context-handoff-delivered");
+    assert.strictEqual(failed.type, "thread.context-handoff-delivery-failed");
+  }),
+);
+
+it.effect("defaults context handoffs on decoded read models", () =>
+  Effect.gen(function* () {
+    const thread = {
+      id: "thread-1",
+      projectId: "project-1",
+      title: "Thread",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      archivedAt: null,
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      activities: [],
+      checkpoints: [],
+      session: null,
+    };
+
+    const readModel = yield* decodeOrchestrationReadModel({
+      snapshotSequence: 1,
+      projects: [],
+      threads: [thread],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const shellSnapshot = yield* decodeOrchestrationShellSnapshot({
+      snapshotSequence: 1,
+      projects: [],
+      threads: [
+        {
+          ...thread,
+          latestUserMessageAt: null,
+          hasPendingApprovals: false,
+          hasPendingUserInput: false,
+          hasActionableProposedPlan: false,
+          session: null,
+        },
+      ],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.deepStrictEqual(readModel.threads[0]?.contextHandoffs, []);
+    assert.deepStrictEqual(shellSnapshot.threads[0]?.contextHandoffs, []);
   }),
 );
 

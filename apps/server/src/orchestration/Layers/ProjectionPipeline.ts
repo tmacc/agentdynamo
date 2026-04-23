@@ -24,6 +24,7 @@ import {
   type ProjectionThreadProposedPlan,
   ProjectionThreadProposedPlanRepository,
 } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
+import { ProjectionThreadContextHandoffRepository } from "../../persistence/Services/ProjectionThreadContextHandoffs.ts";
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import {
   type ProjectionTurn,
@@ -38,6 +39,7 @@ import { ProjectionStateRepositoryLive } from "../../persistence/Layers/Projecti
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
+import { ProjectionThreadContextHandoffRepositoryLive } from "../../persistence/Layers/ProjectionThreadContextHandoffs.ts";
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
@@ -58,6 +60,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threads: "projection.threads",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
+  threadContextHandoffs: "projection.thread-context-handoffs",
   threadActivities: "projection.thread-activities",
   threadSessions: "projection.thread-sessions",
   threadTurns: "projection.thread-turns",
@@ -453,6 +456,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadRepository = yield* ProjectionThreadRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
+    const projectionThreadContextHandoffRepository =
+      yield* ProjectionThreadContextHandoffRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
@@ -587,6 +592,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
             hasActionableProposedPlan: 0,
+            forkSourceThreadId: event.payload.forkOrigin?.sourceThreadId ?? null,
+            forkSourceThreadTitle: event.payload.forkOrigin?.sourceThreadTitle ?? null,
+            forkSourceUserMessageId: event.payload.forkOrigin?.sourceUserMessageId ?? null,
+            forkImportedUntilAt: event.payload.forkOrigin?.importedUntilAt ?? null,
+            forkedAt: event.payload.forkOrigin?.forkedAt ?? null,
             deletedAt: null,
           });
           return;
@@ -755,6 +765,61 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* refreshThreadShellSummary(event.payload.threadId);
           return;
         }
+
+        default:
+          return;
+      }
+    });
+
+    const applyThreadContextHandoffsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyThreadContextHandoffsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "thread.context-handoff-prepared":
+          yield* projectionThreadContextHandoffRepository.upsertPrepared({
+            handoffId: event.payload.handoffId,
+            threadId: event.payload.threadId,
+            reason: event.payload.reason,
+            sourceThreadId: event.payload.sourceThreadId,
+            sourceThreadTitle: event.payload.sourceThreadTitle,
+            sourceUserMessageId: event.payload.sourceUserMessageId,
+            sourceProvider: event.payload.sourceProvider ?? null,
+            targetProvider: event.payload.targetProvider ?? null,
+            importedUntilAt: event.payload.importedUntilAt,
+            createdAt: event.payload.createdAt,
+            deliveredAt: null,
+            deliveredProvider: null,
+            deliveredTurnId: null,
+            deliveredLiveMessageId: null,
+            lastFailureAt: null,
+            lastFailureDetail: null,
+            renderStats: null,
+          });
+          return;
+
+        case "thread.context-handoff-delivered":
+          yield* projectionThreadContextHandoffRepository.markDelivered({
+            handoffId: event.payload.handoffId,
+            threadId: event.payload.threadId,
+            liveMessageId: event.payload.liveMessageId,
+            provider: event.payload.provider,
+            turnId: event.payload.turnId,
+            renderStats: event.payload.renderStats,
+            deliveredAt: event.payload.deliveredAt,
+          });
+          return;
+
+        case "thread.context-handoff-delivery-failed":
+          yield* projectionThreadContextHandoffRepository.markDeliveryFailed({
+            handoffId: event.payload.handoffId,
+            threadId: event.payload.threadId,
+            liveMessageId: event.payload.liveMessageId,
+            provider: event.payload.provider ?? null,
+            detail: event.payload.detail,
+            renderStats: event.payload.renderStats ?? null,
+            failedAt: event.payload.failedAt,
+          });
+          return;
 
         default:
           return;
@@ -1497,6 +1562,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyThreadProposedPlansProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.threadContextHandoffs,
+        apply: applyThreadContextHandoffsProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
         apply: applyThreadActivitiesProjection,
       },
@@ -1626,6 +1695,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
+  Layer.provideMerge(ProjectionThreadContextHandoffRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),

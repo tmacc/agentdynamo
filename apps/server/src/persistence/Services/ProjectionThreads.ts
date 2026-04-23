@@ -8,6 +8,7 @@
  */
 import {
   IsoDateTime,
+  MessageId,
   ModelSelection,
   NonNegativeInt,
   ProjectId,
@@ -38,6 +39,11 @@ export const ProjectionThread = Schema.Struct({
   pendingApprovalCount: NonNegativeInt,
   pendingUserInputCount: NonNegativeInt,
   hasActionableProposedPlan: NonNegativeInt,
+  forkSourceThreadId: Schema.NullOr(ThreadId),
+  forkSourceThreadTitle: Schema.NullOr(Schema.String),
+  forkSourceUserMessageId: Schema.NullOr(MessageId),
+  forkImportedUntilAt: Schema.NullOr(IsoDateTime),
+  forkedAt: Schema.NullOr(IsoDateTime),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type ProjectionThread = typeof ProjectionThread.Type;

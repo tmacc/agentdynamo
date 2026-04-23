@@ -15,7 +15,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 - `Multi-provider subagents`: missing on merged baseline
 - `Board View`: restored on top of merged baseline
-- `Forking threads`: missing on merged baseline
+- `Forking threads`: restored on top of merged baseline
 - `Provider switching / handoff`: missing on merged baseline
 - `Saving prompts`: restored on top of merged baseline
 - `Worktree readiness / bootstrap`: partially present, but reduced from the fuller fork implementation
@@ -96,34 +96,51 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ### Forking threads
 
-- `Status`: Present on the pre-merge fork at `365ae6d9`. Missing on merged baseline `ed85e9ce`.
-- `User-visible behavior`: Explicit thread fork flow that clones the relevant thread context into a new thread, preserves fork origin metadata, and keeps the new thread separate from the source. This is distinct from plan-derived implementation thread creation.
+- `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce`.
+- `User-visible behavior`: Explicit thread fork flow that clones the relevant thread context into a new thread, preserves fork origin metadata, shows the imported-history boundary in the timeline, and keeps the new thread separate from the source. This is distinct from plan-derived implementation thread creation.
 - `Why it exists`: Lets users branch work from an existing conversation without losing provenance or polluting the original thread.
 - `Key fork files`:
   - `packages/contracts/src/orchestration.ts`
   - `packages/contracts/src/ipc.ts`
   - `packages/contracts/src/rpc.ts`
+  - `apps/server/src/orchestration/contextHandoff.ts`
   - `apps/server/src/orchestration/Layers/ThreadForkDispatcher.ts`
   - `apps/server/src/orchestration/Layers/ThreadForkMaterializer.ts`
+  - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
+  - `apps/server/src/persistence/Migrations/029_ProjectionThreadContextHandoffs.ts`
+  - `apps/server/src/persistence/Services/ProjectionThreadContextHandoffs.ts`
+  - `apps/server/src/persistence/Layers/ProjectionThreadContextHandoffs.ts`
   - `apps/server/src/orchestration/forkThreadExecution.ts`
-  - `apps/server/src/orchestration/http.ts`
+  - `apps/server/src/ws.ts`
   - `apps/server/src/orchestration/projector.ts`
+  - `apps/web/src/components/ForkThreadDialog.tsx`
   - `apps/web/src/components/chat/MessagesTimeline.tsx`
+  - `apps/web/src/components/ChatView.tsx`
   - `apps/web/src/store.ts`
 - `Important invariants`:
   - Source thread and forked thread must remain distinct.
   - Fork origin metadata must survive projection and reload.
   - Timeline UI must show where imported history stops and new fork-local history begins.
   - Fork creation must not break branch/worktree metadata.
+  - Fork creation prepares a durable `thread.context-handoff-prepared` record; successful provider acceptance marks it delivered, failed sends leave it pending for retry.
+  - The first live post-fork provider turn must receive the imported fork transcript, imported proposed plans, attachment metadata, and the new live message in the actual provider-visible input, not just in the UI/read model. This closes the `Fork Context Loss` bug.
+  - Once a handoff is delivered and projected, reload/reprojection must not resend the imported context on later turns.
+  - Attachments cloned for fork UI continuity must be represented in provider-visible handoff text as metadata only, not binary/image content.
+  - Known residual race: if a provider accepts the turn but the server crashes before `thread.context-handoff-delivered` is persisted, retry can resend the handoff. Fixing that requires provider-side idempotency or a pre-send marker.
+  - Auto-title replacement on the first live post-fork turn must treat the default `Fork of X` title the same way it treats `New thread`, so generated titles can replace the placeholder.
 - `Merge hotspots`:
   - Orchestration command/event schemas
   - Projection pipeline and snapshot query shape
-  - Server RPC/HTTP handlers
-  - Chat timeline rendering and store normalization
+  - Server RPC handlers and provider turn bootstrap logic
+  - Chat timeline rendering, store normalization, and thread navigation
 - `Verification`:
   - Fork a thread with existing history.
   - Confirm fork origin metadata appears in the new thread.
+  - Confirm the timeline shows a `Forked from ...` separator at the imported-history boundary.
   - Confirm new messages only affect the forked thread.
+  - Confirm the first live turn in the fork sees the imported transcript/proposed plans/attachment metadata in provider input and the second live turn does not repeat the handoff import.
+  - Force a first-send failure and verify retry still includes the pending handoff.
+  - Confirm the first live turn can replace the default `Fork of X` title with an auto-generated title.
   - Reload and verify provenance is still present.
 
 ### Saving prompts
@@ -167,6 +184,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/components/ChatView.tsx`
 - `Important invariants`:
   - Switching providers must not silently drop the visible thread history.
+  - Provider-switch handoff preparation should reuse `thread.context-handoff-prepared`, `apps/server/src/orchestration/contextHandoff.ts`, and the delivered/failed handoff events instead of adding a second runtime-only transfer path.
   - Handoff state must stay aligned with branch and worktree metadata.
   - A provider switch should preserve resumability and avoid leaving the thread in an unroutable state.
   - Full handoff fallback must be available when incremental markers are stale or invalid.

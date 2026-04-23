@@ -1,7 +1,8 @@
-import type {
-  GitStatusLocalResult,
-  GitStatusRemoteResult,
-  GitStatusStreamEvent,
+import {
+  ORCHESTRATION_WS_METHODS,
+  type GitStatusLocalResult,
+  type GitStatusRemoteResult,
+  type GitStatusStreamEvent,
 } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vitest";
 
@@ -100,5 +101,35 @@ describe("wsRpcClient", () => {
         },
       ],
     ]);
+  });
+
+  it("routes orchestration.forkThread through the unary transport request helper", async () => {
+    const requestImpl: WsTransport["request"] = async <TSuccess>(
+      execute: Parameters<WsTransport["request"]>[0],
+    ): Promise<TSuccess> =>
+      execute({
+        [ORCHESTRATION_WS_METHODS.forkThread]: (input: unknown) => input,
+      } as never) as TSuccess;
+    const request = vi.fn(requestImpl);
+    const transport = {
+      dispose: vi.fn(async () => undefined),
+      reconnect: vi.fn(async () => undefined),
+      request: request as WsTransport["request"],
+      requestStream: vi.fn(),
+      subscribe: vi.fn(() => () => undefined),
+    } satisfies Pick<
+      WsTransport,
+      "dispose" | "reconnect" | "request" | "requestStream" | "subscribe"
+    >;
+
+    const client = createWsRpcClient(transport as unknown as WsTransport);
+    const input = {
+      sourceThreadId: "thread-source" as never,
+      sourceUserMessageId: "message-source" as never,
+      mode: "local" as const,
+    };
+
+    await expect(client.orchestration.forkThread(input)).resolves.toEqual(input);
+    expect(request).toHaveBeenCalledTimes(1);
   });
 });

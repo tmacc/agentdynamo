@@ -4,6 +4,7 @@ import {
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
+  OrchestrationThreadContextHandoff,
 } from "@t3tools/contracts";
 import { Effect, Schema } from "effect";
 
@@ -15,6 +16,9 @@ import {
   ProjectMetaUpdatedPayload,
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
+  ThreadContextHandoffDeliveredPayload,
+  ThreadContextHandoffDeliveryFailedPayload,
+  ThreadContextHandoffPreparedPayload,
   ThreadCreatedPayload,
   ThreadDeletedPayload,
   ThreadInteractionModeSetPayload,
@@ -264,7 +268,9 @@ export function projectEvent(
             updatedAt: payload.updatedAt,
             archivedAt: null,
             deletedAt: null,
+            ...(payload.forkOrigin ? { forkOrigin: payload.forkOrigin } : {}),
             messages: [],
+            contextHandoffs: [],
             activities: [],
             checkpoints: [],
             session: null,
@@ -494,6 +500,121 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             proposedPlans,
+            updatedAt: event.occurredAt,
+          }),
+        };
+      });
+
+    case "thread.context-handoff-prepared":
+      return Effect.gen(function* () {
+        const payload = yield* decodeForEvent(
+          ThreadContextHandoffPreparedPayload,
+          event.payload,
+          event.type,
+          "payload",
+        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+        if (!thread) {
+          return nextBase;
+        }
+
+        const contextHandoff = yield* decodeForEvent(
+          OrchestrationThreadContextHandoff,
+          {
+            id: payload.handoffId,
+            threadId: payload.threadId,
+            reason: payload.reason,
+            sourceThreadId: payload.sourceThreadId,
+            sourceThreadTitle: payload.sourceThreadTitle,
+            sourceUserMessageId: payload.sourceUserMessageId,
+            ...(payload.sourceProvider !== undefined
+              ? { sourceProvider: payload.sourceProvider }
+              : {}),
+            ...(payload.targetProvider !== undefined
+              ? { targetProvider: payload.targetProvider }
+              : {}),
+            importedUntilAt: payload.importedUntilAt,
+            createdAt: payload.createdAt,
+            status: "pending",
+          },
+          event.type,
+          "contextHandoff",
+        );
+
+        const contextHandoffs = [
+          ...thread.contextHandoffs.filter((entry) => entry.id !== contextHandoff.id),
+          contextHandoff,
+        ].toSorted(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+        );
+
+        return {
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            contextHandoffs,
+            updatedAt: event.occurredAt,
+          }),
+        };
+      });
+
+    case "thread.context-handoff-delivered":
+      return Effect.gen(function* () {
+        const payload = yield* decodeForEvent(
+          ThreadContextHandoffDeliveredPayload,
+          event.payload,
+          event.type,
+          "payload",
+        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+        if (!thread) {
+          return nextBase;
+        }
+
+        return {
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            contextHandoffs: thread.contextHandoffs.map((entry) =>
+              entry.id === payload.handoffId
+                ? Object.assign({}, entry, {
+                    status: "delivered" as const,
+                    deliveredAt: payload.deliveredAt,
+                    deliveredProvider: payload.provider,
+                    deliveredTurnId: payload.turnId,
+                    deliveredLiveMessageId: payload.liveMessageId,
+                    renderStats: payload.renderStats,
+                  })
+                : entry,
+            ),
+            updatedAt: event.occurredAt,
+          }),
+        };
+      });
+
+    case "thread.context-handoff-delivery-failed":
+      return Effect.gen(function* () {
+        const payload = yield* decodeForEvent(
+          ThreadContextHandoffDeliveryFailedPayload,
+          event.payload,
+          event.type,
+          "payload",
+        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+        if (!thread) {
+          return nextBase;
+        }
+
+        return {
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            contextHandoffs:
+              payload.renderStats === undefined
+                ? thread.contextHandoffs
+                : thread.contextHandoffs.map((entry) =>
+                    entry.id === payload.handoffId
+                      ? Object.assign({}, entry, { renderStats: payload.renderStats })
+                      : entry,
+                  ),
             updatedAt: event.occurredAt,
           }),
         };

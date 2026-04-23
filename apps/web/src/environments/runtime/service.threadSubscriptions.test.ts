@@ -119,6 +119,7 @@ function makeThreadShellSnapshot(params: {
         createdAt: "2026-04-13T00:00:00.000Z",
         updatedAt: "2026-04-13T00:00:00.000Z",
         archivedAt: null,
+        contextHandoffs: [],
         session: params.sessionStatus
           ? {
               threadId: params.threadId,

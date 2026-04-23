@@ -252,6 +252,159 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.fork": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      yield* requireThreadAbsent({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+
+      const threadCreatedEvent = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.created" as const,
+        payload: {
+          threadId: command.threadId,
+          projectId: command.projectId,
+          title: command.title,
+          modelSelection: command.modelSelection,
+          runtimeMode: command.runtimeMode,
+          interactionMode: command.interactionMode,
+          branch: command.branch,
+          worktreePath: command.worktreePath,
+          forkOrigin: command.forkOrigin,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+
+      const messageEvents = command.clonedMessages.map((message) => ({
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: message.updatedAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.message-sent" as const,
+        payload: {
+          threadId: command.threadId,
+          messageId: message.id,
+          role: message.role,
+          text: message.text,
+          ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+          turnId: null,
+          streaming: message.streaming,
+          createdAt: message.createdAt,
+          updatedAt: message.updatedAt,
+        },
+      }));
+
+      const proposedPlanEvents = command.clonedProposedPlans.map((proposedPlan) => ({
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: proposedPlan.updatedAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.proposed-plan-upserted" as const,
+        payload: {
+          threadId: command.threadId,
+          proposedPlan,
+        },
+      }));
+
+      const contextHandoffPreparedEvent = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.context-handoff-prepared" as const,
+        payload: {
+          handoffId: command.handoffId,
+          threadId: command.threadId,
+          reason: "fork" as const,
+          sourceThreadId: command.forkOrigin.sourceThreadId,
+          sourceThreadTitle: command.forkOrigin.sourceThreadTitle,
+          sourceUserMessageId: command.forkOrigin.sourceUserMessageId,
+          targetProvider: command.modelSelection.provider,
+          importedUntilAt: command.forkOrigin.importedUntilAt,
+          createdAt: command.createdAt,
+        },
+      };
+
+      return [
+        threadCreatedEvent,
+        ...messageEvents,
+        ...proposedPlanEvents,
+        contextHandoffPreparedEvent,
+      ];
+    }
+
+    case "thread.context-handoff.mark-delivered": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.context-handoff-delivered" as const,
+        payload: {
+          handoffId: command.handoffId,
+          threadId: command.threadId,
+          liveMessageId: command.liveMessageId,
+          provider: command.provider,
+          turnId: command.turnId,
+          renderStats: command.renderStats,
+          deliveredAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.context-handoff.mark-delivery-failed": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.context-handoff-delivery-failed" as const,
+        payload: {
+          handoffId: command.handoffId,
+          threadId: command.threadId,
+          liveMessageId: command.liveMessageId,
+          ...(command.provider !== undefined ? { provider: command.provider } : {}),
+          detail: command.detail,
+          ...(command.renderStats !== undefined ? { renderStats: command.renderStats } : {}),
+          failedAt: command.createdAt,
+        },
+      };
+    }
+
     case "thread.delete": {
       yield* requireThread({
         readModel,

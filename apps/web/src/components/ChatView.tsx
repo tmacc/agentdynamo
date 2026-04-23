@@ -11,6 +11,7 @@ import {
   type ProviderApprovalDecision,
   type ServerProvider,
   type ResolvedKeybindingsConfig,
+  type OrchestrationThreadShell,
   type ScopedThreadRef,
   type ThreadId,
   type TurnId,
@@ -135,6 +136,7 @@ import {
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
+import { ForkThreadDialog } from "./ForkThreadDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -331,6 +333,11 @@ type ChatViewProps =
       routeKind: "draft";
       draftId: DraftId;
     };
+
+interface ForkThreadDialogState {
+  key: number;
+  sourceUserMessageId: MessageId;
+}
 
 interface TerminalLaunchContext {
   threadId: ThreadId;
@@ -691,6 +698,9 @@ export default function ChatView(props: ChatViewProps) {
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
+  const [forkThreadDialogState, setForkThreadDialogState] = useState<ForkThreadDialogState | null>(
+    null,
+  );
   const [terminalLaunchContext, setTerminalLaunchContext] = useState<TerminalLaunchContext | null>(
     null,
   );
@@ -919,6 +929,46 @@ export default function ChatView(props: ChatViewProps) {
   const closePullRequestDialog = useCallback(() => {
     setPullRequestDialogState(null);
   }, []);
+
+  const openThreadById = useCallback(
+    (nextThreadId: ThreadId) => {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: activeThread?.environmentId ?? environmentId,
+          threadId: nextThreadId,
+        },
+      });
+    },
+    [activeThread?.environmentId, environmentId, navigate],
+  );
+
+  const openForkThreadDialog = useCallback((sourceUserMessageId: MessageId) => {
+    setForkThreadDialogState({
+      key: Date.now(),
+      sourceUserMessageId,
+    });
+  }, []);
+
+  const closeForkThreadDialog = useCallback(() => {
+    setForkThreadDialogState(null);
+  }, []);
+
+  const handleForkedThread = useCallback(
+    async (forkedThread: OrchestrationThreadShell) => {
+      await waitForStartedServerThread(scopeThreadRef(environmentId, forkedThread.id), 1_500).catch(
+        () => false,
+      );
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId,
+          threadId: forkedThread.id,
+        },
+      });
+    },
+    [environmentId, navigate],
+  );
 
   const openOrReuseProjectDraftThread = useCallback(
     async (input: { branch: string; worktreePath: string | null; envMode: DraftThreadEnvMode }) => {
@@ -3295,6 +3345,13 @@ export default function ChatView(props: ChatViewProps) {
               onOpenTurnDiff={onOpenTurnDiff}
               revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
               onRevertUserMessage={onRevertUserMessage}
+              {...(routeKind === "server"
+                ? {
+                    forkOrigin: activeThread.forkOrigin,
+                    onForkUserMessage: openForkThreadDialog,
+                    onOpenForkSourceThread: openThreadById,
+                  }
+                : {})}
               isRevertingCheckpoint={isRevertingCheckpoint}
               onImageExpand={onExpandTimelineImage}
               markdownCwd={gitCwd ?? undefined}
@@ -3431,6 +3488,24 @@ export default function ChatView(props: ChatViewProps) {
                 }
               }}
               onPrepared={handlePreparedPullRequestThread}
+            />
+          ) : null}
+          {forkThreadDialogState && routeKind === "server" ? (
+            <ForkThreadDialog
+              key={forkThreadDialogState.key}
+              open
+              environmentId={activeThread.environmentId}
+              sourceThreadId={activeThread.id}
+              sourceUserMessageId={forkThreadDialogState.sourceUserMessageId}
+              sourceThreadTitle={activeThread.title}
+              defaultMode={envMode}
+              baseBranch={activeThread.branch ?? null}
+              onOpenChange={(open) => {
+                if (!open) {
+                  closeForkThreadDialog();
+                }
+              }}
+              onForked={handleForkedThread}
             />
           ) : null}
         </div>
