@@ -23,6 +23,13 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
 
+## Fork Patch Log
+
+- `PATCH.md` is the source of truth for fork-only behavior and upstream-touching local patches that must survive future upstream syncs.
+- Any new feature or bugfix that changes upstream-derived code, or changes behavior we expect to preserve across upstream merges, must update `PATCH.md` in the same change.
+- Keep `PATCH.md` entries concrete: user-visible behavior, key files/modules, invariants, merge hotspots, and verification steps.
+- Before merging or rebasing from upstream, review `PATCH.md` and treat every listed item as a preservation checklist.
+
 ## Package Roles
 
 - `apps/server`: Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, and manages provider sessions.
