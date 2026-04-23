@@ -17,7 +17,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Board View`: missing on merged baseline
 - `Forking threads`: missing on merged baseline
 - `Provider switching / handoff`: missing on merged baseline
-- `Saving prompts`: missing on merged baseline
+- `Saving prompts`: restored on top of merged baseline
 - `Worktree readiness / bootstrap`: partially present, but reduced from the fuller fork implementation
 - `Project intelligence`: missing on merged baseline
 
@@ -119,7 +119,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ### Saving prompts
 
-- `Status`: Present on the pre-merge fork at `365ae6d9`. Missing on merged baseline `ed85e9ce`.
+- `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce`.
 - `User-visible behavior`: Users can save prompts/snippets locally, scope them to the current project or all projects, reuse them from the composer, rename them, change scope, search them, and track last-used ordering.
 - `Why it exists`: Speeds up repeated workflows and keeps high-value prompts close to the composer.
 - `Key fork files`:
@@ -127,7 +127,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/components/chat/ComposerSavedPromptMenu.tsx`
   - `apps/web/src/components/chat/ChatComposer.tsx`
   - `apps/web/src/components/chat/MessagesTimeline.tsx`
-  - `apps/web/src/components/ChatView.browser.tsx`
+  - `apps/web/src/components/ChatView.tsx`
 - `Important invariants`:
   - Storage is local-first and survives reloads.
   - Project-scoped snippets must stay isolated by project key.
@@ -237,6 +237,23 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Confirm the main sections render with non-empty summaries.
   - Open an individual surface preview and verify the content is relevant and sanitized.
   - Reload and confirm navigation/section state still matches the resolver output.
+
+### 2026-04-23 - Restore upstream macOS dev Electron launcher bypass
+
+- `Status`: active
+- `Area`: desktop
+- `User-visible impact`: Prevents the desktop dev app from launching through the fork-specific renamed `.electron-runtime` app bundle on macOS, which was causing Electron helper/resource lookup failures, repeated crash loops, and backend port collisions.
+- `Why this patch exists`: Upstream already avoids renamed app-bundle launches in macOS development because helper/resource lookup is fragile there. The fork had removed that safeguard while keeping custom dev branding, and the merged desktop runtime now crashes during startup with ICU/GPU/network-service failures unless we restore the upstream bypass.
+- `Key files`:
+  - `apps/desktop/scripts/electron-launcher.mjs`
+- `Merge hotspots`:
+  - macOS desktop dev launcher path
+  - any future branding or helper-bundle plist customization in development mode
+  - Electron version bumps that change bundle/framework resource lookup
+- `Verification`:
+  - Launch `bun run dev:desktop` on macOS.
+  - Confirm the app launches without `icudtl.dat not found in bundle`.
+  - Confirm the app does not enter a relaunch loop or leave `127.0.0.1:13774` orphaned after a failed boot.
 
 ## Upstream-Touching Patch Entry Template
 
