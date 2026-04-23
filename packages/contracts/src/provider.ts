@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { TrimmedNonEmptyString } from "./baseSchemas";
+import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   ApprovalRequestId,
   EventId,
@@ -7,7 +7,7 @@ import {
   ProviderItemId,
   ThreadId,
   TurnId,
-} from "./baseSchemas";
+} from "./baseSchemas.ts";
 import {
   ChatAttachment,
   ModelSelection,
@@ -21,13 +21,7 @@ import {
   ProviderSandboxMode,
   ProviderUserInputAnswers,
   RuntimeMode,
-} from "./orchestration";
-
-export const ProviderTeamCoordinatorSessionConfig = Schema.Struct({
-  mcpServerUrl: TrimmedNonEmptyString,
-  accessToken: TrimmedNonEmptyString,
-});
-export type ProviderTeamCoordinatorSessionConfig = typeof ProviderTeamCoordinatorSessionConfig.Type;
+} from "./orchestration.ts";
 
 const ProviderSessionStatus = Schema.Literals([
   "connecting",
@@ -61,7 +55,6 @@ export const ProviderSessionStartInput = Schema.Struct({
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,
-  teamCoordinator: Schema.optional(ProviderTeamCoordinatorSessionConfig),
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 

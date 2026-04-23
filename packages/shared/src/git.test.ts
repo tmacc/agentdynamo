@@ -8,7 +8,7 @@ import {
   normalizeGitRemoteUrl,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   WORKTREE_BRANCH_PREFIX,
-} from "./git";
+} from "./git.ts";
 
 describe("normalizeGitRemoteUrl", () => {
   it("canonicalizes equivalent GitHub remotes across protocol variants", () => {
@@ -82,7 +82,6 @@ describe("applyGitStatusStreamEvent", () => {
 
     expect(applyGitStatusStreamEvent(null, { _tag: "remoteUpdated", remote })).toEqual({
       isRepo: true,
-      hasAnyRemote: false,
       hasOriginRemote: false,
       isDefaultBranch: false,
       branch: null,
@@ -103,7 +102,6 @@ describe("applyGitStatusStreamEvent", () => {
         name: "GitHub",
         baseUrl: "https://github.com",
       },
-      hasAnyRemote: true,
       hasOriginRemote: true,
       isDefaultBranch: false,
       branch: "feature/demo",

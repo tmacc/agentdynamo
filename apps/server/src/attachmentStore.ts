@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync } from "node:fs";
 
 import type { ChatAttachment } from "@t3tools/contracts";
-import { Effect } from "effect";
 
 import {
   normalizeAttachmentRelativePath,
@@ -109,44 +107,3 @@ export function parseAttachmentIdFromRelativePath(relativePath: string): string 
   const id = normalized.slice(0, extensionIndex);
   return id.length > 0 && !id.includes(".") ? id : null;
 }
-
-export const cloneAttachmentForThread = (input: {
-  readonly attachmentsDir: string;
-  readonly targetThreadId: string;
-  readonly attachment: ChatAttachment;
-}) =>
-  Effect.sync(() => {
-    const sourcePath = resolveAttachmentPath({
-      attachmentsDir: input.attachmentsDir,
-      attachment: input.attachment,
-    });
-    if (!sourcePath) {
-      throw new Error(`Failed to resolve source attachment '${input.attachment.id}'.`);
-    }
-
-    const targetId = createAttachmentId(input.targetThreadId);
-    if (!targetId) {
-      throw new Error("Failed to create a safe cloned attachment id.");
-    }
-
-    const clonedAttachment =
-      input.attachment.type === "image"
-        ? {
-            ...input.attachment,
-            id: targetId,
-          }
-        : input.attachment;
-
-    const targetPath = resolveAttachmentPath({
-      attachmentsDir: input.attachmentsDir,
-      attachment: clonedAttachment,
-    });
-    if (!targetPath) {
-      throw new Error(`Failed to resolve cloned path for attachment '${input.attachment.id}'.`);
-    }
-
-    mkdirSync(dirname(targetPath), { recursive: true });
-    const bytes = readFileSync(sourcePath);
-    writeFileSync(targetPath, bytes);
-    return clonedAttachment;
-  });

@@ -41,7 +41,6 @@ const FRESH_TARGET = { environmentId: ENVIRONMENT_ID, cwd: "/fresh" } as const;
 
 const BASE_STATUS: GitStatusResult = {
   isRepo: true,
-  hasAnyRemote: true,
   hasOriginRemote: true,
   isDefaultBranch: false,
   branch: "feature/push-status",
@@ -86,8 +85,6 @@ function createRegisteredGitStatusClient(environmentId: EnvironmentId) {
     projects: {
       searchEntries: vi.fn(async () => []),
       writeFile: vi.fn(async () => undefined),
-      getIntelligence: vi.fn(async () => undefined),
-      readIntelligenceSurface: vi.fn(async () => undefined),
     },
     shell: {
       openInEditor: vi.fn(async () => undefined),

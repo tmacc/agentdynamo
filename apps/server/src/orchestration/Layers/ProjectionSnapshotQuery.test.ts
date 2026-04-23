@@ -40,7 +40,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           workspace_root,
           default_model_selection_json,
           scripts_json,
-          worktree_readiness_json,
           created_at,
           updated_at,
           deleted_at
@@ -51,7 +50,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '/tmp/project-1',
           '{"provider":"codex","model":"gpt-5-codex"}',
           '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build","runOnWorktreeCreate":false}]',
-          '{"version":1,"status":"configured","scanFingerprint":"scan-project-1","lastScannedAt":"2026-02-24T00:00:00.000Z","lastAppliedAt":"2026-02-24T00:00:01.000Z","packageManager":"bun","framework":"vite","installCommand":"bun install","devCommand":"bun run dev","envStrategy":"symlink_root","envSourcePath":".env.local","portCount":5,"generatedFiles":[".t3code/worktree/setup.sh",".t3code/worktree/dev.sh"],"setupScriptCommand":".t3code/worktree/setup.sh","devScriptCommand":".t3code/worktree/dev.sh"}',
           '2026-02-24T00:00:00.000Z',
           '2026-02-24T00:00:01.000Z',
           NULL
@@ -266,23 +264,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               runOnWorktreeCreate: false,
             },
           ],
-          worktreeReadiness: {
-            version: 1,
-            status: "configured",
-            scanFingerprint: "scan-project-1",
-            lastScannedAt: "2026-02-24T00:00:00.000Z",
-            lastAppliedAt: "2026-02-24T00:00:01.000Z",
-            packageManager: "bun",
-            framework: "vite",
-            installCommand: "bun install",
-            devCommand: "bun run dev",
-            envStrategy: "symlink_root",
-            envSourcePath: ".env.local",
-            portCount: 5,
-            generatedFiles: [".t3code/worktree/setup.sh", ".t3code/worktree/dev.sh"],
-            setupScriptCommand: ".t3code/worktree/setup.sh",
-            devScriptCommand: ".t3code/worktree/dev.sh",
-          },
           createdAt: "2026-02-24T00:00:00.000Z",
           updatedAt: "2026-02-24T00:00:01.000Z",
           deletedAt: null,
@@ -370,11 +351,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             lastError: null,
             updatedAt: "2026-02-24T00:00:07.000Z",
           },
-          teamParentThreadId: null,
-          teamParentTaskId: null,
-          teamRoleLabel: null,
-          teamStatus: null,
-          teamTasks: [],
         },
       ]);
 
@@ -399,23 +375,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               runOnWorktreeCreate: false,
             },
           ],
-          worktreeReadiness: {
-            version: 1,
-            status: "configured",
-            scanFingerprint: "scan-project-1",
-            lastScannedAt: "2026-02-24T00:00:00.000Z",
-            lastAppliedAt: "2026-02-24T00:00:01.000Z",
-            packageManager: "bun",
-            framework: "vite",
-            installCommand: "bun install",
-            devCommand: "bun run dev",
-            envStrategy: "symlink_root",
-            envSourcePath: ".env.local",
-            portCount: 5,
-            generatedFiles: [".t3code/worktree/setup.sh", ".t3code/worktree/dev.sh"],
-            setupScriptCommand: ".t3code/worktree/setup.sh",
-            devScriptCommand: ".t3code/worktree/dev.sh",
-          },
           createdAt: "2026-02-24T00:00:00.000Z",
           updatedAt: "2026-02-24T00:00:01.000Z",
         },
@@ -461,11 +420,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           hasPendingApprovals: true,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
-          activeTeamTaskCount: 0,
-          teamParentThreadId: null,
-          teamParentTaskId: null,
-          teamRoleLabel: null,
-          teamStatus: null,
         },
       ]);
 
@@ -495,7 +449,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           workspace_root,
           default_model_selection_json,
           scripts_json,
-          worktree_readiness_json,
           created_at,
           updated_at,
           deleted_at
@@ -507,7 +460,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             '/tmp/workspace',
             '{"provider":"codex","model":"gpt-5-codex"}',
             '[]',
-            '{"version":1,"status":"configured","scanFingerprint":"scan-project-active","lastScannedAt":"2026-03-01T00:00:00.000Z","lastAppliedAt":"2026-03-01T00:00:01.000Z","packageManager":"bun","framework":"vite","installCommand":"bun install","devCommand":"bun run dev","envStrategy":"symlink_root","envSourcePath":".env.local","portCount":5,"generatedFiles":[".t3code/worktree/setup.sh",".t3code/worktree/dev.sh"],"setupScriptCommand":".t3code/worktree/setup.sh","devScriptCommand":".t3code/worktree/dev.sh"}',
             '2026-03-01T00:00:00.000Z',
             '2026-03-01T00:00:01.000Z',
             NULL
@@ -518,7 +470,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             '/tmp/deleted',
             NULL,
             '[]',
-            NULL,
             '2026-03-01T00:00:02.000Z',
             '2026-03-01T00:00:03.000Z',
             '2026-03-01T00:00:04.000Z'
@@ -599,23 +550,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(project._tag, "Some");
         if (project._tag === "Some") {
           assert.equal(project.value.id, asProjectId("project-active"));
-          assert.deepEqual(project.value.worktreeReadiness, {
-            version: 1,
-            status: "configured",
-            scanFingerprint: "scan-project-active",
-            lastScannedAt: "2026-03-01T00:00:00.000Z",
-            lastAppliedAt: "2026-03-01T00:00:01.000Z",
-            packageManager: "bun",
-            framework: "vite",
-            installCommand: "bun install",
-            devCommand: "bun run dev",
-            envStrategy: "symlink_root",
-            envSourcePath: ".env.local",
-            portCount: 5,
-            generatedFiles: [".t3code/worktree/setup.sh", ".t3code/worktree/dev.sh"],
-            setupScriptCommand: ".t3code/worktree/setup.sh",
-            devScriptCommand: ".t3code/worktree/dev.sh",
-          });
         }
 
         const missingProject = yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/missing");
@@ -942,147 +876,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           createdAt: "2026-04-01T00:00:04.000Z",
         },
       ]);
-    }),
-  );
-
-  it.effect("orders tied activity timestamps by sequence deterministically", () =>
-    Effect.gen(function* () {
-      const snapshotQuery = yield* ProjectionSnapshotQuery;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* sql`DELETE FROM projection_projects`;
-      yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_thread_activities`;
-      yield* sql`DELETE FROM projection_state`;
-
-      yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
-          title,
-          workspace_root,
-          default_model_selection_json,
-          scripts_json,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'project-1',
-          'Project 1',
-          '/tmp/project-1',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          '[]',
-          '2026-04-01T00:00:00.000Z',
-          '2026-04-01T00:00:01.000Z',
-          NULL
-        )
-      `;
-
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id,
-          project_id,
-          title,
-          model_selection_json,
-          runtime_mode,
-          interaction_mode,
-          branch,
-          worktree_path,
-          latest_turn_id,
-          latest_user_message_at,
-          pending_approval_count,
-          pending_user_input_count,
-          has_actionable_proposed_plan,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'thread-sequence-tie',
-          'project-1',
-          'Thread sequence tie',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          'full-access',
-          'default',
-          NULL,
-          NULL,
-          NULL,
-          NULL,
-          0,
-          0,
-          0,
-          '2026-04-01T00:00:02.000Z',
-          '2026-04-01T00:00:03.000Z',
-          NULL
-        )
-      `;
-
-      yield* sql`
-        INSERT INTO projection_thread_activities (
-          activity_id,
-          thread_id,
-          turn_id,
-          tone,
-          kind,
-          summary,
-          payload_json,
-          sequence,
-          created_at
-        )
-        VALUES
-          (
-            'activity-sequence-3',
-            'thread-sequence-tie',
-            NULL,
-            'info',
-            'runtime.note',
-            'sequence three',
-            '{"source":"sequence-3"}',
-            3,
-            '2026-04-01T00:00:06.000Z'
-          ),
-          (
-            'activity-sequence-1',
-            'thread-sequence-tie',
-            NULL,
-            'info',
-            'runtime.note',
-            'sequence one',
-            '{"source":"sequence-1"}',
-            1,
-            '2026-04-01T00:00:06.000Z'
-          ),
-          (
-            'activity-sequence-2',
-            'thread-sequence-tie',
-            NULL,
-            'info',
-            'runtime.note',
-            'sequence two',
-            '{"source":"sequence-2"}',
-            2,
-            '2026-04-01T00:00:06.000Z'
-          )
-      `;
-
-      const threadDetail = yield* snapshotQuery.getThreadDetailById(
-        ThreadId.make("thread-sequence-tie"),
-      );
-
-      assert.equal(threadDetail._tag, "Some");
-      if (threadDetail._tag === "Some") {
-        assert.deepEqual(
-          threadDetail.value.activities.map((activity) => ({
-            id: activity.id,
-            sequence: activity.sequence ?? null,
-          })),
-          [
-            { id: asEventId("activity-sequence-1"), sequence: 1 },
-            { id: asEventId("activity-sequence-2"), sequence: 2 },
-            { id: asEventId("activity-sequence-3"), sequence: 3 },
-          ],
-        );
-      }
     }),
   );
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ServerProviderModel } from "@t3tools/contracts";
 import {
+  getComposerProviderControls,
   getComposerProviderState,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
@@ -27,25 +28,6 @@ const CODEX_MODELS: ReadonlyArray<ServerProviderModel> = [
 ];
 
 const CLAUDE_MODELS: ReadonlyArray<ServerProviderModel> = [
-  {
-    slug: "claude-opus-4-7",
-    name: "Claude Opus 4.7",
-    isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "low", label: "Low" },
-        { value: "medium", label: "Medium" },
-        { value: "high", label: "High" },
-        { value: "xhigh", label: "Extra High", isDefault: true },
-        { value: "max", label: "Max" },
-        { value: "ultrathink", label: "Ultrathink" },
-      ],
-      supportsFastMode: false,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: ["ultrathink"],
-    },
-  },
   {
     slug: "claude-opus-4-6",
     name: "Claude Opus 4.6",
@@ -125,6 +107,29 @@ const CLAUDE_MODELS_WITH_CONTEXT_WINDOW: ReadonlyArray<ServerProviderModel> = [
       supportsThinkingToggle: true,
       contextWindowOptions: [],
       promptInjectedEffortLevels: [],
+    },
+  },
+];
+
+const OPENCODE_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "openai/gpt-5",
+    name: "GPT-5",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+      variantOptions: [
+        { value: "low", label: "Low" },
+        { value: "medium", label: "Medium", isDefault: true },
+      ],
+      agentOptions: [
+        { value: "build", label: "Build", isDefault: true },
+        { value: "plan", label: "Plan" },
+      ],
     },
   },
 ];
@@ -233,24 +238,6 @@ describe("getComposerProviderState", () => {
       promptEffort: "high",
       modelOptionsForDispatch: {
         effort: "high",
-      },
-    });
-  });
-
-  it("uses xhigh as the default effort for Claude Opus 4.7", () => {
-    const state = getComposerProviderState({
-      provider: "claudeAgent",
-      model: "claude-opus-4-7",
-      models: CLAUDE_MODELS,
-      prompt: "",
-      modelOptions: undefined,
-    });
-
-    expect(state).toEqual({
-      provider: "claudeAgent",
-      promptEffort: "xhigh",
-      modelOptionsForDispatch: {
-        effort: "xhigh",
       },
     });
   });
@@ -456,6 +443,47 @@ describe("getComposerProviderState", () => {
     });
 
     expect(state.modelOptionsForDispatch).not.toHaveProperty("fastMode");
+  });
+
+  it("preserves OpenCode variant and agent options for dispatch", () => {
+    const state = getComposerProviderState({
+      provider: "opencode",
+      model: "openai/gpt-5",
+      models: OPENCODE_MODELS,
+      prompt: "",
+      modelOptions: {
+        opencode: {
+          variant: "medium",
+          agent: "plan",
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "opencode",
+      promptEffort: "medium",
+      modelOptionsForDispatch: {
+        variant: "medium",
+        agent: "plan",
+      },
+    });
+  });
+});
+
+describe("getComposerProviderControls", () => {
+  it("hides the interaction mode toggle for OpenCode", () => {
+    expect(getComposerProviderControls("opencode")).toEqual({
+      showInteractionModeToggle: false,
+    });
+  });
+
+  it("keeps the interaction mode toggle for Codex and Claude", () => {
+    expect(getComposerProviderControls("codex")).toEqual({
+      showInteractionModeToggle: true,
+    });
+    expect(getComposerProviderControls("claudeAgent")).toEqual({
+      showInteractionModeToggle: true,
+    });
   });
 });
 

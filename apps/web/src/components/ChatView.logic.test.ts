@@ -1,12 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime";
-import {
-  EnvironmentId,
-  EventId,
-  type OrchestrationThreadActivity,
-  ProjectId,
-  ThreadId,
-  TurnId,
-} from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId, TurnId } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type EnvironmentState, useStore } from "../store";
 import { type Thread } from "../types";
@@ -16,7 +9,6 @@ import {
   buildExpiredTerminalContextToastCopy,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
-  deriveLockedProvider,
   hasServerAcknowledgedLocalDispatch,
   reconcileMountedTerminalThreadIds,
   resolveSendEnvMode,
@@ -213,139 +205,8 @@ describe("shouldWriteThreadErrorToCurrentServerThread", () => {
   });
 });
 
-describe("deriveLockedProvider", () => {
-  it("keeps provider switching unlocked for started-but-idle threads", () => {
-    const thread = makeThread({
-      latestTurn: {
-        turnId: TurnId.make("turn-idle"),
-        state: "completed",
-        requestedAt: "2026-03-29T00:00:00.000Z",
-        startedAt: "2026-03-29T00:00:01.000Z",
-        completedAt: "2026-03-29T00:00:02.000Z",
-      },
-    });
-
-    expect(
-      deriveLockedProvider({
-        thread,
-        selectedProvider: "claudeAgent",
-        threadProvider: "codex",
-      }),
-    ).toBeNull();
-  });
-
-  it("locks the provider while a turn is running", () => {
-    const thread = makeThread({
-      latestTurn: {
-        turnId: TurnId.make("turn-running"),
-        state: "running",
-        requestedAt: "2026-03-29T00:00:00.000Z",
-        startedAt: "2026-03-29T00:00:01.000Z",
-        completedAt: null,
-      },
-    });
-    thread.session = {
-      provider: "codex",
-      status: "running",
-      orchestrationStatus: "running",
-      activeTurnId: TurnId.make("turn-running"),
-      createdAt: "2026-03-29T00:00:00.000Z",
-      updatedAt: "2026-03-29T00:00:01.000Z",
-    };
-
-    expect(
-      deriveLockedProvider({
-        thread,
-        selectedProvider: "claudeAgent",
-        threadProvider: "codex",
-      }),
-    ).toBe("codex");
-  });
-
-  it("locks the provider while approvals or user-input are pending", () => {
-    const approvalLockedThread = makeThread({
-      latestTurn: {
-        turnId: TurnId.make("turn-pending-approval"),
-        state: "completed",
-        requestedAt: "2026-03-29T00:00:00.000Z",
-        startedAt: "2026-03-29T00:00:01.000Z",
-        completedAt: "2026-03-29T00:00:02.000Z",
-      },
-      activities: [
-        makeActivity({
-          id: "approval-requested",
-          kind: "approval.requested",
-          tone: "approval",
-          payload: {
-            requestId: "approval-1",
-            requestKind: "command",
-          },
-        }),
-      ],
-    });
-    approvalLockedThread.session = {
-      provider: "codex",
-      status: "ready",
-      orchestrationStatus: "ready",
-      createdAt: "2026-03-29T00:00:00.000Z",
-      updatedAt: "2026-03-29T00:00:01.000Z",
-    };
-
-    expect(
-      deriveLockedProvider({
-        thread: approvalLockedThread,
-        selectedProvider: "claudeAgent",
-        threadProvider: "codex",
-      }),
-    ).toBe("codex");
-
-    const userInputLockedThread = makeThread({
-      latestTurn: {
-        turnId: TurnId.make("turn-pending-user-input"),
-        state: "completed",
-        requestedAt: "2026-03-29T00:00:00.000Z",
-        startedAt: "2026-03-29T00:00:01.000Z",
-        completedAt: "2026-03-29T00:00:02.000Z",
-      },
-      activities: [
-        makeActivity({
-          id: "user-input-requested",
-          kind: "user-input.requested",
-          payload: {
-            requestId: "user-input-1",
-            questions: [
-              {
-                id: "provider",
-                header: "Provider",
-                question: "Which provider?",
-                options: [{ label: "Codex", description: "Stay on Codex" }],
-              },
-            ],
-          },
-        }),
-      ],
-    });
-    userInputLockedThread.session = {
-      provider: "claudeAgent",
-      status: "ready",
-      orchestrationStatus: "ready",
-      createdAt: "2026-03-29T00:00:00.000Z",
-      updatedAt: "2026-03-29T00:00:01.000Z",
-    };
-
-    expect(
-      deriveLockedProvider({
-        thread: userInputLockedThread,
-        selectedProvider: "codex",
-        threadProvider: "claudeAgent",
-      }),
-    ).toBe("claudeAgent");
-  });
-});
-
 const makeThread = (input?: {
   id?: ThreadId;
-  activities?: OrchestrationThreadActivity[];
   latestTurn?: {
     turnId: TurnId;
     state: "running" | "completed";
@@ -378,26 +239,8 @@ const makeThread = (input?: {
   branch: null,
   worktreePath: null,
   turnDiffSummaries: [],
-  activities: input?.activities ?? [],
+  activities: [],
 });
-
-function makeActivity(input: {
-  id: string;
-  kind: string;
-  tone?: OrchestrationThreadActivity["tone"];
-  createdAt?: string;
-  payload?: Record<string, unknown>;
-}): OrchestrationThreadActivity {
-  return {
-    id: EventId.make(input.id),
-    tone: input.tone ?? "info",
-    kind: input.kind,
-    summary: input.kind,
-    payload: input.payload ?? {},
-    turnId: null,
-    createdAt: input.createdAt ?? "2026-03-29T00:00:00.000Z",
-  };
-}
 
 function setStoreThreads(threads: ReadonlyArray<ReturnType<typeof makeThread>>) {
   const projectId = ProjectId.make("project-1");

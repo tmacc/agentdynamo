@@ -3,7 +3,6 @@ import type { EnvironmentState } from "./store";
 import type {
   ChatMessage,
   ProposedPlan,
-  TeamTask,
   Thread,
   ThreadSession,
   ThreadShell,
@@ -18,8 +17,6 @@ const EMPTY_TURN_DIFF_SUMMARIES: TurnDiffSummary[] = [];
 const EMPTY_MESSAGE_MAP: Record<MessageId, ChatMessage> = {};
 const EMPTY_ACTIVITY_MAP: Record<string, Thread["activities"][number]> = {};
 const EMPTY_PROPOSED_PLAN_MAP: Record<string, ProposedPlan> = {};
-const EMPTY_TEAM_TASKS: TeamTask[] = [];
-const EMPTY_TEAM_TASK_MAP: Record<string, TeamTask> = {};
 const EMPTY_TURN_DIFF_MAP: Record<TurnId, TurnDiffSummary> = {};
 
 const collectedByIdsCache = new WeakMap<readonly string[], WeakMap<object, readonly unknown[]>>();
@@ -31,7 +28,6 @@ const threadCache = new WeakMap<
     messages: Thread["messages"];
     activities: Thread["activities"];
     proposedPlans: Thread["proposedPlans"];
-    teamTasks: TeamTask[];
     turnDiffSummaries: Thread["turnDiffSummaries"];
     thread: Thread;
   }
@@ -102,14 +98,6 @@ function selectThreadTurnDiffSummaries(
   );
 }
 
-function selectThreadTeamTasks(state: EnvironmentState, threadId: ThreadId): TeamTask[] {
-  return collectByIds(
-    state.teamTaskIdsByThreadId?.[threadId],
-    state.teamTaskByThreadId?.[threadId] ?? EMPTY_TEAM_TASK_MAP,
-    EMPTY_TEAM_TASKS,
-  );
-}
-
 export function getThreadFromEnvironmentState(
   state: EnvironmentState,
   threadId: ThreadId,
@@ -124,7 +112,6 @@ export function getThreadFromEnvironmentState(
   const messages = selectThreadMessages(state, threadId);
   const activities = selectThreadActivities(state, threadId);
   const proposedPlans = selectThreadProposedPlans(state, threadId);
-  const teamTasks = selectThreadTeamTasks(state, threadId);
   const turnDiffSummaries = selectThreadTurnDiffSummaries(state, threadId);
   const cached = threadCache.get(shell);
 
@@ -135,7 +122,6 @@ export function getThreadFromEnvironmentState(
     cached.messages === messages &&
     cached.activities === activities &&
     cached.proposedPlans === proposedPlans &&
-    cached.teamTasks === teamTasks &&
     cached.turnDiffSummaries === turnDiffSummaries
   ) {
     return cached.thread;
@@ -149,7 +135,6 @@ export function getThreadFromEnvironmentState(
     messages,
     activities,
     proposedPlans,
-    teamTasks,
     turnDiffSummaries,
   };
 
@@ -159,7 +144,6 @@ export function getThreadFromEnvironmentState(
     messages,
     activities,
     proposedPlans,
-    teamTasks,
     turnDiffSummaries,
     thread,
   });

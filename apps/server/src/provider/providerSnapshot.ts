@@ -10,9 +10,11 @@ import type {
 import { Effect, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { normalizeModelSlug } from "@t3tools/shared/model";
-import { isWindowsCommandNotFound } from "../processRunner";
+import { isWindowsCommandNotFound } from "../processRunner.ts";
 
 export const DEFAULT_TIMEOUT_MS = 4_000;
+// Auth status checks involve disk/network lookups and can be slow on first run (especially Windows)
+export const AUTH_PROBE_TIMEOUT_MS = 10_000;
 
 export interface CommandResult {
   readonly stdout: string;
@@ -132,8 +134,6 @@ export function buildServerProvider(input: {
   enabled: boolean;
   checkedAt: string;
   models: ReadonlyArray<ServerProviderModel>;
-  supportsTeamCoordinator?: boolean;
-  supportsTeamWorker?: boolean;
   slashCommands?: ReadonlyArray<ServerProviderSlashCommand>;
   skills?: ReadonlyArray<ServerProviderSkill>;
   probe: ProviderProbeResult;
@@ -148,8 +148,6 @@ export function buildServerProvider(input: {
     checkedAt: input.checkedAt,
     ...(input.probe.message ? { message: input.probe.message } : {}),
     models: input.models,
-    supportsTeamCoordinator: input.supportsTeamCoordinator ?? false,
-    supportsTeamWorker: input.supportsTeamWorker ?? false,
     slashCommands: [...(input.slashCommands ?? [])],
     skills: [...(input.skills ?? [])],
   };

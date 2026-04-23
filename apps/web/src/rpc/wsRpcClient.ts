@@ -1,5 +1,4 @@
 import {
-  BOARD_WS_METHODS,
   type GitActionProgressEvent,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
@@ -67,15 +66,7 @@ export interface WsRpcClient {
   };
   readonly projects: {
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
-    readonly scanWorktreeReadiness: RpcUnaryMethod<typeof WS_METHODS.projectsScanWorktreeReadiness>;
-    readonly applyWorktreeReadiness: RpcUnaryMethod<
-      typeof WS_METHODS.projectsApplyWorktreeReadiness
-    >;
     readonly writeFile: RpcUnaryMethod<typeof WS_METHODS.projectsWriteFile>;
-    readonly getIntelligence: RpcUnaryMethod<typeof WS_METHODS.projectsGetIntelligence>;
-    readonly readIntelligenceSurface: RpcUnaryMethod<
-      typeof WS_METHODS.projectsReadIntelligenceSurface
-    >;
   };
   readonly filesystem: {
     readonly browse: RpcUnaryMethod<typeof WS_METHODS.filesystemBrowse>;
@@ -105,10 +96,6 @@ export interface WsRpcClient {
     readonly checkout: RpcUnaryMethod<typeof WS_METHODS.gitCheckout>;
     readonly init: RpcUnaryMethod<typeof WS_METHODS.gitInit>;
     readonly resolvePullRequest: RpcUnaryMethod<typeof WS_METHODS.gitResolvePullRequest>;
-    readonly getPullRequestRemoteOptions: RpcUnaryMethod<
-      typeof WS_METHODS.gitGetPullRequestRemoteOptions
-    >;
-    readonly setPullRequestRemote: RpcUnaryMethod<typeof WS_METHODS.gitSetPullRequestRemote>;
     readonly preparePullRequestThread: RpcUnaryMethod<
       typeof WS_METHODS.gitPreparePullRequestThread
     >;
@@ -127,16 +114,10 @@ export interface WsRpcClient {
   };
   readonly orchestration: {
     readonly dispatchCommand: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.dispatchCommand>;
-    readonly forkThread: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.forkThread>;
     readonly getTurnDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getTurnDiff>;
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
     readonly subscribeShell: RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeShell>;
     readonly subscribeThread: RpcInputStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeThread>;
-  };
-  readonly board: {
-    readonly listCards: RpcUnaryMethod<typeof BOARD_WS_METHODS.listCards>;
-    readonly listDismissedGhosts: RpcUnaryMethod<typeof BOARD_WS_METHODS.listDismissedGhosts>;
-    readonly subscribeProject: RpcInputStreamMethod<typeof BOARD_WS_METHODS.subscribeProject>;
   };
 }
 
@@ -164,16 +145,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     projects: {
       searchEntries: (input) =>
         transport.request((client) => client[WS_METHODS.projectsSearchEntries](input)),
-      scanWorktreeReadiness: (input) =>
-        transport.request((client) => client[WS_METHODS.projectsScanWorktreeReadiness](input)),
-      applyWorktreeReadiness: (input) =>
-        transport.request((client) => client[WS_METHODS.projectsApplyWorktreeReadiness](input)),
       writeFile: (input) =>
         transport.request((client) => client[WS_METHODS.projectsWriteFile](input)),
-      getIntelligence: (input) =>
-        transport.request((client) => client[WS_METHODS.projectsGetIntelligence](input)),
-      readIntelligenceSurface: (input) =>
-        transport.request((client) => client[WS_METHODS.projectsReadIntelligenceSurface](input)),
     },
     filesystem: {
       browse: (input) => transport.request((client) => client[WS_METHODS.filesystemBrowse](input)),
@@ -228,10 +201,6 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       init: (input) => transport.request((client) => client[WS_METHODS.gitInit](input)),
       resolvePullRequest: (input) =>
         transport.request((client) => client[WS_METHODS.gitResolvePullRequest](input)),
-      getPullRequestRemoteOptions: (input) =>
-        transport.request((client) => client[WS_METHODS.gitGetPullRequestRemoteOptions](input)),
-      setPullRequestRemote: (input) =>
-        transport.request((client) => client[WS_METHODS.gitSetPullRequestRemote](input)),
       preparePullRequestThread: (input) =>
         transport.request((client) => client[WS_METHODS.gitPreparePullRequestThread](input)),
     },
@@ -266,8 +235,6 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     orchestration: {
       dispatchCommand: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.dispatchCommand](input)),
-      forkThread: (input) =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.forkThread](input)),
       getTurnDiff: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getTurnDiff](input)),
       getFullThreadDiff: (input) =>
@@ -281,18 +248,6 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       subscribeThread: (input, listener, options) =>
         transport.subscribe(
           (client) => client[ORCHESTRATION_WS_METHODS.subscribeThread](input),
-          listener,
-          options,
-        ),
-    },
-    board: {
-      listCards: (input) =>
-        transport.request((client) => client[BOARD_WS_METHODS.listCards](input)),
-      listDismissedGhosts: (input) =>
-        transport.request((client) => client[BOARD_WS_METHODS.listDismissedGhosts](input)),
-      subscribeProject: (input, listener, options) =>
-        transport.subscribe(
-          (client) => client[BOARD_WS_METHODS.subscribeProject](input),
           listener,
           options,
         ),

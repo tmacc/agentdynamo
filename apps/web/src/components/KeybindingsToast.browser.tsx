@@ -30,7 +30,7 @@ import { BrowserWsRpcHarness } from "../../test/wsRpcHarness";
 
 vi.mock("../lib/gitStatusState", () => ({
   useGitStatus: () => ({ data: null, error: null, cause: null, isPending: false }),
-  useGitStatusSnapshots: () => new Map(),
+  useGitStatuses: () => new Map(),
   refreshGitStatus: () => Promise.resolve(null),
   resetGitStatusStateForTests: () => undefined,
 }));
@@ -49,7 +49,7 @@ interface TestFixture {
 let fixture: TestFixture;
 const rpcHarness = new BrowserWsRpcHarness();
 
-const wsLink = ws.link(/^ws(s)?:\/\/[^/]+\/ws(?:\?.*)?$/);
+const wsLink = ws.link(/ws(s)?:\/\/.*/);
 
 function createBaseServerConfig(): ServerConfig {
   return {
@@ -99,6 +99,14 @@ function createBaseServerConfig(): ServerConfig {
       providers: {
         codex: { enabled: true, binaryPath: "", homePath: "", customModels: [] },
         claudeAgent: { enabled: true, binaryPath: "", customModels: [], launchArgs: "" },
+        cursor: { enabled: true, binaryPath: "", apiEndpoint: "", customModels: [] },
+        opencode: {
+          enabled: true,
+          binaryPath: "",
+          serverUrl: "",
+          serverPassword: "",
+          customModels: [],
+        },
       },
     },
   };
@@ -140,10 +148,6 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         updatedAt: NOW_ISO,
         archivedAt: null,
         deletedAt: null,
-        teamParentThreadId: null,
-        teamParentTaskId: null,
-        teamRoleLabel: null,
-        teamStatus: null,
         messages: [
           {
             id: "msg-1" as MessageId,
@@ -157,7 +161,6 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         ],
         activities: [],
         proposedPlans: [],
-        teamTasks: [],
         checkpoints: [],
         session: {
           threadId: THREAD_ID,

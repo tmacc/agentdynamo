@@ -29,30 +29,6 @@ import type { Effect, Stream } from "effect";
 
 import type { ProviderServiceError } from "../Errors.ts";
 import type { ProviderAdapterCapabilities } from "./ProviderAdapter.ts";
-import type {
-  ProviderRuntimeBinding,
-  ProviderRuntimeBindingWithMetadata,
-} from "./ProviderSessionDirectory.ts";
-
-export interface ProviderThreadSyncState {
-  readonly latestMessageId: string | null;
-  readonly latestCheckpointTurnId: string | null;
-  readonly latestTurnId: string | null;
-  readonly branch: string | null;
-  readonly worktreePath: string | null;
-  readonly syncedAt: string;
-}
-
-export interface ProviderSessionStartOptions {
-  readonly resumeStrategy?: "prefer-persisted" | "fresh";
-}
-
-export interface ProviderSessionParkInput {
-  readonly threadId: ThreadId;
-  readonly provider: ProviderKind;
-  readonly syncState?: ProviderThreadSyncState;
-  readonly nextSlotState?: "parked" | "expired" | "stale" | "stopped";
-}
 
 /**
  * ProviderServiceShape - Service API for provider session and turn orchestration.
@@ -64,15 +40,7 @@ export interface ProviderServiceShape {
   readonly startSession: (
     threadId: ThreadId,
     input: ProviderSessionStartInput,
-    options?: ProviderSessionStartOptions,
   ) => Effect.Effect<ProviderSession, ProviderServiceError>;
-
-  /**
-   * Park one provider slot for a thread.
-   */
-  readonly parkSession: (
-    input: ProviderSessionParkInput,
-  ) => Effect.Effect<void, ProviderServiceError>;
 
   /**
    * Send a provider turn.
@@ -115,28 +83,6 @@ export interface ProviderServiceShape {
    * Aggregates runtime session lists from all registered adapters.
    */
   readonly listSessions: () => Effect.Effect<ReadonlyArray<ProviderSession>>;
-
-  /**
-   * Read the active persisted binding for a thread.
-   */
-  readonly getBinding: (
-    threadId: ThreadId,
-  ) => Effect.Effect<ProviderRuntimeBinding | undefined, ProviderServiceError>;
-
-  /**
-   * Read a persisted provider slot for a thread/provider pair.
-   */
-  readonly getBindingForProvider: (
-    threadId: ThreadId,
-    provider: ProviderKind,
-  ) => Effect.Effect<ProviderRuntimeBinding | undefined, ProviderServiceError>;
-
-  /**
-   * List all persisted provider slots for a thread.
-   */
-  readonly listBindingsByThreadId: (
-    threadId: ThreadId,
-  ) => Effect.Effect<ReadonlyArray<ProviderRuntimeBindingWithMetadata>, ProviderServiceError>;
 
   /**
    * Read static capabilities for a provider adapter.

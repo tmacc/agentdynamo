@@ -1,9 +1,7 @@
 import { memo, useState, useId } from "react";
-import { useNavigate } from "@tanstack/react-router";
-import type { EnvironmentId, OrchestrationProposedPlanId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import {
   buildCollapsedProposedPlanPreviewMarkdown,
-  buildPlanImplementationPrompt,
   buildProposedPlanMarkdownFilename,
   downloadPlanAsTextFile,
   normalizePlanMarkdownForExport,
@@ -26,23 +24,18 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { toastManager } from "../ui/toast";
+import { stackedThreadToast, toastManager } from "../ui/toast";
 import { readEnvironmentApi } from "~/environmentApi";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { createBoardCard } from "~/boardStore";
 
 export const ProposedPlanCard = memo(function ProposedPlanCard({
   planMarkdown,
   environmentId,
-  projectId,
-  proposedPlanId,
   cwd,
   workspaceRoot,
 }: {
   planMarkdown: string;
   environmentId: EnvironmentId;
-  projectId: ProjectId | undefined;
-  proposedPlanId: OrchestrationProposedPlanId;
   cwd: string | undefined;
   workspaceRoot: string | undefined;
 }) {
@@ -50,15 +43,15 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [savePath, setSavePath] = useState("");
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
-  const [isAddingToBoard, setIsAddingToBoard] = useState(false);
-  const navigate = useNavigate();
   const { copyToClipboard, isCopied } = useCopyToClipboard({
     onError: (error) => {
-      toastManager.add({
-        type: "error",
-        title: "Could not copy plan",
-        description: error instanceof Error ? error.message : "An error occurred while copying.",
-      });
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not copy plan",
+          description: error instanceof Error ? error.message : "An error occurred while copying.",
+        }),
+      );
     },
   });
   const savePathInputId = useId();
@@ -82,64 +75,17 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
 
   const openSaveDialog = () => {
     if (!workspaceRoot) {
-      toastManager.add({
-        type: "error",
-        title: "Workspace path is unavailable",
-        description: "This thread does not have a workspace path to save into.",
-      });
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Workspace path is unavailable",
+          description: "This thread does not have a workspace path to save into.",
+        }),
+      );
       return;
     }
     setSavePath((existing) => (existing.length > 0 ? existing : downloadFilename));
     setIsSaveDialogOpen(true);
-  };
-
-  const handleAddToBoard = () => {
-    if (!projectId || isAddingToBoard) {
-      return;
-    }
-    setIsAddingToBoard(true);
-    const cardTitle = proposedPlanTitle(planMarkdown) ?? "Untitled plan";
-    const seededPrompt = buildPlanImplementationPrompt(planMarkdown);
-    void createBoardCard({
-      environmentId,
-      projectId,
-      title: cardTitle,
-      seededPrompt,
-      column: "planned",
-      linkedProposedPlanId: proposedPlanId as unknown as string,
-    })
-      .then(() => {
-        toastManager.add({
-          type: "success",
-          title: "Added to board",
-          description: `"${cardTitle}" is now in Planned.`,
-          actionProps: {
-            children: "Open board",
-            onClick: () => {
-              void navigate({
-                to: ".",
-                search: (prev) => ({
-                  ...(prev as Record<string, unknown>),
-                  view: "board",
-                  boardEnvironmentId: environmentId,
-                  boardProjectId: projectId,
-                }),
-              }).catch(() => undefined);
-            },
-          },
-        });
-      })
-      .catch((error) => {
-        toastManager.add({
-          type: "error",
-          title: "Could not add to board",
-          description:
-            error instanceof Error ? error.message : "An error occurred while adding the plan.",
-        });
-      })
-      .finally(() => {
-        setIsAddingToBoard(false);
-      });
   };
 
   const handleSaveToWorkspace = () => {
@@ -172,11 +118,13 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
         });
       })
       .catch((error) => {
-        toastManager.add({
-          type: "error",
-          title: "Could not save plan",
-          description: error instanceof Error ? error.message : "An error occurred while saving.",
-        });
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not save plan",
+            description: error instanceof Error ? error.message : "An error occurred while saving.",
+          }),
+        );
       })
       .then(
         () => {
@@ -208,9 +156,6 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
             <MenuItem onClick={handleDownload}>Download as markdown</MenuItem>
             <MenuItem onClick={openSaveDialog} disabled={!workspaceRoot || isSavingToWorkspace}>
               Save to workspace
-            </MenuItem>
-            <MenuItem onClick={handleAddToBoard} disabled={!projectId || isAddingToBoard}>
-              {isAddingToBoard ? "Adding to board..." : "Add to board"}
             </MenuItem>
           </MenuPopup>
         </Menu>

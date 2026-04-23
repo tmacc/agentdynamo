@@ -3,7 +3,6 @@ import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import { type ReactNode } from "react";
 import { sortThreads } from "../lib/threadSort";
 import { formatRelativeTimeLabel } from "../timestampFormat";
-import { isUserFacingTopLevelThread } from "../threadNavigation";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 
 export const RECENT_THREAD_LIMIT = 12;
@@ -18,7 +17,9 @@ export interface CommandPaletteItem {
   readonly description?: string;
   readonly timestamp?: string;
   readonly icon: ReactNode;
+  /** Optional content rendered inline before the title text. */
   readonly titleLeadingContent?: ReactNode;
+  /** Optional content rendered inline after the title text (before the timestamp). */
   readonly titleTrailingContent?: ReactNode;
   readonly shortcutCommand?: KeybindingCommand;
 }
@@ -107,14 +108,7 @@ export function buildProjectActionItems(input: {
 
 export type BuildThreadActionItemsThread = Pick<
   SidebarThreadSummary,
-  | "archivedAt"
-  | "branch"
-  | "createdAt"
-  | "environmentId"
-  | "id"
-  | "projectId"
-  | "teamParentThreadId"
-  | "title"
+  "archivedAt" | "branch" | "createdAt" | "environmentId" | "id" | "projectId" | "title"
 > & {
   updatedAt?: string | undefined;
   latestUserMessageAt?: string | null;
@@ -126,15 +120,15 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   projectTitleById: ReadonlyMap<Project["id"], string>;
   sortOrder: SidebarThreadSortOrder;
   icon: ReactNode;
+  /** Optional content rendered inline before the title text per-thread. */
   renderLeadingContent?: (thread: TThread) => ReactNode;
+  /** Optional content rendered inline after the title text per-thread. */
   renderTrailingContent?: (thread: TThread) => ReactNode;
   runThread: (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) => Promise<void>;
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
-    input.threads.filter(
-      (thread) => thread.archivedAt === null && isUserFacingTopLevelThread(thread),
-    ),
+    input.threads.filter((thread) => thread.archivedAt === null),
     input.sortOrder,
   );
   const visibleThreads =
@@ -157,22 +151,26 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
     const leadingContent = input.renderLeadingContent?.(thread);
     const trailingContent = input.renderTrailingContent?.(thread);
 
-    return {
-      kind: "action",
-      value: `thread:${thread.id}`,
-      searchTerms: [thread.title, projectTitle ?? "", thread.branch ?? ""],
-      title: thread.title,
-      description: descriptionParts.join(" · "),
-      timestamp: formatRelativeTimeLabel(
-        thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
-      ),
-      icon: input.icon,
-      ...(leadingContent ? { titleLeadingContent: leadingContent } : {}),
-      ...(trailingContent ? { titleTrailingContent: trailingContent } : {}),
-      run: async () => {
-        await input.runThread(thread);
+    return Object.assign(
+      {
+        kind: "action" as const,
+        value: `thread:${thread.id}`,
+        searchTerms: [thread.title, projectTitle ?? ``, thread.branch ?? ``],
+        title: thread.title,
+        description: descriptionParts.join(` · `),
+        timestamp: formatRelativeTimeLabel(
+          thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
+        ),
+        icon: input.icon,
       },
-    };
+      leadingContent ? { titleLeadingContent: leadingContent } : {},
+      trailingContent ? { titleTrailingContent: trailingContent } : {},
+      {
+        run: async () => {
+          await input.runThread(thread);
+        },
+      },
+    );
   });
 }
 

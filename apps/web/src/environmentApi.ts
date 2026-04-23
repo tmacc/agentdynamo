@@ -18,11 +18,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
     },
     projects: {
       searchEntries: rpcClient.projects.searchEntries,
-      scanWorktreeReadiness: rpcClient.projects.scanWorktreeReadiness,
-      applyWorktreeReadiness: rpcClient.projects.applyWorktreeReadiness,
       writeFile: rpcClient.projects.writeFile,
-      getIntelligence: rpcClient.projects.getIntelligence,
-      readIntelligenceSurface: rpcClient.projects.readIntelligenceSurface,
     },
     filesystem: {
       browse: rpcClient.filesystem.browse,
@@ -38,26 +34,16 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       checkout: rpcClient.git.checkout,
       init: rpcClient.git.init,
       resolvePullRequest: rpcClient.git.resolvePullRequest,
-      getPullRequestRemoteOptions: rpcClient.git.getPullRequestRemoteOptions,
-      setPullRequestRemote: rpcClient.git.setPullRequestRemote,
       preparePullRequestThread: rpcClient.git.preparePullRequestThread,
     },
     orchestration: {
       dispatchCommand: rpcClient.orchestration.dispatchCommand,
-      forkThread: rpcClient.orchestration.forkThread,
       getTurnDiff: rpcClient.orchestration.getTurnDiff,
       getFullThreadDiff: rpcClient.orchestration.getFullThreadDiff,
       subscribeShell: (callback, options) =>
         rpcClient.orchestration.subscribeShell(callback, options),
       subscribeThread: (input, callback, options) =>
         rpcClient.orchestration.subscribeThread(input, callback, options),
-    },
-    board: {
-      listCards: rpcClient.board.listCards,
-      listDismissedGhosts: rpcClient.board.listDismissedGhosts,
-      subscribeProject: (input, callback, options) =>
-        rpcClient.board.subscribeProject(input, callback, options),
-      dispatchCommand: (command) => rpcClient.orchestration.dispatchCommand(command as never),
     },
   };
 }

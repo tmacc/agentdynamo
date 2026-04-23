@@ -7,8 +7,6 @@
  * @module GitManager
  */
 import {
-  GitGetPullRequestRemoteOptionsInput,
-  GitGetPullRequestRemoteOptionsResult,
   GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
@@ -16,8 +14,6 @@ import {
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
   GitRunStackedActionResult,
-  GitSetPullRequestRemoteInput,
-  GitSetPullRequestRemoteResult,
   GitStatusLocalResult,
   GitStatusRemoteResult,
   GitStatusInput,
@@ -82,20 +78,6 @@ export interface GitManagerShape {
   readonly resolvePullRequest: (
     input: GitPullRequestRefInput,
   ) => Effect.Effect<GitResolvePullRequestResult, GitManagerServiceError>;
-
-  /**
-   * Inspect available GitHub remotes for PR creation and any stored preference.
-   */
-  readonly getPullRequestRemoteOptions: (
-    input: GitGetPullRequestRemoteOptionsInput,
-  ) => Effect.Effect<GitGetPullRequestRemoteOptionsResult, GitManagerServiceError>;
-
-  /**
-   * Persist the preferred remote to use when creating GitHub pull requests.
-   */
-  readonly setPullRequestRemote: (
-    input: GitSetPullRequestRemoteInput,
-  ) => Effect.Effect<GitSetPullRequestRemoteResult, GitManagerServiceError>;
 
   /**
    * Prepare a new thread workspace from a pull request in local or worktree mode.

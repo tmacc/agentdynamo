@@ -12,9 +12,6 @@ import {
   ThreadMessageSentPayload as ContractsThreadMessageSentPayloadSchema,
   ThreadProposedPlanUpsertedPayload as ContractsThreadProposedPlanUpsertedPayloadSchema,
   ThreadSessionSetPayload as ContractsThreadSessionSetPayloadSchema,
-  ThreadTeamTaskCancelRequestedPayload as ContractsThreadTeamTaskCancelRequestedPayloadSchema,
-  ThreadTeamTaskSpawnRequestedPayload as ContractsThreadTeamTaskSpawnRequestedPayloadSchema,
-  ThreadTeamTaskUpsertedPayload as ContractsThreadTeamTaskUpsertedPayloadSchema,
   ThreadTurnDiffCompletedPayload as ContractsThreadTurnDiffCompletedPayloadSchema,
   ThreadRevertedPayload as ContractsThreadRevertedPayloadSchema,
   ThreadActivityAppendedPayload as ContractsThreadActivityAppendedPayloadSchema,
@@ -41,11 +38,6 @@ export const ThreadUnarchivedPayload = ContractsThreadUnarchivedPayloadSchema;
 export const MessageSentPayloadSchema = ContractsThreadMessageSentPayloadSchema;
 export const ThreadProposedPlanUpsertedPayload = ContractsThreadProposedPlanUpsertedPayloadSchema;
 export const ThreadSessionSetPayload = ContractsThreadSessionSetPayloadSchema;
-export const ThreadTeamTaskSpawnRequestedPayload =
-  ContractsThreadTeamTaskSpawnRequestedPayloadSchema;
-export const ThreadTeamTaskUpsertedPayload = ContractsThreadTeamTaskUpsertedPayloadSchema;
-export const ThreadTeamTaskCancelRequestedPayload =
-  ContractsThreadTeamTaskCancelRequestedPayloadSchema;
 export const ThreadTurnDiffCompletedPayload = ContractsThreadTurnDiffCompletedPayloadSchema;
 export const ThreadRevertedPayload = ContractsThreadRevertedPayloadSchema;
 export const ThreadActivityAppendedPayload = ContractsThreadActivityAppendedPayloadSchema;

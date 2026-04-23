@@ -1,20 +1,20 @@
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
-  type ClaudeCodeEffort,
+  type ClaudeAgentEffort,
   type EnvironmentId,
-  MessageId,
+  type MessageId,
   type ModelSelection,
   type ProjectScript,
   type ProviderKind,
   type ProjectId,
   type ProviderApprovalDecision,
   type ServerProvider,
+  type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ThreadId,
   type TurnId,
   type KeybindingCommand,
-  type OrchestrationThreadShell,
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
@@ -26,7 +26,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime";
-import { applyClaudePromptEffortPrefix } from "@t3tools/shared/model";
+import { applyClaudePromptEffortPrefix, createModelSelection } from "@t3tools/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { truncate } from "@t3tools/shared/String";
 import { Debouncer } from "@tanstack/react-pacer";
@@ -38,10 +38,6 @@ import { usePrimaryEnvironmentId } from "../environments/primary";
 import { readEnvironmentApi } from "../environmentApi";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
-import {
-  parseAgentInspectorRouteSearch,
-  stripAgentInspectorSearchParams,
-} from "../agentInspectorRouteSearch";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import {
   collapseExpandedComposerCursor,
@@ -73,7 +69,6 @@ import {
 } from "../pendingUserInput";
 import {
   selectProjectsAcrossEnvironments,
-  selectThreadByRef,
   selectThreadsAcrossEnvironments,
   useStore,
 } from "../store";
@@ -91,24 +86,22 @@ import {
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
   type SessionPhase,
-  type TeamTask,
   type Thread,
   type TurnDiffSummary,
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
-import { useMediaQuery } from "../hooks/useMediaQuery";
-import { useEnsureWorktreeReadiness } from "../hooks/useEnsureWorktreeReadiness";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
+import { useMediaQuery } from "../hooks/useMediaQuery";
+import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
-import { RightPanelSheet } from "./RightPanelSheet";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { ChevronDownIcon } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
-import { toastManager } from "./ui/toast";
+import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
@@ -121,8 +114,7 @@ import { getProviderModelCapabilities, resolveSelectableProvider } from "../prov
 import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { deriveLogicalProjectKey } from "../logicalProject";
-import { deriveTeamTaskLaunchGroups } from "./chat/teamTaskTimeline";
+import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
 import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
@@ -144,19 +136,13 @@ import { selectThreadTerminalState, useTerminalStateStore } from "../terminalSta
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
-import { ForkThreadDialog } from "./ForkThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
-import { TeamAgentPills } from "./chat/TeamAgentPills";
-import { TeamTaskInspector } from "./chat/TeamTaskInspector";
 import { ChatHeader } from "./chat/ChatHeader";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { TeamTaskStatusBadge, type TeamTaskPresentationView } from "./chat/TeamTaskShared";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
-import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   buildExpiredTerminalContextToastCopy,
@@ -188,7 +174,7 @@ import {
 } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
-import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
+import { RightPanelSheet } from "./RightPanelSheet";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -196,7 +182,6 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
-const EMPTY_TEAM_TASK_CHILD_THREADS_BY_ID = Object.freeze({}) as Record<ThreadId, Thread | null>;
 
 type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
 
@@ -322,7 +307,7 @@ function formatOutgoingPrompt(params: {
 }): string {
   const caps = getProviderModelCapabilities(params.models, params.model, params.provider);
   if (params.effort && caps.promptInjectedEffortLevels.includes(params.effort)) {
-    return applyClaudePromptEffortPrefix(params.text, params.effort as ClaudeCodeEffort | null);
+    return applyClaudePromptEffortPrefix(params.text, params.effort as ClaudeAgentEffort | null);
   }
   return params.text;
 }
@@ -346,11 +331,6 @@ type ChatViewProps =
       routeKind: "draft";
       draftId: DraftId;
     };
-
-interface ForkThreadDialogState {
-  key: number;
-  sourceUserMessageId: MessageId;
-}
 
 interface TerminalLaunchContext {
   threadId: ThreadId;
@@ -436,6 +416,7 @@ interface PersistentThreadTerminalDrawerProps {
   splitShortcutLabel: string | undefined;
   newShortcutLabel: string | undefined;
   closeShortcutLabel: string | undefined;
+  keybindings: ResolvedKeybindingsConfig;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
 }
 
@@ -448,6 +429,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   splitShortcutLabel,
   newShortcutLabel,
   closeShortcutLabel,
+  keybindings,
   onAddTerminalContext,
 }: PersistentThreadTerminalDrawerProps) {
   const serverThread = useStore(useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]));
@@ -591,6 +573,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
         splitShortcutLabel={visible ? splitShortcutLabel : undefined}
         newShortcutLabel={visible ? newShortcutLabel : undefined}
         closeShortcutLabel={visible ? closeShortcutLabel : undefined}
+        keybindings={keybindings}
         onActiveTerminalChange={activateTerminal}
         onCloseTerminal={closeTerminal}
         onHeightChange={setTerminalHeight}
@@ -599,75 +582,6 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     </div>
   );
 });
-
-function formatTeamTaskElapsed(task: TeamTask): string | null {
-  return formatElapsed(
-    task.startedAt ?? task.createdAt,
-    task.completedAt ?? new Date().toISOString(),
-  );
-}
-
-function deriveTeamTaskDiffSummary(childThread: Thread | null | undefined): string | null {
-  const latestDiff = childThread?.turnDiffSummaries.at(-1);
-  if (!latestDiff) {
-    return null;
-  }
-  const changedFiles = latestDiff.files.length;
-  if (changedFiles === 0) {
-    return "No tracked file changes";
-  }
-  const additions = latestDiff.files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
-  const deletions = latestDiff.files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
-  return `${changedFiles} file${changedFiles === 1 ? "" : "s"} changed, +${additions}/-${deletions}`;
-}
-
-function CoordinatorBanner({
-  parentTitle,
-  roleLabel,
-  status,
-  branch,
-  worktreePath,
-  onOpenCoordinator,
-}: {
-  parentTitle: string;
-  roleLabel: string | null;
-  status: TeamTask["status"] | null;
-  branch: string | null;
-  worktreePath: string | null;
-  onOpenCoordinator: () => void;
-}) {
-  return (
-    <section className="border-b border-border bg-muted/20 px-3 py-2 sm:px-5">
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-2 text-sm">
-        <Badge variant="outline" size="sm">
-          Child task
-        </Badge>
-        <span className="text-foreground/80">
-          Coordinator:{" "}
-          <button
-            type="button"
-            className="cursor-pointer font-medium text-foreground"
-            onClick={onOpenCoordinator}
-          >
-            {parentTitle}
-          </button>
-        </span>
-        {roleLabel ? (
-          <Badge variant="outline" size="sm">
-            {roleLabel}
-          </Badge>
-        ) : null}
-        {status ? <TeamTaskStatusBadge status={status} /> : null}
-        {(branch || worktreePath) && (
-          <span className="text-xs text-muted-foreground">
-            {branch ? `Branch: ${branch}` : "Branch: n/a"}
-            {worktreePath ? ` · Worktree: ${worktreePath}` : ""}
-          </span>
-        )}
-      </div>
-    </section>
-  );
-}
 
 export default function ChatView(props: ChatViewProps) {
   const {
@@ -692,7 +606,6 @@ export default function ChatView(props: ChatViewProps) {
     ),
   );
   const setStoreThreadError = useStore((store) => store.setError);
-  const seedThreadShell = useStore((store) => store.seedThreadShell);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const activeThreadLastVisitedAt = useUiStateStore((store) =>
     routeKind === "server" ? store.threadLastVisitedAtById[routeThreadKey] : undefined,
@@ -705,10 +618,7 @@ export default function ChatView(props: ChatViewProps) {
   const navigate = useNavigate();
   const rawSearch = useSearch({
     strict: false,
-    select: (params) => ({
-      ...parseAgentInspectorRouteSearch(params),
-      ...parseDiffRouteSearch(params),
-    }),
+    select: (params) => parseDiffRouteSearch(params),
   });
   const { resolvedTheme } = useTheme();
   // Granular store selectors — avoid subscribing to prompt changes.
@@ -772,6 +682,7 @@ export default function ChatView(props: ChatViewProps) {
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
+  const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
@@ -780,9 +691,6 @@ export default function ChatView(props: ChatViewProps) {
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
-  const [forkThreadDialogState, setForkThreadDialogState] = useState<ForkThreadDialogState | null>(
-    null,
-  );
   const [terminalLaunchContext, setTerminalLaunchContext] = useState<TerminalLaunchContext | null>(
     null,
   );
@@ -929,39 +837,6 @@ export default function ChatView(props: ChatViewProps) {
   const activeProject = useStore(
     useMemo(() => createProjectSelectorByRef(activeProjectRef), [activeProjectRef]),
   );
-  const { ensureProjectWorktreeReadiness, dialog: worktreeReadinessDialog } =
-    useEnsureWorktreeReadiness(environmentId);
-  const activeTeamParentTitle = useStore(
-    useMemo(() => {
-      if (!activeThread?.teamParentThreadId) {
-        return () => null;
-      }
-      const parentThreadRef = scopeThreadRef(
-        activeThread.environmentId,
-        activeThread.teamParentThreadId,
-      );
-      return (state) => selectThreadByRef(state, parentThreadRef)?.title ?? null;
-    }, [activeThread?.environmentId, activeThread?.teamParentThreadId]),
-  );
-  const teamTaskChildThreadsById = useStore(
-    useShallow(
-      useMemo(() => {
-        if (!activeThread || (activeThread.teamTasks ?? []).length === 0) {
-          return () => EMPTY_TEAM_TASK_CHILD_THREADS_BY_ID;
-        }
-        const childThreadRefs = (activeThread.teamTasks ?? []).map((task) =>
-          scopeThreadRef(activeThread.environmentId, task.childThreadId),
-        );
-        return (state) =>
-          Object.fromEntries(
-            childThreadRefs.map((threadRef) => [
-              threadRef.threadId,
-              selectThreadByRef(state, threadRef) ?? null,
-            ]),
-          ) as Record<ThreadId, Thread | null>;
-      }, [activeThread]),
-    ),
-  );
 
   useEffect(() => {
     if (routeKind !== "server") {
@@ -976,10 +851,16 @@ export default function ChatView(props: ChatViewProps) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const savedEnvironmentRegistry = useSavedEnvironmentRegistryStore((s) => s.byId);
   const savedEnvironmentRuntimeById = useSavedEnvironmentRuntimeStore((s) => s.byId);
+  const projectGroupingSettings = useSettings((settings) => ({
+    sidebarProjectGroupingMode: settings.sidebarProjectGroupingMode,
+    sidebarProjectGroupingOverrides: settings.sidebarProjectGroupingOverrides,
+  }));
   const logicalProjectEnvironments = useMemo(() => {
     if (!activeProject) return [];
-    const logicalKey = deriveLogicalProjectKey(activeProject);
-    const memberProjects = allProjects.filter((p) => deriveLogicalProjectKey(p) === logicalKey);
+    const logicalKey = deriveLogicalProjectKeyFromSettings(activeProject, projectGroupingSettings);
+    const memberProjects = allProjects.filter(
+      (p) => deriveLogicalProjectKeyFromSettings(p, projectGroupingSettings) === logicalKey,
+    );
     const seen = new Set<string>();
     const envs: Array<{
       environmentId: EnvironmentId;
@@ -1015,6 +896,7 @@ export default function ChatView(props: ChatViewProps) {
   }, [
     activeProject,
     allProjects,
+    projectGroupingSettings,
     primaryEnvironmentId,
     savedEnvironmentRegistry,
     savedEnvironmentRuntimeById,
@@ -1038,38 +920,16 @@ export default function ChatView(props: ChatViewProps) {
     setPullRequestDialogState(null);
   }, []);
 
-  const openForkThreadDialog = useCallback((sourceUserMessageId: MessageId) => {
-    setForkThreadDialogState({
-      sourceUserMessageId,
-      key: Date.now(),
-    });
-  }, []);
-
-  const closeForkThreadDialog = useCallback(() => {
-    setForkThreadDialogState(null);
-  }, []);
-
-  const handleForkedThread = useCallback(
-    async (forkedThread: OrchestrationThreadShell) => {
-      seedThreadShell(forkedThread, environmentId);
-      await navigate({
-        to: "/$environmentId/$threadId",
-        params: {
-          environmentId,
-          threadId: forkedThread.id,
-        },
-      });
-    },
-    [environmentId, navigate, seedThreadShell],
-  );
-
   const openOrReuseProjectDraftThread = useCallback(
     async (input: { branch: string; worktreePath: string | null; envMode: DraftThreadEnvMode }) => {
       if (!activeProject) {
         throw new Error("No active project is available for this pull request.");
       }
       const activeProjectRef = scopeProjectRef(activeProject.environmentId, activeProject.id);
-      const logicalProjectKey = deriveLogicalProjectKey(activeProject);
+      const logicalProjectKey = deriveLogicalProjectKeyFromSettings(
+        activeProject,
+        projectGroupingSettings,
+      );
       const storedDraftSession = getDraftSessionByLogicalProjectKey(logicalProjectKey);
       if (storedDraftSession) {
         setDraftThreadContext(storedDraftSession.draftId, input);
@@ -1130,6 +990,7 @@ export default function ChatView(props: ChatViewProps) {
       getDraftSessionByLogicalProjectKey,
       isServerThread,
       navigate,
+      projectGroupingSettings,
       routeKind,
       setDraftThreadContext,
       setLogicalProjectDraftThreadId,
@@ -1533,50 +1394,6 @@ export default function ChatView(props: ChatViewProps) {
 
     return byUserMessageId;
   }, [inferredCheckpointTurnCountByTurnId, timelineEntries, turnDiffSummaryByAssistantMessageId]);
-  const userMessageSwitchInfoByMessageId = useMemo(() => {
-    const byMessageId = new Map<
-      MessageId,
-      {
-        fromProvider: ProviderKind;
-        toProvider: ProviderKind;
-        toModel: string;
-      }
-    >();
-
-    for (const activity of threadActivities) {
-      if (activity.kind !== "provider.session.switched") {
-        continue;
-      }
-      const payload =
-        activity.payload && typeof activity.payload === "object"
-          ? (activity.payload as Record<string, unknown>)
-          : null;
-      const messageId =
-        payload && typeof payload.messageId === "string" ? MessageId.make(payload.messageId) : null;
-      const fromProvider =
-        payload && (payload.fromProvider === "codex" || payload.fromProvider === "claudeAgent")
-          ? payload.fromProvider
-          : null;
-      const toProvider =
-        payload && (payload.toProvider === "codex" || payload.toProvider === "claudeAgent")
-          ? payload.toProvider
-          : null;
-      const toModel =
-        payload && typeof payload.toModel === "string" && payload.toModel.trim().length > 0
-          ? payload.toModel
-          : null;
-      if (!messageId || !fromProvider || !toProvider || !toModel) {
-        continue;
-      }
-      byMessageId.set(messageId, {
-        fromProvider,
-        toProvider,
-        toModel,
-      });
-    }
-
-    return byMessageId;
-  }, [threadActivities]);
 
   const completionSummary = useMemo(() => {
     if (!latestTurnSettled) return null;
@@ -1613,48 +1430,6 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
-  const teamPanelTasks = useMemo<readonly TeamTaskPresentationView[]>(
-    () =>
-      (activeThread?.teamTasks ?? []).map((task) => {
-        const childThread = teamTaskChildThreadsById[task.childThreadId] ?? null;
-        return {
-          task,
-          childThread: childThread
-            ? {
-                branch: childThread.branch,
-                worktreePath: childThread.worktreePath,
-              }
-            : null,
-          diffSummary: deriveTeamTaskDiffSummary(childThread),
-          elapsed: formatTeamTaskElapsed(task),
-        };
-      }),
-    [activeThread?.teamTasks, teamTaskChildThreadsById],
-  );
-  const teamTaskInlineViews = useMemo(
-    () => (activeThread?.teamParentThreadId == null ? teamPanelTasks : []),
-    [teamPanelTasks, activeThread?.teamParentThreadId],
-  );
-  const teamTaskLaunchGroups = useMemo(
-    () =>
-      deriveTeamTaskLaunchGroups({
-        activities: activeThread?.activities ?? [],
-        taskViews: teamTaskInlineViews,
-      }),
-    [activeThread?.activities, teamTaskInlineViews],
-  );
-  const selectedAgentChildThreadId = useMemo(() => {
-    const requestedChildThreadId = rawSearch.agentChildThreadId;
-    if (!requestedChildThreadId || activeThread?.teamParentThreadId != null) {
-      return null;
-    }
-    return (activeThread?.teamTasks ?? []).some(
-      (task) => task.childThreadId === requestedChildThreadId,
-    )
-      ? requestedChildThreadId
-      : null;
-  }, [activeThread?.teamParentThreadId, activeThread?.teamTasks, rawSearch.agentChildThreadId]);
-  const agentInspectorOpen = selectedAgentChildThreadId !== null;
   const activeTerminalLaunchContext =
     terminalLaunchContext?.threadId === activeThreadId
       ? terminalLaunchContext
@@ -1719,64 +1494,6 @@ export default function ChatView(props: ChatViewProps) {
       },
     });
   }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
-  const dismissAgentInspector = useCallback(() => {
-    if (!isServerThread) {
-      return;
-    }
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: {
-        environmentId,
-        threadId,
-      },
-      replace: true,
-      search: (previous) => stripAgentInspectorSearchParams(previous),
-    });
-  }, [environmentId, isServerThread, navigate, threadId]);
-  const inspectChildTaskById = useCallback(
-    (childThreadId: ThreadId) => {
-      if (!isServerThread || !activeThread || activeThread.teamParentThreadId != null) {
-        return;
-      }
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: {
-          environmentId: activeThread.environmentId,
-          threadId: activeThread.id,
-        },
-        search: (previous) => ({
-          ...stripAgentInspectorSearchParams(previous),
-          agentChildThreadId: childThreadId,
-        }),
-      });
-    },
-    [activeThread, isServerThread, navigate],
-  );
-  const openThreadById = useCallback(
-    (nextThreadId: ThreadId) => {
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: {
-          environmentId: activeThread?.environmentId ?? environmentId,
-          threadId: nextThreadId,
-        },
-      });
-    },
-    [activeThread?.environmentId, environmentId, navigate],
-  );
-  const openChildThreadById = useCallback(
-    (nextThreadId: ThreadId) => {
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: {
-          environmentId: activeThread?.environmentId ?? environmentId,
-          threadId: nextThreadId,
-        },
-        search: (previous) => stripAgentInspectorSearchParams(previous),
-      });
-    },
-    [activeThread?.environmentId, environmentId, navigate],
-  );
 
   const envLocked = Boolean(
     activeThread &&
@@ -1836,39 +1553,6 @@ export default function ChatView(props: ChatViewProps) {
       });
     },
     [draftId, routeThreadRef, serverThread, setStoreThreadError],
-  );
-  const onStopTeamTask = useCallback(
-    async (task: TeamTask) => {
-      if (!activeThread) {
-        return;
-      }
-      const api = readEnvironmentApi(activeThread.environmentId);
-      if (!api) {
-        return;
-      }
-      const createdAt = new Date().toISOString();
-      try {
-        await api.orchestration.dispatchCommand({
-          type: "thread.team-task.cancel",
-          commandId: newCommandId(),
-          parentThreadId: activeThread.id,
-          taskId: task.id,
-          createdAt,
-        });
-        await api.orchestration.dispatchCommand({
-          type: "thread.session.stop",
-          commandId: newCommandId(),
-          threadId: task.childThreadId,
-          createdAt,
-        });
-      } catch (error) {
-        setThreadError(
-          activeThread.id,
-          error instanceof Error ? error.message : "Failed to stop child task.",
-        );
-      }
-    },
-    [activeThread, setThreadError],
   );
 
   const focusComposer = useCallback(() => {
@@ -2171,11 +1855,13 @@ export default function ChatView(props: ChatViewProps) {
           title: `Deleted action "${deletedName ?? "Unknown"}"`,
         });
       } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not delete action",
-          description: error instanceof Error ? error.message : "An unexpected error occurred.",
-        });
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not delete action",
+            description: error instanceof Error ? error.message : "An unexpected error occurred.",
+          }),
+        );
       }
     },
     [activeProject, persistProjectScripts],
@@ -2232,7 +1918,7 @@ export default function ChatView(props: ChatViewProps) {
       return !open;
     });
   }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
-  const dismissPlanSidebar = useCallback(() => {
+  const closePlanSidebar = useCallback(() => {
     setPlanSidebarOpen(false);
     planSidebarDismissedForTurnRef.current =
       activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
@@ -2343,8 +2029,6 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     setIsRevertingCheckpoint(false);
   }, [activeThread?.id]);
-
-  const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
 
   useEffect(() => {
     if (!activeThread?.id || terminalState.terminalOpen) return;
@@ -2551,6 +2235,7 @@ export default function ChatView(props: ChatViewProps) {
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
+        modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
       };
 
       const command = resolveShortcutCommand(event, keybindings, {
@@ -2600,6 +2285,13 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "modelPicker.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        composerRef.current?.toggleModelPicker();
+        return;
+      }
+
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject) return;
       const script = activeProject.scripts.find((entry) => entry.id === scriptId);
@@ -2608,8 +2300,8 @@ export default function ChatView(props: ChatViewProps) {
       event.stopPropagation();
       void runProjectScript(script);
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
   }, [
     activeProject,
     terminalState.terminalOpen,
@@ -2736,11 +2428,13 @@ export default function ChatView(props: ChatViewProps) {
           expiredTerminalContextCount,
           "empty",
         );
-        toastManager.add({
-          type: "warning",
-          title: toastCopy.title,
-          description: toastCopy.description,
-        });
+        toastManager.add(
+          stackedThreadToast({
+            type: "warning",
+            title: toastCopy.title,
+            description: toastCopy.description,
+          }),
+        );
       }
       return;
     }
@@ -2822,11 +2516,13 @@ export default function ChatView(props: ChatViewProps) {
         expiredTerminalContextCount,
         "omitted",
       );
-      toastManager.add({
-        type: "warning",
-        title: toastCopy.title,
-        description: toastCopy.description,
-      });
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: toastCopy.title,
+          description: toastCopy.description,
+        }),
+      );
     }
     promptRef.current = "";
     clearComposerDraftContent(composerDraftTarget);
@@ -2852,16 +2548,13 @@ export default function ChatView(props: ChatViewProps) {
         }
       }
       const title = truncate(titleSeed);
-      const threadCreateModelSelection: ModelSelection = {
-        provider: ctxSelectedProvider,
-        model:
-          ctxSelectedModel ||
+      const threadCreateModelSelection = createModelSelection(
+        ctxSelectedProvider,
+        ctxSelectedModel ||
           activeProject.defaultModelSelection?.model ||
           DEFAULT_MODEL_BY_PROVIDER.codex,
-        ...(ctxSelectedModelSelection.options
-          ? { options: ctxSelectedModelSelection.options }
-          : {}),
-      };
+        ctxSelectedModelSelection.options,
+      );
 
       // Auto-title from first message
       if (isFirstMessage && isServerThread) {
@@ -2884,15 +2577,6 @@ export default function ChatView(props: ChatViewProps) {
       }
 
       const turnAttachments = await turnAttachmentsPromise;
-      if (baseBranchForWorktree) {
-        const readinessApproved = await ensureProjectWorktreeReadiness({
-          project: activeProject,
-          trigger: "thread_worktree",
-        });
-        if (!readinessApproved) {
-          return;
-        }
-      }
       const bootstrap =
         isLocalDraftThread || baseBranchForWorktree
           ? {
@@ -3404,12 +3088,16 @@ export default function ChatView(props: ChatViewProps) {
             threadId: nextThreadId,
           })
           .catch(() => undefined);
-        toastManager.add({
-          type: "error",
-          title: "Could not start implementation thread",
-          description:
-            err instanceof Error ? err.message : "An error occurred while creating the new thread.",
-        });
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not start implementation thread",
+            description:
+              err instanceof Error
+                ? err.message
+                : "An error occurred while creating the new thread.",
+          }),
+        );
       })
       .then(finish, finish);
   }, [
@@ -3553,7 +3241,6 @@ export default function ChatView(props: ChatViewProps) {
           {...(routeKind === "draft" && draftId ? { draftId } : {})}
           activeThreadTitle={activeThread.title}
           activeProjectName={activeProject?.name}
-          activeProjectCwd={activeProject?.cwd ?? null}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}
           activeProjectScripts={activeProject?.scripts}
@@ -3576,22 +3263,6 @@ export default function ChatView(props: ChatViewProps) {
           onToggleDiff={onToggleDiff}
         />
       </header>
-
-      {activeThread.teamParentThreadId != null && activeTeamParentTitle ? (
-        <CoordinatorBanner
-          parentTitle={activeTeamParentTitle}
-          roleLabel={activeThread.teamRoleLabel ?? null}
-          status={activeThread.teamStatus ?? null}
-          branch={activeThread.branch}
-          worktreePath={activeThread.worktreePath}
-          onOpenCoordinator={() => {
-            const parentThreadId = activeThread.teamParentThreadId;
-            if (parentThreadId) {
-              openThreadById(parentThreadId);
-            }
-          }}
-        />
-      ) : null}
 
       {/* Error banner */}
       <ProviderStatusBanner status={activeProviderStatus} />
@@ -3617,9 +3288,7 @@ export default function ChatView(props: ChatViewProps) {
               completionDividerBeforeEntryId={completionDividerBeforeEntryId}
               completionSummary={completionSummary}
               turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-              userMessageSwitchInfoByMessageId={userMessageSwitchInfoByMessageId}
               activeThreadEnvironmentId={activeThread.environmentId}
-              activeThreadProjectId={activeThread.projectId}
               routeThreadKey={routeThreadKey}
               onOpenTurnDiff={onOpenTurnDiff}
               revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
@@ -3631,11 +3300,6 @@ export default function ChatView(props: ChatViewProps) {
               timestampFormat={timestampFormat}
               workspaceRoot={activeWorkspaceRoot}
               onIsAtEndChange={onIsAtEndChange}
-              teamTaskLaunchGroups={teamTaskLaunchGroups}
-              onInspectChildThread={inspectChildTaskById}
-              onOpenForkSourceThread={openThreadById}
-              onForkUserMessage={openForkThreadDialog}
-              forkOrigin={activeThread.forkOrigin}
             />
 
             {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
@@ -3653,11 +3317,6 @@ export default function ChatView(props: ChatViewProps) {
             )}
           </div>
 
-          {/* Agent pills — shown when inline blocks are scrolled out of view */}
-          {showScrollToBottom && teamTaskInlineViews.length > 0 && (
-            <TeamAgentPills tasks={teamTaskInlineViews} onInspectThread={inspectChildTaskById} />
-          )}
-
           {/* Input bar */}
           <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
             <ChatComposer
@@ -3667,7 +3326,6 @@ export default function ChatView(props: ChatViewProps) {
               routeKind={routeKind}
               routeThreadRef={routeThreadRef}
               draftId={draftId}
-              activeProjectRef={activeProjectRef}
               activeThreadId={activeThreadId}
               activeThreadEnvironmentId={activeThread?.environmentId}
               activeThread={activeThread}
@@ -3695,13 +3353,14 @@ export default function ChatView(props: ChatViewProps) {
               runtimeMode={runtimeMode}
               interactionMode={interactionMode}
               lockedProvider={lockedProvider}
-              activeSessionProvider={activeThread?.session?.provider ?? null}
               providerStatuses={providerStatuses as ServerProvider[]}
               activeProjectDefaultModelSelection={activeProject?.defaultModelSelection}
               activeThreadModelSelection={activeThread?.modelSelection}
               activeThreadActivities={activeThread?.activities}
               resolvedTheme={resolvedTheme}
               settings={settings}
+              keybindings={keybindings}
+              terminalOpen={Boolean(terminalState.terminalOpen)}
               gitCwd={gitCwd}
               promptRef={promptRef}
               composerImagesRef={composerImagesRef}
@@ -3761,7 +3420,6 @@ export default function ChatView(props: ChatViewProps) {
               key={pullRequestDialogState.key}
               open
               environmentId={activeThread.environmentId}
-              project={activeProject ?? null}
               threadId={activeThread.id}
               cwd={activeProject?.cwd ?? null}
               initialReference={pullRequestDialogState.initialReference}
@@ -3771,25 +3429,6 @@ export default function ChatView(props: ChatViewProps) {
                 }
               }}
               onPrepared={handlePreparedPullRequestThread}
-            />
-          ) : null}
-          {worktreeReadinessDialog}
-          {forkThreadDialogState && routeKind === "server" ? (
-            <ForkThreadDialog
-              key={forkThreadDialogState.key}
-              open
-              environmentId={activeThread.environmentId}
-              sourceThreadId={activeThread.id}
-              sourceUserMessageId={forkThreadDialogState.sourceUserMessageId}
-              sourceThreadTitle={activeThread.title}
-              defaultMode={envMode}
-              baseBranch={activeThreadBranch}
-              onOpenChange={(open) => {
-                if (!open) {
-                  closeForkThreadDialog();
-                }
-              }}
-              onForked={handleForkedThread}
             />
           ) : null}
         </div>
@@ -3806,41 +3445,11 @@ export default function ChatView(props: ChatViewProps) {
             workspaceRoot={activeWorkspaceRoot}
             timestampFormat={timestampFormat}
             mode="sidebar"
-            onClose={dismissPlanSidebar}
+            onClose={closePlanSidebar}
           />
         ) : null}
       </div>
       {/* end horizontal flex container */}
-
-      {shouldUsePlanSidebarSheet ? (
-        <RightPanelSheet open={planSidebarOpen} onClose={dismissPlanSidebar}>
-          {planSidebarOpen ? (
-            <PlanSidebar
-              activePlan={activePlan}
-              activeProposedPlan={sidebarProposedPlan}
-              label={planSidebarLabel}
-              environmentId={environmentId}
-              markdownCwd={gitCwd ?? undefined}
-              workspaceRoot={activeWorkspaceRoot}
-              timestampFormat={timestampFormat}
-              mode="sheet"
-              onClose={dismissPlanSidebar}
-            />
-          ) : null}
-        </RightPanelSheet>
-      ) : null}
-
-      <RightPanelSheet open={agentInspectorOpen} onClose={dismissAgentInspector}>
-        {agentInspectorOpen ? (
-          <TeamTaskInspector
-            tasks={teamPanelTasks}
-            selectedChildThreadId={selectedAgentChildThreadId}
-            onClose={dismissAgentInspector}
-            onSelectTask={inspectChildTaskById}
-            onOpenThread={openChildThreadById}
-          />
-        ) : null}
-      </RightPanelSheet>
 
       {mountedTerminalThreadRefs.map(({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
         <PersistentThreadTerminalDrawer
@@ -3855,9 +3464,25 @@ export default function ChatView(props: ChatViewProps) {
           splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
           newShortcutLabel={newTerminalShortcutLabel ?? undefined}
           closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+          keybindings={keybindings}
           onAddTerminalContext={addTerminalContextToDraft}
         />
       ))}
+      {shouldUsePlanSidebarSheet ? (
+        <RightPanelSheet open={planSidebarOpen} onClose={closePlanSidebar}>
+          <PlanSidebar
+            activePlan={activePlan}
+            activeProposedPlan={sidebarProposedPlan}
+            label={planSidebarLabel}
+            environmentId={environmentId}
+            markdownCwd={gitCwd ?? undefined}
+            workspaceRoot={activeWorkspaceRoot}
+            timestampFormat={timestampFormat}
+            mode="sheet"
+            onClose={closePlanSidebar}
+          />
+        </RightPanelSheet>
+      ) : null}
 
       {expandedImage && (
         <ExpandedImageDialog preview={expandedImage} onClose={closeExpandedImage} />

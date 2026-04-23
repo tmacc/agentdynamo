@@ -9,9 +9,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { DiffIcon, LayoutGridIcon, TerminalSquareIcon } from "lucide-react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useProjectIntelligenceNavigation } from "~/hooks/useProjectIntelligenceNavigation";
+import { DiffIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -25,7 +23,6 @@ interface ChatHeaderProps {
   draftId?: DraftId;
   activeThreadTitle: string;
   activeProjectName: string | undefined;
-  activeProjectCwd?: string | null;
   isGitRepo: boolean;
   openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
@@ -52,7 +49,6 @@ export const ChatHeader = memo(function ChatHeader({
   draftId,
   activeThreadTitle,
   activeProjectName,
-  activeProjectCwd,
   isGitRepo,
   openInCwd,
   activeProjectScripts,
@@ -72,38 +68,6 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
-  const { openProjectIntelligence } = useProjectIntelligenceNavigation();
-  const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as {
-    view?: "board";
-    boardEnvironmentId?: EnvironmentId;
-    boardProjectId?: string;
-  };
-  const boardOpen = search.view === "board";
-
-  const handleToggleBoard = (next: boolean) => {
-    void navigate({
-      to: ".",
-      search: (prev) =>
-        next
-          ? {
-              ...(prev as Record<string, unknown>),
-              view: "board",
-              boardEnvironmentId: activeThreadEnvironmentId,
-              // boardProjectId is set via the thread's projectId, but the
-              // header doesn't hold it; leaving undefined lets the layout
-              // resolve from the active thread at render time.
-              boardProjectId: undefined,
-            }
-          : {
-              ...(prev as Record<string, unknown>),
-              view: undefined,
-              boardEnvironmentId: undefined,
-              boardProjectId: undefined,
-            },
-    }).catch(() => undefined);
-  };
-
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
@@ -115,21 +79,7 @@ export const ChatHeader = memo(function ChatHeader({
           {activeThreadTitle}
         </h2>
         {activeProjectName && (
-          <Badge
-            variant="outline"
-            render={activeProjectCwd ? <button type="button" /> : undefined}
-            className="min-w-0 shrink overflow-hidden"
-            onClick={
-              activeProjectCwd
-                ? () =>
-                    openProjectIntelligence({
-                      mode: "thread",
-                      environmentId: activeThreadEnvironmentId,
-                      projectCwd: activeProjectCwd,
-                    })
-                : undefined
-            }
-          >
+          <Badge variant="outline" className="min-w-0 shrink overflow-hidden">
             <span className="min-w-0 truncate">{activeProjectName}</span>
           </Badge>
         )}
@@ -165,28 +115,6 @@ export const ChatHeader = memo(function ChatHeader({
             {...(draftId ? { draftId } : {})}
           />
         )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                className="shrink-0"
-                pressed={boardOpen}
-                onPressedChange={handleToggleBoard}
-                aria-label="Toggle project board"
-                variant="outline"
-                size="xs"
-                disabled={!activeProjectName}
-              >
-                <LayoutGridIcon className="size-3" />
-              </Toggle>
-            }
-          />
-          <TooltipPopup side="bottom">
-            {!activeProjectName
-              ? "Board is unavailable until this thread has an active project."
-              : "Toggle project board"}
-          </TooltipPopup>
-        </Tooltip>
         <Tooltip>
           <TooltipTrigger
             render={

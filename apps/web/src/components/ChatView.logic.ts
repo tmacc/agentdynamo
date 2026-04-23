@@ -16,7 +16,6 @@ import {
   stripInlineTerminalContextPlaceholders,
   type TerminalContextDraft,
 } from "../lib/terminalContext";
-import { hasPendingProviderInteraction } from "@t3tools/shared/pendingInteractions";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "t3code:last-invoked-script-by-project";
@@ -47,12 +46,6 @@ export function buildLocalDraftThread(
     latestTurn: null,
     branch: draftThread.branch,
     worktreePath: draftThread.worktreePath,
-    teamParentThreadId: null,
-    teamParentTaskId: null,
-    teamRoleLabel: null,
-    teamStatus: null,
-    activeTeamTaskCount: 0,
-    teamTasks: [],
     turnDiffSummaries: [],
     activities: [],
     proposedPlans: [],
@@ -239,11 +232,6 @@ export function deriveLockedProvider(input: {
   threadProvider: ProviderKind | null;
 }): ProviderKind | null {
   if (!threadHasStarted(input.thread)) {
-    return null;
-  }
-  const hasRunningSession = input.thread?.session?.orchestrationStatus === "running";
-  const hasPendingInteraction = hasPendingProviderInteraction(input.thread?.activities ?? []);
-  if (!hasRunningSession && !hasPendingInteraction) {
     return null;
   }
   return input.thread?.session?.provider ?? input.threadProvider ?? input.selectedProvider ?? null;

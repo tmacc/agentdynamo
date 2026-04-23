@@ -33,6 +33,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       const threadsById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
       const bindings = yield* directory.listBindings();
       const now = Date.now();
+      let reapedCount = 0;
 
       for (const binding of bindings) {
         if (binding.status === "stopped") {
@@ -64,38 +65,62 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
           continue;
         }
 
-        yield* providerService.stopSession({ threadId: binding.threadId }).pipe(
+        const reaped = yield* providerService.stopSession({ threadId: binding.threadId }).pipe(
           Effect.tap(() =>
             Effect.logInfo("provider.session.reaped", {
               threadId: binding.threadId,
               provider: binding.provider,
               idleDurationMs,
+              reason: "inactivity_threshold",
             }),
           ),
+          Effect.as(true),
           Effect.catchCause((cause) =>
             Effect.logWarning("provider.session.reaper.stop-failed", {
               threadId: binding.threadId,
               provider: binding.provider,
               idleDurationMs,
               cause,
-            }),
+            }).pipe(Effect.as(false)),
           ),
         );
+
+        if (reaped) {
+          reapedCount += 1;
+        }
+      }
+
+      if (reapedCount > 0) {
+        yield* Effect.logInfo("provider.session.reaper.sweep-complete", {
+          reapedCount,
+          totalBindings: bindings.length,
+        });
       }
     });
 
     const start: ProviderSessionReaperShape["start"] = () =>
-      Effect.forkScoped(
-        sweep.pipe(
-          Effect.catch((error: unknown) =>
-            Effect.logWarning("provider.session.reaper.sweep-failed", { error }),
+      Effect.gen(function* () {
+        yield* Effect.forkScoped(
+          sweep.pipe(
+            Effect.catch((error: unknown) =>
+              Effect.logWarning("provider.session.reaper.sweep-failed", {
+                error,
+              }),
+            ),
+            Effect.catchDefect((defect: unknown) =>
+              Effect.logWarning("provider.session.reaper.sweep-defect", {
+                defect,
+              }),
+            ),
+            Effect.repeat(Schedule.spaced(Duration.millis(sweepIntervalMs))),
           ),
-          Effect.catchDefect((defect: unknown) =>
-            Effect.logWarning("provider.session.reaper.sweep-defect", { defect }),
-          ),
-          Effect.repeat(Schedule.spaced(Duration.millis(sweepIntervalMs))),
-        ),
-      ).pipe(Effect.asVoid);
+        );
+
+        yield* Effect.logInfo("provider.session.reaper.started", {
+          inactivityThresholdMs,
+          sweepIntervalMs,
+        });
+      });
 
     return {
       start,

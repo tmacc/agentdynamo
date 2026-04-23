@@ -1,26 +1,27 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
 import rootPackageJson from "../package.json" with { type: "json" };
 import desktopPackageJson from "../apps/desktop/package.json" with { type: "json" };
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
-import {
-  APP_AUTHOR,
-  APP_BUNDLE_ID,
-  APP_COMMIT_HASH_FIELD,
-  APP_SLUG,
-  resolveDesktopLinuxWmClass,
-} from "@t3tools/shared/branding";
 
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
+import { getDefaultBuildArch } from "./lib/build-target-arch.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Config, Data, Effect, FileSystem, Layer, Logger, Option, Path, Schema } from "effect";
+import {
+  Config,
+  Data,
+  Effect,
+  FileSystem,
+  Layer,
+  Logger,
+  Option,
+  Path,
+  Schema,
+  Stream,
+} from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
@@ -89,14 +90,7 @@ function getDefaultArch(platform: typeof BuildPlatform.Type): typeof BuildArch.T
     return "x64";
   }
 
-  if (process.arch === "arm64" && config.archChoices.includes("arm64")) {
-    return "arm64";
-  }
-  if (process.arch === "x64" && config.archChoices.includes("x64")) {
-    return "x64";
-  }
-
-  return config.archChoices[0] ?? "x64";
+  return getDefaultBuildArch(platform, process.arch, process.env, config);
 }
 
 class BuildScriptError extends Data.TaggedError("BuildScriptError")<{
@@ -104,12 +98,49 @@ class BuildScriptError extends Data.TaggedError("BuildScriptError")<{
   readonly cause?: unknown;
 }> {}
 
-function resolveGitCommitHash(repoRoot: string): string {
-  const result = spawnSync("git", ["rev-parse", "--short=12", "HEAD"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  });
-  if (result.status !== 0) {
+const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
+  stream.pipe(
+    Stream.decodeText(),
+    Stream.runFold(
+      () => "",
+      (acc, chunk) => acc + chunk,
+    ),
+  );
+
+const spawnAndCollectOutput = Effect.fn("spawnAndCollectOutput")(function* (
+  command: ChildProcess.Command,
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const child = yield* spawner.spawn(command);
+
+  const [stdout, stderr, exitCode] = yield* Effect.all(
+    [
+      collectStreamAsString(child.stdout),
+      collectStreamAsString(child.stderr),
+      child.exitCode.pipe(Effect.map(Number)),
+    ],
+    { concurrency: "unbounded" },
+  );
+
+  return { stdout, stderr, exitCode } as const;
+});
+
+const resolveGitCommitHash = Effect.fn("resolveGitCommitHash")(function* (repoRoot: string) {
+  const result = yield* spawnAndCollectOutput(
+    ChildProcess.make("git", ["rev-parse", "--short=12", "HEAD"], {
+      cwd: repoRoot,
+    }),
+  ).pipe(
+    Effect.catch(() =>
+      Effect.succeed({
+        stdout: "",
+        stderr: "",
+        exitCode: 1,
+      }),
+    ),
+  );
+
+  if (result.exitCode !== 0) {
     return "unknown";
   }
   const hash = result.stdout.trim();
@@ -117,11 +148,13 @@ function resolveGitCommitHash(repoRoot: string): string {
     return "unknown";
   }
   return hash.toLowerCase();
-}
+});
 
-function resolvePythonForNodeGyp(): string | undefined {
+const resolvePythonForNodeGyp = Effect.fn("resolvePythonForNodeGyp")(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const configured = process.env.npm_config_python ?? process.env.PYTHON;
-  if (configured && existsSync(configured)) {
+  if (configured && (yield* fs.exists(configured))) {
     return configured;
   }
 
@@ -129,28 +162,37 @@ function resolvePythonForNodeGyp(): string | undefined {
     const localAppData = process.env.LOCALAPPDATA;
     if (localAppData) {
       for (const version of ["Python313", "Python312", "Python311", "Python310"]) {
-        const candidate = join(localAppData, "Programs", "Python", version, "python.exe");
-        if (existsSync(candidate)) {
+        const candidate = path.join(localAppData, "Programs", "Python", version, "python.exe");
+        if (yield* fs.exists(candidate)) {
           return candidate;
         }
       }
     }
   }
 
-  const probe = spawnSync("python", ["-c", "import sys;print(sys.executable)"], {
-    encoding: "utf8",
-  });
-  if (probe.status !== 0) {
+  const probe = yield* spawnAndCollectOutput(
+    ChildProcess.make("python", ["-c", "import sys;print(sys.executable)"]),
+  ).pipe(
+    Effect.catch(() =>
+      Effect.succeed({
+        stdout: "",
+        stderr: "",
+        exitCode: 1,
+      }),
+    ),
+  );
+
+  if (probe.exitCode !== 0) {
     return undefined;
   }
 
   const executable = probe.stdout.trim();
-  if (!executable || !existsSync(executable)) {
+  if (!executable || !(yield* fs.exists(executable))) {
     return undefined;
   }
 
   return executable;
-}
+});
 
 interface ResolvedBuildOptions {
   readonly platform: typeof BuildPlatform.Type;
@@ -170,7 +212,7 @@ interface StagePackageJson {
   readonly name: string;
   readonly version: string;
   readonly buildVersion: string;
-  readonly [APP_COMMIT_HASH_FIELD]: string;
+  readonly t3codeCommitHash: string;
   readonly private: true;
   readonly description: string;
   readonly author: string;
@@ -510,21 +552,10 @@ export function resolveMockUpdateServerUrl(mockUpdateServerPort: number | undefi
   return `http://localhost:${mockUpdateServerPort ?? 3000}`;
 }
 
-function resolveDesktopProductBaseName(): string {
-  const configuredProductName = desktopPackageJson.productName?.trim();
-  if (!configuredProductName) {
-    return "T3 Code";
-  }
-
-  return configuredProductName.replace(/\s+\([^)]*\)$/, "");
-}
-
 export function resolveDesktopProductName(version: string): string {
-  const baseName = resolveDesktopProductBaseName();
-
   return resolveDesktopUpdateChannel(version) === "nightly"
-    ? `${baseName} (Nightly)`
-    : (desktopPackageJson.productName ?? `${baseName} (Alpha)`);
+    ? "T3 Code (Nightly)"
+    : (desktopPackageJson.productName ?? "T3 Code");
 }
 
 const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -536,9 +567,9 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   mockUpdateServerPort: number | undefined,
 ) {
   const buildConfig: Record<string, unknown> = {
-    appId: APP_BUNDLE_ID,
+    appId: "com.t3tools.t3code",
     productName: resolveDesktopProductName(version),
-    artifactName: "Dynamo-${version}-${arch}.${ext}",
+    artifactName: "T3-Code-${version}-${arch}.${ext}",
     directories: {
       buildResources: "apps/desktop/resources",
     },
@@ -567,24 +598,27 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   if (platform === "linux") {
     buildConfig.linux = {
       target: [target],
-      executableName: APP_SLUG,
+      executableName: "t3code",
       icon: "icon.png",
       category: "Development",
       desktop: {
         entry: {
-          StartupWMClass: resolveDesktopLinuxWmClass(false),
+          StartupWMClass: "t3code",
         },
       },
     };
   }
 
   if (platform === "win") {
+    buildConfig.npmRebuild = false;
     const winConfig: Record<string, unknown> = {
       target: [target],
       icon: "icon.ico",
     };
     if (signed) {
       winConfig.azureSignOptions = yield* AzureTrustedSigningOptionsConfig;
+    } else {
+      winConfig.signAndEditExecutable = false;
     }
     buildConfig.win = winConfig;
   }
@@ -678,10 +712,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const appVersion = options.version ?? serverPackageJson.version;
   const iconAssets = resolveDesktopBuildIconAssets(appVersion);
-  const commitHash = resolveGitCommitHash(repoRoot);
+  const commitHash = yield* resolveGitCommitHash(repoRoot);
   const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
   const stageRoot = yield* mkdir({
-    prefix: `${APP_SLUG}-desktop-${options.platform}-stage-`,
+    prefix: `t3code-desktop-${options.platform}-stage-`,
   });
 
   const stageAppDir = path.join(stageRoot, "app");
@@ -733,9 +767,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     options.platform,
     stageResourcesDir,
     {
-      macIconPng: join(repoRoot, iconAssets.macIconPng),
-      linuxIconPng: join(repoRoot, iconAssets.linuxIconPng),
-      windowsIconIco: join(repoRoot, iconAssets.windowsIconIco),
+      macIconPng: path.join(repoRoot, iconAssets.macIconPng),
+      linuxIconPng: path.join(repoRoot, iconAssets.linuxIconPng),
+      windowsIconIco: path.join(repoRoot, iconAssets.windowsIconIco),
     },
     options.verbose,
   );
@@ -744,14 +778,14 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
 
   const stagePackageJson: StagePackageJson = {
-    name: APP_SLUG,
+    name: "t3code",
     version: appVersion,
     buildVersion: appVersion,
-    [APP_COMMIT_HASH_FIELD]: commitHash,
+    t3codeCommitHash: commitHash,
     private: true,
-    description: "Dynamo desktop build",
-    author: APP_AUTHOR,
-    main: "apps/desktop/dist-electron/main.js",
+    description: "T3 Code desktop build",
+    author: "T3 Tools",
+    main: "apps/desktop/dist-electron/main.cjs",
     build: yield* createBuildConfig(
       options.platform,
       options.target,
@@ -780,7 +814,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       ...commandOutputOptions(options.verbose),
       // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
       shell: process.platform === "win32",
-    })`bun install --production`,
+    })`bun install --production --omit optional`,
   );
 
   const buildEnv: NodeJS.ProcessEnv = {
@@ -801,7 +835,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   }
 
   if (process.platform === "win32") {
-    const python = resolvePythonForNodeGyp();
+    const python = yield* resolvePythonForNodeGyp();
     if (python) {
       buildEnv.PYTHON = python;
       buildEnv.npm_config_python = python;
@@ -820,7 +854,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       ...commandOutputOptions(options.verbose),
       // Windows needs shell mode to resolve .cmd shims.
       shell: process.platform === "win32",
-    })`bunx electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`,
+    })`bun x --install=fallback electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`,
   );
 
   const stageDistDir = path.join(stageAppDir, "dist");

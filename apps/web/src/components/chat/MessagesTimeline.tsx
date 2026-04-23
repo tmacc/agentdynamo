@@ -1,12 +1,4 @@
-import {
-  type EnvironmentId,
-  type MessageId,
-  type ProjectId,
-  type OrchestrationThreadForkOrigin,
-  type ThreadId,
-  type TurnId,
-} from "@t3tools/contracts";
-import { scopeProjectRef } from "@t3tools/client-runtime";
+import { type EnvironmentId, type MessageId, type TurnId } from "@t3tools/contracts";
 import {
   createContext,
   memo,
@@ -25,11 +17,9 @@ import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
-  BookmarkPlusIcon,
   CheckIcon,
   CircleAlertIcon,
   EyeIcon,
-  GitForkIcon,
   GlobeIcon,
   HammerIcon,
   type LucideIcon,
@@ -42,7 +32,6 @@ import {
 import { Button } from "../ui/button";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-import { TeamTaskInlineBlocks } from "./TeamTaskInlineBlock";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
@@ -52,11 +41,9 @@ import {
   deriveMessagesTimelineRows,
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
-  type UserMessageSwitchInfo,
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
-import { type TeamTaskLaunchGroup } from "./teamTaskTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -74,9 +61,6 @@ import {
   textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
-import { SavedPromptDialog } from "./SavedPromptDialog";
-import { toastManager } from "../ui/toast";
-import { deriveSavedPromptTitle, useSavedPromptStore } from "~/savedPromptStore";
 
 // ---------------------------------------------------------------------------
 // Context — shared state consumed by every row component via useContext.
@@ -97,14 +81,9 @@ interface TimelineRowSharedState {
   resolvedTheme: "light" | "dark";
   workspaceRoot: string | undefined;
   activeThreadEnvironmentId: EnvironmentId;
-  activeThreadProjectId: ProjectId | undefined;
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
-  onInspectChildThread: (threadId: import("@t3tools/contracts").ThreadId) => void;
-  onOpenForkSourceThread: (threadId: ThreadId) => void;
-  onForkUserMessage: (messageId: MessageId) => void;
-  onSaveUserPrompt: (text: string) => void;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -123,7 +102,6 @@ interface MessagesTimelineProps {
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
-  userMessageSwitchInfoByMessageId: Map<MessageId, UserMessageSwitchInfo>;
   routeThreadKey: string;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
@@ -131,17 +109,11 @@ interface MessagesTimelineProps {
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   activeThreadEnvironmentId: EnvironmentId;
-  activeThreadProjectId: ProjectId | undefined;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   onIsAtEndChange: (isAtEnd: boolean) => void;
-  teamTaskLaunchGroups?: readonly TeamTaskLaunchGroup[];
-  onInspectChildThread?: (threadId: import("@t3tools/contracts").ThreadId) => void;
-  onOpenForkSourceThread?: (threadId: ThreadId) => void;
-  onForkUserMessage?: (messageId: MessageId) => void;
-  forkOrigin?: OrchestrationThreadForkOrigin | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +130,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   completionDividerBeforeEntryId,
   completionSummary,
   turnDiffSummaryByAssistantMessageId,
-  userMessageSwitchInfoByMessageId,
   routeThreadKey,
   onOpenTurnDiff,
   revertTurnCountByUserMessageId,
@@ -166,27 +137,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isRevertingCheckpoint,
   onImageExpand,
   activeThreadEnvironmentId,
-  activeThreadProjectId,
   markdownCwd,
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
   onIsAtEndChange,
-  teamTaskLaunchGroups,
-  onInspectChildThread,
-  onOpenForkSourceThread,
-  onForkUserMessage,
-  forkOrigin,
 }: MessagesTimelineProps) {
-  const noopInspectChildThread = useCallback(() => {}, []);
-  const noopOpenForkSourceThread = useCallback(() => {}, []);
-  const noopForkUserMessage = useCallback(() => {}, []);
-  const createSavedPromptSnippet = useSavedPromptStore((store) => store.createSnippet);
-  const currentProjectRef =
-    activeThreadProjectId !== undefined
-      ? scopeProjectRef(activeThreadEnvironmentId, activeThreadProjectId)
-      : null;
-  const [pendingSavedPromptText, setPendingSavedPromptText] = useState<string | null>(null);
   const rawRows = useMemo(
     () =>
       deriveMessagesTimelineRows({
@@ -196,9 +152,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         activeTurnStartedAt,
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
-        userMessageSwitchInfoByMessageId,
-        teamTaskLaunchGroups,
-        forkOrigin,
       }),
     [
       timelineEntries,
@@ -207,9 +160,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeTurnStartedAt,
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
-      userMessageSwitchInfoByMessageId,
-      teamTaskLaunchGroups,
-      forkOrigin,
     ],
   );
   const rows = useStableRows(rawRows);
@@ -239,57 +189,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
   }, [listRef, onIsAtEndChange, rows.length]);
 
-  const handleSaveUserPrompt = useCallback((text: string) => {
-    if (text.trim().length === 0) {
-      return;
-    }
-    setPendingSavedPromptText(text);
-  }, []);
-
-  const handleConfirmSaveUserPrompt = useCallback(
-    async (input: { title: string; scope: "project" | "global" }) => {
-      if (!pendingSavedPromptText) {
-        return;
-      }
-      const result = createSavedPromptSnippet({
-        title: input.title,
-        body: pendingSavedPromptText,
-        scope: input.scope,
-        projectRef: currentProjectRef,
-      });
-      if (result.status === "invalid") {
-        toastManager.add({
-          title: "Unable to save prompt",
-          description: "Saved prompts need text and, for project scope, a current project.",
-          type: "error",
-        });
-        return;
-      }
-      if (result.status === "duplicate") {
-        toastManager.add({
-          title: "Prompt already saved",
-          description:
-            result.snippet.scope === "project"
-              ? "This project already has that saved prompt."
-              : "That saved prompt already exists for all projects.",
-          type: "info",
-        });
-        setPendingSavedPromptText(null);
-        return;
-      }
-      toastManager.add({
-        title: `Saved "${result.snippet.title}"`,
-        description:
-          result.snippet.scope === "project"
-            ? "Available in this project."
-            : "Available in all projects.",
-        type: "success",
-      });
-      setPendingSavedPromptText(null);
-    },
-    [createSavedPromptSnippet, currentProjectRef, pendingSavedPromptText],
-  );
-
   // Memoised context value — only changes on state transitions, NOT on
   // every streaming chunk. Callbacks from ChatView are useCallback-stable.
   const sharedState = useMemo<TimelineRowSharedState>(
@@ -305,14 +204,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       resolvedTheme,
       workspaceRoot,
       activeThreadEnvironmentId,
-      activeThreadProjectId,
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
-      onInspectChildThread: onInspectChildThread ?? noopInspectChildThread,
-      onOpenForkSourceThread: onOpenForkSourceThread ?? noopOpenForkSourceThread,
-      onForkUserMessage: onForkUserMessage ?? noopForkUserMessage,
-      onSaveUserPrompt: handleSaveUserPrompt,
     }),
     [
       activeTurnInProgress,
@@ -326,17 +220,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       resolvedTheme,
       workspaceRoot,
       activeThreadEnvironmentId,
-      activeThreadProjectId,
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
-      onInspectChildThread,
-      onOpenForkSourceThread,
-      onForkUserMessage,
-      handleSaveUserPrompt,
-      noopInspectChildThread,
-      noopOpenForkSourceThread,
-      noopForkUserMessage,
     ],
   );
 
@@ -362,40 +248,23 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }
 
   return (
-    <>
-      <TimelineRowCtx.Provider value={sharedState}>
-        <LegendList<MessagesTimelineRow>
-          ref={listRef}
-          data={rows}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
-          estimatedItemSize={90}
-          initialScrollAtEnd
-          maintainScrollAtEnd
-          maintainScrollAtEndThreshold={0.1}
-          maintainVisibleContentPosition
-          onScroll={handleScroll}
-          className="h-full overflow-x-hidden overscroll-y-contain px-3 sm:px-5"
-          ListHeaderComponent={<div className="h-3 sm:h-4" />}
-          ListFooterComponent={<div className="h-3 sm:h-4" />}
-        />
-      </TimelineRowCtx.Provider>
-
-      <SavedPromptDialog
-        open={pendingSavedPromptText !== null}
-        mode="create"
-        initialTitle={deriveSavedPromptTitle(pendingSavedPromptText ?? "")}
-        initialScope={currentProjectRef ? "project" : "global"}
-        projectScopeAvailable={currentProjectRef !== null}
-        bodyPreview={pendingSavedPromptText ?? ""}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPendingSavedPromptText(null);
-          }
-        }}
-        onConfirm={handleConfirmSaveUserPrompt}
+    <TimelineRowCtx.Provider value={sharedState}>
+      <LegendList<MessagesTimelineRow>
+        ref={listRef}
+        data={rows}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        estimatedItemSize={90}
+        initialScrollAtEnd
+        maintainScrollAtEnd
+        maintainScrollAtEndThreshold={0.1}
+        maintainVisibleContentPosition
+        onScroll={handleScroll}
+        className="h-full overflow-x-hidden overscroll-y-contain px-3 sm:px-5"
+        ListHeaderComponent={<div className="h-3 sm:h-4" />}
+        ListFooterComponent={<div className="h-3 sm:h-4" />}
       />
-    </>
+    </TimelineRowCtx.Provider>
   );
 });
 
@@ -427,20 +296,6 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
       {row.kind === "work" && <WorkGroupSection groupedEntries={row.groupedEntries} />}
-
-      {row.kind === "fork-separator" && (
-        <div className="my-3 flex items-center gap-3">
-          <span className="h-px flex-1 bg-border" />
-          <button
-            type="button"
-            onClick={() => ctx.onOpenForkSourceThread(row.sourceThreadId)}
-            className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80 transition-colors hover:cursor-pointer hover:border-border/90 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            Forked from {row.sourceThreadTitle}
-          </button>
-          <span className="h-px flex-1 bg-border" />
-        </div>
-      )}
 
       {row.kind === "message" &&
         row.message.role === "user" &&
@@ -494,37 +349,11 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
                     terminalContexts={terminalContexts}
                   />
                 )}
-                {row.userMessageSwitchInfo ? (
-                  <UserMessageSwitchBadge switchInfo={row.userMessageSwitchInfo} />
-                ) : null}
                 <div className="mt-1.5 flex items-center justify-end gap-2">
                   <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
                     {displayedUserMessage.copyText && (
                       <MessageCopyButton text={displayedUserMessage.copyText} />
                     )}
-                    {displayedUserMessage.visibleText.trim().length > 0 ? (
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="outline"
-                        onClick={() => ctx.onSaveUserPrompt(displayedUserMessage.visibleText)}
-                        title="Save prompt"
-                        data-testid="save-prompt-button"
-                      >
-                        <BookmarkPlusIcon className="size-3" />
-                      </Button>
-                    ) : null}
-                    {row.showForkButton ? (
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="outline"
-                        onClick={() => ctx.onForkUserMessage(row.message.id)}
-                        title="Fork from this message"
-                      >
-                        <GitForkIcon className="size-3" />
-                      </Button>
-                    ) : null}
                     {canRevertAgentWork && (
                       <Button
                         type="button"
@@ -621,17 +450,9 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
           <ProposedPlanCard
             planMarkdown={row.proposedPlan.planMarkdown}
             environmentId={ctx.activeThreadEnvironmentId}
-            projectId={ctx.activeThreadProjectId}
-            proposedPlanId={row.proposedPlan.id}
             cwd={ctx.markdownCwd}
             workspaceRoot={ctx.workspaceRoot}
           />
-        </div>
-      )}
-
-      {row.kind === "team-task-group" && (
-        <div className="min-w-0 px-1 py-0.5">
-          <TeamTaskInlineBlocks tasks={row.tasks} onInspectThread={ctx.onInspectChildThread} />
         </div>
       )}
 
@@ -953,22 +774,6 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   );
 });
 
-const UserMessageSwitchBadge = memo(function UserMessageSwitchBadge(props: {
-  switchInfo: UserMessageSwitchInfo;
-}) {
-  const providerLabel = props.switchInfo.toProvider === "claudeAgent" ? "Claude" : "Codex";
-  return (
-    <div
-      data-testid="user-message-switch-badge"
-      className="mt-2 inline-flex max-w-full items-center rounded-full border border-border/70 bg-background/45 px-2 py-0.5 text-[10px] text-muted-foreground/80"
-    >
-      <span className="truncate">
-        Switched to {providerLabel} · {props.switchInfo.toModel}
-      </span>
-    </div>
-  );
-});
-
 // ---------------------------------------------------------------------------
 // Structural sharing — reuse old row references when data hasn't changed
 // so LegendList (and React) can skip re-rendering unchanged items.
@@ -1133,7 +938,13 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const iconConfig = workToneIcon(workEntry.tone);
   const EntryIcon = workEntryIcon(workEntry);
   const heading = toolWorkEntryHeading(workEntry);
-  const preview = workEntryPreview(workEntry, workspaceRoot);
+  const rawPreview = workEntryPreview(workEntry, workspaceRoot);
+  const preview =
+    rawPreview &&
+    normalizeCompactToolLabel(rawPreview).toLowerCase() ===
+      normalizeCompactToolLabel(heading).toLowerCase()
+      ? null
+      : rawPreview;
   const rawCommand = workEntryRawCommand(workEntry);
   const displayText = preview ? `${heading} - ${preview}` : heading;
   const hasChangedFiles = (workEntry.changedFiles?.length ?? 0) > 0;
@@ -1148,20 +959,20 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           <EntryIcon className="size-3" />
         </span>
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="max-w-full">
-            <p
-              className={cn(
-                "truncate text-xs leading-5",
-                workToneClass(workEntry.tone),
-                preview ? "text-muted-foreground/70" : "",
-              )}
-              title={rawCommand ? undefined : displayText}
-            >
-              <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
-                {heading}
-              </span>
-              {preview &&
-                (rawCommand ? (
+          {rawCommand ? (
+            <div className="max-w-full">
+              <p
+                className={cn(
+                  "truncate text-xs leading-5",
+                  workToneClass(workEntry.tone),
+                  preview ? "text-muted-foreground/70" : "",
+                )}
+                title={displayText}
+              >
+                <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
+                  {heading}
+                </span>
+                {preview && (
                   <Tooltip>
                     <TooltipTrigger
                       closeDelay={0}
@@ -1183,11 +994,36 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
                       </div>
                     </TooltipPopup>
                   </Tooltip>
-                ) : (
-                  <span className="text-muted-foreground/55"> - {preview}</span>
-                ))}
-            </p>
-          </div>
+                )}
+              </p>
+            </div>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger
+                className="block min-w-0 w-full text-left"
+                title={displayText}
+                aria-label={displayText}
+              >
+                <p
+                  className={cn(
+                    "truncate text-[11px] leading-5",
+                    workToneClass(workEntry.tone),
+                    preview ? "text-muted-foreground/70" : "",
+                  )}
+                >
+                  <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
+                    {heading}
+                  </span>
+                  {preview && <span className="text-muted-foreground/55"> - {preview}</span>}
+                </p>
+              </TooltipTrigger>
+              <TooltipPopup className="max-w-[min(720px,calc(100vw-2rem))]">
+                <p className="whitespace-pre-wrap wrap-break-word text-xs leading-5">
+                  {displayText}
+                </p>
+              </TooltipPopup>
+            </Tooltip>
+          )}
         </div>
       </div>
       {hasChangedFiles && !previewIsChangedFiles && (

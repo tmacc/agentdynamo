@@ -5,7 +5,7 @@ import path from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ThreadId } from "@t3tools/contracts";
 import { it, assert } from "@effect/vitest";
-import { assertFailure, assertSome } from "@effect/vitest/utils";
+import { assertSome } from "@effect/vitest/utils";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -15,7 +15,6 @@ import {
 } from "../../persistence/Layers/Sqlite.ts";
 import { ProviderSessionRuntimeRepositoryLive } from "../../persistence/Layers/ProviderSessionRuntime.ts";
 import { ProviderSessionRuntimeRepository } from "../../persistence/Services/ProviderSessionRuntime.ts";
-import { ProviderSessionDirectoryPersistenceError } from "../Errors.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
 
@@ -31,7 +30,7 @@ function makeDirectoryLayer<E, R>(persistenceLayer: Layer.Layer<SqlClient.SqlCli
 }
 
 it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryLive", (it) => {
-  it("upserts, reads, and removes thread bindings", () =>
+  it("upserts and reads thread bindings", () =>
     Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;
       const runtimeRepository = yield* ProviderSessionRuntimeRepository;
@@ -75,17 +74,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       }
 
       const threadIds = yield* directory.listThreadIds();
-      assert.deepEqual(threadIds, [initialThreadId, nextThreadId]);
-
-      yield* directory.remove(nextThreadId);
-      const missingProvider = yield* directory.getProvider(nextThreadId).pipe(Effect.result);
-      assertFailure(
-        missingProvider,
-        new ProviderSessionDirectoryPersistenceError({
-          operation: "ProviderSessionDirectory.getProvider",
-          detail: `No persisted provider binding found for thread '${nextThreadId}'.`,
-        }),
-      );
+      assert.deepEqual(threadIds, [nextThreadId]);
     }));
 
   it("persists runtime fields and merges payload updates", () =>
@@ -133,29 +122,79 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       }
     }));
 
-  it("lists persisted bindings with last-seen metadata", () =>
+  it("lists persisted bindings with metadata in oldest-first order", () =>
     Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;
-      const threadId = ThreadId.make("thread-list-bindings");
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
 
-      yield* directory.upsert({
-        provider: "codex",
-        threadId,
+      const olderThreadId = ThreadId.make("thread-runtime-older");
+      const newerThreadId = ThreadId.make("thread-runtime-newer");
+
+      yield* runtimeRepository.upsert({
+        threadId: newerThreadId,
+        providerName: "codex",
+        adapterKey: "codex",
+        runtimeMode: "full-access",
         status: "running",
+        lastSeenAt: "2026-04-14T12:05:00.000Z",
+        resumeCursor: {
+          opaque: "resume-newer",
+        },
         runtimePayload: {
-          activeTurnId: "turn-list-bindings",
+          cwd: "/tmp/newer",
+        },
+      });
+
+      yield* runtimeRepository.upsert({
+        threadId: olderThreadId,
+        providerName: "claudeAgent",
+        adapterKey: "claudeAgent",
+        runtimeMode: "approval-required",
+        status: "starting",
+        lastSeenAt: "2026-04-14T12:00:00.000Z",
+        resumeCursor: {
+          opaque: "resume-older",
+        },
+        runtimePayload: {
+          cwd: "/tmp/older",
         },
       });
 
       const bindings = yield* directory.listBindings();
-      assert.equal(bindings.length, 1);
-      assert.equal(bindings[0]?.threadId, threadId);
-      assert.equal(bindings[0]?.provider, "codex");
-      assert.equal(bindings[0]?.status, "running");
-      assert.equal(typeof bindings[0]?.lastSeenAt, "string");
+
+      assert.deepEqual(bindings, [
+        {
+          threadId: olderThreadId,
+          provider: "claudeAgent",
+          adapterKey: "claudeAgent",
+          runtimeMode: "approval-required",
+          status: "starting",
+          lastSeenAt: "2026-04-14T12:00:00.000Z",
+          resumeCursor: {
+            opaque: "resume-older",
+          },
+          runtimePayload: {
+            cwd: "/tmp/older",
+          },
+        },
+        {
+          threadId: newerThreadId,
+          provider: "codex",
+          adapterKey: "codex",
+          runtimeMode: "full-access",
+          status: "running",
+          lastSeenAt: "2026-04-14T12:05:00.000Z",
+          resumeCursor: {
+            opaque: "resume-newer",
+          },
+          runtimePayload: {
+            cwd: "/tmp/newer",
+          },
+        },
+      ]);
     }));
 
-  it("parks the previous active slot when a different provider becomes active", () =>
+  it("resets adapterKey to the new provider when provider changes without an explicit adapter key", () =>
     Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;
       const runtimeRepository = yield* ProviderSessionRuntimeRepository;
@@ -167,7 +206,6 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         adapterKey: "claudeAgent",
         runtimeMode: "full-access",
         status: "running",
-        slotState: "active",
         lastSeenAt: new Date().toISOString(),
         resumeCursor: null,
         runtimePayload: null,
@@ -178,23 +216,11 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         threadId,
       });
 
-      const activeRuntime = yield* runtimeRepository.getByThreadId({ threadId });
-      assert.equal(Option.isSome(activeRuntime), true);
-      if (Option.isSome(activeRuntime)) {
-        assert.equal(activeRuntime.value.providerName, "codex");
-        assert.equal(activeRuntime.value.adapterKey, "codex");
-        assert.equal(activeRuntime.value.slotState, "active");
-      }
-
-      const parkedRuntime = yield* runtimeRepository.getByThreadIdAndProvider({
-        threadId,
-        providerName: "claudeAgent",
-      });
-      assert.equal(Option.isSome(parkedRuntime), true);
-      if (Option.isSome(parkedRuntime)) {
-        assert.equal(parkedRuntime.value.providerName, "claudeAgent");
-        assert.equal(parkedRuntime.value.slotState, "parked");
-        assert.equal(parkedRuntime.value.status, "stopped");
+      const runtime = yield* runtimeRepository.getByThreadId({ threadId });
+      assert.equal(Option.isSome(runtime), true);
+      if (Option.isSome(runtime)) {
+        assert.equal(runtime.value.providerName, "codex");
+        assert.equal(runtime.value.adapterKey, "codex");
       }
     }));
 

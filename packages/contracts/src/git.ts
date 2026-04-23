@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
+import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
@@ -115,17 +115,6 @@ export const GitPullInput = Schema.Struct({
 });
 export type GitPullInput = typeof GitPullInput.Type;
 
-export const GitGetPullRequestRemoteOptionsInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
-});
-export type GitGetPullRequestRemoteOptionsInput = typeof GitGetPullRequestRemoteOptionsInput.Type;
-
-export const GitSetPullRequestRemoteInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
-  remoteName: TrimmedNonEmptyStringSchema,
-});
-export type GitSetPullRequestRemoteInput = typeof GitSetPullRequestRemoteInput.Type;
-
 export const GitRunStackedActionInput = Schema.Struct({
   actionId: TrimmedNonEmptyStringSchema,
   cwd: TrimmedNonEmptyStringSchema,
@@ -211,30 +200,9 @@ const GitStatusPr = Schema.Struct({
   state: GitStatusPrState,
 });
 
-export const GitPullRequestRemoteCandidate = Schema.Struct({
-  remoteName: TrimmedNonEmptyStringSchema,
-  repositoryNameWithOwner: TrimmedNonEmptyStringSchema,
-  ownerLogin: TrimmedNonEmptyStringSchema,
-});
-export type GitPullRequestRemoteCandidate = typeof GitPullRequestRemoteCandidate.Type;
-
-export const GitGetPullRequestRemoteOptionsResult = Schema.Struct({
-  configuredRemoteName: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
-  selectedRemoteName: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
-  candidates: Schema.Array(GitPullRequestRemoteCandidate),
-  requiresSelection: Schema.Boolean,
-});
-export type GitGetPullRequestRemoteOptionsResult = typeof GitGetPullRequestRemoteOptionsResult.Type;
-
-export const GitSetPullRequestRemoteResult = Schema.Struct({
-  remoteName: TrimmedNonEmptyStringSchema,
-});
-export type GitSetPullRequestRemoteResult = typeof GitSetPullRequestRemoteResult.Type;
-
 const GitStatusLocalShape = {
   isRepo: Schema.Boolean,
   hostingProvider: Schema.optional(GitHostingProvider),
-  hasAnyRemote: Schema.Boolean,
   hasOriginRemote: Schema.Boolean,
   isDefaultBranch: Schema.Boolean,
   branch: Schema.NullOr(TrimmedNonEmptyStringSchema),

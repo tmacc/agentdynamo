@@ -8,10 +8,6 @@
       "types": "./src/model.ts",
       "import": "./src/model.ts"
     },
-    "./pendingInteractions": {
-      "types": "./src/pendingInteractions.ts",
-      "import": "./src/pendingInteractions.ts"
-    },
     "./git": {
       "types": "./src/git.ts",
       "import": "./src/git.ts"
@@ -19,10 +15,6 @@
     "./logging": {
       "types": "./src/logging.ts",
       "import": "./src/logging.ts"
-    },
-    "./branding": {
-      "types": "./src/branding.ts",
-      "import": "./src/branding.ts"
     },
     "./shell": {
       "types": "./src/shell.ts",
@@ -43,6 +35,10 @@
     "./schemaJson": {
       "types": "./src/schemaJson.ts",
       "import": "./src/schemaJson.ts"
+    },
+    "./toolActivity": {
+      "types": "./src/toolActivity.ts",
+      "import": "./src/toolActivity.ts"
     },
     "./Struct": {
       "types": "./src/Struct.ts",
@@ -75,14 +71,10 @@
     "./path": {
       "types": "./src/path.ts",
       "import": "./src/path.ts"
-    },
-    "./codeStatsPolicy": {
-      "types": "./src/codeStatsPolicy.ts",
-      "import": "./src/codeStatsPolicy.ts"
     }
   },
   "scripts": {
-    "prepare": "node ../../scripts/run-effect-language-service-prepare.mjs",
+    "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

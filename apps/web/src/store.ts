@@ -11,17 +11,16 @@ import type {
   OrchestrationShellStreamEvent,
   OrchestrationSession,
   OrchestrationSessionStatus,
-  OrchestrationTeamTask,
   OrchestrationThread,
   OrchestrationThreadShell,
   OrchestrationThreadActivity,
   ProjectId,
-  ProviderKind,
   ScopedProjectRef,
   ScopedThreadRef,
-  ThreadId,
-  TurnId,
 } from "@t3tools/contracts";
+import { ProviderKind } from "@t3tools/contracts";
+import type { ThreadId, TurnId } from "@t3tools/contracts";
+import { Schema } from "effect";
 import { resolveModelSlugForProvider } from "@t3tools/shared/model";
 import { create } from "zustand";
 import {
@@ -29,14 +28,12 @@ import {
   type Project,
   type ProposedPlan,
   type SidebarThreadSummary,
-  type TeamTask,
   type Thread,
   type ThreadSession,
   type ThreadShell,
   type ThreadTurnState,
   type TurnDiffSummary,
 } from "./types";
-import { isUserFacingTopLevelThread } from "./threadNavigation";
 import { resolveEnvironmentHttpUrl } from "./environments/runtime";
 import { sanitizeThreadErrorMessage } from "./rpc/transportError";
 import { getThreadFromEnvironmentState } from "./threadDerivation";
@@ -77,8 +74,6 @@ export interface EnvironmentState {
   activityByThreadId: Record<ThreadId, Record<string, OrchestrationThreadActivity>>;
   proposedPlanIdsByThreadId: Record<ThreadId, string[]>;
   proposedPlanByThreadId: Record<ThreadId, Record<string, ProposedPlan>>;
-  teamTaskIdsByThreadId?: Record<ThreadId, string[]>;
-  teamTaskByThreadId?: Record<ThreadId, Record<string, TeamTask>>;
   turnDiffIdsByThreadId: Record<ThreadId, TurnId[]>;
   turnDiffSummaryByThreadId: Record<ThreadId, Record<TurnId, TurnDiffSummary>>;
 
@@ -113,8 +108,6 @@ const initialEnvironmentState: EnvironmentState = {
   activityByThreadId: {},
   proposedPlanIdsByThreadId: {},
   proposedPlanByThreadId: {},
-  teamTaskIdsByThreadId: {},
-  teamTaskByThreadId: {},
   turnDiffIdsByThreadId: {},
   turnDiffSummaryByThreadId: {},
   sidebarThreadSummaryById: {},
@@ -132,17 +125,11 @@ const MAX_THREAD_PROPOSED_PLANS = 200;
 const MAX_THREAD_ACTIVITIES = 500;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
 
-function isActiveTeamTaskStatus(status: TeamTask["status"]): boolean {
-  return (
-    status === "queued" || status === "starting" || status === "running" || status === "waiting"
-  );
-}
-
 function arraysEqual<T>(left: readonly T[], right: readonly T[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function normalizeModelSelection<T extends { provider: "codex" | "claudeAgent"; model: string }>(
+function normalizeModelSelection<T extends { provider: ProviderKind; model: string }>(
   selection: T,
 ): T {
   return {
@@ -216,25 +203,6 @@ function mapTurnDiffSummary(checkpoint: OrchestrationCheckpointSummary): TurnDif
   };
 }
 
-function mapTeamTask(teamTask: OrchestrationTeamTask): TeamTask {
-  return {
-    id: teamTask.id,
-    parentThreadId: teamTask.parentThreadId,
-    childThreadId: teamTask.childThreadId,
-    title: teamTask.title,
-    roleLabel: teamTask.roleLabel,
-    modelSelection: normalizeModelSelection(teamTask.modelSelection),
-    workspaceMode: teamTask.workspaceMode,
-    status: teamTask.status,
-    latestSummary: teamTask.latestSummary,
-    errorText: teamTask.errorText,
-    createdAt: teamTask.createdAt,
-    startedAt: teamTask.startedAt,
-    completedAt: teamTask.completedAt,
-    updatedAt: teamTask.updatedAt,
-  };
-}
-
 function mapProject(
   project:
     | OrchestrationReadModel["projects"][number]
@@ -253,12 +221,10 @@ function mapProject(
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     scripts: mapProjectScripts(project.scripts),
-    worktreeReadiness: project.worktreeReadiness ?? null,
   };
 }
 
 function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): Thread {
-  const teamTasks = (thread.teamTasks ?? []).map(mapTeamTask);
   return {
     id: thread.id,
     environmentId,
@@ -279,13 +245,6 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
-    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
-    teamParentThreadId: thread.teamParentThreadId ?? null,
-    teamParentTaskId: thread.teamParentTaskId ?? null,
-    teamRoleLabel: thread.teamRoleLabel ?? null,
-    teamStatus: thread.teamStatus ?? null,
-    activeTeamTaskCount: teamTasks.filter((task) => isActiveTeamTaskStatus(task.status)).length,
-    teamTasks,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -315,12 +274,6 @@ function mapThreadShell(
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
-    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
-    teamParentThreadId: thread.teamParentThreadId ?? null,
-    teamParentTaskId: thread.teamParentTaskId ?? null,
-    teamRoleLabel: thread.teamRoleLabel ?? null,
-    teamStatus: thread.teamStatus ?? null,
-    activeTeamTaskCount: thread.activeTeamTaskCount ?? 0,
   };
   const session = thread.session ? mapSession(thread.session) : null;
   const turnState: ThreadTurnState = {
@@ -340,12 +293,6 @@ function mapThreadShell(
     latestTurn: thread.latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
-    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
-    teamParentThreadId: thread.teamParentThreadId ?? null,
-    teamParentTaskId: thread.teamParentTaskId ?? null,
-    teamRoleLabel: thread.teamRoleLabel ?? null,
-    teamStatus: thread.teamStatus ?? null,
-    activeTeamTaskCount: thread.activeTeamTaskCount ?? 0,
     latestUserMessageAt: thread.latestUserMessageAt,
     hasPendingApprovals: thread.hasPendingApprovals,
     hasPendingUserInput: thread.hasPendingUserInput,
@@ -375,12 +322,6 @@ function toThreadShell(thread: Thread): ThreadShell {
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
-    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
-    teamParentThreadId: thread.teamParentThreadId ?? null,
-    teamParentTaskId: thread.teamParentTaskId ?? null,
-    teamRoleLabel: thread.teamRoleLabel ?? null,
-    teamStatus: thread.teamStatus ?? null,
-    activeTeamTaskCount: thread.activeTeamTaskCount ?? 0,
   };
 }
 
@@ -453,16 +394,6 @@ function sidebarThreadSummariesEqual(
     latestTurnsEqual(left.latestTurn, right.latestTurn) &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
-    left.forkOrigin?.sourceThreadId === right.forkOrigin?.sourceThreadId &&
-    left.forkOrigin?.sourceThreadTitle === right.forkOrigin?.sourceThreadTitle &&
-    left.forkOrigin?.sourceUserMessageId === right.forkOrigin?.sourceUserMessageId &&
-    left.forkOrigin?.importedUntilAt === right.forkOrigin?.importedUntilAt &&
-    left.forkOrigin?.forkedAt === right.forkOrigin?.forkedAt &&
-    left.teamParentThreadId === right.teamParentThreadId &&
-    left.teamParentTaskId === right.teamParentTaskId &&
-    left.teamRoleLabel === right.teamRoleLabel &&
-    left.teamStatus === right.teamStatus &&
-    left.activeTeamTaskCount === right.activeTeamTaskCount &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
@@ -486,17 +417,7 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left.archivedAt === right.archivedAt &&
     left.updatedAt === right.updatedAt &&
     left.branch === right.branch &&
-    left.worktreePath === right.worktreePath &&
-    left.forkOrigin?.sourceThreadId === right.forkOrigin?.sourceThreadId &&
-    left.forkOrigin?.sourceThreadTitle === right.forkOrigin?.sourceThreadTitle &&
-    left.forkOrigin?.sourceUserMessageId === right.forkOrigin?.sourceUserMessageId &&
-    left.forkOrigin?.importedUntilAt === right.forkOrigin?.importedUntilAt &&
-    left.forkOrigin?.forkedAt === right.forkOrigin?.forkedAt &&
-    left.teamParentThreadId === right.teamParentThreadId &&
-    left.teamParentTaskId === right.teamParentTaskId &&
-    left.teamRoleLabel === right.teamRoleLabel &&
-    left.teamStatus === right.teamStatus &&
-    left.activeTeamTaskCount === right.activeTeamTaskCount
+    left.worktreePath === right.worktreePath
   );
 }
 
@@ -549,20 +470,6 @@ function buildProposedPlanSlice(thread: Thread): {
     byId: Object.fromEntries(
       thread.proposedPlans.map((plan) => [plan.id, plan] as const),
     ) as Record<string, ProposedPlan>,
-  };
-}
-
-function buildTeamTaskSlice(thread: Thread): {
-  ids: string[];
-  byId: Record<string, TeamTask>;
-} {
-  const teamTasks = thread.teamTasks ?? [];
-  return {
-    ids: teamTasks.map((task) => task.id),
-    byId: Object.fromEntries(teamTasks.map((task) => [task.id, task] as const)) as Record<
-      string,
-      TeamTask
-    >,
   };
 }
 
@@ -749,21 +656,6 @@ function writeThreadState(
     };
   }
 
-  if (previousThread?.teamTasks !== nextThread.teamTasks) {
-    const nextTeamTaskSlice = buildTeamTaskSlice(nextThread);
-    nextState = {
-      ...nextState,
-      teamTaskIdsByThreadId: {
-        ...nextState.teamTaskIdsByThreadId,
-        [nextThread.id]: nextTeamTaskSlice.ids,
-      },
-      teamTaskByThreadId: {
-        ...nextState.teamTaskByThreadId,
-        [nextThread.id]: nextTeamTaskSlice.byId,
-      },
-    };
-  }
-
   if (previousThread?.turnDiffSummaries !== nextThread.turnDiffSummaries) {
     const nextTurnDiffSlice = buildTurnDiffSlice(nextThread);
     nextState = {
@@ -904,9 +796,6 @@ function removeThreadState(state: EnvironmentState, threadId: ThreadId): Environ
   const { [threadId]: _removedPlanIds, ...proposedPlanIdsByThreadId } =
     state.proposedPlanIdsByThreadId;
   const { [threadId]: _removedPlans, ...proposedPlanByThreadId } = state.proposedPlanByThreadId;
-  const { [threadId]: _removedTeamTaskIds, ...teamTaskIdsByThreadId } =
-    state.teamTaskIdsByThreadId ?? {};
-  const { [threadId]: _removedTeamTasks, ...teamTaskByThreadId } = state.teamTaskByThreadId ?? {};
   const { [threadId]: _removedTurnDiffIds, ...turnDiffIdsByThreadId } = state.turnDiffIdsByThreadId;
   const { [threadId]: _removedTurnDiffs, ...turnDiffSummaryByThreadId } =
     state.turnDiffSummaryByThreadId;
@@ -926,8 +815,6 @@ function removeThreadState(state: EnvironmentState, threadId: ThreadId): Environ
     activityByThreadId,
     proposedPlanIdsByThreadId,
     proposedPlanByThreadId,
-    teamTaskIdsByThreadId,
-    teamTaskByThreadId,
     turnDiffIdsByThreadId,
     turnDiffSummaryByThreadId,
     sidebarThreadSummaryById,
@@ -1114,7 +1001,7 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex" || providerName === "claudeAgent") {
+  if (Schema.is(ProviderKind)(providerName)) {
     return providerName;
   }
   return "codex";
@@ -1331,9 +1218,6 @@ function applyEnvironmentOrchestrationEvent(
         ...(event.payload.scripts !== undefined
           ? { scripts: mapProjectScripts(event.payload.scripts) }
           : {}),
-        ...(event.payload.worktreeReadiness !== undefined
-          ? { worktreeReadiness: event.payload.worktreeReadiness ?? null }
-          : {}),
         updatedAt: event.payload.updatedAt,
       };
       return {
@@ -1369,19 +1253,13 @@ function applyEnvironmentOrchestrationEvent(
           interactionMode: event.payload.interactionMode,
           branch: event.payload.branch,
           worktreePath: event.payload.worktreePath,
-          ...(event.payload.forkOrigin ? { forkOrigin: event.payload.forkOrigin } : {}),
           latestTurn: null,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
           archivedAt: null,
           deletedAt: null,
-          teamParentThreadId: null,
-          teamParentTaskId: null,
-          teamRoleLabel: null,
-          teamStatus: null,
           messages: [],
           proposedPlans: [],
-          teamTasks: [],
           activities: [],
           checkpoints: [],
           session: null,
@@ -1590,31 +1468,6 @@ function applyEnvironmentOrchestrationEvent(
                 sourceProposedPlan: thread.pendingSourceProposedPlan,
               })
             : thread.latestTurn,
-        updatedAt: event.occurredAt,
-      }));
-
-    case "thread.team-task-spawn-requested":
-    case "thread.team-task-upserted":
-      return updateThreadState(state, event.payload.parentThreadId, (thread) => {
-        const teamTasks = [
-          ...(thread.teamTasks ?? []).filter((task) => task.id !== event.payload.teamTask.id),
-          mapTeamTask(event.payload.teamTask),
-        ].toSorted(
-          (left, right) =>
-            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-        );
-        return {
-          ...thread,
-          teamTasks,
-          activeTeamTaskCount: teamTasks.filter((task) => isActiveTeamTaskStatus(task.status))
-            .length,
-          updatedAt: event.occurredAt,
-        };
-      });
-
-    case "thread.team-task-cancel-requested":
-      return updateThreadState(state, event.payload.parentThreadId, (thread) => ({
-        ...thread,
         updatedAt: event.occurredAt,
       }));
 
@@ -1913,12 +1766,6 @@ export function selectSidebarThreadsAcrossEnvironments(state: AppState): Sidebar
   );
 }
 
-export function selectNavigableSidebarThreadsAcrossEnvironments(
-  state: AppState,
-): SidebarThreadSummary[] {
-  return selectSidebarThreadsAcrossEnvironments(state).filter(isUserFacingTopLevelThread);
-}
-
 export function selectSidebarThreadsForProjectRef(
   state: AppState,
   ref: ScopedProjectRef | null | undefined,
@@ -1935,13 +1782,6 @@ export function selectSidebarThreadsForProjectRef(
   });
 }
 
-export function selectNavigableSidebarThreadsForProjectRef(
-  state: AppState,
-  ref: ScopedProjectRef | null | undefined,
-): SidebarThreadSummary[] {
-  return selectSidebarThreadsForProjectRef(state, ref).filter(isUserFacingTopLevelThread);
-}
-
 export function selectSidebarThreadsForProjectRefs(
   state: AppState,
   refs: readonly ScopedProjectRef[],
@@ -1949,13 +1789,6 @@ export function selectSidebarThreadsForProjectRefs(
   if (refs.length === 0) return [];
   if (refs.length === 1) return selectSidebarThreadsForProjectRef(state, refs[0]);
   return refs.flatMap((ref) => selectSidebarThreadsForProjectRef(state, ref));
-}
-
-export function selectNavigableSidebarThreadsForProjectRefs(
-  state: AppState,
-  refs: readonly ScopedProjectRef[],
-): SidebarThreadSummary[] {
-  return selectSidebarThreadsForProjectRefs(state, refs).filter(isUserFacingTopLevelThread);
 }
 
 export function selectBootstrapCompleteForActiveEnvironment(state: AppState): boolean {
@@ -2097,7 +1930,6 @@ interface AppStore extends AppState {
     environmentId: EnvironmentId,
   ) => void;
   syncServerThreadDetail: (thread: OrchestrationThread, environmentId: EnvironmentId) => void;
-  seedThreadShell: (thread: OrchestrationThreadShell, environmentId: EnvironmentId) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent, environmentId: EnvironmentId) => void;
   applyOrchestrationEvents: (
     events: ReadonlyArray<OrchestrationEvent>,
@@ -2120,17 +1952,6 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => syncServerShellSnapshot(state, snapshot, environmentId)),
   syncServerThreadDetail: (thread, environmentId) =>
     set((state) => syncServerThreadDetail(state, thread, environmentId)),
-  seedThreadShell: (thread, environmentId) =>
-    set((state) =>
-      commitEnvironmentState(
-        state,
-        environmentId,
-        writeThreadShellState(
-          getStoredEnvironmentState(state, environmentId),
-          mapThreadShell(thread, environmentId),
-        ),
-      ),
-    ),
   applyOrchestrationEvent: (event, environmentId) =>
     set((state) => applyOrchestrationEvent(state, event, environmentId)),
   applyOrchestrationEvents: (events, environmentId) =>

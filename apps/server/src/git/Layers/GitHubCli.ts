@@ -1,7 +1,7 @@
 import { Effect, Layer, Result, Schema, SchemaIssue } from "effect";
 import { TrimmedNonEmptyString } from "@t3tools/contracts";
 
-import { runProcess } from "../../processRunner";
+import { runProcess } from "../../processRunner.ts";
 import { GitHubCliError } from "@t3tools/contracts";
 import {
   GitHubCli,
@@ -15,13 +15,6 @@ import {
 } from "../githubPullRequests.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-
-function appendRepositoryArg(
-  args: ReadonlyArray<string>,
-  repository?: string,
-): ReadonlyArray<string> {
-  return repository ? [...args, "--repo", repository] : args;
-}
 
 function normalizeGitHubCliError(operation: "execute" | "stdout", error: unknown): GitHubCliError {
   if (error instanceof Error) {
@@ -124,21 +117,18 @@ const makeGitHubCli = Effect.sync(() => {
     listOpenPullRequests: (input) =>
       execute({
         cwd: input.cwd,
-        args: appendRepositoryArg(
-          [
-            "pr",
-            "list",
-            "--head",
-            input.headSelector,
-            "--state",
-            "open",
-            "--limit",
-            String(input.limit ?? 1),
-            "--json",
-            "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
-          ],
-          input.repository,
-        ),
+        args: [
+          "pr",
+          "list",
+          "--head",
+          input.headSelector,
+          "--state",
+          "open",
+          "--limit",
+          String(input.limit ?? 1),
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+        ],
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
         Effect.flatMap((raw) =>
@@ -214,29 +204,23 @@ const makeGitHubCli = Effect.sync(() => {
     createPullRequest: (input) =>
       execute({
         cwd: input.cwd,
-        args: appendRepositoryArg(
-          [
-            "pr",
-            "create",
-            "--base",
-            input.baseBranch,
-            "--head",
-            input.headSelector,
-            "--title",
-            input.title,
-            "--body-file",
-            input.bodyFile,
-          ],
-          input.repository,
-        ),
+        args: [
+          "pr",
+          "create",
+          "--base",
+          input.baseBranch,
+          "--head",
+          input.headSelector,
+          "--title",
+          input.title,
+          "--body-file",
+          input.bodyFile,
+        ],
       }).pipe(Effect.asVoid),
     getDefaultBranch: (input) =>
       execute({
         cwd: input.cwd,
-        args: appendRepositoryArg(
-          ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
-          input.repository,
-        ),
+        args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
       }).pipe(
         Effect.map((value) => {
           const trimmed = value.stdout.trim();

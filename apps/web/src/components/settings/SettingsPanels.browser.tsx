@@ -331,41 +331,6 @@ const createDesktopBridgeStub = (overrides?: {
   };
 };
 
-const createLocalApiStub = (overrides?: {
-  readonly openInEditor?: LocalApi["shell"]["openInEditor"];
-  readonly updateSettings?: LocalApi["server"]["updateSettings"];
-}): LocalApi =>
-  ({
-    dialogs: {
-      pickFolder: vi.fn().mockResolvedValue(null),
-      confirm: vi.fn().mockResolvedValue(false),
-    },
-    shell: {
-      openInEditor: overrides?.openInEditor ?? vi.fn().mockResolvedValue(undefined),
-      openExternal: vi.fn().mockResolvedValue(undefined),
-    },
-    contextMenu: {
-      show: vi.fn().mockResolvedValue(null),
-    },
-    persistence: {
-      getClientSettings: vi.fn().mockResolvedValue(null),
-      setClientSettings: vi.fn().mockResolvedValue(undefined),
-      getSavedEnvironmentRegistry: vi.fn().mockResolvedValue([]),
-      setSavedEnvironmentRegistry: vi.fn().mockResolvedValue(undefined),
-      getSavedEnvironmentSecret: vi.fn().mockResolvedValue(null),
-      setSavedEnvironmentSecret: vi.fn().mockResolvedValue(true),
-      removeSavedEnvironmentSecret: vi.fn().mockResolvedValue(undefined),
-    },
-    server: {
-      getConfig: vi.fn().mockResolvedValue(createBaseServerConfig()),
-      refreshProviders: vi.fn().mockResolvedValue({ providers: [] }),
-      upsertKeybinding: vi.fn(),
-      getSettings: vi.fn().mockResolvedValue(DEFAULT_SERVER_SETTINGS),
-      updateSettings:
-        overrides?.updateSettings ?? vi.fn().mockResolvedValue(DEFAULT_SERVER_SETTINGS),
-    },
-  }) as LocalApi;
-
 describe("GeneralSettingsPanel observability", () => {
   let mounted:
     | (Awaited<ReturnType<typeof render>> & {
@@ -485,37 +450,6 @@ describe("GeneralSettingsPanel observability", () => {
           "Local trace file. OTLP exporting traces to http://localhost:4318/v1/traces.",
         ),
       )
-      .toBeInTheDocument();
-  });
-
-  it("toggles team subagents from general settings", async () => {
-    const updateSettings = vi.fn<LocalApi["server"]["updateSettings"]>().mockResolvedValue({
-      ...DEFAULT_SERVER_SETTINGS,
-      teamAgents: true,
-    });
-    window.nativeApi = createLocalApiStub({ updateSettings });
-
-    setServerConfigSnapshot(createBaseServerConfig());
-
-    mounted = await render(
-      <AppAtomRegistryProvider>
-        <GeneralSettingsPanel />
-      </AppAtomRegistryProvider>,
-    );
-
-    const toggle = page.getByLabelText("Enable team subagents");
-    await expect.element(toggle).toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Reset team subagents to default"))
-      .not.toBeInTheDocument();
-
-    await toggle.click();
-
-    await vi.waitFor(() => {
-      expect(updateSettings).toHaveBeenCalledWith({ teamAgents: true });
-    });
-    await expect
-      .element(page.getByLabelText("Reset team subagents to default"))
       .toBeInTheDocument();
   });
 
@@ -735,7 +669,7 @@ describe("GeneralSettingsPanel observability", () => {
     await networkAccessToggle.click();
     await expect.element(page.getByText("Enable network access?")).toBeInTheDocument();
     await expect
-      .element(page.getByText("Dynamo will restart to expose this environment over the network."))
+      .element(page.getByText("T3 Code will restart to expose this environment over the network."))
       .toBeInTheDocument();
     await page.getByRole("button", { name: "Restart and enable", exact: true }).click();
     await vi.waitFor(() => {
@@ -748,7 +682,11 @@ describe("GeneralSettingsPanel observability", () => {
 
   it("opens the logs folder in the preferred editor", async () => {
     const openInEditor = vi.fn<LocalApi["shell"]["openInEditor"]>().mockResolvedValue(undefined);
-    window.nativeApi = createLocalApiStub({ openInEditor });
+    window.nativeApi = {
+      shell: {
+        openInEditor,
+      },
+    } as unknown as LocalApi;
 
     setServerConfigSnapshot(createBaseServerConfig());
 
@@ -762,5 +700,22 @@ describe("GeneralSettingsPanel observability", () => {
     await openLogsButton.click();
 
     expect(openInEditor).toHaveBeenCalledWith("/repo/project/.t3/logs", "cursor");
+  });
+
+  it("shows an OpenCode server URL field in provider settings", async () => {
+    setServerConfigSnapshot(createBaseServerConfig());
+
+    mounted = await render(
+      <AppAtomRegistryProvider>
+        <GeneralSettingsPanel />
+      </AppAtomRegistryProvider>,
+    );
+
+    await page.getByLabelText("Toggle OpenCode details").click();
+
+    await expect.element(page.getByText("OpenCode server URL")).toBeInTheDocument();
+    await expect.element(page.getByPlaceholder("http://127.0.0.1:4096")).toBeInTheDocument();
+    await expect.element(page.getByText("OpenCode server password")).toBeInTheDocument();
+    await expect.element(page.getByPlaceholder("Server password")).toBeInTheDocument();
   });
 });

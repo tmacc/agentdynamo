@@ -3,7 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";
 import { Cause, Effect, FileSystem, Layer, Logger, Path, Schema } from "effect";
-import { ServerConfig } from "./config";
+import { ServerConfig } from "./config.ts";
 
 import {
   DEFAULT_KEYBINDINGS,
@@ -13,7 +13,7 @@ import {
   compileResolvedKeybindingRule,
   compileResolvedKeybindingsConfig,
   parseKeybindingShortcut,
-} from "./keybindings";
+} from "./keybindings.ts";
 import { KeybindingsConfigError } from "@t3tools/contracts";
 
 const KeybindingsConfigJson = Schema.fromJsonString(KeybindingsConfig);
@@ -192,6 +192,9 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("thread.next"), "mod+shift+]");
       assert.equal(defaultsByCommand.get("thread.jump.1"), "mod+1");
       assert.equal(defaultsByCommand.get("thread.jump.9"), "mod+9");
+      assert.equal(defaultsByCommand.get("modelPicker.toggle"), "mod+shift+m");
+      assert.equal(defaultsByCommand.get("modelPicker.jump.1"), "mod+1");
+      assert.equal(defaultsByCommand.get("modelPicker.jump.9"), "mod+9");
     }),
   );
 
