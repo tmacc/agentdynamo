@@ -135,6 +135,7 @@ describe("OrchestrationEngine", () => {
           deletedAt: null,
           messages: [],
           proposedPlans: [],
+          contextHandoffs: [],
           activities: [],
           checkpoints: [],
           session: null,

@@ -11,6 +11,7 @@ import {
   KeybindingRule,
   MessageId,
   OpenError,
+  OrchestrationForkThreadError,
   type OrchestrationThreadShell,
   TerminalNotRunningError,
   type OrchestrationCommand,
@@ -74,6 +75,10 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import {
+  ThreadForkDispatcher,
+  type ThreadForkDispatcherShape,
+} from "./orchestration/Services/ThreadForkDispatcher.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import {
   ProjectionBoardCardRepository,
@@ -168,6 +173,7 @@ const makeDefaultOrchestrationReadModel = () => {
         session: null,
         activities: [],
         proposedPlans: [],
+        contextHandoffs: [],
         checkpoints: [],
         deletedAt: null,
       },
@@ -193,6 +199,7 @@ const makeDefaultOrchestrationThreadShell = (
     updatedAt: now,
     archivedAt: null,
     session: null,
+    contextHandoffs: [],
     latestUserMessageAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
@@ -337,6 +344,7 @@ const buildAppUnderTest = (options?: {
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
+    threadForkDispatcher?: Partial<ThreadForkDispatcherShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     projectionBoardCardRepository?: Partial<ProjectionBoardCardRepositoryShape>;
     projectionBoardDismissedGhostRepository?: Partial<ProjectionBoardDismissedGhostRepositoryShape>;
@@ -490,6 +498,17 @@ const buildAppUnderTest = (options?: {
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
           ...options?.layers?.projectionSnapshotQuery,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ThreadForkDispatcher)({
+          forkThread: () =>
+            Effect.fail(
+              new OrchestrationForkThreadError({
+                message: "Thread fork dispatcher is not implemented in this test.",
+              }),
+            ),
+          ...options?.layers?.threadForkDispatcher,
         }),
       ),
       Layer.provide(
@@ -2932,6 +2951,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             session: null,
             activities: [],
             proposedPlans: [],
+            contextHandoffs: [],
             checkpoints: [],
             deletedAt: null,
           },

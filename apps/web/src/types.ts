@@ -11,6 +11,7 @@ import type {
   ProjectId,
   TurnId,
   MessageId,
+  OrchestrationThreadForkOrigin,
   ProviderKind,
   CheckpointRef,
   ProviderInteractionMode,
@@ -114,6 +115,7 @@ export interface Thread {
   worktreePath: string | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
+  forkOrigin?: OrchestrationThreadForkOrigin;
 }
 
 export interface ThreadShell {
@@ -131,6 +133,7 @@ export interface ThreadShell {
   updatedAt?: string | undefined;
   branch: string | null;
   worktreePath: string | null;
+  forkOrigin?: OrchestrationThreadForkOrigin;
 }
 
 export interface ThreadTurnState {
@@ -151,6 +154,7 @@ export interface SidebarThreadSummary {
   latestTurn: OrchestrationLatestTurn | null;
   branch: string | null;
   worktreePath: string | null;
+  forkOrigin?: OrchestrationThreadForkOrigin;
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;

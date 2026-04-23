@@ -205,6 +205,9 @@ function createMockEnvironmentApi(input: {
     git: {} as EnvironmentApi["git"],
     orchestration: {
       dispatchCommand: input.dispatchCommand,
+      forkThread: (async () => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["orchestration"]["forkThread"],
       getTurnDiff: (() => {
         throw new Error("Not implemented in browser test.");
       }) as EnvironmentApi["orchestration"]["getTurnDiff"],
@@ -362,6 +365,7 @@ function createSnapshotForTargetUser(options: {
         messages,
         activities: [],
         proposedPlans: [],
+        contextHandoffs: [],
         checkpoints: [],
         session: {
           threadId: THREAD_ID,
@@ -427,6 +431,7 @@ function addThreadToSnapshot(
         messages: [],
         activities: [],
         proposedPlans: [],
+        contextHandoffs: [],
         checkpoints: [],
         session: {
           threadId,
@@ -456,6 +461,7 @@ function toShellThread(thread: OrchestrationReadModel["threads"][number]) {
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
     archivedAt: thread.archivedAt,
+    contextHandoffs: thread.contextHandoffs,
     session: thread.session,
     latestUserMessageAt:
       thread.messages.findLast((message) => message.role === "user")?.createdAt ?? null,
@@ -761,6 +767,7 @@ function createSnapshotWithSecondaryProject(options?: {
           messages: [],
           activities: [],
           proposedPlans: [],
+          contextHandoffs: [],
           checkpoints: [],
           session: {
             threadId: "thread-secondary-project" as ThreadId,
@@ -793,6 +800,7 @@ function createSnapshotWithSecondaryProject(options?: {
           messages: [],
           activities: [],
           proposedPlans: [],
+          contextHandoffs: [],
           checkpoints: [],
           session: {
             threadId: ARCHIVED_SECONDARY_THREAD_ID,

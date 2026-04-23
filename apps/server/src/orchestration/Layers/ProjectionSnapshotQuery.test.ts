@@ -320,6 +320,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               updatedAt: "2026-02-24T00:00:05.500Z",
             },
           ],
+          contextHandoffs: [],
           activities: [
             {
               id: asEventId("activity-1"),
@@ -417,6 +418,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             updatedAt: "2026-02-24T00:00:07.000Z",
           },
           latestUserMessageAt: "2026-02-24T00:00:04.000Z",
+          contextHandoffs: [],
           hasPendingApprovals: true,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,

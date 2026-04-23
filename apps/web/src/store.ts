@@ -245,6 +245,7 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -274,6 +275,7 @@ function mapThreadShell(
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
   };
   const session = thread.session ? mapSession(thread.session) : null;
   const turnState: ThreadTurnState = {
@@ -293,6 +295,7 @@ function mapThreadShell(
     latestTurn: thread.latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
     latestUserMessageAt: thread.latestUserMessageAt,
     hasPendingApprovals: thread.hasPendingApprovals,
     hasPendingUserInput: thread.hasPendingUserInput,
@@ -322,6 +325,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
   };
 }
 
@@ -394,6 +398,11 @@ function sidebarThreadSummariesEqual(
     latestTurnsEqual(left.latestTurn, right.latestTurn) &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
+    left.forkOrigin?.sourceThreadId === right.forkOrigin?.sourceThreadId &&
+    left.forkOrigin?.sourceThreadTitle === right.forkOrigin?.sourceThreadTitle &&
+    left.forkOrigin?.sourceUserMessageId === right.forkOrigin?.sourceUserMessageId &&
+    left.forkOrigin?.importedUntilAt === right.forkOrigin?.importedUntilAt &&
+    left.forkOrigin?.forkedAt === right.forkOrigin?.forkedAt &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
@@ -417,7 +426,12 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left.archivedAt === right.archivedAt &&
     left.updatedAt === right.updatedAt &&
     left.branch === right.branch &&
-    left.worktreePath === right.worktreePath
+    left.worktreePath === right.worktreePath &&
+    left.forkOrigin?.sourceThreadId === right.forkOrigin?.sourceThreadId &&
+    left.forkOrigin?.sourceThreadTitle === right.forkOrigin?.sourceThreadTitle &&
+    left.forkOrigin?.sourceUserMessageId === right.forkOrigin?.sourceUserMessageId &&
+    left.forkOrigin?.importedUntilAt === right.forkOrigin?.importedUntilAt &&
+    left.forkOrigin?.forkedAt === right.forkOrigin?.forkedAt
   );
 }
 
@@ -1260,6 +1274,7 @@ function applyEnvironmentOrchestrationEvent(
           deletedAt: null,
           messages: [],
           proposedPlans: [],
+          contextHandoffs: [],
           activities: [],
           checkpoints: [],
           session: null,

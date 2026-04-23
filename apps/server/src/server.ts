@@ -42,6 +42,8 @@ import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRun
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor.ts";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
+import { ThreadForkDispatcherLive } from "./orchestration/Layers/ThreadForkDispatcher.ts";
+import { ThreadForkMaterializerLive } from "./orchestration/Layers/ThreadForkMaterializer.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
 import { ServerSettingsLive } from "./serverSettings.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
@@ -224,7 +226,11 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
-const RuntimeDependenciesLive = ReactorLayerLive.pipe(
+const ThreadForkLayerLive = ThreadForkDispatcherLive.pipe(
+  Layer.provideMerge(ThreadForkMaterializerLive),
+);
+
+const RuntimeDependenciesLive = Layer.mergeAll(ReactorLayerLive, ThreadForkLayerLive).pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(GitLayerLive),

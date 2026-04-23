@@ -13,6 +13,7 @@ import {
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
+  OrchestrationForkThreadError,
   type OrchestrationShellStreamEvent,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
@@ -38,9 +39,11 @@ import { GitManager } from "./git/Services/GitManager.ts";
 import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster.ts";
 import { Keybindings } from "./keybindings.ts";
 import { Open, resolveAvailableEditors } from "./open.ts";
+import { enqueueAndExecuteForkThread } from "./orchestration/forkThreadExecution.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ThreadForkDispatcher } from "./orchestration/Services/ThreadForkDispatcher.ts";
 import { ProjectionBoardCardRepository } from "./persistence/Services/ProjectionBoardCards.ts";
 import { ProjectionBoardDismissedGhostRepository } from "./persistence/Services/ProjectionBoardDismissedGhosts.ts";
 import {
@@ -162,6 +165,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const serverAuth = yield* ServerAuth;
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
+      const threadForkDispatcher = yield* ThreadForkDispatcher;
       const serverCommandId = (tag: string) =>
         CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 
@@ -614,6 +618,25 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   ? cause
                   : new OrchestrationDispatchCommandError({
                       message: "Failed to dispatch orchestration command",
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.forkThread]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.forkThread,
+            enqueueAndExecuteForkThread({
+              startup,
+              threadForkDispatcher,
+              forkInput: input,
+            }).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(OrchestrationForkThreadError)(cause)
+                  ? cause
+                  : new OrchestrationForkThreadError({
+                      message: "Failed to fork thread.",
                       cause,
                     }),
               ),

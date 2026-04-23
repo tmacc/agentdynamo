@@ -91,6 +91,7 @@ function makeReadModel(
       session: thread.session,
       activities: [],
       proposedPlans: [],
+      contextHandoffs: [],
       checkpoints: [],
       deletedAt: null,
     })),
