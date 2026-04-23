@@ -11,6 +11,7 @@ import {
   type DiffPanelMode,
 } from "../components/DiffPanelShell";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
+import { type BoardRouteSearch, parseBoardRouteSearch } from "../boardRouteSearch";
 import {
   type DiffRouteSearch,
   parseDiffRouteSearch,
@@ -275,9 +276,19 @@ function ChatThreadRouteView() {
 }
 
 export const Route = createFileRoute("/_chat/$environmentId/$threadId")({
-  validateSearch: (search) => parseDiffRouteSearch(search),
+  validateSearch: (search) => ({
+    ...parseDiffRouteSearch(search),
+    ...parseBoardRouteSearch(search),
+  }),
   search: {
-    middlewares: [retainSearchParams<DiffRouteSearch>(["diff"])],
+    middlewares: [
+      retainSearchParams<DiffRouteSearch & BoardRouteSearch>([
+        "diff",
+        "view",
+        "boardEnvironmentId",
+        "boardProjectId",
+      ]),
+    ],
   },
   component: ChatThreadRouteView,
 });

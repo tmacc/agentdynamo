@@ -1,4 +1,10 @@
 import {
+  type BoardListCardsResult,
+  type BoardListCardsInput,
+  type BoardListDismissedGhostsResult,
+  type BoardListDismissedGhostsInput,
+  type BoardStreamEvent,
+  type BoardSubscribeProjectInput,
   type GitActionProgressEvent,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
@@ -118,6 +124,17 @@ export interface WsRpcClient {
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
     readonly subscribeShell: RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeShell>;
     readonly subscribeThread: RpcInputStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeThread>;
+  };
+  readonly board: {
+    readonly listCards: (input: BoardListCardsInput) => Promise<BoardListCardsResult>;
+    readonly listDismissedGhosts: (
+      input: BoardListDismissedGhostsInput,
+    ) => Promise<BoardListDismissedGhostsResult>;
+    readonly subscribeProject: (
+      input: BoardSubscribeProjectInput,
+      listener: (event: BoardStreamEvent) => void,
+      options?: StreamSubscriptionOptions,
+    ) => () => void;
   };
 }
 
@@ -251,6 +268,13 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
           listener,
           options,
         ),
+    },
+    board: {
+      listCards: (input) => transport.request((client) => client["board.listCards"](input)),
+      listDismissedGhosts: (input) =>
+        transport.request((client) => client["board.listDismissedGhosts"](input)),
+      subscribeProject: (input, listener, options) =>
+        transport.subscribe((client) => client["board.subscribeProject"](input), listener, options),
     },
   };
 }

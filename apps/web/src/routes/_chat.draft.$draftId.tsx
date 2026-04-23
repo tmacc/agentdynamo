@@ -1,5 +1,6 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
+import { type BoardRouteSearch, parseBoardRouteSearch } from "../boardRouteSearch";
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
 import { useComposerDraftStore, DraftId } from "../composerDraftStore";
@@ -82,5 +83,11 @@ function DraftChatThreadRouteView() {
 }
 
 export const Route = createFileRoute("/_chat/draft/$draftId")({
+  validateSearch: (search) => parseBoardRouteSearch(search),
+  search: {
+    middlewares: [
+      retainSearchParams<BoardRouteSearch>(["view", "boardEnvironmentId", "boardProjectId"]),
+    ],
+  },
   component: DraftChatThreadRouteView,
 });

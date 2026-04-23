@@ -60,6 +60,7 @@ import {
 import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
+import { clearBoardRouteSearchParams } from "../boardRouteSearch";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId } from "../lib/utils";
 import {
@@ -1417,7 +1418,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
         const actionHandlers = new Map<string, () => Promise<void> | void>();
         const makeLeaf = (
-          action: "rename" | "grouping" | "copy-path" | "delete",
+          action: "open-board" | "rename" | "grouping" | "copy-path" | "delete",
           member: SidebarProjectGroupMember,
           options?: {
             destructive?: boolean;
@@ -1427,6 +1428,19 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           const id = `${action}:${member.physicalProjectKey}`;
           actionHandlers.set(id, () => {
             switch (action) {
+              case "open-board":
+                void router
+                  .navigate({
+                    to: ".",
+                    search: (previous) => ({
+                      ...(previous as Record<string, unknown>),
+                      view: "board",
+                      boardEnvironmentId: member.environmentId,
+                      boardProjectId: member.id,
+                    }),
+                  })
+                  .catch(() => undefined);
+                return;
               case "rename":
                 openProjectRenameDialog(member);
                 return;
@@ -1450,7 +1464,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         };
 
         const buildTargetedItem = (
-          action: "rename" | "grouping" | "copy-path" | "delete",
+          action: "open-board" | "rename" | "grouping" | "copy-path" | "delete",
           label: string,
           options?: {
             destructive?: boolean;
@@ -1482,6 +1496,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
         const clicked = await api.contextMenu.show(
           [
+            buildTargetedItem("open-board", "Open board"),
             buildTargetedItem("rename", "Rename project"),
             buildTargetedItem("grouping", "Project grouping…"),
             buildTargetedItem("copy-path", "Copy Project Path"),
@@ -1509,6 +1524,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       openProjectRenameDialog,
       project.groupedProjectCount,
       project.memberProjects,
+      router,
       suppressProjectClickForContextMenuRef,
     ],
   );
@@ -1522,6 +1538,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       void router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
+        search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
       });
     },
     [clearSelection, router, setSelectionAnchor],
@@ -1558,6 +1575,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       void router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
+        search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
       });
     },
     [clearSelection, rangeSelectTo, router, setSelectionAnchor, toggleThreadSelection],

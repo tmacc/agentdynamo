@@ -1,11 +1,16 @@
-import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { Outlet, createFileRoute, redirect, useNavigate, useSearch } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo } from "react";
+import type { FeatureCard } from "@t3tools/contracts";
 
+import { clearBoardRouteSearchParams, parseBoardRouteSearch } from "../boardRouteSearch";
+import { BoardView } from "../components/board/BoardView";
+import { SidebarInset } from "../components/ui/sidebar";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import {
   startNewLocalThreadFromContext,
   startNewThreadFromContext,
+  startSeededThreadForCard,
 } from "../lib/chatThreadActions";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
@@ -98,15 +103,118 @@ function ChatRouteGlobalShortcuts() {
 }
 
 function ChatRouteLayout() {
+  const search = useSearch({ from: "/_chat" });
+  const boardActive = search.view === "board";
+
   return (
     <>
       <ChatRouteGlobalShortcuts />
-      <Outlet />
+      {boardActive ? <BoardRouteView /> : <Outlet />}
     </>
   );
 }
 
+function BoardRouteView() {
+  const search = useSearch({ from: "/_chat" });
+  const navigate = useNavigate();
+  const {
+    activeDraftThread,
+    activeThread,
+    createFreshDraftThread,
+    defaultProjectRef,
+    handleNewThread,
+  } = useHandleNewThread();
+  const appSettings = useSettings();
+
+  const resolved = useMemo(() => {
+    if (search.boardEnvironmentId && search.boardProjectId) {
+      return {
+        environmentId: search.boardEnvironmentId,
+        projectId: search.boardProjectId,
+      };
+    }
+    if (activeThread) {
+      return {
+        environmentId: activeThread.environmentId,
+        projectId: activeThread.projectId,
+      };
+    }
+    if (activeDraftThread) {
+      return {
+        environmentId: activeDraftThread.environmentId,
+        projectId: activeDraftThread.projectId,
+      };
+    }
+    return defaultProjectRef;
+  }, [activeDraftThread, activeThread, defaultProjectRef, search]);
+
+  const handleCloseBoard = useCallback(() => {
+    void navigate({
+      to: ".",
+      search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
+    }).catch(() => undefined);
+  }, [navigate]);
+
+  const handleStartAgent = useCallback(
+    (card: FeatureCard) => {
+      if (!resolved) {
+        return;
+      }
+      void startSeededThreadForCard({
+        card,
+        context: {
+          activeDraftThread,
+          activeThread,
+          createFreshDraftThread,
+          defaultProjectRef,
+          defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
+            defaultEnvMode: appSettings.defaultThreadEnvMode,
+          }),
+          handleNewThread,
+        },
+        environmentId: resolved.environmentId,
+      }).catch(() => undefined);
+    },
+    [
+      activeDraftThread,
+      activeThread,
+      appSettings.defaultThreadEnvMode,
+      createFreshDraftThread,
+      defaultProjectRef,
+      handleNewThread,
+      resolved,
+    ],
+  );
+
+  if (!resolved) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
+        Select a project to view its board.
+      </div>
+    );
+  }
+
+  const closeBoardLabel = activeThread
+    ? "Back to thread"
+    : activeDraftThread
+      ? "Back to draft"
+      : "Close board";
+
+  return (
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      <BoardView
+        environmentId={resolved.environmentId}
+        projectId={resolved.projectId}
+        onStartAgent={handleStartAgent}
+        onCloseBoard={handleCloseBoard}
+        closeBoardLabel={closeBoardLabel}
+      />
+    </SidebarInset>
+  );
+}
+
 export const Route = createFileRoute("/_chat")({
+  validateSearch: (search) => parseBoardRouteSearch(search),
   beforeLoad: async ({ context }) => {
     if (context.authGateState.status !== "authenticated") {
       throw redirect({ to: "/pair", replace: true });

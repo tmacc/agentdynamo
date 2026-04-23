@@ -10,6 +10,8 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
+import { ProjectionBoardCardRepository } from "../../persistence/Services/ProjectionBoardCards.ts";
+import { ProjectionBoardDismissedGhostRepository } from "../../persistence/Services/ProjectionBoardDismissedGhosts.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -29,6 +31,8 @@ import {
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
+import { ProjectionBoardCardRepositoryLive } from "../../persistence/Layers/ProjectionBoardCards.ts";
+import { ProjectionBoardDismissedGhostRepositoryLive } from "../../persistence/Layers/ProjectionBoardDismissedGhosts.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
@@ -59,6 +63,8 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
   pendingApprovals: "projection.pending-approvals",
+  boardCards: "projection.board-cards",
+  boardDismissedGhosts: "projection.board-dismissed-ghosts",
 } as const;
 
 type ProjectorName =
@@ -451,6 +457,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
+    const projectionBoardCardRepository = yield* ProjectionBoardCardRepository;
+    const projectionBoardDismissedGhostRepository = yield* ProjectionBoardDismissedGhostRepository;
 
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -1334,6 +1342,147 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
+    const applyBoardCardsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyBoardCardsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "board.card-created":
+          yield* projectionBoardCardRepository.upsert({
+            id: event.payload.cardId,
+            projectId: event.payload.projectId,
+            title: event.payload.title,
+            description: event.payload.description,
+            seededPrompt: event.payload.seededPrompt,
+            column: event.payload.column,
+            sortOrder: event.payload.sortOrder,
+            linkedThreadId: event.payload.linkedThreadId,
+            linkedProposedPlanId: event.payload.linkedProposedPlanId,
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+            archivedAt: null,
+          });
+          return;
+
+        case "board.card-updated": {
+          const existingRow = yield* projectionBoardCardRepository.getById({
+            cardId: event.payload.cardId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionBoardCardRepository.upsert({
+            ...existingRow.value,
+            ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
+            ...(event.payload.description !== undefined
+              ? { description: event.payload.description }
+              : {}),
+            ...(event.payload.seededPrompt !== undefined
+              ? { seededPrompt: event.payload.seededPrompt }
+              : {}),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "board.card-moved": {
+          const existingRow = yield* projectionBoardCardRepository.getById({
+            cardId: event.payload.cardId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionBoardCardRepository.upsert({
+            ...existingRow.value,
+            column: event.payload.toColumn,
+            sortOrder: event.payload.sortOrder,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "board.card-archived": {
+          const existingRow = yield* projectionBoardCardRepository.getById({
+            cardId: event.payload.cardId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionBoardCardRepository.upsert({
+            ...existingRow.value,
+            archivedAt: event.payload.archivedAt,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "board.card-deleted":
+          yield* projectionBoardCardRepository.deleteById({
+            cardId: event.payload.cardId,
+          });
+          return;
+
+        case "board.card-thread-linked": {
+          const existingRow = yield* projectionBoardCardRepository.getById({
+            cardId: event.payload.cardId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionBoardCardRepository.upsert({
+            ...existingRow.value,
+            linkedThreadId: event.payload.threadId,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "board.card-thread-unlinked": {
+          const existingRow = yield* projectionBoardCardRepository.getById({
+            cardId: event.payload.cardId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          if (existingRow.value.linkedThreadId !== event.payload.previousThreadId) {
+            return;
+          }
+          yield* projectionBoardCardRepository.upsert({
+            ...existingRow.value,
+            linkedThreadId: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        default:
+          return;
+      }
+    });
+
+    const applyBoardDismissedGhostsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyBoardDismissedGhostsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "board.ghost-card-dismissed":
+          yield* projectionBoardDismissedGhostRepository.upsert({
+            projectId: event.payload.projectId,
+            threadId: event.payload.threadId,
+            dismissedAt: event.payload.dismissedAt,
+          });
+          return;
+
+        case "board.ghost-card-undismissed":
+          yield* projectionBoardDismissedGhostRepository.delete({
+            projectId: event.payload.projectId,
+            threadId: event.payload.threadId,
+          });
+          return;
+
+        default:
+          return;
+      }
+    });
+
     const projectors: ReadonlyArray<ProjectorDefinition> = [
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.projects,
@@ -1370,6 +1519,14 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.threads,
         apply: applyThreadsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.boardCards,
+        apply: applyBoardCardsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.boardDismissedGhosts,
+        apply: applyBoardDismissedGhostsProjection,
       },
     ];
 
@@ -1473,5 +1630,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),
+  Layer.provideMerge(ProjectionBoardCardRepositoryLive),
+  Layer.provideMerge(ProjectionBoardDismissedGhostRepositoryLive),
   Layer.provideMerge(ProjectionStateRepositoryLive),
 );

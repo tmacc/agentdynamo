@@ -215,6 +215,16 @@ function createMockEnvironmentApi(input: {
       subscribeThread: (() => () =>
         undefined) as EnvironmentApi["orchestration"]["subscribeThread"],
     },
+    board: {
+      listCards: (async () => ({ cards: [] })) as EnvironmentApi["board"]["listCards"],
+      listDismissedGhosts: (async () => ({
+        dismissed: [],
+      })) as EnvironmentApi["board"]["listDismissedGhosts"],
+      subscribeProject: (() => () => undefined) as EnvironmentApi["board"]["subscribeProject"],
+      dispatchCommand: (async () => ({
+        sequence: 1,
+      })) as EnvironmentApi["board"]["dispatchCommand"],
+    },
   };
 }
 
