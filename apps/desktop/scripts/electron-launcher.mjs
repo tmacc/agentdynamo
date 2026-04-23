@@ -206,5 +206,11 @@ export function resolveElectronPath() {
     return electronBinaryPath;
   }
 
+  // Dev launches do not need a renamed app bundle badly enough to risk breaking
+  // Electron helper resource lookup on macOS.
+  if (isDevelopment) {
+    return electronBinaryPath;
+  }
+
   return buildMacLauncher(electronBinaryPath);
 }
