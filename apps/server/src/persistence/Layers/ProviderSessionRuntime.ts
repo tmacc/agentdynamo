@@ -29,13 +29,6 @@ const GetRuntimeRequestSchema = Schema.Struct({
 
 const DeleteRuntimeRequestSchema = GetRuntimeRequestSchema;
 
-const GetRuntimeByProviderRequestSchema = Schema.Struct({
-  threadId: ThreadId,
-  providerName: Schema.String,
-});
-
-const DeleteRuntimeByProviderRequestSchema = GetRuntimeByProviderRequestSchema;
-
 function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
   return (cause: unknown): ProviderSessionRuntimeRepositoryError =>
     Schema.isSchemaError(cause)
@@ -56,7 +49,6 @@ const makeProviderSessionRuntimeRepository = Effect.gen(function* () {
           adapter_key,
           runtime_mode,
           status,
-          slot_state,
           last_seen_at,
           resume_cursor_json,
           runtime_payload_json
@@ -67,17 +59,16 @@ const makeProviderSessionRuntimeRepository = Effect.gen(function* () {
           ${runtime.adapterKey},
           ${runtime.runtimeMode},
           ${runtime.status},
-          ${runtime.slotState},
           ${runtime.lastSeenAt},
           ${runtime.resumeCursor},
           ${runtime.runtimePayload}
         )
-        ON CONFLICT (thread_id, provider_name)
+        ON CONFLICT (thread_id)
         DO UPDATE SET
+          provider_name = excluded.provider_name,
           adapter_key = excluded.adapter_key,
           runtime_mode = excluded.runtime_mode,
           status = excluded.status,
-          slot_state = excluded.slot_state,
           last_seen_at = excluded.last_seen_at,
           resume_cursor_json = excluded.resume_cursor_json,
           runtime_payload_json = excluded.runtime_payload_json
@@ -95,61 +86,11 @@ const makeProviderSessionRuntimeRepository = Effect.gen(function* () {
           adapter_key AS "adapterKey",
           runtime_mode AS "runtimeMode",
           status,
-          slot_state AS "slotState",
           last_seen_at AS "lastSeenAt",
           resume_cursor_json AS "resumeCursor",
           runtime_payload_json AS "runtimePayload"
         FROM provider_session_runtime
         WHERE thread_id = ${threadId}
-          AND slot_state = 'active'
-        ORDER BY last_seen_at DESC, provider_name ASC
-        LIMIT 1
-      `,
-  });
-
-  const getRuntimeRowByThreadIdAndProvider = SqlSchema.findOneOption({
-    Request: GetRuntimeByProviderRequestSchema,
-    Result: ProviderSessionRuntimeDbRowSchema,
-    execute: ({ threadId, providerName }) =>
-      sql`
-        SELECT
-          thread_id AS "threadId",
-          provider_name AS "providerName",
-          adapter_key AS "adapterKey",
-          runtime_mode AS "runtimeMode",
-          status,
-          slot_state AS "slotState",
-          last_seen_at AS "lastSeenAt",
-          resume_cursor_json AS "resumeCursor",
-          runtime_payload_json AS "runtimePayload"
-        FROM provider_session_runtime
-        WHERE thread_id = ${threadId}
-          AND provider_name = ${providerName}
-        LIMIT 1
-      `,
-  });
-
-  const listRuntimeRowsByThreadId = SqlSchema.findAll({
-    Request: GetRuntimeRequestSchema,
-    Result: ProviderSessionRuntimeDbRowSchema,
-    execute: ({ threadId }) =>
-      sql`
-        SELECT
-          thread_id AS "threadId",
-          provider_name AS "providerName",
-          adapter_key AS "adapterKey",
-          runtime_mode AS "runtimeMode",
-          status,
-          slot_state AS "slotState",
-          last_seen_at AS "lastSeenAt",
-          resume_cursor_json AS "resumeCursor",
-          runtime_payload_json AS "runtimePayload"
-        FROM provider_session_runtime
-        WHERE thread_id = ${threadId}
-        ORDER BY
-          CASE slot_state WHEN 'active' THEN 0 ELSE 1 END ASC,
-          last_seen_at DESC,
-          provider_name ASC
       `,
   });
 
@@ -164,15 +105,11 @@ const makeProviderSessionRuntimeRepository = Effect.gen(function* () {
           adapter_key AS "adapterKey",
           runtime_mode AS "runtimeMode",
           status,
-          slot_state AS "slotState",
           last_seen_at AS "lastSeenAt",
           resume_cursor_json AS "resumeCursor",
           runtime_payload_json AS "runtimePayload"
         FROM provider_session_runtime
-        ORDER BY
-          last_seen_at ASC,
-          thread_id ASC,
-          provider_name ASC
+        ORDER BY last_seen_at ASC, thread_id ASC
       `,
   });
 
@@ -182,16 +119,6 @@ const makeProviderSessionRuntimeRepository = Effect.gen(function* () {
       sql`
         DELETE FROM provider_session_runtime
         WHERE thread_id = ${threadId}
-      `,
-  });
-
-  const deleteRuntimeByThreadIdAndProvider = SqlSchema.void({
-    Request: DeleteRuntimeByProviderRequestSchema,
-    execute: ({ threadId, providerName }) =>
-      sql`
-        DELETE FROM provider_session_runtime
-        WHERE thread_id = ${threadId}
-          AND provider_name = ${providerName}
       `,
   });
 
@@ -229,55 +156,6 @@ const makeProviderSessionRuntimeRepository = Effect.gen(function* () {
       ),
     );
 
-  const getByThreadIdAndProvider: ProviderSessionRuntimeRepositoryShape["getByThreadIdAndProvider"] =
-    (input) =>
-      getRuntimeRowByThreadIdAndProvider(input).pipe(
-        Effect.mapError(
-          toPersistenceSqlOrDecodeError(
-            "ProviderSessionRuntimeRepository.getByThreadIdAndProvider:query",
-            "ProviderSessionRuntimeRepository.getByThreadIdAndProvider:decodeRow",
-          ),
-        ),
-        Effect.flatMap((runtimeRowOption) =>
-          Option.match(runtimeRowOption, {
-            onNone: () => Effect.succeed(Option.none()),
-            onSome: (row) =>
-              decodeRuntime(row).pipe(
-                Effect.mapError(
-                  toPersistenceDecodeError(
-                    "ProviderSessionRuntimeRepository.getByThreadIdAndProvider:rowToRuntime",
-                  ),
-                ),
-                Effect.map((runtime) => Option.some(runtime)),
-              ),
-          }),
-        ),
-      );
-
-  const listByThreadId: ProviderSessionRuntimeRepositoryShape["listByThreadId"] = (input) =>
-    listRuntimeRowsByThreadId(input).pipe(
-      Effect.mapError(
-        toPersistenceSqlOrDecodeError(
-          "ProviderSessionRuntimeRepository.listByThreadId:query",
-          "ProviderSessionRuntimeRepository.listByThreadId:decodeRows",
-        ),
-      ),
-      Effect.flatMap((rows) =>
-        Effect.forEach(
-          rows,
-          (row) =>
-            decodeRuntime(row).pipe(
-              Effect.mapError(
-                toPersistenceDecodeError(
-                  "ProviderSessionRuntimeRepository.listByThreadId:rowToRuntime",
-                ),
-              ),
-            ),
-          { concurrency: "unbounded" },
-        ),
-      ),
-    );
-
   const list: ProviderSessionRuntimeRepositoryShape["list"] = () =>
     listRuntimeRows(undefined).pipe(
       Effect.mapError(
@@ -307,24 +185,11 @@ const makeProviderSessionRuntimeRepository = Effect.gen(function* () {
       ),
     );
 
-  const deleteByThreadIdAndProvider: ProviderSessionRuntimeRepositoryShape["deleteByThreadIdAndProvider"] =
-    (input) =>
-      deleteRuntimeByThreadIdAndProvider(input).pipe(
-        Effect.mapError(
-          toPersistenceSqlError(
-            "ProviderSessionRuntimeRepository.deleteByThreadIdAndProvider:query",
-          ),
-        ),
-      );
-
   return {
     upsert,
     getByThreadId,
-    getByThreadIdAndProvider,
-    listByThreadId,
     list,
     deleteByThreadId,
-    deleteByThreadIdAndProvider,
   } satisfies ProviderSessionRuntimeRepositoryShape;
 });
 

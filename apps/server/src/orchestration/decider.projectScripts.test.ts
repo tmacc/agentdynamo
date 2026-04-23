@@ -11,46 +11,29 @@ import { Effect } from "effect";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
-import { ProjectionBoardCardRepository } from "../persistence/Services/ProjectionBoardCards.ts";
-import type { ProjectionBoardCardRepositoryShape } from "../persistence/Services/ProjectionBoardCards.ts";
 
 const asEventId = (value: string): EventId => EventId.make(value);
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
-
-const projectionBoardCardRepositoryStub: ProjectionBoardCardRepositoryShape = {
-  upsert: () => Effect.void,
-  getById: () => Effect.die("Unexpected board-card lookup in decider project-scripts test."),
-  getByLinkedThreadId: () =>
-    Effect.die("Unexpected board-thread lookup in decider project-scripts test."),
-  listByProject: () => Effect.succeed([]),
-  deleteById: () => Effect.void,
-};
-
-function runDecider(input: Parameters<typeof decideOrchestrationCommand>[0]) {
-  return Effect.runPromise(
-    decideOrchestrationCommand(input).pipe(
-      Effect.provideService(ProjectionBoardCardRepository, projectionBoardCardRepositoryStub),
-    ),
-  );
-}
 
 describe("decider project scripts", () => {
   it("emits empty scripts on project.create", async () => {
     const now = new Date().toISOString();
     const readModel = createEmptyReadModel(now);
 
-    const result = await runDecider({
-      command: {
-        type: "project.create",
-        commandId: CommandId.make("cmd-project-create-scripts"),
-        projectId: asProjectId("project-scripts"),
-        title: "Scripts",
-        workspaceRoot: "/tmp/scripts",
-        createdAt: now,
-      },
-      readModel,
-    });
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "project.create",
+          commandId: CommandId.make("cmd-project-create-scripts"),
+          projectId: asProjectId("project-scripts"),
+          title: "Scripts",
+          workspaceRoot: "/tmp/scripts",
+          createdAt: now,
+        },
+        readModel,
+      }),
+    );
 
     const event = Array.isArray(result) ? result[0] : result;
     expect(event.type).toBe("project.created");
@@ -94,15 +77,17 @@ describe("decider project scripts", () => {
       },
     ] as const;
 
-    const result = await runDecider({
-      command: {
-        type: "project.meta.update",
-        commandId: CommandId.make("cmd-project-update-scripts"),
-        projectId: asProjectId("project-scripts"),
-        scripts: Array.from(scripts),
-      },
-      readModel,
-    });
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "project.meta.update",
+          commandId: CommandId.make("cmd-project-update-scripts"),
+          projectId: asProjectId("project-scripts"),
+          scripts: Array.from(scripts),
+        },
+        readModel,
+      }),
+    );
 
     const event = Array.isArray(result) ? result[0] : result;
     expect(event.type).toBe("project.meta-updated");
@@ -165,31 +150,33 @@ describe("decider project scripts", () => {
       }),
     );
 
-    const result = await runDecider({
-      command: {
-        type: "thread.turn.start",
-        commandId: CommandId.make("cmd-turn-start"),
-        threadId: ThreadId.make("thread-1"),
-        message: {
-          messageId: asMessageId("message-user-1"),
-          role: "user",
-          text: "hello",
-          attachments: [],
-        },
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
-          options: {
-            reasoningEffort: "high",
-            fastMode: true,
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("message-user-1"),
+            role: "user",
+            text: "hello",
+            attachments: [],
           },
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+            options: {
+              reasoningEffort: "high",
+              fastMode: true,
+            },
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
         },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        createdAt: now,
-      },
-      readModel,
-    });
+        readModel,
+      }),
+    );
 
     expect(Array.isArray(result)).toBe(true);
     const events = Array.isArray(result) ? result : [result];
@@ -272,16 +259,18 @@ describe("decider project scripts", () => {
       }),
     );
 
-    const result = await runDecider({
-      command: {
-        type: "thread.runtime-mode.set",
-        commandId: CommandId.make("cmd-runtime-mode-set"),
-        threadId: ThreadId.make("thread-1"),
-        runtimeMode: "approval-required",
-        createdAt: now,
-      },
-      readModel,
-    });
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.runtime-mode.set",
+          commandId: CommandId.make("cmd-runtime-mode-set"),
+          threadId: ThreadId.make("thread-1"),
+          runtimeMode: "approval-required",
+          createdAt: now,
+        },
+        readModel,
+      }),
+    );
 
     const singleResult = Array.isArray(result) ? null : result;
     if (singleResult === null) {
@@ -352,16 +341,18 @@ describe("decider project scripts", () => {
       }),
     );
 
-    const result = await runDecider({
-      command: {
-        type: "thread.interaction-mode.set",
-        commandId: CommandId.make("cmd-interaction-mode-set"),
-        threadId: ThreadId.make("thread-1"),
-        interactionMode: "plan",
-        createdAt: now,
-      },
-      readModel,
-    });
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.interaction-mode.set",
+          commandId: CommandId.make("cmd-interaction-mode-set"),
+          threadId: ThreadId.make("thread-1"),
+          interactionMode: "plan",
+          createdAt: now,
+        },
+        readModel,
+      }),
+    );
 
     const singleResult = Array.isArray(result) ? null : result;
     if (singleResult === null) {

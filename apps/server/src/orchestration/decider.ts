@@ -7,24 +7,15 @@ import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
-  findTeamTaskById,
-  isActiveTeamTaskStatus,
-  listActiveTeamTasks,
-  requireBoardCardColumnAllowsThreadLink,
-  requireBoardCardInProject,
-  requireBoardCardLinkedThreadMatches,
-  requireBoardCardMoveAllowed,
-  requireBoardThreadLinkAvailable,
+  listThreadsByProjectId,
   requireProject,
   requireProjectAbsent,
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
   requireThreadNotArchived,
-  requireThreadInProject,
 } from "./commandInvariants.ts";
-import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
-import { ProjectionBoardCardRepository } from "../persistence/Services/ProjectionBoardCards.ts";
+import { projectEvent } from "./projector.ts";
 
 const nowIso = () => new Date().toISOString();
 const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
@@ -58,17 +49,49 @@ function withEventBase(
   };
 }
 
+type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
+
+type DecideOrchestrationCommandResult =
+  | PlannedOrchestrationEvent
+  | ReadonlyArray<PlannedOrchestrationEvent>;
+
+const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
+  commands,
+  readModel,
+}: {
+  readonly commands: ReadonlyArray<OrchestrationCommand>;
+  readonly readModel: OrchestrationReadModel;
+}): Effect.fn.Return<ReadonlyArray<PlannedOrchestrationEvent>, OrchestrationCommandInvariantError> {
+  let nextReadModel = readModel;
+  let nextSequence = readModel.snapshotSequence;
+  const plannedEvents: PlannedOrchestrationEvent[] = [];
+
+  for (const nextCommand of commands) {
+    const decided = yield* decideOrchestrationCommand({
+      command: nextCommand,
+      readModel: nextReadModel,
+    });
+    const nextEvents = Array.isArray(decided) ? decided : [decided];
+    for (const nextEvent of nextEvents) {
+      plannedEvents.push(nextEvent);
+      nextSequence += 1;
+      nextReadModel = yield* projectEvent(nextReadModel, {
+        ...nextEvent,
+        sequence: nextSequence,
+      }).pipe(Effect.orDie);
+    }
+  }
+
+  return plannedEvents;
+});
+
 export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
   command,
   readModel,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
-}): Effect.fn.Return<
-  Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
-  OrchestrationCommandInvariantError | ProjectionRepositoryError,
-  ProjectionBoardCardRepository
-> {
+}): Effect.fn.Return<DecideOrchestrationCommandResult, OrchestrationCommandInvariantError> {
   switch (command.type) {
     case "project.create": {
       yield* requireProjectAbsent({
@@ -120,9 +143,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
-          ...(command.worktreeReadiness !== undefined
-            ? { worktreeReadiness: command.worktreeReadiness }
-            : {}),
           updatedAt: occurredAt,
         },
       };
@@ -134,6 +154,35 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         projectId: command.projectId,
       });
+      const activeThreads = listThreadsByProjectId(readModel, command.projectId).filter(
+        (thread) => thread.deletedAt === null,
+      );
+      if (activeThreads.length > 0 && command.force !== true) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Project '${command.projectId}' is not empty and cannot be deleted without force=true.`,
+        });
+      }
+      if (activeThreads.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...activeThreads.map(
+              (thread): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
+                type: "thread.delete",
+                commandId: command.commandId,
+                threadId: thread.id,
+              }),
+            ),
+            {
+              type: "project.delete",
+              commandId: command.commandId,
+              projectId: command.projectId,
+            },
+          ],
+        });
+      }
+
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -142,7 +191,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           occurredAt,
           commandId: command.commandId,
         }),
-        type: "project.deleted",
+        type: "project.deleted" as const,
         payload: {
           projectId: command.projectId,
           deletedAt: occurredAt,
@@ -184,94 +233,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.fork": {
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      yield* requireThreadAbsent({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-
-      const threadCreatedEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.created",
-        payload: {
-          threadId: command.threadId,
-          projectId: command.projectId,
-          title: command.title,
-          modelSelection: command.modelSelection,
-          runtimeMode: command.runtimeMode,
-          interactionMode: command.interactionMode,
-          branch: command.branch,
-          worktreePath: command.worktreePath,
-          forkOrigin: command.forkOrigin,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-
-      const messageEvents = command.clonedMessages.map((message) => ({
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: message.updatedAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.message-sent" as const,
-        payload: {
-          threadId: command.threadId,
-          messageId: message.id,
-          role: message.role,
-          text: message.text,
-          ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
-          turnId: null,
-          streaming: message.streaming,
-          createdAt: message.createdAt,
-          updatedAt: message.updatedAt,
-        },
-      }));
-
-      const proposedPlanEvents = command.clonedProposedPlans.map((proposedPlan) => ({
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: proposedPlan.updatedAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.proposed-plan-upserted" as const,
-        payload: {
-          threadId: command.threadId,
-          proposedPlan,
-        },
-      }));
-
-      return [threadCreatedEvent, ...messageEvents, ...proposedPlanEvents];
-    }
-
     case "thread.delete": {
-      const thread = yield* requireThread({
+      yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      if (
-        listActiveTeamTasks(thread).length > 0 ||
-        isActiveTeamTaskStatus(thread.teamStatus ?? undefined)
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread '${command.threadId}' cannot be deleted while linked team tasks are active.`,
-        });
-      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -289,20 +256,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.archive": {
-      const thread = yield* requireThreadNotArchived({
+      yield* requireThreadNotArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
-      if (
-        listActiveTeamTasks(thread).length > 0 ||
-        isActiveTeamTaskStatus(thread.teamStatus ?? undefined)
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread '${command.threadId}' cannot be archived while linked team tasks are active.`,
-        });
-      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -630,113 +588,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.team-task.spawn": {
-      const parentThread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.parentThreadId,
-      });
-      if (parentThread.teamParentThreadId !== null) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread '${command.parentThreadId}' is already a child thread and cannot spawn team tasks in v1.`,
-        });
-      }
-      if (command.teamTask.parentThreadId !== command.parentThreadId) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Spawned team task parentThreadId does not match the command parent thread.",
-        });
-      }
-      if (findTeamTaskById(parentThread, command.teamTask.id)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Team task '${command.teamTask.id}' already exists on thread '${command.parentThreadId}'.`,
-        });
-      }
-      if (listActiveTeamTasks(parentThread).length >= 3) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread '${command.parentThreadId}' already has the maximum number of active child team tasks.`,
-        });
-      }
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.parentThreadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.team-task-spawn-requested",
-        payload: {
-          parentThreadId: command.parentThreadId,
-          teamTask: command.teamTask,
-        },
-      };
-    }
-
-    case "thread.team-task.upsert": {
-      const parentThread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.parentThreadId,
-      });
-      const existingTask = findTeamTaskById(parentThread, command.teamTask.id);
-      if (!existingTask) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Team task '${command.teamTask.id}' does not exist on thread '${command.parentThreadId}'.`,
-        });
-      }
-      if (command.teamTask.parentThreadId !== command.parentThreadId) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Updated team task parentThreadId does not match the command parent thread.",
-        });
-      }
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.parentThreadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.team-task-upserted",
-        payload: {
-          parentThreadId: command.parentThreadId,
-          teamTask: command.teamTask,
-        },
-      };
-    }
-
-    case "thread.team-task.cancel": {
-      const parentThread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.parentThreadId,
-      });
-      if (!findTeamTaskById(parentThread, command.taskId)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Team task '${command.taskId}' does not exist on thread '${command.parentThreadId}'.`,
-        });
-      }
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.parentThreadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.team-task-cancel-requested",
-        payload: {
-          parentThreadId: command.parentThreadId,
-          taskId: command.taskId,
-          createdAt: command.createdAt,
-        },
-      };
-    }
-
     case "thread.message.assistant.delta": {
       yield* requireThread({
         readModel,
@@ -886,310 +737,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           activity: command.activity,
-        },
-      };
-    }
-
-    case "board.card.create": {
-      const boardCardRepository = yield* ProjectionBoardCardRepository;
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      if (command.linkedThreadId !== null) {
-        yield* requireBoardCardColumnAllowsThreadLink({
-          command,
-          card: {
-            id: command.cardId,
-            column: command.column,
-          },
-        });
-        yield* requireThreadInProject({
-          readModel,
-          command,
-          threadId: command.linkedThreadId,
-          projectId: command.projectId,
-        });
-        yield* requireBoardThreadLinkAvailable({
-          command,
-          threadId: command.linkedThreadId,
-          cardId: command.cardId,
-          repository: boardCardRepository,
-        });
-      }
-      return {
-        ...withEventBase({
-          aggregateKind: "board",
-          aggregateId: command.projectId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "board.card-created",
-        payload: {
-          cardId: command.cardId,
-          projectId: command.projectId,
-          title: command.title,
-          description: command.description,
-          seededPrompt: command.seededPrompt,
-          column: command.column,
-          sortOrder: command.sortOrder,
-          linkedThreadId: command.linkedThreadId,
-          linkedProposedPlanId: command.linkedProposedPlanId,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
-    case "board.card.update": {
-      const boardCardRepository = yield* ProjectionBoardCardRepository;
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      yield* requireBoardCardInProject({
-        command,
-        cardId: command.cardId,
-        projectId: command.projectId,
-        repository: boardCardRepository,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "board",
-          aggregateId: command.projectId,
-          occurredAt: command.updatedAt,
-          commandId: command.commandId,
-        }),
-        type: "board.card-updated",
-        payload: {
-          cardId: command.cardId,
-          projectId: command.projectId,
-          ...(command.title !== undefined ? { title: command.title } : {}),
-          ...(command.description !== undefined ? { description: command.description } : {}),
-          ...(command.seededPrompt !== undefined ? { seededPrompt: command.seededPrompt } : {}),
-          updatedAt: command.updatedAt,
-        },
-      };
-    }
-
-    case "board.card.move": {
-      const boardCardRepository = yield* ProjectionBoardCardRepository;
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      const card = yield* requireBoardCardInProject({
-        command,
-        cardId: command.cardId,
-        projectId: command.projectId,
-        repository: boardCardRepository,
-      });
-      yield* requireBoardCardMoveAllowed({
-        command,
-        card,
-        toColumn: command.toColumn,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "board",
-          aggregateId: command.projectId,
-          occurredAt: command.updatedAt,
-          commandId: command.commandId,
-        }),
-        type: "board.card-moved",
-        payload: {
-          cardId: command.cardId,
-          projectId: command.projectId,
-          toColumn: command.toColumn,
-          sortOrder: command.sortOrder,
-          updatedAt: command.updatedAt,
-        },
-      };
-    }
-
-    case "board.card.archive": {
-      const boardCardRepository = yield* ProjectionBoardCardRepository;
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      yield* requireBoardCardInProject({
-        command,
-        cardId: command.cardId,
-        projectId: command.projectId,
-        repository: boardCardRepository,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "board",
-          aggregateId: command.projectId,
-          occurredAt: command.archivedAt,
-          commandId: command.commandId,
-        }),
-        type: "board.card-archived",
-        payload: {
-          cardId: command.cardId,
-          projectId: command.projectId,
-          archivedAt: command.archivedAt,
-          updatedAt: command.archivedAt,
-        },
-      };
-    }
-
-    case "board.card.delete": {
-      const boardCardRepository = yield* ProjectionBoardCardRepository;
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      yield* requireBoardCardInProject({
-        command,
-        cardId: command.cardId,
-        projectId: command.projectId,
-        repository: boardCardRepository,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "board",
-          aggregateId: command.projectId,
-          occurredAt: command.deletedAt,
-          commandId: command.commandId,
-        }),
-        type: "board.card-deleted",
-        payload: {
-          cardId: command.cardId,
-          projectId: command.projectId,
-          deletedAt: command.deletedAt,
-        },
-      };
-    }
-
-    case "board.card.linkThread": {
-      const boardCardRepository = yield* ProjectionBoardCardRepository;
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      const card = yield* requireBoardCardInProject({
-        command,
-        cardId: command.cardId,
-        projectId: command.projectId,
-        repository: boardCardRepository,
-      });
-      yield* requireBoardCardColumnAllowsThreadLink({
-        command,
-        card,
-      });
-      yield* requireThreadInProject({
-        readModel,
-        command,
-        threadId: command.threadId,
-        projectId: command.projectId,
-      });
-      yield* requireBoardThreadLinkAvailable({
-        command,
-        threadId: command.threadId,
-        cardId: command.cardId,
-        repository: boardCardRepository,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "board",
-          aggregateId: command.projectId,
-          occurredAt: command.updatedAt,
-          commandId: command.commandId,
-        }),
-        type: "board.card-thread-linked",
-        payload: {
-          cardId: command.cardId,
-          projectId: command.projectId,
-          threadId: command.threadId,
-          updatedAt: command.updatedAt,
-        },
-      };
-    }
-
-    case "board.card.unlinkThread": {
-      const boardCardRepository = yield* ProjectionBoardCardRepository;
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      const card = yield* requireBoardCardInProject({
-        command,
-        cardId: command.cardId,
-        projectId: command.projectId,
-        repository: boardCardRepository,
-      });
-      yield* requireBoardCardLinkedThreadMatches({
-        command,
-        card,
-        expectedThreadId: command.previousThreadId,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "board",
-          aggregateId: command.projectId,
-          occurredAt: command.updatedAt,
-          commandId: command.commandId,
-        }),
-        type: "board.card-thread-unlinked",
-        payload: {
-          cardId: command.cardId,
-          projectId: command.projectId,
-          previousThreadId: command.previousThreadId,
-          updatedAt: command.updatedAt,
-        },
-      };
-    }
-
-    case "board.ghost-card.dismiss": {
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "board",
-          aggregateId: command.projectId,
-          occurredAt: command.dismissedAt,
-          commandId: command.commandId,
-        }),
-        type: "board.ghost-card-dismissed",
-        payload: {
-          projectId: command.projectId,
-          threadId: command.threadId,
-          dismissedAt: command.dismissedAt,
-        },
-      };
-    }
-
-    case "board.ghost-card.undismiss": {
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "board",
-          aggregateId: command.projectId,
-          occurredAt: command.undismissedAt,
-          commandId: command.commandId,
-        }),
-        type: "board.ghost-card-undismissed",
-        payload: {
-          projectId: command.projectId,
-          threadId: command.threadId,
-          undismissedAt: command.undismissedAt,
         },
       };
     }

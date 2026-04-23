@@ -6,7 +6,7 @@ vi.mock("../../processRunner", () => ({
   runProcess: vi.fn(),
 }));
 
-import { runProcess } from "../../processRunner";
+import { runProcess } from "../../processRunner.ts";
 import { GitHubCli } from "../Services/GitHubCli.ts";
 import { GitHubCliLive } from "./GitHubCli.ts";
 
@@ -202,118 +202,6 @@ layer("GitHubCliLive", (it) => {
         url: "https://github.com/octocat/codething-mvp",
         sshUrl: "git@github.com:octocat/codething-mvp.git",
       });
-    }),
-  );
-
-  it.effect("passes repository overrides to gh PR commands", () =>
-    Effect.gen(function* () {
-      mockedRunProcess
-        .mockResolvedValueOnce({
-          stdout: JSON.stringify([]),
-          stderr: "",
-          code: 0,
-          signal: null,
-          timedOut: false,
-        })
-        .mockResolvedValueOnce({
-          stdout: "",
-          stderr: "",
-          code: 0,
-          signal: null,
-          timedOut: false,
-        });
-
-      yield* Effect.gen(function* () {
-        const gh = yield* GitHubCli;
-        yield* gh.listOpenPullRequests({
-          cwd: "/repo",
-          headSelector: "feature/pr-list",
-          repository: "tmacc/agentdynamo2",
-        });
-        yield* gh.createPullRequest({
-          cwd: "/repo",
-          baseBranch: "main",
-          headSelector: "feature/pr-list",
-          repository: "tmacc/agentdynamo2",
-          title: "Add PR thread creation",
-          bodyFile: "/tmp/body.md",
-        });
-      });
-
-      expect(mockedRunProcess).toHaveBeenNthCalledWith(
-        1,
-        "gh",
-        [
-          "pr",
-          "list",
-          "--head",
-          "feature/pr-list",
-          "--state",
-          "open",
-          "--limit",
-          "1",
-          "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
-          "--repo",
-          "tmacc/agentdynamo2",
-        ],
-        expect.objectContaining({ cwd: "/repo" }),
-      );
-      expect(mockedRunProcess).toHaveBeenNthCalledWith(
-        2,
-        "gh",
-        [
-          "pr",
-          "create",
-          "--base",
-          "main",
-          "--head",
-          "feature/pr-list",
-          "--title",
-          "Add PR thread creation",
-          "--body-file",
-          "/tmp/body.md",
-          "--repo",
-          "tmacc/agentdynamo2",
-        ],
-        expect.objectContaining({ cwd: "/repo" }),
-      );
-    }),
-  );
-
-  it.effect("passes repository overrides to gh repo view", () =>
-    Effect.gen(function* () {
-      mockedRunProcess.mockResolvedValueOnce({
-        stdout: "main\n",
-        stderr: "",
-        code: 0,
-        signal: null,
-        timedOut: false,
-      });
-
-      const result = yield* Effect.gen(function* () {
-        const gh = yield* GitHubCli;
-        return yield* gh.getDefaultBranch({
-          cwd: "/repo",
-          repository: "tmacc/agentdynamo2",
-        });
-      });
-
-      expect(result).toBe("main");
-      expect(mockedRunProcess).toHaveBeenCalledWith(
-        "gh",
-        [
-          "repo",
-          "view",
-          "--json",
-          "defaultBranchRef",
-          "--jq",
-          ".defaultBranchRef.name",
-          "--repo",
-          "tmacc/agentdynamo2",
-        ],
-        expect.objectContaining({ cwd: "/repo" }),
-      );
     }),
   );
 

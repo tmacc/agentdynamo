@@ -1,7 +1,8 @@
-import { Effect, FileSystem, Option, Path, Schema } from "effect";
+import { Effect, FileSystem, Option, Schema } from "effect";
 
-import { type ServerConfigShape } from "./config";
-import { formatHostForUrl, isWildcardHost } from "./startupAccess";
+import { writeFileStringAtomically } from "./atomicWrite.ts";
+import { type ServerConfigShape } from "./config.ts";
+import { formatHostForUrl, isWildcardHost } from "./startupAccess.ts";
 
 export const PersistedServerRuntimeState = Schema.Struct({
   version: Schema.Literal(1),
@@ -42,15 +43,9 @@ export const persistServerRuntimeState = (input: {
   readonly path: string;
   readonly state: PersistedServerRuntimeState;
 }) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const pathService = yield* Path.Path;
-    const tempPath = `${input.path}.${process.pid}.${Date.now()}.tmp`;
-    return yield* fs.makeDirectory(pathService.dirname(input.path), { recursive: true }).pipe(
-      Effect.flatMap(() => fs.writeFileString(tempPath, `${JSON.stringify(input.state)}\n`)),
-      Effect.flatMap(() => fs.rename(tempPath, input.path)),
-      Effect.ensuring(fs.remove(tempPath, { force: true }).pipe(Effect.ignore({ log: true }))),
-    );
+  writeFileStringAtomically({
+    filePath: input.path,
+    contents: `${JSON.stringify(input.state)}\n`,
   });
 
 export const clearPersistedServerRuntimeState = (path: string) =>

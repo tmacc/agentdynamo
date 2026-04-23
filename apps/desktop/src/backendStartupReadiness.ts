@@ -1,4 +1,4 @@
-import { isBackendReadinessAborted } from "./backendReadiness";
+import { isBackendReadinessAborted } from "./backendReadiness.ts";
 
 export interface WaitForBackendStartupReadyOptions {
   readonly listeningPromise?: Promise<void> | null;

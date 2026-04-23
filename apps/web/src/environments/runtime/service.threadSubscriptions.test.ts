@@ -119,11 +119,6 @@ function makeThreadShellSnapshot(params: {
         createdAt: "2026-04-13T00:00:00.000Z",
         updatedAt: "2026-04-13T00:00:00.000Z",
         archivedAt: null,
-        teamParentThreadId: null,
-        teamParentTaskId: null,
-        teamRoleLabel: null,
-        teamStatus: null,
-        activeTeamTaskCount: 0,
         session: params.sessionStatus
           ? {
               threadId: params.threadId,
@@ -198,10 +193,10 @@ describe("retainThreadDetailSubscription", () => {
     expect(mockSubscribeThread).toHaveBeenCalledTimes(1);
 
     releaseSecond();
-    vi.advanceTimersByTime(2 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
     expect(mockThreadUnsubscribe).not.toHaveBeenCalled();
 
-    vi.advanceTimersByTime(28 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(28 * 60 * 1000);
     expect(mockThreadUnsubscribe).toHaveBeenCalledTimes(1);
 
     stop();
@@ -235,7 +230,7 @@ describe("retainThreadDetailSubscription", () => {
     expect(mockSubscribeThread).toHaveBeenCalledTimes(1);
 
     release();
-    vi.advanceTimersByTime(30 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
     expect(mockThreadUnsubscribe).not.toHaveBeenCalled();
 
     connectionInput.applyShellEvent(
@@ -250,7 +245,7 @@ describe("retainThreadDetailSubscription", () => {
       environmentId,
     );
 
-    vi.advanceTimersByTime(30 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
     expect(mockThreadUnsubscribe).toHaveBeenCalledTimes(1);
 
     stop();

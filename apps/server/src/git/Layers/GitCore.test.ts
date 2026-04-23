@@ -1653,12 +1653,12 @@ it.layer(TestLayer)("git integration", (it) => {
           yield* initRepoWithCommit(tmp);
           const core = yield* GitCore;
 
-          yield* git(tmp, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo2.git"]);
+          yield* git(tmp, ["remote", "add", "origin", "git@github.com:pingdotgg/t3code.git"]);
 
           const remoteName = yield* core.ensureRemote({
             cwd: tmp,
             preferredName: "origin",
-            url: "git@github.com:tmacc/agentdynamo2.git/",
+            url: "git@github.com:pingdotgg/t3code.git/",
           });
 
           expect(remoteName).toBe("origin");
@@ -1695,7 +1695,6 @@ it.layer(TestLayer)("git integration", (it) => {
 
         expect(status).toEqual({
           isRepo: false,
-          hasAnyRemote: false,
           hasOriginRemote: false,
           isDefaultBranch: false,
           branch: null,

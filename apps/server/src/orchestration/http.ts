@@ -1,8 +1,6 @@
 import {
   ClientOrchestrationCommand,
   OrchestrationDispatchCommandError,
-  OrchestrationForkThreadError,
-  OrchestrationForkThreadInput,
   OrchestrationGetSnapshotError,
   type OrchestrationReadModel,
 } from "@t3tools/contracts";
@@ -10,18 +8,12 @@ import { Effect } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { ServerAuth } from "../auth/Services/ServerAuth.ts";
-import { ServerRuntimeStartup } from "../serverRuntimeStartup.ts";
-import { enqueueAndExecuteForkThread } from "./forkThreadExecution.ts";
 import { normalizeDispatchCommand } from "./Normalizer.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
-import { ThreadForkDispatcher } from "./Services/ThreadForkDispatcher.ts";
 
 const respondToOrchestrationHttpError = (
-  error:
-    | OrchestrationDispatchCommandError
-    | OrchestrationGetSnapshotError
-    | OrchestrationForkThreadError,
+  error: OrchestrationDispatchCommandError | OrchestrationGetSnapshotError,
 ) =>
   Effect.gen(function* () {
     if (error._tag === "OrchestrationGetSnapshotError") {
@@ -98,29 +90,4 @@ export const orchestrationDispatchRouteLayer = HttpRouter.add(
     );
     return HttpServerResponse.jsonUnsafe(result, { status: 200 });
   }).pipe(Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError)),
-);
-
-export const orchestrationForkThreadRouteLayer = HttpRouter.add(
-  "POST",
-  "/api/orchestration/fork-thread",
-  Effect.gen(function* () {
-    yield* authenticateOwnerSession;
-    const startup = yield* ServerRuntimeStartup;
-    const threadForkDispatcher = yield* ThreadForkDispatcher;
-    const input = yield* HttpServerRequest.schemaBodyJson(OrchestrationForkThreadInput).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationForkThreadError({
-            message: "Invalid fork thread payload.",
-            cause,
-          }),
-      ),
-    );
-    const result = yield* enqueueAndExecuteForkThread({
-      startup,
-      threadForkDispatcher,
-      forkInput: input,
-    });
-    return HttpServerResponse.jsonUnsafe(result, { status: 200 });
-  }).pipe(Effect.catchTag("OrchestrationForkThreadError", respondToOrchestrationHttpError)),
 );

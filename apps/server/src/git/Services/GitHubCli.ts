@@ -8,7 +8,7 @@
 import { Context } from "effect";
 import type { Effect } from "effect";
 
-import type { ProcessRunResult } from "../../processRunner";
+import type { ProcessRunResult } from "../../processRunner.ts";
 import type { GitHubCliError } from "@t3tools/contracts";
 
 export interface GitHubPullRequestSummary {
@@ -48,7 +48,6 @@ export interface GitHubCliShape {
   readonly listOpenPullRequests: (input: {
     readonly cwd: string;
     readonly headSelector: string;
-    readonly repository?: string;
     readonly limit?: number;
   }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
 
@@ -75,7 +74,6 @@ export interface GitHubCliShape {
     readonly cwd: string;
     readonly baseBranch: string;
     readonly headSelector: string;
-    readonly repository?: string;
     readonly title: string;
     readonly bodyFile: string;
   }) => Effect.Effect<void, GitHubCliError>;
@@ -85,7 +83,6 @@ export interface GitHubCliShape {
    */
   readonly getDefaultBranch: (input: {
     readonly cwd: string;
-    readonly repository?: string;
   }) => Effect.Effect<string | null, GitHubCliError>;
 
   /**

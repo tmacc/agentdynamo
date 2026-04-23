@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 
-import { ProviderSendTurnInput, ProviderSessionStartInput } from "./provider";
+import { ProviderSendTurnInput, ProviderSessionStartInput } from "./provider.ts";
 
 const decodeProviderSessionStartInput = Schema.decodeUnknownSync(ProviderSessionStartInput);
 const decodeProviderSendTurnInput = Schema.decodeUnknownSync(ProviderSendTurnInput);
@@ -48,10 +48,10 @@ describe("ProviderSessionStartInput", () => {
       cwd: "/tmp/workspace",
       modelSelection: {
         provider: "claudeAgent",
-        model: "claude-opus-4-7",
+        model: "claude-sonnet-4-6",
         options: {
           thinking: true,
-          effort: "xhigh",
+          effort: "max",
           fastMode: true,
         },
       },
@@ -59,14 +59,34 @@ describe("ProviderSessionStartInput", () => {
     });
     expect(parsed.provider).toBe("claudeAgent");
     expect(parsed.modelSelection?.provider).toBe("claudeAgent");
-    expect(parsed.modelSelection?.model).toBe("claude-opus-4-7");
+    expect(parsed.modelSelection?.model).toBe("claude-sonnet-4-6");
     if (parsed.modelSelection?.provider !== "claudeAgent") {
       throw new Error("Expected claude modelSelection");
     }
     expect(parsed.modelSelection.options?.thinking).toBe(true);
-    expect(parsed.modelSelection.options?.effort).toBe("xhigh");
+    expect(parsed.modelSelection.options?.effort).toBe("max");
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
     expect(parsed.runtimeMode).toBe("full-access");
+  });
+
+  it("accepts cursor provider", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-1",
+      provider: "cursor",
+      cwd: "/tmp/workspace",
+      runtimeMode: "full-access",
+      modelSelection: {
+        provider: "cursor",
+        model: "composer-2",
+        options: { fastMode: true },
+      },
+    });
+    expect(parsed.provider).toBe("cursor");
+    expect(parsed.modelSelection?.provider).toBe("cursor");
+    expect(parsed.modelSelection?.model).toBe("composer-2");
+    if (parsed.modelSelection?.provider === "cursor") {
+      expect(parsed.modelSelection.options?.fastMode).toBe(true);
+    }
   });
 });
 

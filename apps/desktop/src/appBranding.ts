@@ -1,7 +1,7 @@
 import type { DesktopAppBranding, DesktopAppStageLabel } from "@t3tools/contracts";
-import { APP_BASE_NAME } from "@t3tools/shared/branding";
 
 const NIGHTLY_VERSION_PATTERN = /-nightly\.\d{8}\.\d+$/;
+const APP_BASE_NAME = "Dynamo";
 
 export function resolveDesktopAppStageLabel(input: {
   readonly isDevelopment: boolean;

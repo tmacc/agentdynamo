@@ -1,10 +1,10 @@
 {
   "name": "t3",
-  "version": "0.0.17",
+  "version": "0.0.20",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tmacc/agentdynamo2",
+    "url": "https://github.com/pingdotgg/t3code",
     "directory": "apps/server"
   },
   "bin": {
@@ -15,18 +15,21 @@
   ],
   "type": "module",
   "scripts": {
-    "dev": "bun run src/bin.ts",
+    "dev": "node --watch src/bin.ts",
     "build": "node scripts/cli.ts build",
+    "build:bundle": "tsdown",
     "start": "node dist/bin.mjs",
-    "prepare": "node ../../scripts/run-effect-language-service-prepare.mjs",
+    "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:process-reaper": "vitest run src/server.test.ts src/provider/Layers/ClaudeAdapter.test.ts src/provider/Layers/ProviderSessionDirectory.test.ts src/provider/Layers/ProviderSessionReaper.test.ts src/provider/Layers/CodexAdapter.test.ts"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.77",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.111",
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/sql-sqlite-bun": "catalog:",
+    "@opencode-ai/sdk": "^1.3.15",
     "@pierre/diffs": "^1.1.0-beta.16",
     "effect": "catalog:",
     "node-pty": "^1.1.0",
@@ -40,6 +43,8 @@
     "@t3tools/web": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
+    "effect-acp": "workspace:*",
+    "effect-codex-app-server": "workspace:*",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { BackendReadinessAbortedError } from "./backendReadiness";
-import { waitForBackendStartupReady } from "./backendStartupReadiness";
+import { BackendReadinessAbortedError } from "./backendReadiness.ts";
+import { waitForBackendStartupReady } from "./backendStartupReadiness.ts";
 
 describe("waitForBackendStartupReady", () => {
   it("falls back to the HTTP probe when no listening signal exists", async () => {

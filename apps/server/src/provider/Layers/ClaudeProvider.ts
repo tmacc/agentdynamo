@@ -19,6 +19,7 @@ import {
 
 import {
   buildServerProvider,
+  AUTH_PROBE_TIMEOUT_MS,
   DEFAULT_TIMEOUT_MS,
   detailFromResult,
   extractAuthBoolean,
@@ -27,11 +28,11 @@ import {
   providerModelsFromSettings,
   spawnAndCollect,
   type CommandResult,
-} from "../providerSnapshot";
-import { compareCliVersions } from "../cliVersion";
-import { makeManagedServerProvider } from "../makeManagedServerProvider";
-import { ClaudeProvider } from "../Services/ClaudeProvider";
-import { ServerSettingsService } from "../../serverSettings";
+} from "../providerSnapshot.ts";
+import { compareCliVersions } from "../cliVersion.ts";
+import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
+import { ClaudeProvider } from "../Services/ClaudeProvider.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { ServerSettingsError } from "@t3tools/contracts";
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = {
@@ -86,6 +87,23 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
         { value: "1m", label: "1M" },
       ],
       promptInjectedEffortLevels: ["ultrathink"],
+    } satisfies ModelCapabilities,
+  },
+  {
+    slug: "claude-opus-4-5",
+    name: "Claude Opus 4.5",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [
+        { value: "low", label: "Low" },
+        { value: "medium", label: "Medium" },
+        { value: "high", label: "High", isDefault: true },
+        { value: "max", label: "Max" },
+      ],
+      supportsFastMode: true,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
     } satisfies ModelCapabilities,
   },
   {
@@ -156,7 +174,6 @@ export function resolveClaudeApiModelId(modelSelection: ClaudeModelSelection): s
       return modelSelection.model;
   }
 }
-
 export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
   readonly status: Exclude<ServerProviderState, "disabled">;
   readonly auth: Pick<ServerProviderAuth, "status">;
@@ -547,10 +564,10 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   ServerSettingsError,
   ChildProcessSpawner.ChildProcessSpawner | ServerSettingsService
 > {
-  const serverSettings = yield* Effect.service(ServerSettingsService).pipe(
+  const claudeSettings = yield* Effect.service(ServerSettingsService).pipe(
     Effect.flatMap((service) => service.getSettings),
+    Effect.map((settings) => settings.providers.claudeAgent),
   );
-  const claudeSettings = serverSettings.providers.claudeAgent;
   const checkedAt = new Date().toISOString();
   const allModels = providerModelsFromSettings(
     BUILT_IN_MODELS,
@@ -558,10 +575,6 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     claudeSettings.customModels,
     DEFAULT_CLAUDE_MODEL_CAPABILITIES,
   );
-  const teamFlags = {
-    supportsTeamCoordinator: serverSettings.teamAgents && claudeSettings.enabled,
-    supportsTeamWorker: claudeSettings.enabled,
-  };
 
   if (!claudeSettings.enabled) {
     return buildServerProvider({
@@ -569,13 +582,12 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       enabled: false,
       checkedAt,
       models: allModels,
-      ...teamFlags,
       probe: {
         installed: false,
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Claude is disabled in Dynamo settings.",
+        message: "Claude is disabled in T3 Code settings.",
       },
     });
   }
@@ -592,7 +604,6 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       enabled: claudeSettings.enabled,
       checkedAt,
       models: allModels,
-      ...teamFlags,
       probe: {
         installed: !isCommandMissingCause(error),
         version: null,
@@ -611,7 +622,6 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       enabled: claudeSettings.enabled,
       checkedAt,
       models: allModels,
-      ...teamFlags,
       probe: {
         installed: true,
         version: null,
@@ -632,7 +642,6 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       enabled: claudeSettings.enabled,
       checkedAt,
       models: allModels,
-      ...teamFlags,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -666,7 +675,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   // ── Auth check + subscription detection ────────────────────────────
 
   const authProbe = yield* runClaudeCommand(["auth", "status"]).pipe(
-    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    Effect.timeoutOption(AUTH_PROBE_TIMEOUT_MS),
     Effect.result,
   );
 
@@ -698,7 +707,6 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       checkedAt,
       models,
       slashCommands: dedupedSlashCommands,
-      ...teamFlags,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -719,7 +727,6 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       checkedAt,
       models,
       slashCommands: dedupedSlashCommands,
-      ...teamFlags,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -738,7 +745,6 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     checkedAt,
     models,
     slashCommands: dedupedSlashCommands,
-    ...teamFlags,
     probe: {
       installed: true,
       version: parsedVersion,
@@ -771,14 +777,12 @@ const makePendingClaudeProvider = (claudeSettings: ClaudeSettings): ServerProvid
       enabled: false,
       checkedAt,
       models,
-      supportsTeamCoordinator: false,
-      supportsTeamWorker: false,
       probe: {
         installed: false,
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Claude is disabled in Dynamo settings.",
+        message: "Claude is disabled in T3 Code settings.",
       },
     });
   }
@@ -788,8 +792,6 @@ const makePendingClaudeProvider = (claudeSettings: ClaudeSettings): ServerProvid
     enabled: true,
     checkedAt,
     models,
-    supportsTeamCoordinator: false,
-    supportsTeamWorker: true,
     probe: {
       installed: false,
       version: null,

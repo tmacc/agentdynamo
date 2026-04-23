@@ -5,7 +5,7 @@ import {
   isBackendReadinessAborted,
   isHttpRedirectResponse,
   waitForHttpReady,
-} from "./backendReadiness";
+} from "./backendReadiness.ts";
 
 describe("waitForHttpReady", () => {
   it("returns once the backend serves the requested readiness path", async () => {

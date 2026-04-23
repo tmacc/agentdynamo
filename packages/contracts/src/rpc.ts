@@ -2,9 +2,13 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
-import { OpenError, OpenInEditorInput } from "./editor";
-import { AuthAccessStreamEvent } from "./auth";
-import { FilesystemBrowseInput, FilesystemBrowseResult, FilesystemBrowseError } from "./filesystem";
+import { OpenError, OpenInEditorInput } from "./editor.ts";
+import { AuthAccessStreamEvent } from "./auth.ts";
+import {
+  FilesystemBrowseInput,
+  FilesystemBrowseResult,
+  FilesystemBrowseError,
+} from "./filesystem.ts";
 import {
   GitActionProgressEvent,
   GitCheckoutInput,
@@ -14,8 +18,6 @@ import {
   GitCreateBranchResult,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
-  GitGetPullRequestRemoteOptionsInput,
-  GitGetPullRequestRemoteOptionsResult,
   GitInitInput,
   GitListBranchesInput,
   GitListBranchesResult,
@@ -28,18 +30,15 @@ import {
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
-  GitSetPullRequestRemoteInput,
-  GitSetPullRequestRemoteResult,
   GitStatusInput,
   GitStatusResult,
   GitStatusStreamEvent,
-} from "./git";
-import { KeybindingsConfigError } from "./keybindings";
+} from "./git.ts";
+import { KeybindingsConfigError } from "./keybindings.ts";
 import {
   ClientOrchestrationCommand,
   ORCHESTRATION_WS_METHODS,
   OrchestrationDispatchCommandError,
-  OrchestrationForkThreadError,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetSnapshotError,
@@ -48,39 +47,15 @@ import {
   OrchestrationReplayEventsError,
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
-} from "./orchestration";
+} from "./orchestration.ts";
 import {
-  BOARD_WS_METHODS,
-  BoardListCardsError,
-  BoardListCardsInput,
-  BoardListCardsResult,
-  BoardListDismissedGhostsError,
-  BoardListDismissedGhostsInput,
-  BoardListDismissedGhostsResult,
-  BoardStreamEvent,
-  BoardSubscribeProjectError,
-  BoardSubscribeProjectInput,
-} from "./board";
-import {
-  ProjectApplyWorktreeReadinessError,
-  ProjectApplyWorktreeReadinessInput,
-  ProjectApplyWorktreeReadinessResult,
-  ProjectGetIntelligenceError,
-  ProjectGetIntelligenceInput,
-  ProjectGetIntelligenceResult,
-  ProjectReadIntelligenceSurfaceError,
-  ProjectReadIntelligenceSurfaceInput,
-  ProjectReadIntelligenceSurfaceResult,
-  ProjectScanWorktreeReadinessError,
-  ProjectScanWorktreeReadinessInput,
-  ProjectScanWorktreeReadinessResult,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileError,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
-} from "./project";
+} from "./project.ts";
 import {
   TerminalClearInput,
   TerminalCloseInput,
@@ -91,7 +66,7 @@ import {
   TerminalRestartInput,
   TerminalSessionSnapshot,
   TerminalWriteInput,
-} from "./terminal";
+} from "./terminal.ts";
 import {
   ServerConfigStreamEvent,
   ServerConfig,
@@ -99,8 +74,8 @@ import {
   ServerProviderUpdatedPayload,
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
-} from "./server";
-import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
+} from "./server.ts";
+import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -108,11 +83,7 @@ export const WS_METHODS = {
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
   projectsSearchEntries: "projects.searchEntries",
-  projectsGetIntelligence: "projects.getIntelligence",
-  projectsReadIntelligenceSurface: "projects.readIntelligenceSurface",
   projectsWriteFile: "projects.writeFile",
-  projectsScanWorktreeReadiness: "projects.scanWorktreeReadiness",
-  projectsApplyWorktreeReadiness: "projects.applyWorktreeReadiness",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -131,8 +102,6 @@ export const WS_METHODS = {
   gitCheckout: "git.checkout",
   gitInit: "git.init",
   gitResolvePullRequest: "git.resolvePullRequest",
-  gitGetPullRequestRemoteOptions: "git.getPullRequestRemoteOptions",
-  gitSetPullRequestRemote: "git.setPullRequestRemote",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
 
   // Terminal methods
@@ -199,39 +168,6 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: ProjectWriteFileError,
 });
 
-export const WsProjectsScanWorktreeReadinessRpc = Rpc.make(
-  WS_METHODS.projectsScanWorktreeReadiness,
-  {
-    payload: ProjectScanWorktreeReadinessInput,
-    success: ProjectScanWorktreeReadinessResult,
-    error: ProjectScanWorktreeReadinessError,
-  },
-);
-
-export const WsProjectsApplyWorktreeReadinessRpc = Rpc.make(
-  WS_METHODS.projectsApplyWorktreeReadiness,
-  {
-    payload: ProjectApplyWorktreeReadinessInput,
-    success: ProjectApplyWorktreeReadinessResult,
-    error: ProjectApplyWorktreeReadinessError,
-  },
-);
-
-export const WsProjectsGetIntelligenceRpc = Rpc.make(WS_METHODS.projectsGetIntelligence, {
-  payload: ProjectGetIntelligenceInput,
-  success: ProjectGetIntelligenceResult,
-  error: ProjectGetIntelligenceError,
-});
-
-export const WsProjectsReadIntelligenceSurfaceRpc = Rpc.make(
-  WS_METHODS.projectsReadIntelligenceSurface,
-  {
-    payload: ProjectReadIntelligenceSurfaceInput,
-    success: ProjectReadIntelligenceSurfaceResult,
-    error: ProjectReadIntelligenceSurfaceError,
-  },
-);
-
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: OpenInEditorInput,
   error: OpenError,
@@ -272,21 +208,6 @@ export const WsGitRunStackedActionRpc = Rpc.make(WS_METHODS.gitRunStackedAction,
 export const WsGitResolvePullRequestRpc = Rpc.make(WS_METHODS.gitResolvePullRequest, {
   payload: GitPullRequestRefInput,
   success: GitResolvePullRequestResult,
-  error: GitManagerServiceError,
-});
-
-export const WsGitGetPullRequestRemoteOptionsRpc = Rpc.make(
-  WS_METHODS.gitGetPullRequestRemoteOptions,
-  {
-    payload: GitGetPullRequestRemoteOptionsInput,
-    success: GitGetPullRequestRemoteOptionsResult,
-    error: GitManagerServiceError,
-  },
-);
-
-export const WsGitSetPullRequestRemoteRpc = Rpc.make(WS_METHODS.gitSetPullRequestRemote, {
-  payload: GitSetPullRequestRemoteInput,
-  success: GitSetPullRequestRemoteResult,
   error: GitManagerServiceError,
 });
 
@@ -371,12 +292,6 @@ export const WsOrchestrationDispatchCommandRpc = Rpc.make(
   },
 );
 
-export const WsOrchestrationForkThreadRpc = Rpc.make(ORCHESTRATION_WS_METHODS.forkThread, {
-  payload: OrchestrationRpcSchemas.forkThread.input,
-  success: OrchestrationRpcSchemas.forkThread.output,
-  error: OrchestrationForkThreadError,
-});
-
 export const WsOrchestrationGetTurnDiffRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getTurnDiff, {
   payload: OrchestrationGetTurnDiffInput,
   success: OrchestrationRpcSchemas.getTurnDiff.output,
@@ -415,25 +330,6 @@ export const WsOrchestrationSubscribeThreadRpc = Rpc.make(
   },
 );
 
-export const WsBoardListCardsRpc = Rpc.make(BOARD_WS_METHODS.listCards, {
-  payload: BoardListCardsInput,
-  success: BoardListCardsResult,
-  error: BoardListCardsError,
-});
-
-export const WsBoardListDismissedGhostsRpc = Rpc.make(BOARD_WS_METHODS.listDismissedGhosts, {
-  payload: BoardListDismissedGhostsInput,
-  success: BoardListDismissedGhostsResult,
-  error: BoardListDismissedGhostsError,
-});
-
-export const WsBoardSubscribeProjectRpc = Rpc.make(BOARD_WS_METHODS.subscribeProject, {
-  payload: BoardSubscribeProjectInput,
-  success: BoardStreamEvent,
-  error: BoardSubscribeProjectError,
-  stream: true,
-});
-
 export const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTerminalEvents, {
   payload: Schema.Struct({}),
   success: TerminalEvent,
@@ -466,10 +362,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
   WsProjectsSearchEntriesRpc,
-  WsProjectsScanWorktreeReadinessRpc,
-  WsProjectsApplyWorktreeReadinessRpc,
-  WsProjectsGetIntelligenceRpc,
-  WsProjectsReadIntelligenceSurfaceRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
@@ -478,8 +370,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
-  WsGitGetPullRequestRemoteOptionsRpc,
-  WsGitSetPullRequestRemoteRpc,
   WsGitPreparePullRequestThreadRpc,
   WsGitListBranchesRpc,
   WsGitCreateWorktreeRpc,
@@ -498,13 +388,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerLifecycleRpc,
   WsSubscribeAuthAccessRpc,
   WsOrchestrationDispatchCommandRpc,
-  WsOrchestrationForkThreadRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationReplayEventsRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,
-  WsBoardListCardsRpc,
-  WsBoardListDismissedGhostsRpc,
-  WsBoardSubscribeProjectRpc,
 );

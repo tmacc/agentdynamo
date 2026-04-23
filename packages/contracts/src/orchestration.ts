@@ -1,26 +1,11 @@
 import { Effect, Option, Schema, SchemaIssue, Struct } from "effect";
 import {
-  BoardArchiveCardCommand,
-  BoardCardArchivedPayload,
-  BoardCardCreatedPayload,
-  BoardCardDeletedPayload,
-  BoardCardMovedPayload,
-  BoardCardThreadLinkedPayload,
-  BoardCardThreadUnlinkedPayload,
-  BoardCardUpdatedPayload,
-  BoardCreateCardCommand,
-  BoardDeleteCardCommand,
-  BoardGhostCardDismissCommand,
-  BoardGhostCardDismissedPayload,
-  BoardGhostCardUndismissCommand,
-  BoardGhostCardUndismissedPayload,
-  BoardLinkThreadCommand,
-  BoardMoveCardCommand,
-  BoardUnlinkThreadCommand,
-  BoardUpdateCardCommand,
-} from "./board";
-import { ClaudeModelOptions, CodexModelOptions } from "./model";
-import { RepositoryIdentity } from "./environment";
+  ClaudeModelOptions,
+  CodexModelOptions,
+  CursorModelOptions,
+  OpenCodeModelOptions,
+} from "./model.ts";
+import { RepositoryIdentity } from "./environment.ts";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -34,11 +19,10 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
   TurnId,
-} from "./baseSchemas";
+} from "./baseSchemas.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
-  forkThread: "orchestration.forkThread",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
@@ -46,7 +30,7 @@ export const ORCHESTRATION_WS_METHODS = {
   subscribeThread: "orchestration.subscribeThread",
 } as const;
 
-export const ProviderKind = Schema.Literals(["codex", "claudeAgent"]);
+export const ProviderKind = Schema.Literals(["codex", "claudeAgent", "cursor", "opencode"]);
 export type ProviderKind = typeof ProviderKind.Type;
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
@@ -78,7 +62,25 @@ export const ClaudeModelSelection = Schema.Struct({
 });
 export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
 
-export const ModelSelection = Schema.Union([CodexModelSelection, ClaudeModelSelection]);
+export const CursorModelSelection = Schema.Struct({
+  provider: Schema.Literal("cursor"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(CursorModelOptions),
+});
+export type CursorModelSelection = typeof CursorModelSelection.Type;
+export const OpenCodeModelSelection = Schema.Struct({
+  provider: Schema.Literal("opencode"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(OpenCodeModelOptions),
+});
+export type OpenCodeModelSelection = typeof OpenCodeModelSelection.Type;
+
+export const ModelSelection = Schema.Union([
+  CodexModelSelection,
+  ClaudeModelSelection,
+  CursorModelSelection,
+  OpenCodeModelSelection,
+]);
 export type ModelSelection = typeof ModelSelection.Type;
 
 export const RuntimeMode = Schema.Literals([
@@ -164,58 +166,6 @@ export const ProjectScript = Schema.Struct({
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
-export const ProjectWorktreeReadinessPackageManager = Schema.Literals([
-  "bun",
-  "pnpm",
-  "npm",
-  "yarn",
-  "uv",
-  "pip",
-  "poetry",
-  "bundle",
-  "mix",
-  "unknown",
-]);
-export type ProjectWorktreeReadinessPackageManager =
-  typeof ProjectWorktreeReadinessPackageManager.Type;
-
-export const ProjectWorktreeReadinessFramework = Schema.Literals([
-  "next",
-  "vite",
-  "astro",
-  "django",
-  "rails",
-  "phoenix",
-  "generic",
-]);
-export type ProjectWorktreeReadinessFramework = typeof ProjectWorktreeReadinessFramework.Type;
-
-export const ProjectWorktreeReadinessEnvStrategy = Schema.Literals([
-  "symlink_root",
-  "copy_root",
-  "none",
-]);
-export type ProjectWorktreeReadinessEnvStrategy = typeof ProjectWorktreeReadinessEnvStrategy.Type;
-
-export const ProjectWorktreeReadinessProfile = Schema.Struct({
-  version: Schema.Literal(1),
-  status: Schema.Literal("configured"),
-  scanFingerprint: TrimmedNonEmptyString,
-  lastScannedAt: IsoDateTime,
-  lastAppliedAt: IsoDateTime,
-  packageManager: ProjectWorktreeReadinessPackageManager,
-  framework: ProjectWorktreeReadinessFramework,
-  installCommand: Schema.NullOr(TrimmedNonEmptyString),
-  devCommand: Schema.NullOr(TrimmedNonEmptyString),
-  envStrategy: ProjectWorktreeReadinessEnvStrategy,
-  envSourcePath: Schema.NullOr(TrimmedNonEmptyString),
-  portCount: NonNegativeInt,
-  generatedFiles: Schema.Array(TrimmedNonEmptyString),
-  setupScriptCommand: TrimmedNonEmptyString,
-  devScriptCommand: TrimmedNonEmptyString,
-});
-export type ProjectWorktreeReadinessProfile = typeof ProjectWorktreeReadinessProfile.Type;
-
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -223,7 +173,6 @@ export const OrchestrationProject = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
-  worktreeReadiness: Schema.optional(Schema.NullOr(ProjectWorktreeReadinessProfile)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -260,54 +209,6 @@ export const OrchestrationProposedPlan = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type OrchestrationProposedPlan = typeof OrchestrationProposedPlan.Type;
-
-export const OrchestrationThreadForkOrigin = Schema.Struct({
-  sourceThreadId: ThreadId,
-  sourceThreadTitle: TrimmedNonEmptyString,
-  sourceUserMessageId: MessageId,
-  importedUntilAt: IsoDateTime,
-  forkedAt: IsoDateTime,
-});
-export type OrchestrationThreadForkOrigin = typeof OrchestrationThreadForkOrigin.Type;
-
-export const OrchestrationTeamTaskId = TrimmedNonEmptyString;
-export type OrchestrationTeamTaskId = typeof OrchestrationTeamTaskId.Type;
-
-export const OrchestrationTeamTaskStatus = Schema.Literals([
-  "queued",
-  "starting",
-  "running",
-  "waiting",
-  "completed",
-  "failed",
-  "cancelled",
-]);
-export type OrchestrationTeamTaskStatus = typeof OrchestrationTeamTaskStatus.Type;
-
-export const OrchestrationTeamTaskWorkspaceMode = Schema.Literals(["worktree", "shared"]);
-export type OrchestrationTeamTaskWorkspaceMode = typeof OrchestrationTeamTaskWorkspaceMode.Type;
-
-export const OrchestrationTeamTask = Schema.Struct({
-  id: OrchestrationTeamTaskId,
-  parentThreadId: ThreadId,
-  childThreadId: ThreadId,
-  title: TrimmedNonEmptyString,
-  roleLabel: Schema.NullOr(TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  modelSelection: ModelSelection,
-  workspaceMode: OrchestrationTeamTaskWorkspaceMode,
-  status: OrchestrationTeamTaskStatus,
-  latestSummary: Schema.NullOr(Schema.String).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  errorText: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
-  createdAt: IsoDateTime,
-  startedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
-  completedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
-  updatedAt: IsoDateTime,
-});
-export type OrchestrationTeamTask = typeof OrchestrationTeamTask.Type;
 
 const SourceProposedPlanReference = Schema.Struct({
   threadId: ThreadId,
@@ -413,16 +314,10 @@ export const OrchestrationThread = Schema.Struct({
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   deletedAt: Schema.NullOr(IsoDateTime),
-  teamParentThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
-  teamParentTaskId: Schema.optionalKey(Schema.NullOr(OrchestrationTeamTaskId)),
-  teamRoleLabel: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
-  teamStatus: Schema.optionalKey(Schema.NullOr(OrchestrationTeamTaskStatus)),
-  forkOrigin: Schema.optionalKey(OrchestrationThreadForkOrigin),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
-  teamTasks: Schema.optionalKey(Schema.Array(OrchestrationTeamTask)),
   activities: Schema.Array(OrchestrationThreadActivity),
   checkpoints: Schema.Array(OrchestrationCheckpointSummary),
   session: Schema.NullOr(OrchestrationSession),
@@ -444,7 +339,6 @@ export const OrchestrationProjectShell = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
-  worktreeReadiness: Schema.optional(Schema.NullOr(ProjectWorktreeReadinessProfile)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -465,12 +359,6 @@ export const OrchestrationThreadShell = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
-  teamParentThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
-  teamParentTaskId: Schema.optionalKey(Schema.NullOr(OrchestrationTeamTaskId)),
-  teamRoleLabel: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
-  teamStatus: Schema.optionalKey(Schema.NullOr(OrchestrationTeamTaskStatus)),
-  forkOrigin: Schema.optionalKey(OrchestrationThreadForkOrigin),
-  activeTeamTaskCount: Schema.optionalKey(NonNegativeInt),
   session: Schema.NullOr(OrchestrationSession),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   hasPendingApprovals: Schema.Boolean,
@@ -550,13 +438,13 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
-  worktreeReadiness: Schema.optional(Schema.NullOr(ProjectWorktreeReadinessProfile)),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
   type: Schema.Literal("project.delete"),
   commandId: CommandId,
   projectId: ProjectId,
+  force: Schema.optional(Schema.Boolean),
 });
 
 const ThreadCreateCommand = Schema.Struct({
@@ -572,27 +460,6 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
-  createdAt: IsoDateTime,
-});
-
-const ThreadForkCommand = Schema.Struct({
-  type: Schema.Literal("thread.fork"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  projectId: ProjectId,
-  title: TrimmedNonEmptyString,
-  modelSelection: ModelSelection,
-  runtimeMode: RuntimeMode,
-  interactionMode: ProviderInteractionMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
-  ),
-  branch: Schema.NullOr(TrimmedNonEmptyString),
-  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
-  forkOrigin: OrchestrationThreadForkOrigin,
-  clonedMessages: Schema.Array(OrchestrationMessage),
-  clonedProposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
-    Schema.withDecodingDefault(Effect.succeed([])),
-  ),
   createdAt: IsoDateTime,
 });
 
@@ -746,22 +613,6 @@ const ThreadSessionStopCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const ThreadTeamTaskSpawnCommand = Schema.Struct({
-  type: Schema.Literal("thread.team-task.spawn"),
-  commandId: CommandId,
-  parentThreadId: ThreadId,
-  teamTask: OrchestrationTeamTask,
-  createdAt: IsoDateTime,
-});
-
-const ThreadTeamTaskCancelCommand = Schema.Struct({
-  type: Schema.Literal("thread.team-task.cancel"),
-  commandId: CommandId,
-  parentThreadId: ThreadId,
-  taskId: OrchestrationTeamTaskId,
-  createdAt: IsoDateTime,
-});
-
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -779,17 +630,6 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
-  ThreadTeamTaskSpawnCommand,
-  ThreadTeamTaskCancelCommand,
-  BoardCreateCardCommand,
-  BoardUpdateCardCommand,
-  BoardMoveCardCommand,
-  BoardArchiveCardCommand,
-  BoardDeleteCardCommand,
-  BoardLinkThreadCommand,
-  BoardUnlinkThreadCommand,
-  BoardGhostCardDismissCommand,
-  BoardGhostCardUndismissCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -811,17 +651,6 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
-  ThreadTeamTaskSpawnCommand,
-  ThreadTeamTaskCancelCommand,
-  BoardCreateCardCommand,
-  BoardUpdateCardCommand,
-  BoardMoveCardCommand,
-  BoardArchiveCardCommand,
-  BoardDeleteCardCommand,
-  BoardLinkThreadCommand,
-  BoardUnlinkThreadCommand,
-  BoardGhostCardDismissCommand,
-  BoardGhostCardUndismissCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -890,16 +719,7 @@ const ThreadRevertCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const ThreadTeamTaskUpsertCommand = Schema.Struct({
-  type: Schema.Literal("thread.team-task.upsert"),
-  commandId: CommandId,
-  parentThreadId: ThreadId,
-  teamTask: OrchestrationTeamTask,
-  createdAt: IsoDateTime,
-});
-
 const InternalOrchestrationCommand = Schema.Union([
-  ThreadForkCommand,
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
@@ -907,7 +727,6 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
-  ThreadTeamTaskUpsertCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -937,25 +756,13 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.reverted",
   "thread.session-stop-requested",
   "thread.session-set",
-  "thread.team-task-spawn-requested",
-  "thread.team-task-upserted",
-  "thread.team-task-cancel-requested",
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
-  "board.card-created",
-  "board.card-updated",
-  "board.card-moved",
-  "board.card-archived",
-  "board.card-deleted",
-  "board.card-thread-linked",
-  "board.card-thread-unlinked",
-  "board.ghost-card-dismissed",
-  "board.ghost-card-undismissed",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["project", "thread", "board"]);
+export const OrchestrationAggregateKind = Schema.Literals(["project", "thread"]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -966,7 +773,6 @@ export const ProjectCreatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
-  worktreeReadiness: Schema.optional(Schema.NullOr(ProjectWorktreeReadinessProfile)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -978,7 +784,6 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
-  worktreeReadiness: Schema.optional(Schema.NullOr(ProjectWorktreeReadinessProfile)),
   updatedAt: IsoDateTime,
 });
 
@@ -998,7 +803,6 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
-  forkOrigin: Schema.optionalKey(OrchestrationThreadForkOrigin),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -1106,22 +910,6 @@ export const ThreadSessionStopRequestedPayload = Schema.Struct({
 export const ThreadSessionSetPayload = Schema.Struct({
   threadId: ThreadId,
   session: OrchestrationSession,
-});
-
-export const ThreadTeamTaskSpawnRequestedPayload = Schema.Struct({
-  parentThreadId: ThreadId,
-  teamTask: OrchestrationTeamTask,
-});
-
-export const ThreadTeamTaskUpsertedPayload = Schema.Struct({
-  parentThreadId: ThreadId,
-  teamTask: OrchestrationTeamTask,
-});
-
-export const ThreadTeamTaskCancelRequestedPayload = Schema.Struct({
-  parentThreadId: ThreadId,
-  taskId: OrchestrationTeamTaskId,
-  createdAt: IsoDateTime,
 });
 
 export const ThreadProposedPlanUpsertedPayload = Schema.Struct({
@@ -1264,21 +1052,6 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("thread.team-task-spawn-requested"),
-    payload: ThreadTeamTaskSpawnRequestedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.team-task-upserted"),
-    payload: ThreadTeamTaskUpsertedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.team-task-cancel-requested"),
-    payload: ThreadTeamTaskCancelRequestedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
     type: Schema.Literal("thread.proposed-plan-upserted"),
     payload: ThreadProposedPlanUpsertedPayload,
   }),
@@ -1291,51 +1064,6 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("board.card-created"),
-    payload: BoardCardCreatedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("board.card-updated"),
-    payload: BoardCardUpdatedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("board.card-moved"),
-    payload: BoardCardMovedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("board.card-archived"),
-    payload: BoardCardArchivedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("board.card-deleted"),
-    payload: BoardCardDeletedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("board.card-thread-linked"),
-    payload: BoardCardThreadLinkedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("board.card-thread-unlinked"),
-    payload: BoardCardThreadUnlinkedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("board.ghost-card-dismissed"),
-    payload: BoardGhostCardDismissedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("board.ghost-card-undismissed"),
-    payload: BoardGhostCardUndismissedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
@@ -1425,19 +1153,6 @@ export type OrchestrationGetTurnDiffInput = typeof OrchestrationGetTurnDiffInput
 export const OrchestrationGetTurnDiffResult = ThreadTurnDiff;
 export type OrchestrationGetTurnDiffResult = typeof OrchestrationGetTurnDiffResult.Type;
 
-export const OrchestrationForkThreadInput = Schema.Struct({
-  sourceThreadId: ThreadId,
-  sourceUserMessageId: MessageId,
-  mode: Schema.Literals(["local", "worktree"]),
-  baseBranch: Schema.optional(TrimmedNonEmptyString),
-});
-export type OrchestrationForkThreadInput = typeof OrchestrationForkThreadInput.Type;
-
-export const OrchestrationForkThreadResult = Schema.Struct({
-  thread: OrchestrationThreadShell,
-});
-export type OrchestrationForkThreadResult = typeof OrchestrationForkThreadResult.Type;
-
 export const OrchestrationGetFullThreadDiffInput = Schema.Struct({
   threadId: ThreadId,
   toTurnCount: NonNegativeInt,
@@ -1459,10 +1174,6 @@ export const OrchestrationRpcSchemas = {
   dispatchCommand: {
     input: ClientOrchestrationCommand,
     output: DispatchResult,
-  },
-  forkThread: {
-    input: OrchestrationForkThreadInput,
-    output: OrchestrationForkThreadResult,
   },
   getTurnDiff: {
     input: OrchestrationGetTurnDiffInput,
@@ -1504,14 +1215,6 @@ export class OrchestrationDispatchCommandError extends Schema.TaggedErrorClass<O
 
 export class OrchestrationGetTurnDiffError extends Schema.TaggedErrorClass<OrchestrationGetTurnDiffError>()(
   "OrchestrationGetTurnDiffError",
-  {
-    message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect),
-  },
-) {}
-
-export class OrchestrationForkThreadError extends Schema.TaggedErrorClass<OrchestrationForkThreadError>()(
-  "OrchestrationForkThreadError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),

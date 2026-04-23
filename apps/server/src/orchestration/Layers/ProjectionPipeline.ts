@@ -23,9 +23,6 @@ import {
   ProjectionThreadProposedPlanRepository,
 } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
-import { ProjectionThreadTeamTaskRepository } from "../../persistence/Services/ProjectionThreadTeamTasks.ts";
-import { ProjectionBoardCardRepository } from "../../persistence/Services/ProjectionBoardCards.ts";
-import { ProjectionBoardDismissedGhostRepository } from "../../persistence/Services/ProjectionBoardDismissedGhosts.ts";
 import {
   type ProjectionTurn,
   ProjectionTurnRepository,
@@ -38,18 +35,13 @@ import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
-import { ProjectionThreadTeamTaskRepositoryLive } from "../../persistence/Layers/ProjectionThreadTeamTasks.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
-import { ProjectionBoardCardRepositoryLive } from "../../persistence/Layers/ProjectionBoardCards.ts";
-import { ProjectionBoardDismissedGhostRepositoryLive } from "../../persistence/Layers/ProjectionBoardDismissedGhosts.ts";
 import { ServerConfig } from "../../config.ts";
 import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
-import { materializeActivitySequence } from "../materializeActivitySequence.ts";
-import { compareProjectionActivitiesByOrder } from "../projectionActivityOrder.ts";
 import {
   attachmentRelativePath,
   parseAttachmentIdFromRelativePath,
@@ -64,12 +56,9 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
   threadSessions: "projection.thread-sessions",
-  threadTeamTasks: "projection.thread-team-tasks",
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
   pendingApprovals: "projection.pending-approvals",
-  boardCards: "projection.board-cards",
-  boardDismissedGhosts: "projection.board-dismissed-ghosts",
 } as const;
 
 type ProjectorName =
@@ -116,7 +105,11 @@ function derivePendingUserInputCountFromActivities(
   activities: ReadonlyArray<ProjectionThreadActivity>,
 ): number {
   const openRequestIds = new Set<string>();
-  const ordered = [...activities].toSorted(compareProjectionActivitiesByOrder);
+  const ordered = [...activities].toSorted(
+    (left, right) =>
+      left.createdAt.localeCompare(right.createdAt) ||
+      left.activityId.localeCompare(right.activityId),
+  );
 
   for (const activity of ordered) {
     const requestId = extractActivityRequestId(activity.payload);
@@ -456,11 +449,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
-    const projectionThreadTeamTaskRepository = yield* ProjectionThreadTeamTaskRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
-    const projectionBoardCardRepository = yield* ProjectionBoardCardRepository;
-    const projectionBoardDismissedGhostRepository = yield* ProjectionBoardDismissedGhostRepository;
 
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -477,7 +467,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             workspaceRoot: event.payload.workspaceRoot,
             defaultModelSelection: event.payload.defaultModelSelection,
             scripts: event.payload.scripts,
-            worktreeReadiness: event.payload.worktreeReadiness ?? null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
             deletedAt: null,
@@ -501,9 +490,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? { defaultModelSelection: event.payload.defaultModelSelection }
               : {}),
             ...(event.payload.scripts !== undefined ? { scripts: event.payload.scripts } : {}),
-            ...(event.payload.worktreeReadiness !== undefined
-              ? { worktreeReadiness: event.payload.worktreeReadiness }
-              : {}),
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -593,11 +579,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
             hasActionableProposedPlan: 0,
-            forkSourceThreadId: event.payload.forkOrigin?.sourceThreadId ?? null,
-            forkSourceThreadTitle: event.payload.forkOrigin?.sourceThreadTitle ?? null,
-            forkSourceUserMessageId: event.payload.forkOrigin?.sourceUserMessageId ?? null,
-            forkImportedUntilAt: event.payload.forkOrigin?.importedUntilAt ?? null,
-            forkedAt: event.payload.forkOrigin?.forkedAt ?? null,
             deletedAt: null,
           });
           return;
@@ -704,14 +685,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         case "thread.proposed-plan-upserted":
         case "thread.activity-appended":
         case "thread.approval-response-requested":
-        case "thread.user-input-response-requested":
-        case "thread.team-task-spawn-requested":
-        case "thread.team-task-upserted":
-        case "thread.team-task-cancel-requested": {
-          const threadId =
-            "threadId" in event.payload ? event.payload.threadId : event.payload.parentThreadId;
+        case "thread.user-input-response-requested": {
           const existingRow = yield* projectionThreadRepository.getById({
-            threadId,
+            threadId: event.payload.threadId,
           });
           if (Option.isNone(existingRow)) {
             return;
@@ -720,7 +696,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...existingRow.value,
             updatedAt: event.occurredAt,
           });
-          yield* refreshThreadShellSummary(threadId);
+          yield* refreshThreadShellSummary(event.payload.threadId);
           return;
         }
 
@@ -911,21 +887,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       "applyThreadActivitiesProjection",
     )(function* (event, _attachmentSideEffects) {
       switch (event.type) {
-        case "thread.activity-appended": {
-          const activity = materializeActivitySequence(event.payload.activity, event.sequence);
+        case "thread.activity-appended":
           yield* projectionThreadActivityRepository.upsert({
-            activityId: activity.id,
+            activityId: event.payload.activity.id,
             threadId: event.payload.threadId,
-            turnId: activity.turnId,
-            tone: activity.tone,
-            kind: activity.kind,
-            summary: activity.summary,
-            payload: activity.payload,
-            ...(activity.sequence !== undefined ? { sequence: activity.sequence } : {}),
-            createdAt: activity.createdAt,
+            turnId: event.payload.activity.turnId,
+            tone: event.payload.activity.tone,
+            kind: event.payload.activity.kind,
+            summary: event.payload.activity.summary,
+            payload: event.payload.activity.payload,
+            ...(event.payload.activity.sequence !== undefined
+              ? { sequence: event.payload.activity.sequence }
+              : {}),
+            createdAt: event.payload.activity.createdAt,
           });
           return;
-        }
 
         case "thread.reverted": {
           const existingRows = yield* projectionThreadActivityRepository.listByThreadId({
@@ -974,49 +950,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         lastError: event.payload.session.lastError,
         updatedAt: event.payload.session.updatedAt,
       });
-    });
-
-    const applyThreadTeamTasksProjection: ProjectorDefinition["apply"] = Effect.fn(
-      "applyThreadTeamTasksProjection",
-    )(function* (event, _attachmentSideEffects) {
-      switch (event.type) {
-        case "thread.team-task-spawn-requested":
-        case "thread.team-task-upserted":
-          yield* projectionThreadTeamTaskRepository.upsert({
-            taskId: event.payload.teamTask.id,
-            parentThreadId: event.payload.parentThreadId,
-            childThreadId: event.payload.teamTask.childThreadId,
-            title: event.payload.teamTask.title,
-            roleLabel: event.payload.teamTask.roleLabel,
-            modelSelection: event.payload.teamTask.modelSelection,
-            workspaceMode: event.payload.teamTask.workspaceMode,
-            status: event.payload.teamTask.status,
-            latestSummary: event.payload.teamTask.latestSummary,
-            errorText: event.payload.teamTask.errorText,
-            createdAt: event.payload.teamTask.createdAt,
-            startedAt: event.payload.teamTask.startedAt,
-            completedAt: event.payload.teamTask.completedAt,
-            updatedAt: event.payload.teamTask.updatedAt,
-          });
-          return;
-
-        case "thread.team-task-cancel-requested": {
-          const existingRow = yield* projectionThreadTeamTaskRepository.getByTaskId({
-            taskId: event.payload.taskId,
-          });
-          if (Option.isNone(existingRow)) {
-            return;
-          }
-          yield* projectionThreadTeamTaskRepository.upsert({
-            ...existingRow.value,
-            updatedAt: event.payload.createdAt,
-          });
-          return;
-        }
-
-        default:
-          return;
-      }
     });
 
     const applyThreadTurnsProjection: ProjectorDefinition["apply"] = Effect.fn(
@@ -1351,6 +1284,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             }
             return;
           }
+          // Only approval-requested activities should create pending-approval
+          // rows.  Other activity kinds that happen to carry a requestId
+          // (e.g. user-input.requested / user-input.resolved) must not
+          // pollute this projection — they have their own accounting via
+          // derivePendingUserInputCountFromActivities.
           if (event.payload.activity.kind !== "approval.requested") {
             return;
           }
@@ -1396,147 +1334,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
-    const applyBoardCardsProjection: ProjectorDefinition["apply"] = Effect.fn(
-      "applyBoardCardsProjection",
-    )(function* (event, _attachmentSideEffects) {
-      switch (event.type) {
-        case "board.card-created":
-          yield* projectionBoardCardRepository.upsert({
-            id: event.payload.cardId,
-            projectId: event.payload.projectId,
-            title: event.payload.title,
-            description: event.payload.description,
-            seededPrompt: event.payload.seededPrompt,
-            column: event.payload.column,
-            sortOrder: event.payload.sortOrder,
-            linkedThreadId: event.payload.linkedThreadId,
-            linkedProposedPlanId: event.payload.linkedProposedPlanId,
-            createdAt: event.payload.createdAt,
-            updatedAt: event.payload.updatedAt,
-            archivedAt: null,
-          });
-          return;
-
-        case "board.card-updated": {
-          const existingRow = yield* projectionBoardCardRepository.getById({
-            cardId: event.payload.cardId,
-          });
-          if (Option.isNone(existingRow)) {
-            return;
-          }
-          yield* projectionBoardCardRepository.upsert({
-            ...existingRow.value,
-            ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
-            ...(event.payload.description !== undefined
-              ? { description: event.payload.description }
-              : {}),
-            ...(event.payload.seededPrompt !== undefined
-              ? { seededPrompt: event.payload.seededPrompt }
-              : {}),
-            updatedAt: event.payload.updatedAt,
-          });
-          return;
-        }
-
-        case "board.card-moved": {
-          const existingRow = yield* projectionBoardCardRepository.getById({
-            cardId: event.payload.cardId,
-          });
-          if (Option.isNone(existingRow)) {
-            return;
-          }
-          yield* projectionBoardCardRepository.upsert({
-            ...existingRow.value,
-            column: event.payload.toColumn,
-            sortOrder: event.payload.sortOrder,
-            updatedAt: event.payload.updatedAt,
-          });
-          return;
-        }
-
-        case "board.card-archived": {
-          const existingRow = yield* projectionBoardCardRepository.getById({
-            cardId: event.payload.cardId,
-          });
-          if (Option.isNone(existingRow)) {
-            return;
-          }
-          yield* projectionBoardCardRepository.upsert({
-            ...existingRow.value,
-            archivedAt: event.payload.archivedAt,
-            updatedAt: event.payload.updatedAt,
-          });
-          return;
-        }
-
-        case "board.card-deleted":
-          yield* projectionBoardCardRepository.deleteById({
-            cardId: event.payload.cardId,
-          });
-          return;
-
-        case "board.card-thread-linked": {
-          const existingRow = yield* projectionBoardCardRepository.getById({
-            cardId: event.payload.cardId,
-          });
-          if (Option.isNone(existingRow)) {
-            return;
-          }
-          yield* projectionBoardCardRepository.upsert({
-            ...existingRow.value,
-            linkedThreadId: event.payload.threadId,
-            updatedAt: event.payload.updatedAt,
-          });
-          return;
-        }
-
-        case "board.card-thread-unlinked": {
-          const existingRow = yield* projectionBoardCardRepository.getById({
-            cardId: event.payload.cardId,
-          });
-          if (Option.isNone(existingRow)) {
-            return;
-          }
-          if (existingRow.value.linkedThreadId !== event.payload.previousThreadId) {
-            return;
-          }
-          yield* projectionBoardCardRepository.upsert({
-            ...existingRow.value,
-            linkedThreadId: null,
-            updatedAt: event.payload.updatedAt,
-          });
-          return;
-        }
-
-        default:
-          return;
-      }
-    });
-
-    const applyBoardDismissedGhostsProjection: ProjectorDefinition["apply"] = Effect.fn(
-      "applyBoardDismissedGhostsProjection",
-    )(function* (event, _attachmentSideEffects) {
-      switch (event.type) {
-        case "board.ghost-card-dismissed":
-          yield* projectionBoardDismissedGhostRepository.upsert({
-            projectId: event.payload.projectId,
-            threadId: event.payload.threadId,
-            dismissedAt: event.payload.dismissedAt,
-          });
-          return;
-
-        case "board.ghost-card-undismissed":
-          yield* projectionBoardDismissedGhostRepository.delete({
-            projectId: event.payload.projectId,
-            threadId: event.payload.threadId,
-          });
-          return;
-
-        default:
-          return;
-      }
-    });
-
     const projectors: ReadonlyArray<ProjectorDefinition> = [
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.projects,
@@ -1559,10 +1356,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyThreadSessionsProjection,
       },
       {
-        name: ORCHESTRATION_PROJECTOR_NAMES.threadTeamTasks,
-        apply: applyThreadTeamTasksProjection,
-      },
-      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadTurns,
         apply: applyThreadTurnsProjection,
       },
@@ -1577,14 +1370,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.threads,
         apply: applyThreadsProjection,
-      },
-      {
-        name: ORCHESTRATION_PROJECTOR_NAMES.boardCards,
-        apply: applyBoardCardsProjection,
-      },
-      {
-        name: ORCHESTRATION_PROJECTOR_NAMES.boardDismissedGhosts,
-        apply: applyBoardDismissedGhostsProjection,
       },
     ];
 
@@ -1686,10 +1471,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
-  Layer.provideMerge(ProjectionThreadTeamTaskRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),
-  Layer.provideMerge(ProjectionBoardCardRepositoryLive),
-  Layer.provideMerge(ProjectionBoardDismissedGhostRepositoryLive),
   Layer.provideMerge(ProjectionStateRepositoryLive),
 );

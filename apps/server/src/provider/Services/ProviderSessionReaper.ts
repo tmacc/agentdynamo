@@ -2,6 +2,9 @@ import { Context } from "effect";
 import type { Effect, Scope } from "effect";
 
 export interface ProviderSessionReaperShape {
+  /**
+   * Start the background provider session reaper within the provided scope.
+   */
   readonly start: () => Effect.Effect<void, never, Scope.Scope>;
 }
 

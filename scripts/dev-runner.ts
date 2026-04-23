@@ -1,16 +1,7 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { homedir } from "node:os";
-import { basename, join as joinPath, resolve as resolvePath } from "node:path";
+import * as NodeOS from "node:os";
 
-import {
-  APP_BASE_NAME,
-  APP_HOME_DIR_NAME,
-  APP_HOME_ENV_VAR,
-  LEGACY_APP_HOME_ENV_VAR,
-} from "@t3tools/shared/branding";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { NetService } from "@t3tools/shared/Net";
@@ -24,55 +15,10 @@ const MAX_HASH_OFFSET = 3000;
 const MAX_PORT = 65535;
 const DESKTOP_DEV_LOOPBACK_HOST = "127.0.0.1";
 const DEV_PORT_PROBE_HOSTS = ["127.0.0.1", "0.0.0.0", "::1", "::"] as const;
-const DEV_WORKTREE_HOMES_DIR_NAME = "dev-worktrees";
 
 export const DEFAULT_T3_HOME = Effect.map(Effect.service(Path.Path), (path) =>
-  path.join(homedir(), APP_HOME_DIR_NAME),
+  path.join(NodeOS.homedir(), ".t3"),
 );
-
-function slugifyPathSegment(value: string): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug.length > 0 ? slug : "workspace";
-}
-
-export function resolveWorktreeRootForDevHome(cwd: string): string {
-  const resolvedCwd = resolvePath(cwd);
-
-  try {
-    const stdout = execFileSync("git", ["-C", resolvedCwd, "rev-parse", "--show-toplevel"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    const trimmed = stdout.trim();
-    if (trimmed.length > 0) {
-      return resolvePath(trimmed);
-    }
-  } catch {
-    // Fall back to the current working directory when git metadata is unavailable.
-  }
-
-  return resolvedCwd;
-}
-
-export function buildWorktreeScopedDevHome(baseHome: string, worktreeRoot: string): string {
-  const normalizedBaseHome = resolvePath(baseHome);
-  const normalizedWorktreeRoot = resolvePath(worktreeRoot);
-  const worktreeName = slugifyPathSegment(basename(normalizedWorktreeRoot));
-  const worktreeHash = createHash("sha256")
-    .update(normalizedWorktreeRoot)
-    .digest("hex")
-    .slice(0, 12);
-
-  return joinPath(
-    normalizedBaseHome,
-    DEV_WORKTREE_HOMES_DIR_NAME,
-    `${worktreeName}-${worktreeHash}`,
-  );
-}
 
 const MODE_ARGS = {
   dev: [
@@ -166,8 +112,7 @@ function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, neve
       return path.resolve(configured);
     }
 
-    const defaultHome = yield* DEFAULT_T3_HOME;
-    return buildWorktreeScopedDevHome(defaultHome, resolveWorktreeRootForDevHome(process.cwd()));
+    return yield* DEFAULT_T3_HOME;
   });
 }
 
@@ -210,8 +155,7 @@ export function createDevRunnerEnv({
       VITE_DEV_SERVER_URL:
         devUrl?.toString() ??
         `http://${isDesktopMode ? DESKTOP_DEV_LOOPBACK_HOST : "localhost"}:${webPort}`,
-      [APP_HOME_ENV_VAR]: resolvedBaseDir,
-      [LEGACY_APP_HOME_ENV_VAR]: resolvedBaseDir,
+      T3CODE_HOME: resolvedBaseDir,
     };
 
     if (!isDesktopMode) {
@@ -528,10 +472,8 @@ const devRunnerCli = Command.make("dev-runner", {
     Argument.withDescription("Development mode to run."),
   ),
   t3Home: Flag.string("home-dir").pipe(
-    Flag.withDescription(
-      `Base directory for all ${APP_BASE_NAME} data (equivalent to ${APP_HOME_ENV_VAR}, legacy: ${LEGACY_APP_HOME_ENV_VAR}).`,
-    ),
-    Flag.withFallbackConfig(optionalStringConfig(APP_HOME_ENV_VAR)),
+    Flag.withDescription("Base directory for all T3 Code data (equivalent to T3CODE_HOME)."),
+    Flag.withFallbackConfig(optionalStringConfig("T3CODE_HOME")),
   ),
   noBrowser: Flag.boolean("no-browser").pipe(
     Flag.withDescription("Browser auto-open toggle (equivalent to T3CODE_NO_BROWSER)."),
@@ -581,11 +523,10 @@ const cliRuntimeLayer = Layer.mergeAll(
   NetService.layer,
 );
 
-const runtimeProgram = Command.run(devRunnerCli, { version: "0.0.0" }).pipe(
-  Effect.scoped,
-  Effect.provide(cliRuntimeLayer),
-);
-
 if (import.meta.main) {
-  NodeRuntime.runMain(runtimeProgram);
+  Command.run(devRunnerCli, { version: "0.0.0" }).pipe(
+    Effect.scoped,
+    Effect.provide(cliRuntimeLayer),
+    NodeRuntime.runMain,
+  );
 }

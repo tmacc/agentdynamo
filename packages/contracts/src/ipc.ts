@@ -2,8 +2,6 @@ import type {
   GitCheckoutInput,
   GitCheckoutResult,
   GitCreateBranchInput,
-  GitGetPullRequestRemoteOptionsInput,
-  GitGetPullRequestRemoteOptionsResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -16,32 +14,22 @@ import type {
   GitPullResult,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
-  GitSetPullRequestRemoteInput,
-  GitSetPullRequestRemoteResult,
   GitStatusInput,
   GitStatusResult,
   GitCreateBranchResult,
-} from "./git";
-import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
+} from "./git.ts";
+import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type {
-  ProjectApplyWorktreeReadinessInput,
-  ProjectApplyWorktreeReadinessResult,
-  ProjectGetIntelligenceInput,
-  ProjectGetIntelligenceResult,
-  ProjectReadIntelligenceSurfaceInput,
-  ProjectReadIntelligenceSurfaceResult,
-  ProjectScanWorktreeReadinessInput,
-  ProjectScanWorktreeReadinessResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
-} from "./project";
+} from "./project.ts";
 import type {
   ServerConfig,
   ServerProviderUpdatedPayload,
   ServerUpsertKeybindingResult,
-} from "./server";
+} from "./server.ts";
 import type {
   TerminalClearInput,
   TerminalCloseInput,
@@ -51,12 +39,10 @@ import type {
   TerminalRestartInput,
   TerminalSessionSnapshot,
   TerminalWriteInput,
-} from "./terminal";
-import type { ServerUpsertKeybindingInput } from "./server";
+} from "./terminal.ts";
+import type { ServerUpsertKeybindingInput } from "./server.ts";
 import type {
   ClientOrchestrationCommand,
-  OrchestrationForkThreadInput,
-  OrchestrationForkThreadResult,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
@@ -64,19 +50,10 @@ import type {
   OrchestrationShellStreamItem,
   OrchestrationSubscribeThreadInput,
   OrchestrationThreadStreamItem,
-} from "./orchestration";
-import type {
-  BoardCommand,
-  BoardListCardsInput,
-  BoardListCardsResult,
-  BoardListDismissedGhostsInput,
-  BoardListDismissedGhostsResult,
-  BoardStreamEvent,
-  BoardSubscribeProjectInput,
-} from "./board";
-import type { EnvironmentId } from "./baseSchemas";
-import { EditorId } from "./editor";
-import { ClientSettings, ServerSettings, ServerSettingsPatch } from "./settings";
+} from "./orchestration.ts";
+import type { EnvironmentId } from "./baseSchemas.ts";
+import { EditorId } from "./editor.ts";
+import { ServerSettings, type ClientSettings, type ServerSettingsPatch } from "./settings.ts";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -266,16 +243,6 @@ export interface EnvironmentApi {
   };
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
-    scanWorktreeReadiness: (
-      input: ProjectScanWorktreeReadinessInput,
-    ) => Promise<ProjectScanWorktreeReadinessResult>;
-    applyWorktreeReadiness: (
-      input: ProjectApplyWorktreeReadinessInput,
-    ) => Promise<ProjectApplyWorktreeReadinessResult>;
-    getIntelligence: (input: ProjectGetIntelligenceInput) => Promise<ProjectGetIntelligenceResult>;
-    readIntelligenceSurface: (
-      input: ProjectReadIntelligenceSurfaceInput,
-    ) => Promise<ProjectReadIntelligenceSurfaceResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
   };
   filesystem: {
@@ -289,12 +256,6 @@ export interface EnvironmentApi {
     checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResult>;
     init: (input: GitInitInput) => Promise<void>;
     resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
-    getPullRequestRemoteOptions: (
-      input: GitGetPullRequestRemoteOptionsInput,
-    ) => Promise<GitGetPullRequestRemoteOptionsResult>;
-    setPullRequestRemote: (
-      input: GitSetPullRequestRemoteInput,
-    ) => Promise<GitSetPullRequestRemoteResult>;
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Promise<GitPreparePullRequestThreadResult>;
@@ -310,7 +271,6 @@ export interface EnvironmentApi {
   };
   orchestration: {
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
-    forkThread: (input: OrchestrationForkThreadInput) => Promise<OrchestrationForkThreadResult>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
     getFullThreadDiff: (
       input: OrchestrationGetFullThreadDiffInput,
@@ -328,19 +288,5 @@ export interface EnvironmentApi {
         onResubscribe?: () => void;
       },
     ) => () => void;
-  };
-  board: {
-    listCards: (input: BoardListCardsInput) => Promise<BoardListCardsResult>;
-    listDismissedGhosts: (
-      input: BoardListDismissedGhostsInput,
-    ) => Promise<BoardListDismissedGhostsResult>;
-    subscribeProject: (
-      input: BoardSubscribeProjectInput,
-      callback: (event: BoardStreamEvent) => void,
-      options?: {
-        onResubscribe?: () => void;
-      },
-    ) => () => void;
-    dispatchCommand: (command: BoardCommand) => Promise<{ sequence: number }>;
   };
 }

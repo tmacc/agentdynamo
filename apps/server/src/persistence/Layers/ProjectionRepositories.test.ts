@@ -1,19 +1,16 @@
-import { ProjectId, ThreadId, type FeatureCard } from "@t3tools/contracts";
+import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { ProjectionBoardCardRepositoryLive } from "./ProjectionBoardCards.ts";
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
 import { ProjectionProjectRepositoryLive } from "./ProjectionProjects.ts";
 import { ProjectionThreadRepositoryLive } from "./ProjectionThreads.ts";
-import { ProjectionBoardCardRepository } from "../Services/ProjectionBoardCards.ts";
 import { ProjectionProjectRepository } from "../Services/ProjectionProjects.ts";
 import { ProjectionThreadRepository } from "../Services/ProjectionThreads.ts";
 
 const projectionRepositoriesLayer = it.layer(
   Layer.mergeAll(
-    ProjectionBoardCardRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     ProjectionProjectRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     ProjectionThreadRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     SqlitePersistenceMemory,
@@ -35,7 +32,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
           model: "gpt-5.4",
         },
         scripts: [],
-        worktreeReadiness: null,
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-24T00:00:00.000Z",
         deletedAt: null,
@@ -126,46 +122,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         provider: "claudeAgent",
         model: "claude-opus-4-6",
       });
-    }),
-  );
-
-  it.effect("rejects duplicate linked thread ids across board cards", () =>
-    Effect.gen(function* () {
-      const boardCards = yield* ProjectionBoardCardRepository;
-      const firstCard: FeatureCard = {
-        id: "card-1" as FeatureCard["id"],
-        projectId: ProjectId.make("project-board"),
-        title: "Card 1" as FeatureCard["title"],
-        description: null,
-        seededPrompt: null,
-        column: "planned",
-        sortOrder: 0,
-        linkedThreadId: ThreadId.make("thread-shared"),
-        linkedProposedPlanId: null,
-        createdAt: "2026-04-18T00:00:00.000Z" as FeatureCard["createdAt"],
-        updatedAt: "2026-04-18T00:00:00.000Z" as FeatureCard["updatedAt"],
-        archivedAt: null,
-      };
-      const secondCard: FeatureCard = {
-        id: "card-2" as FeatureCard["id"],
-        projectId: ProjectId.make("project-board"),
-        title: "Card 2" as FeatureCard["title"],
-        description: null,
-        seededPrompt: null,
-        column: "planned",
-        sortOrder: 100,
-        linkedThreadId: ThreadId.make("thread-shared"),
-        linkedProposedPlanId: null,
-        createdAt: "2026-04-18T00:00:01.000Z" as FeatureCard["createdAt"],
-        updatedAt: "2026-04-18T00:00:01.000Z" as FeatureCard["updatedAt"],
-        archivedAt: null,
-      };
-
-      yield* boardCards.upsert(firstCard);
-
-      const exit = yield* Effect.exit(boardCards.upsert(secondCard));
-
-      assert.strictEqual(exit._tag, "Failure");
     }),
   );
 });

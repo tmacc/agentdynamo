@@ -7,22 +7,19 @@ import {
   DEFAULT_RUNTIME_MODE,
   OrchestrationCommand,
   OrchestrationEvent,
-  OrchestrationForkThreadInput,
-  OrchestrationForkThreadResult,
   OrchestrationGetTurnDiffInput,
   OrchestrationLatestTurn,
   ProjectCreatedPayload,
   ProjectMetaUpdatedPayload,
   OrchestrationProposedPlan,
   OrchestrationSession,
-  OrchestrationThreadForkOrigin,
   ProjectCreateCommand,
   ThreadMetaUpdatedPayload,
   ThreadTurnStartCommand,
   ThreadCreatedPayload,
   ThreadTurnDiff,
   ThreadTurnStartRequestedPayload,
-} from "./orchestration";
+} from "./orchestration.ts";
 
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
 const decodeThreadTurnDiff = Schema.decodeUnknownEffect(ThreadTurnDiff);
@@ -40,9 +37,6 @@ const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPaylo
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
-const decodeForkThreadInput = Schema.decodeUnknownEffect(OrchestrationForkThreadInput);
-const decodeForkThreadResult = Schema.decodeUnknownEffect(OrchestrationForkThreadResult);
-const decodeThreadForkOrigin = Schema.decodeUnknownEffect(OrchestrationThreadForkOrigin);
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
   Effect.gen(function* () {
@@ -215,91 +209,6 @@ it.effect("preserves explicit provider and runtime mode in thread.turn.start", (
     assert.strictEqual(parsed.modelSelection?.provider, "codex");
     assert.strictEqual(parsed.runtimeMode, "full-access");
     assert.strictEqual(parsed.interactionMode, DEFAULT_PROVIDER_INTERACTION_MODE);
-  }),
-);
-
-it.effect("decodes fork thread input with worktree mode and base branch", () =>
-  Effect.gen(function* () {
-    const parsed = yield* decodeForkThreadInput({
-      sourceThreadId: " thread-1 ",
-      sourceUserMessageId: " message-1 ",
-      mode: "worktree",
-      baseBranch: " main ",
-    });
-
-    assert.strictEqual(parsed.sourceThreadId, "thread-1");
-    assert.strictEqual(parsed.sourceUserMessageId, "message-1");
-    assert.strictEqual(parsed.mode, "worktree");
-    assert.strictEqual(parsed.baseBranch, "main");
-  }),
-);
-
-it.effect("decodes thread fork origin and thread.created payload fork metadata", () =>
-  Effect.gen(function* () {
-    const forkOrigin = yield* decodeThreadForkOrigin({
-      sourceThreadId: "thread-source",
-      sourceThreadTitle: " Parent thread ",
-      sourceUserMessageId: "message-source",
-      importedUntilAt: "2026-01-01T00:00:10.000Z",
-      forkedAt: "2026-01-01T00:00:00.000Z",
-    });
-    const payload = yield* decodeThreadCreatedPayload({
-      threadId: "thread-child",
-      projectId: "project-1",
-      title: "Fork of Parent thread",
-      modelSelection: {
-        provider: "codex",
-        model: "gpt-5-codex",
-      },
-      runtimeMode: "full-access",
-      interactionMode: "default",
-      branch: null,
-      worktreePath: null,
-      forkOrigin,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    });
-
-    assert.strictEqual(payload.forkOrigin?.sourceThreadId, "thread-source");
-    assert.strictEqual(payload.forkOrigin?.sourceThreadTitle, "Parent thread");
-  }),
-);
-
-it.effect("decodes fork thread result shells with fork origin", () =>
-  Effect.gen(function* () {
-    const result = yield* decodeForkThreadResult({
-      thread: {
-        id: "thread-child",
-        projectId: "project-1",
-        title: "Fork of Parent thread",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        branch: null,
-        worktreePath: null,
-        latestTurn: null,
-        archivedAt: null,
-        session: null,
-        latestUserMessageAt: null,
-        hasPendingApprovals: false,
-        hasPendingUserInput: false,
-        hasActionableProposedPlan: false,
-        forkOrigin: {
-          sourceThreadId: "thread-source",
-          sourceThreadTitle: "Parent thread",
-          sourceUserMessageId: "message-source",
-          importedUntilAt: "2026-01-01T00:00:10.000Z",
-          forkedAt: "2026-01-01T00:00:00.000Z",
-        },
-      },
-    });
-
-    assert.strictEqual(result.thread.forkOrigin?.sourceThreadId, "thread-source");
   }),
 );
 

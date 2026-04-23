@@ -1,12 +1,6 @@
 import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
-import {
-  type MessageId,
-  type ProviderKind,
-  type OrchestrationThreadForkOrigin,
-  type ThreadId,
-} from "@t3tools/contracts";
-import type { TeamTaskLaunchGroup } from "./teamTaskTimeline";
+import { type MessageId } from "@t3tools/contracts";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
@@ -34,8 +28,6 @@ export type MessagesTimelineRow =
       showAssistantCopyButton: boolean;
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
-      userMessageSwitchInfo?: UserMessageSwitchInfo | undefined;
-      showForkButton?: boolean | undefined;
     }
   | {
       kind: "proposed-plan";
@@ -43,40 +35,11 @@ export type MessagesTimelineRow =
       createdAt: string;
       proposedPlan: ProposedPlan;
     }
-  | {
-      kind: "fork-separator";
-      id: string;
-      createdAt: string;
-      sourceThreadId: ThreadId;
-      sourceThreadTitle: string;
-    }
-  | { kind: "team-task-group"; id: string; createdAt: string; tasks: TeamTaskLaunchGroup["tasks"] }
   | { kind: "working"; id: string; createdAt: string | null };
 
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
   result: MessagesTimelineRow[];
-}
-
-export interface UserMessageSwitchInfo {
-  fromProvider: ProviderKind;
-  toProvider: ProviderKind;
-  toModel: string;
-}
-
-function insertRowByCreatedAt(
-  rows: MessagesTimelineRow[],
-  row: Extract<MessagesTimelineRow, { createdAt: string }>,
-) {
-  const insertionIndex = rows.findIndex(
-    (candidate) =>
-      candidate.createdAt !== null && candidate.createdAt.localeCompare(row.createdAt) > 0,
-  );
-  if (insertionIndex < 0) {
-    rows.push(row);
-    return;
-  }
-  rows.splice(insertionIndex, 0, row);
 }
 
 export function computeMessageDurationStart(
@@ -144,46 +107,6 @@ function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<Timeli
   return new Set(lastAssistantMessageIdByResponseKey.values());
 }
 
-function deriveSettledForkableUserMessageIds(
-  timelineEntries: ReadonlyArray<TimelineEntry>,
-): Set<MessageId> {
-  const settledUserMessageIds = new Set<MessageId>();
-
-  for (let index = 0; index < timelineEntries.length; index += 1) {
-    const entry = timelineEntries[index];
-    if (!entry || entry.kind !== "message" || entry.message.role !== "user") {
-      continue;
-    }
-
-    let sawAssistant = false;
-    let settled = true;
-    let cursor = index + 1;
-    while (cursor < timelineEntries.length) {
-      const nextEntry = timelineEntries[cursor];
-      if (!nextEntry || nextEntry.kind !== "message") {
-        cursor += 1;
-        continue;
-      }
-      if (nextEntry.message.role === "user") {
-        break;
-      }
-      if (nextEntry.message.role === "assistant") {
-        sawAssistant = true;
-        if (nextEntry.message.streaming) {
-          settled = false;
-        }
-      }
-      cursor += 1;
-    }
-
-    if (sawAssistant && settled) {
-      settledUserMessageIds.add(entry.message.id);
-    }
-  }
-
-  return settledUserMessageIds;
-}
-
 export function deriveMessagesTimelineRows(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   completionDividerBeforeEntryId: string | null;
@@ -191,16 +114,12 @@ export function deriveMessagesTimelineRows(input: {
   activeTurnStartedAt: string | null;
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
-  userMessageSwitchInfoByMessageId: ReadonlyMap<MessageId, UserMessageSwitchInfo>;
-  teamTaskLaunchGroups?: readonly TeamTaskLaunchGroup[] | undefined;
-  forkOrigin?: OrchestrationThreadForkOrigin | undefined;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
   const durationStartByMessageId = computeMessageDurationStart(
     input.timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
   );
   const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(input.timelineEntries);
-  const settledForkableUserMessageIds = deriveSettledForkableUserMessageIds(input.timelineEntries);
 
   for (let index = 0; index < input.timelineEntries.length; index += 1) {
     const timelineEntry = input.timelineEntries[index];
@@ -258,23 +177,6 @@ export function deriveMessagesTimelineRows(input: {
         timelineEntry.message.role === "user"
           ? input.revertTurnCountByUserMessageId.get(timelineEntry.message.id)
           : undefined,
-      userMessageSwitchInfo:
-        timelineEntry.message.role === "user"
-          ? input.userMessageSwitchInfoByMessageId.get(timelineEntry.message.id)
-          : undefined,
-      showForkButton:
-        timelineEntry.message.role === "user"
-          ? settledForkableUserMessageIds.has(timelineEntry.message.id)
-          : undefined,
-    });
-  }
-
-  for (const launchGroup of input.teamTaskLaunchGroups ?? []) {
-    insertRowByCreatedAt(nextRows, {
-      kind: "team-task-group",
-      id: launchGroup.id,
-      createdAt: launchGroup.createdAt,
-      tasks: launchGroup.tasks,
     });
   }
 
@@ -284,17 +186,6 @@ export function deriveMessagesTimelineRows(input: {
       id: "working-indicator-row",
       createdAt: input.activeTurnStartedAt,
     });
-  }
-
-  if (input.forkOrigin) {
-    const separatorRow: MessagesTimelineRow = {
-      kind: "fork-separator",
-      id: `fork-separator:${input.forkOrigin.forkedAt}`,
-      createdAt: input.forkOrigin.importedUntilAt,
-      sourceThreadId: input.forkOrigin.sourceThreadId,
-      sourceThreadTitle: input.forkOrigin.sourceThreadTitle,
-    };
-    insertRowByCreatedAt(nextRows, separatorRow);
   }
 
   return nextRows;
@@ -331,15 +222,6 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
 
-    case "fork-separator":
-      return (
-        a.sourceThreadId === (b as typeof a).sourceThreadId &&
-        a.sourceThreadTitle === (b as typeof a).sourceThreadTitle
-      );
-
-    case "team-task-group":
-      return a.tasks === (b as typeof a).tasks;
-
     case "work":
       return a.groupedEntries === (b as typeof a).groupedEntries;
 
@@ -351,9 +233,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showCompletionDivider === bm.showCompletionDivider &&
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
-        a.revertTurnCount === bm.revertTurnCount &&
-        a.userMessageSwitchInfo === bm.userMessageSwitchInfo &&
-        a.showForkButton === bm.showForkButton
+        a.revertTurnCount === bm.revertTurnCount
       );
     }
   }

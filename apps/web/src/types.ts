@@ -1,16 +1,11 @@
 import type {
   EnvironmentId,
   ModelSelection,
-  OrchestrationProject,
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
   RepositoryIdentity,
   OrchestrationSessionStatus,
-  OrchestrationTeamTaskId,
-  OrchestrationTeamTaskStatus,
-  OrchestrationTeamTaskWorkspaceMode,
   OrchestrationThreadActivity,
-  OrchestrationThreadForkOrigin,
   ProjectScript as ContractProjectScript,
   ThreadId,
   ProjectId,
@@ -85,23 +80,6 @@ export interface TurnDiffSummary {
   checkpointTurnCount?: number | undefined;
 }
 
-export interface TeamTask {
-  id: OrchestrationTeamTaskId;
-  parentThreadId: ThreadId;
-  childThreadId: ThreadId;
-  title: string;
-  roleLabel: string | null;
-  modelSelection: ModelSelection;
-  workspaceMode: OrchestrationTeamTaskWorkspaceMode;
-  status: OrchestrationTeamTaskStatus;
-  latestSummary: string | null;
-  errorText: string | null;
-  createdAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  updatedAt: string;
-}
-
 export interface Project {
   id: ProjectId;
   environmentId: EnvironmentId;
@@ -112,7 +90,6 @@ export interface Project {
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
   scripts: ProjectScript[];
-  worktreeReadiness?: OrchestrationProject["worktreeReadiness"];
 }
 
 export interface Thread {
@@ -135,15 +112,8 @@ export interface Thread {
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
-  teamParentThreadId?: ThreadId | null;
-  teamParentTaskId?: OrchestrationTeamTaskId | null;
-  teamRoleLabel?: string | null;
-  teamStatus?: OrchestrationTeamTaskStatus | null;
-  activeTeamTaskCount?: number;
-  teamTasks?: TeamTask[];
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
-  forkOrigin?: OrchestrationThreadForkOrigin;
 }
 
 export interface ThreadShell {
@@ -161,12 +131,6 @@ export interface ThreadShell {
   updatedAt?: string | undefined;
   branch: string | null;
   worktreePath: string | null;
-  teamParentThreadId?: ThreadId | null;
-  teamParentTaskId?: OrchestrationTeamTaskId | null;
-  teamRoleLabel?: string | null;
-  teamStatus?: OrchestrationTeamTaskStatus | null;
-  activeTeamTaskCount?: number;
-  forkOrigin?: OrchestrationThreadForkOrigin;
 }
 
 export interface ThreadTurnState {
@@ -187,12 +151,6 @@ export interface SidebarThreadSummary {
   latestTurn: OrchestrationLatestTurn | null;
   branch: string | null;
   worktreePath: string | null;
-  teamParentThreadId?: ThreadId | null;
-  teamParentTaskId?: OrchestrationTeamTaskId | null;
-  teamRoleLabel?: string | null;
-  teamStatus?: OrchestrationTeamTaskStatus | null;
-  activeTeamTaskCount?: number;
-  forkOrigin?: OrchestrationThreadForkOrigin;
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;

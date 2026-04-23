@@ -1,31 +1,23 @@
-import { Duration, Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
+import { Cause, Duration, Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
 import {
   type AuthAccessStreamEvent,
   AuthSessionId,
-  BOARD_WS_METHODS,
-  BoardListCardsError,
-  BoardListDismissedGhostsError,
-  BoardSubscribeProjectError,
   CommandId,
+  EventId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
+  type GitManagerServiceError,
   OrchestrationDispatchCommandError,
-  FilesystemBrowseError,
   type OrchestrationEvent,
   type OrchestrationShellStreamEvent,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
-  ProjectApplyWorktreeReadinessError,
-  ProjectGetIntelligenceError,
-  ProjectReadIntelligenceSurfaceError,
-  ProjectScanWorktreeReadinessError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
-  type GitManagerServiceError,
-  ProjectId,
+  FilesystemBrowseError,
   ThreadId,
   type TerminalEvent,
   WS_METHODS,
@@ -35,51 +27,42 @@ import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
-import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
-import { ServerConfig } from "./config";
-import { GitCore } from "./git/Services/GitCore";
-import { GitManager } from "./git/Services/GitManager";
-import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster";
-import { Keybindings } from "./keybindings";
-import { Open, resolveAvailableEditors } from "./open";
-import { enqueueAndExecuteForkThread } from "./orchestration/forkThreadExecution";
-import { normalizeDispatchCommand } from "./orchestration/Normalizer";
-import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
-import { ProjectionBoardCardRepository } from "./persistence/Services/ProjectionBoardCards";
-import { ProjectionBoardDismissedGhostRepository } from "./persistence/Services/ProjectionBoardDismissedGhosts";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
-import { ThreadBootstrapDispatcher } from "./orchestration/Services/ThreadBootstrapDispatcher";
-import { ThreadForkDispatcher } from "./orchestration/Services/ThreadForkDispatcher";
+import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery.ts";
+import { ServerConfig } from "./config.ts";
+import { GitCore } from "./git/Services/GitCore.ts";
+import { GitManager } from "./git/Services/GitManager.ts";
+import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster.ts";
+import { Keybindings } from "./keybindings.ts";
+import { Open, resolveAvailableEditors } from "./open.ts";
+import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
+import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
   observeRpcEffect,
   observeRpcStream,
   observeRpcStreamEffect,
-} from "./observability/RpcInstrumentation";
-import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
-import { ServerLifecycleEvents } from "./serverLifecycleEvents";
-import { ServerRuntimeStartup } from "./serverRuntimeStartup";
-import { ServerSettingsService } from "./serverSettings";
-import { TerminalManager } from "./terminal/Services/Manager";
-import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
-import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
-import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
-import { ProjectIntelligenceResolver } from "./project/Services/ProjectIntelligenceResolver";
-import { WorktreeReadinessApplicatorLive } from "./project/Layers/WorktreeReadinessApplicator.ts";
-import { WorktreeReadinessScannerLive } from "./project/Layers/WorktreeReadinessScanner.ts";
-import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver";
-import { WorktreeReadinessApplicator } from "./project/Services/WorktreeReadinessApplicator.ts";
-import { WorktreeReadinessScanner } from "./project/Services/WorktreeReadinessScanner.ts";
-import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
-import { ServerAuth } from "./auth/Services/ServerAuth";
+} from "./observability/RpcInstrumentation.ts";
+import { ProviderRegistry } from "./provider/Services/ProviderRegistry.ts";
+import { ServerLifecycleEvents } from "./serverLifecycleEvents.ts";
+import { ServerRuntimeStartup } from "./serverRuntimeStartup.ts";
+import { ServerSettingsService } from "./serverSettings.ts";
+import { TerminalManager } from "./terminal/Services/Manager.ts";
+import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries.ts";
+import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem.ts";
+import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths.ts";
+import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner.ts";
+import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver.ts";
+import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
+import { ServerAuth } from "./auth/Services/ServerAuth.ts";
 import {
   BootstrapCredentialService,
   type BootstrapCredentialChange,
-} from "./auth/Services/BootstrapCredentialService";
+} from "./auth/Services/BootstrapCredentialService.ts";
 import {
   SessionCredentialService,
   type SessionCredentialChange,
-} from "./auth/Services/SessionCredentialService";
-import { respondToAuthError } from "./auth/http";
+} from "./auth/Services/SessionCredentialService.ts";
+import { respondToAuthError } from "./auth/http.ts";
 
 function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
   OrchestrationEvent,
@@ -90,10 +73,7 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
       | "thread.activity-appended"
       | "thread.turn-diff-completed"
       | "thread.reverted"
-      | "thread.session-set"
-      | "thread.team-task-spawn-requested"
-      | "thread.team-task-upserted"
-      | "thread.team-task-cancel-requested";
+      | "thread.session-set";
   }
 > {
   return (
@@ -102,35 +82,8 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
     event.type === "thread.activity-appended" ||
     event.type === "thread.turn-diff-completed" ||
     event.type === "thread.reverted" ||
-    event.type === "thread.session-set" ||
-    event.type === "thread.team-task-spawn-requested" ||
-    event.type === "thread.team-task-upserted" ||
-    event.type === "thread.team-task-cancel-requested"
+    event.type === "thread.session-set"
   );
-}
-
-function matchesThreadDetailSubscription(event: OrchestrationEvent, threadId: ThreadId): boolean {
-  if (
-    event.aggregateKind === "thread" &&
-    event.aggregateId === threadId &&
-    isThreadDetailEvent(event)
-  ) {
-    return true;
-  }
-
-  if (!isThreadDetailEvent(event)) {
-    return false;
-  }
-
-  switch (event.type) {
-    case "thread.team-task-spawn-requested":
-    case "thread.team-task-upserted":
-      return event.payload.teamTask.childThreadId === threadId;
-    case "thread.team-task-cancel-requested":
-      return false;
-    default:
-      return false;
-  }
 }
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
@@ -194,24 +147,43 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const startup = yield* ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
-      const projectIntelligenceResolver = yield* ProjectIntelligenceResolver;
-      const worktreeReadinessScanner = yield* WorktreeReadinessScanner;
-      const worktreeReadinessApplicator = yield* WorktreeReadinessApplicator;
+      const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
       const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment;
       const serverAuth = yield* ServerAuth;
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
-      const threadBootstrapDispatcher = yield* ThreadBootstrapDispatcher;
-      const projectionBoardCardRepository = yield* ProjectionBoardCardRepository;
-      const projectionBoardDismissedGhostRepository =
-        yield* ProjectionBoardDismissedGhostRepository;
-      const threadForkDispatcher = yield* ThreadForkDispatcher;
+      const serverCommandId = (tag: string) =>
+        CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 
       const loadAuthAccessSnapshot = () =>
         Effect.all({
           pairingLinks: serverAuth.listPairingLinks().pipe(Effect.orDie),
           clientSessions: serverAuth.listClientSessions(currentSessionId).pipe(Effect.orDie),
+        });
+
+      const appendSetupScriptActivity = (input: {
+        readonly threadId: ThreadId;
+        readonly kind: "setup-script.requested" | "setup-script.started" | "setup-script.failed";
+        readonly summary: string;
+        readonly createdAt: string;
+        readonly payload: Record<string, unknown>;
+        readonly tone: "info" | "error";
+      }) =>
+        orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId: serverCommandId("setup-script-activity"),
+          threadId: input.threadId,
+          activity: {
+            id: EventId.make(crypto.randomUUID()),
+            tone: input.tone,
+            kind: input.kind,
+            summary: input.summary,
+            payload: input.payload,
+            turnId: null,
+            createdAt: input.createdAt,
+          },
+          createdAt: input.createdAt,
         });
 
       const toDispatchCommandError = (cause: unknown, fallbackMessage: string) =>
@@ -221,6 +193,17 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               message: cause instanceof Error ? cause.message : fallbackMessage,
               cause,
             });
+
+      const toBootstrapDispatchCommandCauseError = (cause: Cause.Cause<unknown>) => {
+        const error = Cause.squash(cause);
+        return Schema.is(OrchestrationDispatchCommandError)(error)
+          ? error
+          : new OrchestrationDispatchCommandError({
+              message:
+                error instanceof Error ? error.message : "Failed to bootstrap thread turn start.",
+              cause,
+            });
+      };
 
       const enrichProjectEvent = (
         event: OrchestrationEvent,
@@ -265,84 +248,250 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const enrichOrchestrationEvents = (events: ReadonlyArray<OrchestrationEvent>) =>
         Effect.forEach(events, enrichProjectEvent, { concurrency: 4 });
 
-      const toShellStreamEvents = (
+      const toShellStreamEvent = (
         event: OrchestrationEvent,
-      ): Effect.Effect<ReadonlyArray<OrchestrationShellStreamEvent>, never, never> => {
-        const loadThreadShellEvent = (threadId: ThreadId) =>
-          projectionSnapshotQuery.getThreadShellById(threadId).pipe(
-            Effect.map((thread) =>
-              Option.match(thread, {
-                onNone: () => [] as ReadonlyArray<OrchestrationShellStreamEvent>,
-                onSome: (nextThread) =>
-                  [
-                    {
-                      kind: "thread-upserted" as const,
-                      sequence: event.sequence,
-                      thread: nextThread,
-                    },
-                  ] as const,
-              }),
-            ),
-            Effect.catch(() => Effect.succeed([])),
-          );
-
+      ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> => {
         switch (event.type) {
           case "project.created":
           case "project.meta-updated":
             return projectionSnapshotQuery.getProjectShellById(event.payload.projectId).pipe(
               Effect.map((project) =>
-                Option.match(project, {
-                  onNone: () => [] as ReadonlyArray<OrchestrationShellStreamEvent>,
-                  onSome: (nextProject) =>
-                    [
-                      {
-                        kind: "project-upserted" as const,
-                        sequence: event.sequence,
-                        project: nextProject,
-                      },
-                    ] as const,
-                }),
+                Option.map(project, (nextProject) => ({
+                  kind: "project-upserted" as const,
+                  sequence: event.sequence,
+                  project: nextProject,
+                })),
               ),
-              Effect.catch(() => Effect.succeed([])),
+              Effect.catch(() => Effect.succeed(Option.none())),
             );
           case "project.deleted":
-            return Effect.succeed([
-              {
+            return Effect.succeed(
+              Option.some({
                 kind: "project-removed" as const,
                 sequence: event.sequence,
                 projectId: event.payload.projectId,
-              },
-            ] as const);
+              }),
+            );
           case "thread.deleted":
-            return Effect.succeed([
-              {
+            return Effect.succeed(
+              Option.some({
                 kind: "thread-removed" as const,
                 sequence: event.sequence,
                 threadId: event.payload.threadId,
-              },
-            ] as const);
-          case "thread.team-task-spawn-requested":
-          case "thread.team-task-upserted":
-            return Effect.all([
-              loadThreadShellEvent(event.payload.parentThreadId),
-              loadThreadShellEvent(event.payload.teamTask.childThreadId),
-            ]).pipe(Effect.map(([parentEvents, childEvents]) => [...parentEvents, ...childEvents]));
-          case "thread.team-task-cancel-requested":
-            return loadThreadShellEvent(event.payload.parentThreadId);
+              }),
+            );
           default:
             if (event.aggregateKind !== "thread") {
-              return Effect.succeed([]);
+              return Effect.succeed(Option.none());
             }
-            return loadThreadShellEvent(ThreadId.make(event.aggregateId));
+            return projectionSnapshotQuery
+              .getThreadShellById(ThreadId.make(event.aggregateId))
+              .pipe(
+                Effect.map((thread) =>
+                  Option.map(thread, (nextThread) => ({
+                    kind: "thread-upserted" as const,
+                    sequence: event.sequence,
+                    thread: nextThread,
+                  })),
+                ),
+                Effect.catch(() => Effect.succeed(Option.none())),
+              );
         }
       };
+
+      const dispatchBootstrapTurnStart = (
+        command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
+      ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> =>
+        Effect.gen(function* () {
+          const bootstrap = command.bootstrap;
+          const { bootstrap: _bootstrap, ...finalTurnStartCommand } = command;
+          let createdThread = false;
+          let targetProjectId = bootstrap?.createThread?.projectId;
+          let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
+          let targetWorktreePath = bootstrap?.createThread?.worktreePath ?? null;
+
+          const cleanupCreatedThread = () =>
+            createdThread
+              ? orchestrationEngine
+                  .dispatch({
+                    type: "thread.delete",
+                    commandId: serverCommandId("bootstrap-thread-delete"),
+                    threadId: command.threadId,
+                  })
+                  .pipe(Effect.ignoreCause({ log: true }))
+              : Effect.void;
+
+          const recordSetupScriptLaunchFailure = (input: {
+            readonly error: unknown;
+            readonly requestedAt: string;
+            readonly worktreePath: string;
+          }) => {
+            const detail =
+              input.error instanceof Error ? input.error.message : "Unknown setup failure.";
+            return appendSetupScriptActivity({
+              threadId: command.threadId,
+              kind: "setup-script.failed",
+              summary: "Setup script failed to start",
+              createdAt: input.requestedAt,
+              payload: {
+                detail,
+                worktreePath: input.worktreePath,
+              },
+              tone: "error",
+            }).pipe(
+              Effect.ignoreCause({ log: false }),
+              Effect.flatMap(() =>
+                Effect.logWarning("bootstrap turn start failed to launch setup script", {
+                  threadId: command.threadId,
+                  worktreePath: input.worktreePath,
+                  detail,
+                }),
+              ),
+            );
+          };
+
+          const recordSetupScriptStarted = (input: {
+            readonly requestedAt: string;
+            readonly worktreePath: string;
+            readonly scriptId: string;
+            readonly scriptName: string;
+            readonly terminalId: string;
+          }) => {
+            const payload = {
+              scriptId: input.scriptId,
+              scriptName: input.scriptName,
+              terminalId: input.terminalId,
+              worktreePath: input.worktreePath,
+            };
+            return Effect.all([
+              appendSetupScriptActivity({
+                threadId: command.threadId,
+                kind: "setup-script.requested",
+                summary: "Starting setup script",
+                createdAt: input.requestedAt,
+                payload,
+                tone: "info",
+              }),
+              appendSetupScriptActivity({
+                threadId: command.threadId,
+                kind: "setup-script.started",
+                summary: "Setup script started",
+                createdAt: new Date().toISOString(),
+                payload,
+                tone: "info",
+              }),
+            ]).pipe(
+              Effect.asVoid,
+              Effect.catch((error) =>
+                Effect.logWarning(
+                  "bootstrap turn start launched setup script but failed to record setup activity",
+                  {
+                    threadId: command.threadId,
+                    worktreePath: input.worktreePath,
+                    scriptId: input.scriptId,
+                    terminalId: input.terminalId,
+                    detail: error.message,
+                  },
+                ),
+              ),
+            );
+          };
+
+          const runSetupProgram = () =>
+            bootstrap?.runSetupScript && targetWorktreePath
+              ? (() => {
+                  const worktreePath = targetWorktreePath;
+                  const requestedAt = new Date().toISOString();
+                  return projectSetupScriptRunner
+                    .runForThread({
+                      threadId: command.threadId,
+                      ...(targetProjectId ? { projectId: targetProjectId } : {}),
+                      ...(targetProjectCwd ? { projectCwd: targetProjectCwd } : {}),
+                      worktreePath,
+                    })
+                    .pipe(
+                      Effect.matchEffect({
+                        onFailure: (error) =>
+                          recordSetupScriptLaunchFailure({
+                            error,
+                            requestedAt,
+                            worktreePath,
+                          }),
+                        onSuccess: (setupResult) => {
+                          if (setupResult.status !== "started") {
+                            return Effect.void;
+                          }
+                          return recordSetupScriptStarted({
+                            requestedAt,
+                            worktreePath,
+                            scriptId: setupResult.scriptId,
+                            scriptName: setupResult.scriptName,
+                            terminalId: setupResult.terminalId,
+                          });
+                        },
+                      }),
+                    );
+                })()
+              : Effect.void;
+
+          const bootstrapProgram = Effect.gen(function* () {
+            if (bootstrap?.createThread) {
+              yield* orchestrationEngine.dispatch({
+                type: "thread.create",
+                commandId: serverCommandId("bootstrap-thread-create"),
+                threadId: command.threadId,
+                projectId: bootstrap.createThread.projectId,
+                title: bootstrap.createThread.title,
+                modelSelection: bootstrap.createThread.modelSelection,
+                runtimeMode: bootstrap.createThread.runtimeMode,
+                interactionMode: bootstrap.createThread.interactionMode,
+                branch: bootstrap.createThread.branch,
+                worktreePath: bootstrap.createThread.worktreePath,
+                createdAt: bootstrap.createThread.createdAt,
+              });
+              createdThread = true;
+            }
+
+            if (bootstrap?.prepareWorktree) {
+              const worktree = yield* git.createWorktree({
+                cwd: bootstrap.prepareWorktree.projectCwd,
+                branch: bootstrap.prepareWorktree.baseBranch,
+                newBranch: bootstrap.prepareWorktree.branch,
+                path: null,
+              });
+              targetWorktreePath = worktree.worktree.path;
+              yield* orchestrationEngine.dispatch({
+                type: "thread.meta.update",
+                commandId: serverCommandId("bootstrap-thread-meta-update"),
+                threadId: command.threadId,
+                branch: worktree.worktree.branch,
+                worktreePath: targetWorktreePath,
+              });
+              yield* refreshGitStatus(targetWorktreePath);
+            }
+
+            yield* runSetupProgram();
+
+            return yield* orchestrationEngine.dispatch(finalTurnStartCommand);
+          });
+
+          return yield* bootstrapProgram.pipe(
+            Effect.catchCause((cause) => {
+              const dispatchError = toBootstrapDispatchCommandCauseError(cause);
+              if (Cause.hasInterruptsOnly(cause)) {
+                return Effect.fail(dispatchError);
+              }
+              return cleanupCreatedThread().pipe(Effect.flatMap(() => Effect.fail(dispatchError)));
+            }),
+          );
+        });
 
       const dispatchNormalizedCommand = (
         normalizedCommand: OrchestrationCommand,
       ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> => {
         const dispatchEffect =
           normalizedCommand.type === "thread.turn.start" && normalizedCommand.bootstrap
-            ? threadBootstrapDispatcher.dispatch(normalizedCommand)
+            ? dispatchBootstrapTurnStart(normalizedCommand)
             : orchestrationEngine
                 .dispatch(normalizedCommand)
                 .pipe(
@@ -462,16 +611,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "orchestration" },
           ),
-        [ORCHESTRATION_WS_METHODS.forkThread]: (input) =>
-          observeRpcEffect(
-            ORCHESTRATION_WS_METHODS.forkThread,
-            enqueueAndExecuteForkThread({
-              startup,
-              threadForkDispatcher,
-              forkInput: input,
-            }),
-            { "rpc.aggregate": "orchestration" },
-          ),
         [ORCHESTRATION_WS_METHODS.getTurnDiff]: (input) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.getTurnDiff,
@@ -538,8 +677,10 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               );
 
               const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-                Stream.mapEffect(toShellStreamEvents),
-                Stream.flatMap((events) => Stream.fromIterable(events)),
+                Stream.mapEffect(toShellStreamEvent),
+                Stream.flatMap((event) =>
+                  Option.isSome(event) ? Stream.succeed(event.value) : Stream.empty,
+                ),
               );
 
               return Stream.concat(
@@ -579,7 +720,12 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               }
 
               const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-                Stream.filter((event) => matchesThreadDetailSubscription(event, input.threadId)),
+                Stream.filter(
+                  (event) =>
+                    event.aggregateKind === "thread" &&
+                    event.aggregateId === input.threadId &&
+                    isThreadDetailEvent(event),
+                ),
                 Stream.map((event) => ({
                   kind: "event" as const,
                   event,
@@ -598,83 +744,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               );
             }),
             { "rpc.aggregate": "orchestration" },
-          ),
-        [BOARD_WS_METHODS.listCards]: (input) =>
-          observeRpcEffect(
-            BOARD_WS_METHODS.listCards,
-            projectionBoardCardRepository.listByProject({ projectId: input.projectId }).pipe(
-              Effect.map((cards) => ({ cards })),
-              Effect.mapError(
-                (cause) =>
-                  new BoardListCardsError({
-                    message: `Failed to load board cards for project ${input.projectId}`,
-                    cause,
-                  }),
-              ),
-            ),
-            { "rpc.aggregate": "board" },
-          ),
-        [BOARD_WS_METHODS.listDismissedGhosts]: (input) =>
-          observeRpcEffect(
-            BOARD_WS_METHODS.listDismissedGhosts,
-            projectionBoardDismissedGhostRepository
-              .listByProject({ projectId: input.projectId })
-              .pipe(
-                Effect.map((dismissed) => ({ dismissed })),
-                Effect.mapError(
-                  (cause) =>
-                    new BoardListDismissedGhostsError({
-                      message: `Failed to load dismissed ghost cards for project ${input.projectId}`,
-                      cause,
-                    }),
-                ),
-              ),
-            { "rpc.aggregate": "board" },
-          ),
-        [BOARD_WS_METHODS.subscribeProject]: (input) =>
-          observeRpcStreamEffect(
-            BOARD_WS_METHODS.subscribeProject,
-            Effect.gen(function* () {
-              const [cards, dismissedGhosts, snapshotSequence] = yield* Effect.all([
-                projectionBoardCardRepository.listByProject({ projectId: input.projectId }),
-                projectionBoardDismissedGhostRepository.listByProject({
-                  projectId: input.projectId,
-                }),
-                orchestrationEngine
-                  .getReadModel()
-                  .pipe(Effect.map((readModel) => readModel.snapshotSequence)),
-              ]).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new BoardSubscribeProjectError({
-                      message: `Failed to load board snapshot for project ${input.projectId}`,
-                      cause,
-                    }),
-                ),
-              );
-
-              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-                Stream.filter(
-                  (event) =>
-                    event.aggregateKind === "board" && event.aggregateId === input.projectId,
-                ),
-                Stream.map((event) => ({
-                  kind: "event" as const,
-                  event,
-                })),
-              );
-
-              return Stream.concat(
-                Stream.make({
-                  kind: "snapshot" as const,
-                  cards,
-                  dismissedGhosts,
-                  snapshotSequence,
-                }),
-                liveStream,
-              );
-            }),
-            { "rpc.aggregate": "board" },
           ),
         [WS_METHODS.serverGetConfig]: (_input) =>
           observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {
@@ -730,62 +799,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   cause,
                 });
               }),
-            ),
-            { "rpc.aggregate": "workspace" },
-          ),
-        [WS_METHODS.projectsScanWorktreeReadiness]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.projectsScanWorktreeReadiness,
-            worktreeReadinessScanner.scan(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectScanWorktreeReadinessError({
-                    message: cause.message,
-                    cause,
-                  }),
-              ),
-            ),
-            { "rpc.aggregate": "workspace" },
-          ),
-        [WS_METHODS.projectsApplyWorktreeReadiness]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.projectsApplyWorktreeReadiness,
-            worktreeReadinessApplicator.apply(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectApplyWorktreeReadinessError({
-                    message: cause.message,
-                    cause,
-                  }),
-              ),
-            ),
-            { "rpc.aggregate": "workspace" },
-          ),
-        [WS_METHODS.projectsGetIntelligence]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.projectsGetIntelligence,
-            projectIntelligenceResolver.getIntelligence(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectGetIntelligenceError({
-                    message: cause.detail,
-                    cause,
-                  }),
-              ),
-            ),
-            { "rpc.aggregate": "workspace" },
-          ),
-        [WS_METHODS.projectsReadIntelligenceSurface]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.projectsReadIntelligenceSurface,
-            projectIntelligenceResolver.readSurface(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectReadIntelligenceSurfaceError({
-                    message: cause.detail,
-                    cause,
-                  }),
-              ),
             ),
             { "rpc.aggregate": "workspace" },
           ),
@@ -862,26 +875,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(WS_METHODS.gitResolvePullRequest, gitManager.resolvePullRequest(input), {
             "rpc.aggregate": "git",
           }),
-        [WS_METHODS.gitGetPullRequestRemoteOptions]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.gitGetPullRequestRemoteOptions,
-            gitManager.getPullRequestRemoteOptions(input),
-            {
-              "rpc.aggregate": "git",
-            },
-          ),
-        [WS_METHODS.gitSetPullRequestRemote]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.gitSetPullRequestRemote,
-            gitManager
-              .setPullRequestRemote(input)
-              .pipe(
-                Effect.tap(() => refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true }))),
-              ),
-            {
-              "rpc.aggregate": "git",
-            },
-          ),
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitPreparePullRequestThread,
@@ -1083,11 +1076,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           },
         }).pipe(
           Effect.provide(
-            makeWsRpcLayer(session.sessionId).pipe(
-              Layer.provideMerge(RpcSerialization.layerJson),
-              Layer.provideMerge(WorktreeReadinessScannerLive),
-              Layer.provideMerge(WorktreeReadinessApplicatorLive),
-            ),
+            makeWsRpcLayer(session.sessionId).pipe(Layer.provideMerge(RpcSerialization.layerJson)),
           ),
         );
         return yield* Effect.acquireUseRelease(
