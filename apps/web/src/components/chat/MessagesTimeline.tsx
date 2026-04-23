@@ -554,6 +554,8 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
           <ProposedPlanCard
             planMarkdown={row.proposedPlan.planMarkdown}
             environmentId={ctx.activeThreadEnvironmentId}
+            {...(ctx.activeThreadProjectId ? { projectId: ctx.activeThreadProjectId } : {})}
+            {...(row.proposedPlan.id ? { proposedPlanId: row.proposedPlan.id } : {})}
             cwd={ctx.markdownCwd}
             workspaceRoot={ctx.workspaceRoot}
           />

@@ -1,6 +1,11 @@
 import { scopeProjectRef } from "@t3tools/client-runtime";
-import type { EnvironmentId, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
-import type { DraftThreadEnvMode } from "../composerDraftStore";
+import type { EnvironmentId, FeatureCard, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
+import {
+  type DraftId,
+  type DraftThreadEnvMode,
+  useComposerDraftStore,
+} from "../composerDraftStore";
+import { linkBoardCardThread } from "../boardStore";
 
 interface ThreadContextLike {
   environmentId: EnvironmentId;
@@ -25,10 +30,15 @@ interface NewThreadHandler {
 }
 
 type NewThreadOptions = NonNullable<Parameters<NewThreadHandler>[1]>;
+type FreshDraftThreadHandler = (
+  projectRef: ScopedProjectRef,
+  options?: NewThreadOptions,
+) => Promise<DraftId>;
 
 export interface ChatThreadActionContext {
   readonly activeDraftThread: DraftThreadContextLike | null;
   readonly activeThread: ThreadContextLike | undefined;
+  readonly createFreshDraftThread?: FreshDraftThreadHandler;
   readonly defaultProjectRef: ScopedProjectRef | null;
   readonly defaultThreadEnvMode: DraftThreadEnvMode;
   readonly handleNewThread: NewThreadHandler;
@@ -49,15 +59,40 @@ export function resolveThreadActionProjectRef(
   return context.defaultProjectRef;
 }
 
-function buildContextualThreadOptions(context: ChatThreadActionContext): NewThreadOptions {
-  return {
-    branch: context.activeThread?.branch ?? context.activeDraftThread?.branch ?? null,
-    worktreePath:
-      context.activeThread?.worktreePath ?? context.activeDraftThread?.worktreePath ?? null,
-    envMode:
-      context.activeDraftThread?.envMode ??
-      (context.activeThread?.worktreePath ? "worktree" : "local"),
-  };
+function isSameProjectContext(
+  contextRef:
+    | Pick<ThreadContextLike, "environmentId" | "projectId">
+    | Pick<DraftThreadContextLike, "environmentId" | "projectId">
+    | null
+    | undefined,
+  projectRef: ScopedProjectRef,
+): boolean {
+  return (
+    !!contextRef &&
+    contextRef.environmentId === projectRef.environmentId &&
+    contextRef.projectId === projectRef.projectId
+  );
+}
+
+export function buildContextualThreadOptionsForProject(
+  context: ChatThreadActionContext,
+  projectRef: ScopedProjectRef,
+): NewThreadOptions {
+  if (isSameProjectContext(context.activeThread, projectRef)) {
+    return {
+      branch: context.activeThread?.branch ?? null,
+      worktreePath: context.activeThread?.worktreePath ?? null,
+      envMode: context.activeThread?.worktreePath ? "worktree" : "local",
+    };
+  }
+  if (isSameProjectContext(context.activeDraftThread, projectRef)) {
+    return {
+      branch: context.activeDraftThread?.branch ?? null,
+      worktreePath: context.activeDraftThread?.worktreePath ?? null,
+      envMode: context.activeDraftThread?.envMode ?? "local",
+    };
+  }
+  return buildDefaultThreadOptions(context);
 }
 
 function buildDefaultThreadOptions(context: ChatThreadActionContext): NewThreadOptions {
@@ -70,7 +105,10 @@ export async function startNewThreadInProjectFromContext(
   context: ChatThreadActionContext,
   projectRef: ScopedProjectRef,
 ): Promise<void> {
-  await context.handleNewThread(projectRef, buildContextualThreadOptions(context));
+  await context.handleNewThread(
+    projectRef,
+    buildContextualThreadOptionsForProject(context, projectRef),
+  );
 }
 
 export async function startNewThreadFromContext(
@@ -95,4 +133,72 @@ export async function startNewLocalThreadFromContext(
 
   await context.handleNewThread(projectRef, buildDefaultThreadOptions(context));
   return true;
+}
+
+export function resolveSeededPromptForCard(card: FeatureCard): string {
+  const seededPrompt = (card.seededPrompt ?? "").trim();
+  if (seededPrompt.length > 0) {
+    return seededPrompt;
+  }
+  const description = (card.description ?? "").trim();
+  if (description.length > 0) {
+    return `${card.title}\n\n${description}`;
+  }
+  return card.title;
+}
+
+export async function startSeededThreadForCard(args: {
+  card: FeatureCard;
+  context: ChatThreadActionContext;
+  environmentId: EnvironmentId;
+}): Promise<void> {
+  const { card, context, environmentId } = args;
+  const projectRef = scopeProjectRef(environmentId, card.projectId);
+  const createFreshDraftThread = context.createFreshDraftThread;
+  if (!createFreshDraftThread) {
+    throw new Error("Fresh draft thread creation is not available in this context.");
+  }
+
+  const draftId = await createFreshDraftThread(
+    projectRef,
+    buildContextualThreadOptionsForProject(context, projectRef),
+  );
+
+  const draftStore = useComposerDraftStore.getState();
+  if (!draftStore.getDraftSession(draftId)) {
+    return;
+  }
+
+  draftStore.setPrompt(draftId, resolveSeededPromptForCard(card));
+
+  let settled = false;
+  const unsubscribe = useComposerDraftStore.subscribe((state) => {
+    if (settled) {
+      return;
+    }
+    const session = state.getDraftSession(draftId);
+    const promoted = session?.promotedTo;
+    if (!promoted) {
+      return;
+    }
+    settled = true;
+    unsubscribe();
+    void linkBoardCardThread({
+      environmentId,
+      projectId: card.projectId,
+      cardId: card.id,
+      threadId: promoted.threadId,
+    }).catch(() => undefined);
+  });
+
+  setTimeout(
+    () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      unsubscribe();
+    },
+    10 * 60 * 1000,
+  );
 }

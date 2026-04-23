@@ -8,14 +8,22 @@ import { Effect } from "effect";
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
   listThreadsByProjectId,
+  requireBoardCardColumnAllowsThreadLink,
+  requireBoardCardInProject,
+  requireBoardCardLinkedThreadMatches,
+  requireBoardCardMoveAllowed,
+  requireBoardThreadLinkAvailable,
   requireProject,
   requireProjectAbsent,
   requireThread,
+  requireThreadInProject,
   requireThreadArchived,
   requireThreadAbsent,
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
 import { projectEvent } from "./projector.ts";
+import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
+import type { ProjectionBoardCardRepositoryShape } from "../persistence/Services/ProjectionBoardCards.ts";
 
 const nowIso = () => new Date().toISOString();
 const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
@@ -58,10 +66,15 @@ type DecideOrchestrationCommandResult =
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
   commands,
   readModel,
+  boardCardRepository,
 }: {
   readonly commands: ReadonlyArray<OrchestrationCommand>;
   readonly readModel: OrchestrationReadModel;
-}): Effect.fn.Return<ReadonlyArray<PlannedOrchestrationEvent>, OrchestrationCommandInvariantError> {
+  readonly boardCardRepository?: ProjectionBoardCardRepositoryShape;
+}): Effect.fn.Return<
+  ReadonlyArray<PlannedOrchestrationEvent>,
+  OrchestrationCommandInvariantError | ProjectionRepositoryError
+> {
   let nextReadModel = readModel;
   let nextSequence = readModel.snapshotSequence;
   const plannedEvents: PlannedOrchestrationEvent[] = [];
@@ -70,6 +83,7 @@ const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
     const decided = yield* decideOrchestrationCommand({
       command: nextCommand,
       readModel: nextReadModel,
+      ...(boardCardRepository ? { boardCardRepository } : {}),
     });
     const nextEvents = Array.isArray(decided) ? decided : [decided];
     for (const nextEvent of nextEvents) {
@@ -88,10 +102,15 @@ const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
 export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
   command,
   readModel,
+  boardCardRepository,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
-}): Effect.fn.Return<DecideOrchestrationCommandResult, OrchestrationCommandInvariantError> {
+  readonly boardCardRepository?: ProjectionBoardCardRepositoryShape;
+}): Effect.fn.Return<
+  DecideOrchestrationCommandResult,
+  OrchestrationCommandInvariantError | ProjectionRepositoryError
+> {
   switch (command.type) {
     case "project.create": {
       yield* requireProjectAbsent({
@@ -737,6 +756,345 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           activity: command.activity,
+        },
+      };
+    }
+
+    case "board.card.create": {
+      if (!boardCardRepository) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Board card repository is unavailable.",
+        });
+      }
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      if (command.linkedThreadId !== null) {
+        yield* requireBoardCardColumnAllowsThreadLink({
+          command,
+          card: {
+            id: command.cardId,
+            column: command.column,
+          },
+        });
+        yield* requireThreadInProject({
+          readModel,
+          command,
+          threadId: command.linkedThreadId,
+          projectId: command.projectId,
+        });
+        yield* requireBoardThreadLinkAvailable({
+          command,
+          threadId: command.linkedThreadId,
+          cardId: command.cardId,
+          repository: boardCardRepository,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-created",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          title: command.title,
+          description: command.description,
+          seededPrompt: command.seededPrompt,
+          column: command.column,
+          sortOrder: command.sortOrder,
+          linkedThreadId: command.linkedThreadId,
+          linkedProposedPlanId: command.linkedProposedPlanId,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "board.card.update": {
+      if (!boardCardRepository) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Board card repository is unavailable.",
+        });
+      }
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.updatedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-updated",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          ...(command.title !== undefined ? { title: command.title } : {}),
+          ...(command.description !== undefined ? { description: command.description } : {}),
+          ...(command.seededPrompt !== undefined ? { seededPrompt: command.seededPrompt } : {}),
+          updatedAt: command.updatedAt,
+        },
+      };
+    }
+
+    case "board.card.move": {
+      if (!boardCardRepository) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Board card repository is unavailable.",
+        });
+      }
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      const card = yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
+      });
+      yield* requireBoardCardMoveAllowed({
+        command,
+        card,
+        toColumn: command.toColumn,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.updatedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-moved",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          toColumn: command.toColumn,
+          sortOrder: command.sortOrder,
+          updatedAt: command.updatedAt,
+        },
+      };
+    }
+
+    case "board.card.archive": {
+      if (!boardCardRepository) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Board card repository is unavailable.",
+        });
+      }
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.archivedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-archived",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          archivedAt: command.archivedAt,
+          updatedAt: command.archivedAt,
+        },
+      };
+    }
+
+    case "board.card.delete": {
+      if (!boardCardRepository) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Board card repository is unavailable.",
+        });
+      }
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.deletedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-deleted",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          deletedAt: command.deletedAt,
+        },
+      };
+    }
+
+    case "board.card.linkThread": {
+      if (!boardCardRepository) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Board card repository is unavailable.",
+        });
+      }
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      const card = yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
+      });
+      yield* requireBoardCardColumnAllowsThreadLink({
+        command,
+        card,
+      });
+      yield* requireThreadInProject({
+        readModel,
+        command,
+        threadId: command.threadId,
+        projectId: command.projectId,
+      });
+      yield* requireBoardThreadLinkAvailable({
+        command,
+        threadId: command.threadId,
+        cardId: command.cardId,
+        repository: boardCardRepository,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.updatedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-thread-linked",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          threadId: command.threadId,
+          updatedAt: command.updatedAt,
+        },
+      };
+    }
+
+    case "board.card.unlinkThread": {
+      if (!boardCardRepository) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Board card repository is unavailable.",
+        });
+      }
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      const card = yield* requireBoardCardInProject({
+        command,
+        cardId: command.cardId,
+        projectId: command.projectId,
+        repository: boardCardRepository,
+      });
+      yield* requireBoardCardLinkedThreadMatches({
+        command,
+        card,
+        expectedThreadId: command.previousThreadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.updatedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.card-thread-unlinked",
+        payload: {
+          cardId: command.cardId,
+          projectId: command.projectId,
+          previousThreadId: command.previousThreadId,
+          updatedAt: command.updatedAt,
+        },
+      };
+    }
+
+    case "board.ghost-card.dismiss": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.dismissedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.ghost-card-dismissed",
+        payload: {
+          projectId: command.projectId,
+          threadId: command.threadId,
+          dismissedAt: command.dismissedAt,
+        },
+      };
+    }
+
+    case "board.ghost-card.undismiss": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.projectId,
+          occurredAt: command.undismissedAt,
+          commandId: command.commandId,
+        }),
+        type: "board.ghost-card-undismissed",
+        payload: {
+          projectId: command.projectId,
+          threadId: command.threadId,
+          undismissedAt: command.undismissedAt,
         },
       };
     }

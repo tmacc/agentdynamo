@@ -14,7 +14,7 @@
 As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 - `Multi-provider subagents`: missing on merged baseline
-- `Board View`: missing on merged baseline
+- `Board View`: restored on top of merged baseline
 - `Forking threads`: missing on merged baseline
 - `Provider switching / handoff`: missing on merged baseline
 - `Saving prompts`: restored on top of merged baseline
@@ -57,33 +57,42 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ### Board View
 
-- `Status`: Present on the pre-merge fork at `365ae6d9`. Missing on merged baseline `ed85e9ce`.
-- `User-visible behavior`: Project-level board with stored columns (`ideas`, `planned`) and derived columns (`in-progress`, `review`, `done`) computed from thread/runtime state. Supports card creation, drag/drop reordering, linked threads, ghost cards, and seeded prompts.
+- `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce`.
+- `User-visible behavior`: Project-level board with stored columns (`ideas`, `planned`) and derived columns (`in-progress`, `review`, `done`) computed from thread/runtime state. Supports card creation, drag/drop reordering, linked threads, ghost cards, seeded prompts, board-scoped routing, and adding implementation work from proposed plans directly into the board.
 - `Why it exists`: Gives Dynamo a lightweight planning surface tied directly to real agent threads instead of separate project-management tooling.
 - `Key fork files`:
   - `packages/contracts/src/board.ts`
   - `apps/server/src/persistence/Layers/ProjectionBoardCards.ts`
   - `apps/server/src/persistence/Layers/ProjectionBoardDismissedGhosts.ts`
-  - `apps/server/src/persistence/Migrations/029_ProjectionBoardCards.ts`
-  - `apps/server/src/persistence/Migrations/030_ProjectionBoardDismissedGhosts.ts`
+  - `apps/server/src/persistence/Migrations/026_ProjectionBoardCards.ts`
+  - `apps/server/src/persistence/Migrations/027_ProjectionBoardDismissedGhosts.ts`
   - `apps/web/src/boardProjection.ts`
+  - `apps/web/src/boardRouteSearch.ts`
   - `apps/web/src/boardStore.ts`
+  - `apps/web/src/boardUiStore.ts`
   - `apps/web/src/components/board/BoardView.tsx`
   - `apps/web/src/components/board/BoardCardSheet.tsx`
+  - `apps/web/src/routes/_chat.tsx`
+  - `apps/web/src/components/chat/ChatHeader.tsx`
+  - `apps/web/src/components/chat/ProposedPlanCard.tsx`
 - `Important invariants`:
   - Stored columns are authoritative on the server.
   - Derived columns are recomputed from thread state and git/runtime signals.
   - Card-to-thread linking must stay unique and stable.
   - Ghost-card dismissals must persist across reloads.
+  - Board route state must survive thread and draft navigation without leaking board params into normal thread opens.
 - `Merge hotspots`:
   - Contracts for board commands/events
   - Persistence migrations and projection tables
   - Thread read-model fields consumed by board projection
   - Sidebar and project routing that expose the board UI
+  - Chat/proposed-plan actions that seed new board work
 - `Verification`:
   - Create, edit, move, archive, and delete cards.
   - Link a card to a thread and verify the derived columns update as thread state changes.
   - Dismiss and restore ghost cards across reloads.
+  - Open the board from the chat header/sidebar/command palette and confirm route state is stable.
+  - Add a proposed plan to the board, start the agent from the card, and verify the card links to the promoted thread.
 
 ### Forking threads
 

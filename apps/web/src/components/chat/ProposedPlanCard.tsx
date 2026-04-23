@@ -1,6 +1,7 @@
 import { memo, useState, useId } from "react";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import {
+  buildPlanImplementationPrompt,
   buildCollapsedProposedPlanPreviewMarkdown,
   buildProposedPlanMarkdownFilename,
   downloadPlanAsTextFile,
@@ -10,9 +11,11 @@ import {
 } from "../../proposedPlan";
 import ChatMarkdown from "../ChatMarkdown";
 import { EllipsisIcon } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { createBoardCard } from "../../boardStore";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import {
@@ -31,18 +34,24 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 export const ProposedPlanCard = memo(function ProposedPlanCard({
   planMarkdown,
   environmentId,
+  projectId,
+  proposedPlanId,
   cwd,
   workspaceRoot,
 }: {
   planMarkdown: string;
   environmentId: EnvironmentId;
+  projectId?: ProjectId;
+  proposedPlanId?: string;
   cwd: string | undefined;
   workspaceRoot: string | undefined;
 }) {
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [savePath, setSavePath] = useState("");
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
+  const [isAddingToBoard, setIsAddingToBoard] = useState(false);
   const { copyToClipboard, isCopied } = useCopyToClipboard({
     onError: (error) => {
       toastManager.add(
@@ -71,6 +80,55 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
 
   const handleCopyPlan = () => {
     copyToClipboard(saveContents);
+  };
+
+  const handleAddToBoard = () => {
+    if (!projectId || isAddingToBoard) {
+      return;
+    }
+    setIsAddingToBoard(true);
+    const cardTitle = proposedPlanTitle(planMarkdown) ?? "Untitled plan";
+    const seededPrompt = buildPlanImplementationPrompt(planMarkdown);
+    void createBoardCard({
+      environmentId,
+      projectId,
+      title: cardTitle,
+      seededPrompt,
+      column: "planned",
+      linkedProposedPlanId: proposedPlanId ?? null,
+    })
+      .then(() => {
+        toastManager.add({
+          type: "success",
+          title: "Added to board",
+          description: `"${cardTitle}" is now in Planned.`,
+          actionProps: {
+            children: "Open board",
+            onClick: () => {
+              void navigate({
+                to: ".",
+                search: (previous) => ({
+                  ...(previous as Record<string, unknown>),
+                  view: "board",
+                  boardEnvironmentId: environmentId,
+                  boardProjectId: projectId,
+                }),
+              }).catch(() => undefined);
+            },
+          },
+        });
+      })
+      .catch((cause) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not add to board",
+          description:
+            cause instanceof Error ? cause.message : "An error occurred while adding the plan.",
+        });
+      })
+      .finally(() => {
+        setIsAddingToBoard(false);
+      });
   };
 
   const openSaveDialog = () => {
@@ -154,6 +212,9 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
               {isCopied ? "Copied!" : "Copy to clipboard"}
             </MenuItem>
             <MenuItem onClick={handleDownload}>Download as markdown</MenuItem>
+            <MenuItem onClick={handleAddToBoard} disabled={!projectId || isAddingToBoard}>
+              {isAddingToBoard ? "Adding to board..." : "Add to board"}
+            </MenuItem>
             <MenuItem onClick={openSaveDialog} disabled={!workspaceRoot || isSavingToWorkspace}>
               Save to workspace
             </MenuItem>

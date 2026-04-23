@@ -20,6 +20,15 @@ import type {
 } from "./git.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type {
+  BoardCommand,
+  BoardListCardsInput,
+  BoardListCardsResult,
+  BoardListDismissedGhostsInput,
+  BoardListDismissedGhostsResult,
+  BoardStreamEvent,
+  BoardSubscribeProjectInput,
+} from "./board.ts";
+import type {
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -288,5 +297,19 @@ export interface EnvironmentApi {
         onResubscribe?: () => void;
       },
     ) => () => void;
+  };
+  board: {
+    listCards: (input: BoardListCardsInput) => Promise<BoardListCardsResult>;
+    listDismissedGhosts: (
+      input: BoardListDismissedGhostsInput,
+    ) => Promise<BoardListDismissedGhostsResult>;
+    subscribeProject: (
+      input: BoardSubscribeProjectInput,
+      callback: (event: BoardStreamEvent) => void,
+      options?: {
+        onResubscribe?: () => void;
+      },
+    ) => () => void;
+    dispatchCommand: (command: BoardCommand) => Promise<{ sequence: number }>;
   };
 }

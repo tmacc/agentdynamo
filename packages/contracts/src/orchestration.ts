@@ -20,6 +20,26 @@ import {
   TrimmedNonEmptyString,
   TurnId,
 } from "./baseSchemas.ts";
+import {
+  BoardArchiveCardCommand,
+  BoardCardArchivedPayload,
+  BoardCardCreatedPayload,
+  BoardCardDeletedPayload,
+  BoardCardMovedPayload,
+  BoardCardThreadLinkedPayload,
+  BoardCardThreadUnlinkedPayload,
+  BoardCardUpdatedPayload,
+  BoardCreateCardCommand,
+  BoardDeleteCardCommand,
+  BoardGhostCardDismissCommand,
+  BoardGhostCardDismissedPayload,
+  BoardGhostCardUndismissCommand,
+  BoardGhostCardUndismissedPayload,
+  BoardLinkThreadCommand,
+  BoardMoveCardCommand,
+  BoardUnlinkThreadCommand,
+  BoardUpdateCardCommand,
+} from "./board.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
@@ -630,6 +650,15 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  BoardCreateCardCommand,
+  BoardUpdateCardCommand,
+  BoardMoveCardCommand,
+  BoardArchiveCardCommand,
+  BoardDeleteCardCommand,
+  BoardLinkThreadCommand,
+  BoardUnlinkThreadCommand,
+  BoardGhostCardDismissCommand,
+  BoardGhostCardUndismissCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -651,6 +680,15 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  BoardCreateCardCommand,
+  BoardUpdateCardCommand,
+  BoardMoveCardCommand,
+  BoardArchiveCardCommand,
+  BoardDeleteCardCommand,
+  BoardLinkThreadCommand,
+  BoardUnlinkThreadCommand,
+  BoardGhostCardDismissCommand,
+  BoardGhostCardUndismissCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -759,10 +797,19 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "board.card-created",
+  "board.card-updated",
+  "board.card-moved",
+  "board.card-archived",
+  "board.card-deleted",
+  "board.card-thread-linked",
+  "board.card-thread-unlinked",
+  "board.ghost-card-dismissed",
+  "board.ghost-card-undismissed",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["project", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals(["project", "thread", "board"]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -1064,6 +1111,51 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.card-created"),
+    payload: BoardCardCreatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.card-updated"),
+    payload: BoardCardUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.card-moved"),
+    payload: BoardCardMovedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.card-archived"),
+    payload: BoardCardArchivedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.card-deleted"),
+    payload: BoardCardDeletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.card-thread-linked"),
+    payload: BoardCardThreadLinkedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.card-thread-unlinked"),
+    payload: BoardCardThreadUnlinkedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.ghost-card-dismissed"),
+    payload: BoardGhostCardDismissedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.ghost-card-undismissed"),
+    payload: BoardGhostCardUndismissedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

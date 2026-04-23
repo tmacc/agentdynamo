@@ -1,6 +1,7 @@
 import {
   type EnvironmentId,
   type EditorId,
+  type ProjectId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
@@ -9,7 +10,9 @@ import { scopeThreadRef } from "@t3tools/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { DiffIcon, LayoutGridIcon, TerminalSquareIcon } from "lucide-react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { clearBoardRouteSearchParams } from "~/boardRouteSearch";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -20,6 +23,7 @@ import { OpenInPicker } from "./OpenInPicker";
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
+  activeThreadProjectId: ProjectId;
   draftId?: DraftId;
   activeThreadTitle: string;
   activeProjectName: string | undefined;
@@ -46,6 +50,7 @@ interface ChatHeaderProps {
 export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
+  activeThreadProjectId,
   draftId,
   activeThreadTitle,
   activeProjectName,
@@ -68,6 +73,12 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
+  const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as {
+    view?: "board";
+  };
+  const boardOpen = search.view === "board";
+
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
@@ -115,6 +126,41 @@ export const ChatHeader = memo(function ChatHeader({
             {...(draftId ? { draftId } : {})}
           />
         )}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                className="shrink-0"
+                pressed={boardOpen}
+                onPressedChange={(next) => {
+                  void navigate({
+                    to: ".",
+                    search: (previous) =>
+                      next
+                        ? {
+                            ...(previous as Record<string, unknown>),
+                            view: "board",
+                            boardEnvironmentId: activeThreadEnvironmentId,
+                            boardProjectId: activeThreadProjectId,
+                          }
+                        : clearBoardRouteSearchParams(previous as Record<string, unknown>),
+                  }).catch(() => undefined);
+                }}
+                aria-label="Toggle project board"
+                variant="outline"
+                size="xs"
+                disabled={!activeProjectName}
+              >
+                <LayoutGridIcon className="size-3" />
+              </Toggle>
+            }
+          />
+          <TooltipPopup side="bottom">
+            {!activeProjectName
+              ? "Board is unavailable until this thread has an active project."
+              : "Toggle project board"}
+          </TooltipPopup>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger
             render={

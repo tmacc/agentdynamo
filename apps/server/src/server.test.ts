@@ -76,6 +76,14 @@ import {
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import {
+  ProjectionBoardCardRepository,
+  type ProjectionBoardCardRepositoryShape,
+} from "./persistence/Services/ProjectionBoardCards.ts";
+import {
+  ProjectionBoardDismissedGhostRepository,
+  type ProjectionBoardDismissedGhostRepositoryShape,
+} from "./persistence/Services/ProjectionBoardDismissedGhosts.ts";
+import {
   ProviderRegistry,
   type ProviderRegistryShape,
 } from "./provider/Services/ProviderRegistry.ts";
@@ -330,6 +338,8 @@ const buildAppUnderTest = (options?: {
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
+    projectionBoardCardRepository?: Partial<ProjectionBoardCardRepositoryShape>;
+    projectionBoardDismissedGhostRepository?: Partial<ProjectionBoardDismissedGhostRepositoryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
@@ -499,6 +509,24 @@ const buildAppUnderTest = (options?: {
               diff: "",
             }),
           ...options?.layers?.checkpointDiffQuery,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProjectionBoardCardRepository)({
+          upsert: () => Effect.void,
+          getById: () => Effect.succeed(Option.none()),
+          getByLinkedThreadId: () => Effect.succeed(Option.none()),
+          listByProject: () => Effect.succeed([]),
+          deleteById: () => Effect.void,
+          ...options?.layers?.projectionBoardCardRepository,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProjectionBoardDismissedGhostRepository)({
+          upsert: () => Effect.void,
+          listByProject: () => Effect.succeed([]),
+          delete: () => Effect.void,
+          ...options?.layers?.projectionBoardDismissedGhostRepository,
         }),
       ),
     );

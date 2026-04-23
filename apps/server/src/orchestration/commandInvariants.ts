@@ -1,4 +1,6 @@
 import type {
+  FeatureCard,
+  FeatureCardId,
   OrchestrationCommand,
   OrchestrationProject,
   OrchestrationReadModel,
@@ -6,9 +8,11 @@ import type {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
+import { type ProjectionBoardCardRepositoryShape } from "../persistence/Services/ProjectionBoardCards.ts";
+import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
 
 function invariantError(commandType: string, detail: string): OrchestrationCommandInvariantError {
   return new OrchestrationCommandInvariantError({
@@ -88,6 +92,26 @@ export function requireThread(input: {
   );
 }
 
+export function requireThreadInProject(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly threadId: ThreadId;
+  readonly projectId: ProjectId;
+}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+  return requireThread(input).pipe(
+    Effect.flatMap((thread) =>
+      thread.projectId === input.projectId
+        ? Effect.succeed(thread)
+        : Effect.fail(
+            invariantError(
+              input.command.type,
+              `Thread '${input.threadId}' does not belong to project '${input.projectId}'.`,
+            ),
+          ),
+    ),
+  );
+}
+
 export function requireThreadArchived(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
@@ -154,6 +178,134 @@ export function requireNonNegativeInteger(input: {
     invariantError(
       input.commandType,
       `${input.field} must be an integer greater than or equal to 0.`,
+    ),
+  );
+}
+
+export function requireBoardCard(input: {
+  readonly command: OrchestrationCommand;
+  readonly cardId: FeatureCardId;
+  readonly repository: ProjectionBoardCardRepositoryShape;
+}): Effect.Effect<FeatureCard, OrchestrationCommandInvariantError | ProjectionRepositoryError> {
+  return input.repository.getById({ cardId: input.cardId }).pipe(
+    Effect.flatMap((card) =>
+      Option.match(card, {
+        onNone: () =>
+          Effect.fail(
+            invariantError(
+              input.command.type,
+              `Board card '${input.cardId}' does not exist for command '${input.command.type}'.`,
+            ),
+          ),
+        onSome: Effect.succeed,
+      }),
+    ),
+  );
+}
+
+export function requireBoardCardInProject(input: {
+  readonly command: OrchestrationCommand;
+  readonly cardId: FeatureCardId;
+  readonly projectId: ProjectId;
+  readonly repository: ProjectionBoardCardRepositoryShape;
+}): Effect.Effect<FeatureCard, OrchestrationCommandInvariantError | ProjectionRepositoryError> {
+  return requireBoardCard(input).pipe(
+    Effect.flatMap((card) =>
+      card.projectId === input.projectId
+        ? Effect.succeed(card)
+        : Effect.fail(
+            invariantError(
+              input.command.type,
+              `Board card '${input.cardId}' does not belong to project '${input.projectId}'.`,
+            ),
+          ),
+    ),
+  );
+}
+
+export function requireBoardCardLinkedThreadMatches(input: {
+  readonly command: OrchestrationCommand;
+  readonly card: FeatureCard;
+  readonly expectedThreadId: ThreadId | null;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.expectedThreadId === null) {
+    return Effect.fail(
+      invariantError(
+        input.command.type,
+        `Board card '${input.card.id}' is not currently linked to a thread and cannot be unlinked.`,
+      ),
+    );
+  }
+
+  if (input.card.linkedThreadId === input.expectedThreadId) {
+    return Effect.void;
+  }
+
+  const actualThreadState =
+    input.card.linkedThreadId === null
+      ? "not linked"
+      : `linked to thread '${input.card.linkedThreadId}'`;
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Board card '${input.card.id}' expected linked thread '${input.expectedThreadId}' but is currently ${actualThreadState}.`,
+    ),
+  );
+}
+
+export function requireBoardCardColumnAllowsThreadLink(input: {
+  readonly command: OrchestrationCommand;
+  readonly card: Pick<FeatureCard, "id" | "column">;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.card.column === "planned") {
+    return Effect.void;
+  }
+
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Board card '${input.card.id}' must be in 'planned' before it can link to a thread.`,
+    ),
+  );
+}
+
+export function requireBoardCardMoveAllowed(input: {
+  readonly command: OrchestrationCommand;
+  readonly card: Pick<FeatureCard, "id" | "linkedThreadId">;
+  readonly toColumn: FeatureCard["column"];
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.card.linkedThreadId === null || input.toColumn !== "ideas") {
+    return Effect.void;
+  }
+
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Board card '${input.card.id}' is linked to a thread and cannot move to 'ideas'.`,
+    ),
+  );
+}
+
+export function requireBoardThreadLinkAvailable(input: {
+  readonly command: OrchestrationCommand;
+  readonly threadId: ThreadId;
+  readonly cardId: FeatureCardId;
+  readonly repository: ProjectionBoardCardRepositoryShape;
+}): Effect.Effect<void, OrchestrationCommandInvariantError | ProjectionRepositoryError> {
+  return input.repository.getByLinkedThreadId({ linkedThreadId: input.threadId }).pipe(
+    Effect.flatMap((card) =>
+      Option.match(card, {
+        onNone: () => Effect.void,
+        onSome: (existingCard) =>
+          existingCard.id === input.cardId
+            ? Effect.void
+            : Effect.fail(
+                invariantError(
+                  input.command.type,
+                  `Thread '${input.threadId}' is already linked to board card '${existingCard.id}'.`,
+                ),
+              ),
+      }),
     ),
   );
 }

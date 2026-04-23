@@ -1,4 +1,9 @@
-import type { EnvironmentId, EnvironmentApi } from "@t3tools/contracts";
+import type {
+  BoardListCardsResult,
+  BoardListDismissedGhostsResult,
+  EnvironmentId,
+  EnvironmentApi,
+} from "@t3tools/contracts";
 
 import type { WsRpcClient } from "./rpc/wsRpcClient";
 import { readEnvironmentConnection } from "./environments/runtime";
@@ -44,6 +49,14 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
         rpcClient.orchestration.subscribeShell(callback, options),
       subscribeThread: (input, callback, options) =>
         rpcClient.orchestration.subscribeThread(input, callback, options),
+    },
+    board: {
+      listCards: (input) => rpcClient.board.listCards(input) as Promise<BoardListCardsResult>,
+      listDismissedGhosts: (input) =>
+        rpcClient.board.listDismissedGhosts(input) as Promise<BoardListDismissedGhostsResult>,
+      subscribeProject: (input, callback, options) =>
+        rpcClient.board.subscribeProject(input, callback, options),
+      dispatchCommand: (command) => rpcClient.orchestration.dispatchCommand(command as never),
     },
   };
 }
