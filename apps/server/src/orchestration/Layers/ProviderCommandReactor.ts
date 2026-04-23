@@ -1,6 +1,7 @@
 import {
   type ChatAttachment,
   CommandId,
+  ContextHandoffId,
   EventId,
   MessageId,
   type ModelSelection,
@@ -15,7 +16,7 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shared/git";
-import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
+import { Cache, Cause, Duration, Effect, Equal, Exit, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
@@ -128,6 +129,78 @@ function isFirstLiveUserMessageTurn(input: {
     );
 
   return liveUserMessages.length > 0 && liveUserMessages[0]?.id === input.messageId;
+}
+
+function hasPendingProviderInteraction(
+  activities: ReadonlyArray<OrchestrationThread["activities"][number]>,
+): boolean {
+  const pendingApprovals = new Set<string>();
+  const pendingUserInputs = new Set<string>();
+
+  for (const activity of activities) {
+    const payload =
+      activity.payload !== null &&
+      typeof activity.payload === "object" &&
+      !Array.isArray(activity.payload)
+        ? (activity.payload as Record<string, unknown>)
+        : {};
+    const requestId = typeof payload.requestId === "string" ? payload.requestId : null;
+    if (!requestId) {
+      continue;
+    }
+
+    if (activity.kind === "approval.requested") {
+      pendingApprovals.add(requestId);
+    } else if (
+      activity.kind === "approval.resolved" ||
+      activity.kind === "provider.approval.respond.failed"
+    ) {
+      pendingApprovals.delete(requestId);
+    } else if (activity.kind === "user-input.requested") {
+      pendingUserInputs.add(requestId);
+    } else if (
+      activity.kind === "user-input.resolved" ||
+      activity.kind === "provider.user-input.respond.failed"
+    ) {
+      pendingUserInputs.delete(requestId);
+    }
+  }
+
+  return pendingApprovals.size > 0 || pendingUserInputs.size > 0;
+}
+
+function latestImportedContextTimestamp(input: {
+  readonly thread: OrchestrationThread;
+  readonly liveMessageId: MessageId;
+}): string | null {
+  const timestamps = [
+    ...input.thread.messages
+      .filter((message) => message.id !== input.liveMessageId)
+      .map((message) => message.createdAt),
+    ...input.thread.proposedPlans.map((plan) => plan.createdAt),
+  ].toSorted();
+
+  return timestamps.at(-1) ?? null;
+}
+
+function findPendingContextHandoffForTurn(input: {
+  readonly thread: OrchestrationThread;
+  readonly messageId: MessageId;
+  readonly targetProvider: ProviderKind;
+  readonly isFirstUserMessageTurn: boolean;
+}) {
+  return input.thread.contextHandoffs.find((handoff) => {
+    if (handoff.status !== "pending") {
+      return false;
+    }
+    if (handoff.targetProvider !== undefined && handoff.targetProvider !== input.targetProvider) {
+      return false;
+    }
+    if (handoff.reason === "fork") {
+      return input.isFirstUserMessageTurn;
+    }
+    return handoff.reason === "provider-switch";
+  });
 }
 
 function findProviderAdapterRequestError(
@@ -318,19 +391,8 @@ const make = Effect.gen(function* () {
       ? thread.session.providerName
       : undefined;
     const requestedModelSelection = options?.modelSelection;
-    const threadProvider: ProviderKind = currentProvider ?? thread.modelSelection.provider;
-    if (
-      requestedModelSelection !== undefined &&
-      requestedModelSelection.provider !== threadProvider
-    ) {
-      return yield* new ProviderAdapterRequestError({
-        provider: threadProvider,
-        method: "thread.turn.start",
-        detail: `Thread '${threadId}' is bound to provider '${threadProvider}' and cannot switch to '${requestedModelSelection.provider}'.`,
-      });
-    }
-    const preferredProvider: ProviderKind = threadProvider;
     const desiredModelSelection = requestedModelSelection ?? thread.modelSelection;
+    const desiredProvider = desiredModelSelection.provider;
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
       projects: readModel.projects,
@@ -347,7 +409,7 @@ const make = Effect.gen(function* () {
     }) =>
       providerService.startSession(threadId, {
         threadId,
-        ...(preferredProvider ? { provider: preferredProvider } : {}),
+        provider: input?.provider ?? desiredProvider,
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
@@ -371,6 +433,40 @@ const make = Effect.gen(function* () {
       });
 
     const activeSession = yield* resolveActiveSession(threadId);
+    const providerChanged = currentProvider !== undefined && currentProvider !== desiredProvider;
+    const turnIsRunning =
+      thread.latestTurn?.state === "running" ||
+      thread.session?.status === "running" ||
+      (thread.session?.activeTurnId ?? null) !== null;
+    const hasPendingInteraction = hasPendingProviderInteraction(thread.activities);
+
+    if (providerChanged) {
+      if (turnIsRunning || hasPendingInteraction) {
+        const blockedBy: string[] = [];
+        if (turnIsRunning) {
+          blockedBy.push("a turn is still running");
+        }
+        if (hasPendingInteraction) {
+          blockedBy.push("provider approvals or user-input are still pending");
+        }
+        return yield* new ProviderAdapterRequestError({
+          provider: currentProvider,
+          method: "thread.turn.start",
+          detail: `Thread '${threadId}' can only switch providers between turns; ${blockedBy.join(" and ")}.`,
+        });
+      }
+
+      yield* Effect.logInfo("provider command reactor switching provider session", {
+        threadId,
+        fromProvider: currentProvider,
+        toProvider: desiredProvider,
+        hasLiveRuntime: activeSession !== undefined,
+      });
+      const switchedSession = yield* startProviderSession({ provider: desiredProvider });
+      yield* bindSessionToThread(switchedSession);
+      return switchedSession.threadId;
+    }
+
     const existingSessionThreadId =
       thread.session && thread.session.status !== "stopped" && activeSession ? thread.id : null;
     if (existingSessionThreadId) {
@@ -680,19 +776,98 @@ const make = Effect.gen(function* () {
         ),
       );
 
-    const pendingHandoff = isFirstUserMessageTurn
-      ? thread.contextHandoffs.find((handoff) => handoff.status === "pending")
-      : undefined;
     const sessionProvider = Schema.is(ProviderKind)(thread.session?.providerName)
       ? thread.session?.providerName
       : undefined;
     const targetProvider: ProviderKind =
       event.payload.modelSelection?.provider ?? sessionProvider ?? thread.modelSelection.provider;
+    const currentProvider = sessionProvider ?? thread.modelSelection.provider;
+    const providerChanged = currentProvider !== targetProvider;
+    if (providerChanged) {
+      const turnIsRunning =
+        thread.latestTurn?.state === "running" ||
+        thread.session?.status === "running" ||
+        (thread.session?.activeTurnId ?? null) !== null;
+      const pendingInteraction = hasPendingProviderInteraction(thread.activities);
+      if (turnIsRunning || pendingInteraction) {
+        const blockedBy: string[] = [];
+        if (turnIsRunning) {
+          blockedBy.push("a turn is still running");
+        }
+        if (pendingInteraction) {
+          blockedBy.push("provider approvals or user-input are still pending");
+        }
+        yield* recoverTurnStartFailure(
+          Cause.fail(
+            new ProviderAdapterRequestError({
+              provider: currentProvider,
+              method: "thread.turn.start",
+              detail: `Thread '${event.payload.threadId}' can only switch providers between turns; ${blockedBy.join(" and ")}.`,
+            }),
+          ),
+        );
+        return;
+      }
+    }
+    const existingPendingProviderSwitchHandoff = thread.contextHandoffs.find(
+      (handoff) =>
+        handoff.status === "pending" &&
+        handoff.reason === "provider-switch" &&
+        (handoff.targetProvider === undefined || handoff.targetProvider === targetProvider),
+    );
+    const importedUntilAt = latestImportedContextTimestamp({
+      thread,
+      liveMessageId: message.id,
+    });
+    const shouldPrepareProviderSwitchHandoff =
+      providerChanged &&
+      importedUntilAt !== null &&
+      existingPendingProviderSwitchHandoff === undefined;
+
+    let threadForHandoff = thread;
+    if (shouldPrepareProviderSwitchHandoff) {
+      const latestSourceUserMessage = thread.messages
+        .filter((entry) => entry.id !== message.id && entry.role === "user")
+        .toSorted(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+        )
+        .at(-1);
+      const preparedAt = new Date().toISOString();
+      const prepareResult = yield* orchestrationEngine
+        .dispatch({
+          type: "thread.context-handoff.prepare",
+          commandId: serverCommandId("context-handoff-prepare"),
+          threadId: event.payload.threadId,
+          handoffId: ContextHandoffId.make(`handoff:${crypto.randomUUID()}`),
+          reason: "provider-switch",
+          sourceThreadId: thread.id,
+          sourceThreadTitle: thread.title,
+          sourceUserMessageId: latestSourceUserMessage?.id ?? null,
+          sourceProvider: currentProvider,
+          targetProvider,
+          importedUntilAt,
+          createdAt: preparedAt,
+        })
+        .pipe(Effect.exit);
+      if (Exit.isFailure(prepareResult)) {
+        yield* recoverTurnStartFailure(prepareResult.cause);
+        return;
+      }
+      threadForHandoff = (yield* resolveThread(event.payload.threadId)) ?? thread;
+    }
+
+    const pendingHandoff = findPendingContextHandoffForTurn({
+      thread: threadForHandoff,
+      messageId: message.id,
+      targetProvider,
+      isFirstUserMessageTurn,
+    });
     const handoffRender =
       pendingHandoff === undefined
         ? undefined
         : renderContextHandoff({
-            thread,
+            thread: threadForHandoff,
             handoff: pendingHandoff,
             liveMessage: message,
             targetProvider,
@@ -701,6 +876,7 @@ const make = Effect.gen(function* () {
           });
 
     const providerMessageText = handoffRender?.input ?? message.text;
+    const deliveredModelSelection = event.payload.modelSelection ?? threadForHandoff.modelSelection;
 
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
@@ -752,6 +928,7 @@ const make = Effect.gen(function* () {
               liveMessageId: message.id,
               provider: targetProvider,
               turnId: turn.turnId,
+              modelSelection: deliveredModelSelection,
               renderStats: handoffRender.stats,
               createdAt: new Date().toISOString(),
             }),

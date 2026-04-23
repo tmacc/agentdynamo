@@ -3,6 +3,7 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
 } from "@t3tools/contracts";
+import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -58,6 +59,10 @@ function withEventBase(
 }
 
 type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
+
+function providerDisplayName(provider: keyof typeof PROVIDER_DISPLAY_NAMES): string {
+  return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
+}
 
 type DecideOrchestrationCommandResult =
   | PlannedOrchestrationEvent
@@ -352,13 +357,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.context-handoff.mark-delivered": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
 
-      return {
+      const deliveredEvent = {
         ...withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -374,6 +379,86 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           turnId: command.turnId,
           renderStats: command.renderStats,
           deliveredAt: command.createdAt,
+        },
+      };
+
+      const handoff = thread.contextHandoffs.find((entry) => entry.id === command.handoffId);
+      if (handoff?.reason !== "provider-switch") {
+        return deliveredEvent;
+      }
+
+      const sourceProvider = handoff.sourceProvider;
+      const targetProvider =
+        command.modelSelection?.provider ?? handoff.targetProvider ?? command.provider;
+      const targetModel = command.modelSelection?.model;
+      const sourceProviderLabel =
+        sourceProvider === undefined ? undefined : providerDisplayName(sourceProvider);
+      const targetProviderLabel = providerDisplayName(targetProvider);
+      const providerSwitchActivityEvent = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.activity-appended" as const,
+        payload: {
+          threadId: command.threadId,
+          activity: {
+            id: crypto.randomUUID() as OrchestrationEvent["eventId"],
+            tone: "info" as const,
+            kind: "provider.session.switched",
+            summary:
+              sourceProviderLabel === undefined
+                ? `Switched to ${targetProviderLabel}`
+                : `Switched from ${sourceProviderLabel} to ${targetProviderLabel}`,
+            payload: {
+              handoffId: command.handoffId,
+              messageId: command.liveMessageId,
+              ...(sourceProvider !== undefined ? { fromProvider: sourceProvider } : {}),
+              toProvider: targetProvider,
+              ...(targetModel !== undefined ? { toModel: targetModel } : {}),
+              renderStats: command.renderStats,
+            },
+            turnId: null,
+            createdAt: command.createdAt,
+          },
+        },
+      };
+
+      return [deliveredEvent, providerSwitchActivityEvent];
+    }
+
+    case "thread.context-handoff.prepare": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.context-handoff-prepared" as const,
+        payload: {
+          handoffId: command.handoffId,
+          threadId: command.threadId,
+          reason: command.reason,
+          sourceThreadId: command.sourceThreadId,
+          sourceThreadTitle: command.sourceThreadTitle,
+          sourceUserMessageId: command.sourceUserMessageId,
+          ...(command.sourceProvider !== undefined
+            ? { sourceProvider: command.sourceProvider }
+            : {}),
+          ...(command.targetProvider !== undefined
+            ? { targetProvider: command.targetProvider }
+            : {}),
+          importedUntilAt: command.importedUntilAt,
+          createdAt: command.createdAt,
         },
       };
     }

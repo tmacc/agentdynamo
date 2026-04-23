@@ -2,6 +2,7 @@ import * as Option from "effect/Option";
 import * as Arr from "effect/Array";
 import {
   ApprovalRequestId,
+  PROVIDER_DISPLAY_NAMES,
   isToolLifecycleItemType,
   type OrchestrationLatestTurn,
   type OrchestrationThreadActivity,
@@ -475,7 +476,11 @@ export function deriveWorkLogEntries(
 ): WorkLogEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const entries = ordered
-    .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
+    .filter((activity) =>
+      latestTurnId
+        ? activity.turnId === latestTurnId || activity.kind === "provider.session.switched"
+        : true,
+    )
     .filter((activity) => activity.kind !== "tool.started")
     .filter((activity) => activity.kind !== "task.started")
     .filter((activity) => activity.kind !== "context-window.updated")
@@ -504,6 +509,9 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     activity.payload && typeof activity.payload === "object"
       ? (activity.payload as Record<string, unknown>)
       : null;
+  if (activity.kind === "provider.session.switched") {
+    return toProviderSwitchWorkLogEntry(activity, payload);
+  }
   const commandPreview = extractToolCommand(payload);
   const changedFiles = extractChangedFiles(payload);
   const title = extractToolTitle(payload);
@@ -572,6 +580,37 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     entry.collapseKey = collapseKey;
   }
   return entry;
+}
+
+function toProviderSwitchWorkLogEntry(
+  activity: OrchestrationThreadActivity,
+  payload: Record<string, unknown> | null,
+): DerivedWorkLogEntry {
+  const fromProvider = parseProviderKind(payload?.fromProvider);
+  const toProvider = parseProviderKind(payload?.toProvider);
+  const toModel = typeof payload?.toModel === "string" ? payload.toModel : null;
+  const toProviderLabel = toProvider ? PROVIDER_DISPLAY_NAMES[toProvider] : null;
+  const fromProviderLabel = fromProvider ? PROVIDER_DISPLAY_NAMES[fromProvider] : null;
+  const label = toProviderLabel ? `Switched to ${toProviderLabel}` : activity.summary;
+  const detailParts = [
+    fromProviderLabel ? `From ${fromProviderLabel}` : null,
+    toModel ? `Model ${toModel}` : null,
+  ].filter((part): part is string => part !== null);
+
+  return {
+    id: activity.id,
+    createdAt: activity.createdAt,
+    label,
+    ...(detailParts.length > 0 ? { detail: detailParts.join(" - ") } : {}),
+    tone: "info",
+    activityKind: activity.kind,
+  };
+}
+
+function parseProviderKind(value: unknown): ProviderKind | null {
+  return value === "codex" || value === "claudeAgent" || value === "cursor" || value === "opencode"
+    ? value
+    : null;
 }
 
 function collapseDerivedWorkLogEntries(

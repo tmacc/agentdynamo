@@ -561,6 +561,21 @@ const ThreadForkCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadContextHandoffPrepareCommand = Schema.Struct({
+  type: Schema.Literal("thread.context-handoff.prepare"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  handoffId: ContextHandoffId,
+  reason: OrchestrationContextHandoffReason,
+  sourceThreadId: Schema.NullOr(ThreadId),
+  sourceThreadTitle: Schema.NullOr(TrimmedNonEmptyString),
+  sourceUserMessageId: Schema.NullOr(MessageId),
+  sourceProvider: Schema.optional(ProviderKind),
+  targetProvider: Schema.optional(ProviderKind),
+  importedUntilAt: IsoDateTime,
+  createdAt: IsoDateTime,
+});
+
 const ThreadContextHandoffMarkDeliveredCommand = Schema.Struct({
   type: Schema.Literal("thread.context-handoff.mark-delivered"),
   commandId: CommandId,
@@ -569,6 +584,7 @@ const ThreadContextHandoffMarkDeliveredCommand = Schema.Struct({
   liveMessageId: MessageId,
   provider: ProviderKind,
   turnId: TurnId,
+  modelSelection: Schema.optional(ModelSelection),
   renderStats: OrchestrationContextHandoffRenderStats,
   createdAt: IsoDateTime,
 });
@@ -861,6 +877,7 @@ const ThreadRevertCompleteCommand = Schema.Struct({
 
 const InternalOrchestrationCommand = Schema.Union([
   ThreadForkCommand,
+  ThreadContextHandoffPrepareCommand,
   ThreadContextHandoffMarkDeliveredCommand,
   ThreadContextHandoffMarkDeliveryFailedCommand,
   ThreadSessionSetCommand,

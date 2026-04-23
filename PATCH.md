@@ -122,6 +122,8 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Fork origin metadata must survive projection and reload.
   - Timeline UI must show where imported history stops and new fork-local history begins.
   - Fork creation must not break branch/worktree metadata.
+  - Fork materialization must reconstruct source history by filtering source-thread aggregate events, so unrelated or legacy orchestration events elsewhere in the event log cannot make fork creation fail with `Failed to read the source thread history`.
+  - Fork creation cleanup must only dispatch child-thread deletion after the child thread was actually created.
   - Fork creation prepares a durable `thread.context-handoff-prepared` record; successful provider acceptance marks it delivered, failed sends leave it pending for retry.
   - The first live post-fork provider turn must receive the imported fork transcript, imported proposed plans, attachment metadata, and the new live message in the actual provider-visible input, not just in the UI/read model. This closes the `Fork Context Loss` bug.
   - Once a handoff is delivered and projected, reload/reprojection must not resend the imported context on later turns.
@@ -135,6 +137,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Chat timeline rendering, store normalization, and thread navigation
 - `Verification`:
   - Fork a thread with existing history.
+  - Fork from a dev database containing unrelated/legacy orchestration events and confirm source history reconstruction still succeeds.
   - Confirm fork origin metadata appears in the new thread.
   - Confirm the timeline shows a `Forked from ...` separator at the imported-history boundary.
   - Confirm new messages only affect the forked thread.
@@ -171,23 +174,29 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ### Provider switching / handoff
 
-- `Status`: Present on the pre-merge fork at `365ae6d9`. Missing on merged baseline `ed85e9ce`.
-- `User-visible behavior`: Users could switch the active provider for an existing thread while preserving enough context to continue the same conversation on the new provider. The fork implementation built explicit full/delta handoff text, tracked provider sync markers, and attempted to preserve branch/worktree continuity across the switch.
+- `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce` using the shared durable context handoff foundation.
+- `User-visible behavior`: Users can switch the active provider for an existing idle thread while preserving enough visible context to continue the same conversation on the new provider. The restored implementation prepares a durable full-context provider-switch handoff and sends it with the next live user message to the target provider.
 - `Why it exists`: Lets Dynamo treat providers as interchangeable runtimes on one thread instead of forcing the user to create a new thread whenever they want to change provider.
 - `Key fork files`:
-  - `apps/server/src/orchestration/providerSwitchHandoff.ts`
+  - `packages/contracts/src/orchestration.ts`
+  - `apps/server/src/orchestration/contextHandoff.ts`
+  - `apps/server/src/orchestration/decider.ts`
   - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
   - `apps/server/src/provider/Layers/ProviderService.ts`
-  - `apps/server/src/provider/providerSlotState.ts`
-  - `apps/server/src/persistence/Migrations/033_ProviderSessionRuntimeSlots.ts`
-  - `packages/contracts/src/orchestration.ts`
-  - `apps/web/src/components/ChatView.tsx`
+  - `apps/server/src/persistence/Migrations/029_ProjectionThreadContextHandoffs.ts`
+  - `apps/server/src/persistence/Services/ProjectionThreadContextHandoffs.ts`
+  - `apps/server/src/persistence/Layers/ProjectionThreadContextHandoffs.ts`
+  - `apps/web/src/components/ChatView.logic.ts`
 - `Important invariants`:
   - Switching providers must not silently drop the visible thread history.
-  - Provider-switch handoff preparation should reuse `thread.context-handoff-prepared`, `apps/server/src/orchestration/contextHandoff.ts`, and the delivered/failed handoff events instead of adding a second runtime-only transfer path.
+  - Provider-switch handoff preparation must reuse `thread.context-handoff-prepared`, `apps/server/src/orchestration/contextHandoff.ts`, and the delivered/failed handoff events instead of adding a second runtime-only transfer path.
+  - Switching is only allowed between turns; running turns and pending provider approvals/user-input must keep the provider picker locked and server-side switching blocked.
+  - The target provider's first switched turn must receive imported transcript/proposed-plan/attachment metadata plus the new live user message in provider-visible input.
+  - Successful target-provider acceptance must mark the provider-switch handoff delivered; failed sends must leave it pending for retry.
+  - Successful provider switches must append a timeline-visible `provider.session.switched` activity with the source provider, target provider, and target model.
   - Handoff state must stay aligned with branch and worktree metadata.
   - A provider switch should preserve resumability and avoid leaving the thread in an unroutable state.
-  - Full handoff fallback must be available when incremental markers are stale or invalid.
+  - Current restored behavior uses a full visible-context handoff. The old incremental provider-slot marker system and migration `033_ProviderSessionRuntimeSlots.ts` are not restored; if provider-native sync markers return later, they should extend the shared handoff state rather than replace it.
 - `Merge hotspots`:
   - Orchestration turn-start and provider command flows
   - Provider session persistence and lifecycle state
@@ -196,6 +205,9 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Verification`:
   - Start a thread on provider A and switch to provider B.
   - Confirm the next turn on provider B has enough context to continue correctly.
+  - Confirm a successful switched send marks the provider-switch handoff delivered.
+  - Confirm thread history shows the provider/model switch marker at the switch point.
+  - Confirm switching is blocked while a turn or provider interaction is pending and does not prepare a stray handoff.
   - Switch back and verify the thread remains resumable.
   - Reload and confirm the thread still routes to a valid provider session.
 

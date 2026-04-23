@@ -11,6 +11,7 @@ import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } 
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import { Schema } from "effect";
 import { selectThreadByRef, useStore } from "../store";
+import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
 import {
   filterTerminalContextsWithText,
   stripInlineTerminalContextPlaceholders,
@@ -232,6 +233,14 @@ export function deriveLockedProvider(input: {
   threadProvider: ProviderKind | null;
 }): ProviderKind | null {
   if (!threadHasStarted(input.thread)) {
+    return null;
+  }
+  const session = input.thread?.session ?? null;
+  const hasRunningSession = session?.status === "running" || session?.activeTurnId != null;
+  const hasPendingInteraction =
+    derivePendingApprovals(input.thread?.activities ?? []).length > 0 ||
+    derivePendingUserInputs(input.thread?.activities ?? []).length > 0;
+  if (!hasRunningSession && !hasPendingInteraction) {
     return null;
   }
   return input.thread?.session?.provider ?? input.threadProvider ?? input.selectedProvider ?? null;
