@@ -349,6 +349,29 @@ it.effect("decodes thread fork command with context handoff id", () =>
   }),
 );
 
+it.effect("decodes context handoff prepare command", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationCommand({
+      type: "thread.context-handoff.prepare",
+      commandId: "cmd-handoff-prepare-1",
+      threadId: "thread-1",
+      handoffId: "handoff-provider-switch-1",
+      reason: "provider-switch",
+      sourceThreadId: "thread-1",
+      sourceThreadTitle: "Source thread",
+      sourceUserMessageId: "message-source-user",
+      sourceProvider: "codex",
+      targetProvider: "claudeAgent",
+      importedUntilAt: "2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:01.000Z",
+    });
+
+    assert.strictEqual(parsed.type, "thread.context-handoff.prepare");
+    assert.strictEqual(parsed.reason, "provider-switch");
+    assert.strictEqual(parsed.targetProvider, "claudeAgent");
+  }),
+);
+
 it.effect("decodes thread archived and unarchived events", () =>
   Effect.gen(function* () {
     const archived = yield* decodeOrchestrationEvent({

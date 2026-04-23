@@ -128,8 +128,32 @@ describe("ProviderCommandReactor", () => {
         typeof input.threadId === "string"
           ? ThreadId.make(input.threadId)
           : ThreadId.make(`thread-${sessionIndex}`);
+      const requestedProvider =
+        typeof input === "object" &&
+        input !== null &&
+        "provider" in input &&
+        (input.provider === "codex" ||
+          input.provider === "claudeAgent" ||
+          input.provider === "cursor" ||
+          input.provider === "opencode")
+          ? input.provider
+          : modelSelection.provider;
+      const requestedModelSelection =
+        typeof input === "object" &&
+        input !== null &&
+        "modelSelection" in input &&
+        input.modelSelection !== null &&
+        typeof input.modelSelection === "object" &&
+        "provider" in input.modelSelection &&
+        "model" in input.modelSelection &&
+        typeof input.modelSelection.model === "string"
+          ? (input.modelSelection as ModelSelection)
+          : {
+              provider: requestedProvider,
+              model: modelSelection.model,
+            };
       const session: ProviderSession = {
-        provider: modelSelection.provider,
+        provider: requestedProvider,
         status: "ready" as const,
         runtimeMode:
           typeof input === "object" &&
@@ -138,12 +162,17 @@ describe("ProviderCommandReactor", () => {
           (input.runtimeMode === "approval-required" || input.runtimeMode === "full-access")
             ? input.runtimeMode
             : "full-access",
-        ...(modelSelection.model !== undefined ? { model: modelSelection.model } : {}),
+        model: requestedModelSelection.model,
         threadId,
         resumeCursor: resumeCursor ?? { opaque: `resume-${sessionIndex}` },
         createdAt: now,
         updatedAt: now,
       };
+      for (let index = runtimeSessions.length - 1; index >= 0; index -= 1) {
+        if (runtimeSessions[index]?.threadId === threadId) {
+          runtimeSessions.splice(index, 1);
+        }
+      }
       runtimeSessions.push(session);
       return Effect.succeed(session);
     });
@@ -1022,7 +1051,7 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("rejects a first turn when requested provider conflicts with the thread model", async () => {
+  it("starts a first turn on the requested provider", async () => {
     const harness = await createHarness({
       threadModelSelection: { provider: "codex", model: "gpt-5-codex" },
     });
@@ -1049,29 +1078,20 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(async () => {
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
-      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-      return (
-        thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
-        false
-      );
-    });
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
 
-    expect(harness.startSession).not.toHaveBeenCalled();
-    expect(harness.sendTurn).not.toHaveBeenCalled();
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      provider: "claudeAgent",
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+      },
+    });
 
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    expect(thread?.session).toBeNull();
-    expect(
-      thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
-    ).toMatchObject({
-      summary: "Provider turn start failed",
-      payload: {
-        detail: expect.stringContaining("cannot switch to 'claudeAgent'"),
-      },
-    });
+    expect(thread?.session?.providerName).toBe("claudeAgent");
   });
 
   it("reuses the same provider session when runtime mode is unchanged", async () => {
@@ -1386,7 +1406,7 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("full-access");
   });
 
-  it("rejects provider changes after a thread is already bound to a session provider", async () => {
+  it("switches providers between idle turns with a durable context handoff", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -1398,7 +1418,7 @@ describe("ProviderCommandReactor", () => {
         message: {
           messageId: asMessageId("user-message-provider-switch-1"),
           role: "user",
-          text: "first",
+          text: "historical codex message",
           attachments: [],
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -1418,7 +1438,134 @@ describe("ProviderCommandReactor", () => {
         message: {
           messageId: asMessageId("user-message-provider-switch-2"),
           role: "user",
-          text: "second",
+          text: "continue on claude",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+
+    expect(harness.stopSession.mock.calls.length).toBe(0);
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      provider: "claudeAgent",
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+      },
+      runtimeMode: "approval-required",
+    });
+
+    const switchTurnInput = harness.sendTurn.mock.calls[1]?.[0] as
+      | {
+          input?: string;
+          modelSelection?: ModelSelection;
+        }
+      | undefined;
+    expect(switchTurnInput?.modelSelection).toMatchObject({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+    });
+    expect(switchTurnInput?.input).toContain("Context handoff");
+    expect(switchTurnInput?.input).toContain("Reason: provider-switch");
+    expect(switchTurnInput?.input).toContain("historical codex message");
+    expect(switchTurnInput?.input).toContain("continue on claude");
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+      return (
+        thread?.contextHandoffs.some(
+          (handoff) => handoff.reason === "provider-switch" && handoff.status === "delivered",
+        ) ?? false
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(thread?.session?.threadId).toBe("thread-1");
+    expect(thread?.session?.providerName).toBe("claudeAgent");
+    expect(thread?.session?.runtimeMode).toBe("approval-required");
+    const providerSwitchHandoff = thread?.contextHandoffs.find(
+      (handoff) => handoff.reason === "provider-switch",
+    );
+    expect(providerSwitchHandoff).toMatchObject({
+      status: "delivered",
+      sourceProvider: "codex",
+      targetProvider: "claudeAgent",
+      deliveredProvider: "claudeAgent",
+    });
+    expect(
+      thread?.activities.find((activity) => activity.kind === "provider.session.switched"),
+    ).toMatchObject({
+      summary: "Switched from Codex to Claude",
+      payload: {
+        messageId: "user-message-provider-switch-2",
+        fromProvider: "codex",
+        toProvider: "claudeAgent",
+        toModel: "claude-opus-4-6",
+      },
+    });
+  });
+
+  it("rejects provider switching while a turn is running without preparing a handoff", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-provider-switch-running-seed"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-provider-switch-running-seed"),
+          role: "user",
+          text: "seed codex session",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-provider-switch-running"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-running-provider-switch"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-provider-switch-running"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-provider-switch-running"),
+          role: "user",
+          text: "switch while running",
           attachments: [],
         },
         modelSelection: {
@@ -1442,18 +1589,17 @@ describe("ProviderCommandReactor", () => {
 
     expect(harness.startSession.mock.calls.length).toBe(1);
     expect(harness.sendTurn.mock.calls.length).toBe(1);
-    expect(harness.stopSession.mock.calls.length).toBe(0);
 
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    expect(thread?.session?.threadId).toBe("thread-1");
-    expect(thread?.session?.providerName).toBe("codex");
-    expect(thread?.session?.runtimeMode).toBe("approval-required");
+    expect(thread?.contextHandoffs.some((handoff) => handoff.reason === "provider-switch")).toBe(
+      false,
+    );
     expect(
       thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
     ).toMatchObject({
       payload: {
-        detail: expect.stringContaining("cannot switch to 'claudeAgent'"),
+        detail: expect.stringContaining("can only switch providers between turns"),
       },
     });
   });
