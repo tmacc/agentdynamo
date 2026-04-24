@@ -19,6 +19,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Provider switching / handoff`: missing on merged baseline
 - `Saving prompts`: restored on top of merged baseline
 - `Repository/release personalization`: preserved on merged baseline, with follow-up workflow repairs
+- `GitHub PR target remote selection`: restored on top of merged baseline with Dynamo config keys and typed selection flow
 - `Dynamo branding`: restored, including runtime storage isolation and release/build metadata
 - `Worktree readiness / bootstrap`: partially present, but reduced from the fuller fork implementation
 - `Project intelligence`: missing on merged baseline
@@ -325,6 +326,43 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test scripts/merge-update-manifests.test.ts`.
   - Review marketing links and release API constants for `tmacc/agentdynamo2`.
   - Dry-run or inspect the release workflow when GitHub runner labels, signing, or artifact names change upstream.
+
+### GitHub PR target remote selection
+
+- `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of the current merged branch with an updated typed flow, Dynamo-local config key, and compatibility fallback for the old fork config key.
+- `User-visible behavior`: When a project has multiple GitHub remotes that could be valid PR base repositories, Dynamo asks the user which remote should receive PRs, saves that choice, and uses the remembered remote for later `Create PR` / `Push & create PR` actions in that repository.
+- `Why it exists`: Repositories that have both a fork remote and an upstream remote can otherwise create PRs against the wrong repository or fail because `gh pr create` infers an ambiguous base repo. The user should make this choice once instead of being surprised on every PR action.
+- `Key fork files`:
+  - `packages/contracts/src/git.ts`
+  - `packages/contracts/src/rpc.ts`
+  - `apps/server/src/git/Services/GitManager.ts`
+  - `apps/server/src/git/Layers/GitManager.ts`
+  - `apps/server/src/ws.ts`
+  - `apps/web/src/lib/gitReactQuery.ts`
+  - `apps/web/src/components/GitActionsControl.tsx`
+  - `apps/web/src/lib/gitReactQuery.ts`
+- `Important invariants`:
+  - PR creation must not silently choose between multiple different GitHub target repositories.
+  - If zero GitHub remotes are detected, preserve the existing GitHub CLI inference path instead of blocking local/test repositories.
+  - If exactly one `origin` GitHub remote exists, PR creation should continue without prompting and pass that repo explicitly to `gh`.
+  - If multiple remotes point at the same GitHub repo, PR creation should continue without prompting.
+  - If multiple different GitHub remotes exist and no preference is saved, PR creation should fail with a typed `GitPullRequestRemoteSelectionRequiredError` and the UI should present an actionable "Choose PR remote" dialog.
+  - The selected remote must be validated against the current repository remotes before saving or using it.
+  - The remembered choice is repo-local git config stored as `dynamo.pullRequestRemote`; reads fall back to legacy `t3.pullRequestRemote` so pre-merge fork choices still work.
+  - `gh pr create` should pass the selected base repository explicitly, not rely on GitHub CLI inference.
+  - The selected PR base repository and the current branch's head repository are distinct concepts; fork/head remotes must still produce owner-qualified head selectors such as `owner:branch`.
+- `Merge hotspots`:
+  - Git contracts and WebSocket/RPC method lists for PR remote option reads/writes
+  - `GitManager` PR creation flow, especially base repository, head selector, existing PR lookup, and base branch resolution
+  - Git action UI/dialog state and React Query mutations
+  - Tests around repositories with `origin` plus `upstream` or fork remotes
+- `Verification`:
+  - Create a repo with two GitHub remotes, run `Create PR`, and confirm Dynamo prompts for the PR target remote.
+  - Pick a remote, retry PR creation, and confirm `gh pr create` targets that repository.
+  - Run PR creation again and confirm the saved choice is reused without asking.
+  - Change/remove the saved remote and confirm Dynamo asks again or reports an actionable validation error.
+  - Confirm a single-origin repository and a multi-remote same-repository checkout still create PRs without extra UI.
+  - Confirm a fork-head branch still uses an owner-qualified `--head` selector while targeting the selected base repo.
 
 ### Dynamo branding
 

@@ -984,6 +984,24 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(WS_METHODS.gitResolvePullRequest, gitManager.resolvePullRequest(input), {
             "rpc.aggregate": "git",
           }),
+        [WS_METHODS.gitGetPullRequestRemoteOptions]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitGetPullRequestRemoteOptions,
+            gitManager.getPullRequestRemoteOptions(input),
+            {
+              "rpc.aggregate": "git",
+            },
+          ),
+        [WS_METHODS.gitSetPullRequestRemote]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitSetPullRequestRemote,
+            gitManager
+              .setPullRequestRemote(input)
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            {
+              "rpc.aggregate": "git",
+            },
+          ),
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitPreparePullRequestThread,

@@ -18,6 +18,7 @@ import {
   gitMutationKeys,
   gitPreparePullRequestThreadMutationOptions,
   gitPullMutationOptions,
+  gitSetPullRequestRemoteMutationOptions,
   gitRunStackedActionMutationOptions,
   invalidateGitQueries,
 } from "./gitReactQuery";
@@ -55,6 +56,12 @@ describe("gitMutationKeys", () => {
       gitMutationKeys.preparePullRequestThread(ENVIRONMENT_A, "/repo/b"),
     );
   });
+
+  it("scopes pull request remote selection keys by cwd", () => {
+    expect(gitMutationKeys.setPullRequestRemote(ENVIRONMENT_A, "/repo/a")).not.toEqual(
+      gitMutationKeys.setPullRequestRemote(ENVIRONMENT_A, "/repo/b"),
+    );
+  });
 });
 
 describe("git mutation options", () => {
@@ -86,6 +93,17 @@ describe("git mutation options", () => {
     });
     expect(options.mutationKey).toEqual(
       gitMutationKeys.preparePullRequestThread(ENVIRONMENT_A, "/repo/a"),
+    );
+  });
+
+  it("attaches cwd-scoped mutation key for setPullRequestRemote", () => {
+    const options = gitSetPullRequestRemoteMutationOptions({
+      environmentId: ENVIRONMENT_A,
+      cwd: "/repo/a",
+      queryClient,
+    });
+    expect(options.mutationKey).toEqual(
+      gitMutationKeys.setPullRequestRemote(ENVIRONMENT_A, "/repo/a"),
     );
   });
 });

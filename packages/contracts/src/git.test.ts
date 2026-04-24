@@ -3,10 +3,13 @@ import { Schema } from "effect";
 
 import {
   GitCreateWorktreeInput,
+  GitGetPullRequestRemoteOptionsResult,
   GitPreparePullRequestThreadInput,
+  GitPullRequestRemoteSelectionRequiredError,
   GitRunStackedActionResult,
   GitRunStackedActionInput,
   GitResolvePullRequestResult,
+  GitSetPullRequestRemoteInput,
 } from "./git.ts";
 
 const decodeCreateWorktreeInput = Schema.decodeUnknownSync(GitCreateWorktreeInput);
@@ -16,6 +19,13 @@ const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
 const decodeRunStackedActionInput = Schema.decodeUnknownSync(GitRunStackedActionInput);
 const decodeRunStackedActionResult = Schema.decodeUnknownSync(GitRunStackedActionResult);
 const decodeResolvePullRequestResult = Schema.decodeUnknownSync(GitResolvePullRequestResult);
+const decodeSetPullRequestRemoteInput = Schema.decodeUnknownSync(GitSetPullRequestRemoteInput);
+const decodeGetPullRequestRemoteOptionsResult = Schema.decodeUnknownSync(
+  GitGetPullRequestRemoteOptionsResult,
+);
+const decodePullRequestRemoteSelectionRequiredError = Schema.decodeUnknownSync(
+  GitPullRequestRemoteSelectionRequiredError,
+);
 
 describe("GitCreateWorktreeInput", () => {
   it("accepts omitted newBranch for existing-branch worktrees", () => {
@@ -58,6 +68,59 @@ describe("GitResolvePullRequestResult", () => {
 
     expect(parsed.pullRequest.number).toBe(42);
     expect(parsed.pullRequest.headBranch).toBe("feature/pr-threads");
+  });
+});
+
+describe("Git pull request remote selection", () => {
+  it("decodes target remote selection inputs and options", () => {
+    const input = decodeSetPullRequestRemoteInput({
+      cwd: "/repo",
+      remoteName: "upstream",
+    });
+    const options = decodeGetPullRequestRemoteOptionsResult({
+      configuredRemoteName: null,
+      selectedRemoteName: null,
+      requiresSelection: true,
+      candidates: [
+        {
+          remoteName: "origin",
+          repositoryNameWithOwner: "tmacc/agentdynamo2",
+          ownerLogin: "tmacc",
+          pushRepositoryNameWithOwner: null,
+        },
+        {
+          remoteName: "upstream",
+          repositoryNameWithOwner: "pingdotgg/t3code",
+          ownerLogin: "pingdotgg",
+          pushRepositoryNameWithOwner: "tmacc/agentdynamo2",
+        },
+      ],
+    });
+
+    expect(input.remoteName).toBe("upstream");
+    expect(options.requiresSelection).toBe(true);
+    expect(options.candidates[1]?.pushRepositoryNameWithOwner).toBe("tmacc/agentdynamo2");
+  });
+
+  it("decodes typed selection-required errors with candidates", () => {
+    const error = decodePullRequestRemoteSelectionRequiredError({
+      _tag: "GitPullRequestRemoteSelectionRequiredError",
+      operation: "runPrStep",
+      detail: "Choose which GitHub remote should receive pull requests.",
+      configuredRemoteName: null,
+      selectedRemoteName: null,
+      candidates: [
+        {
+          remoteName: "origin",
+          repositoryNameWithOwner: "tmacc/agentdynamo2",
+          ownerLogin: "tmacc",
+          pushRepositoryNameWithOwner: null,
+        },
+      ],
+    });
+
+    expect(error.message).toBe("Choose which GitHub remote should receive pull requests.");
+    expect(error.candidates[0]?.remoteName).toBe("origin");
   });
 });
 

@@ -30,6 +30,8 @@ import {
   GitCreateBranchResult,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
+  GitGetPullRequestRemoteOptionsInput,
+  GitGetPullRequestRemoteOptionsResult,
   GitInitInput,
   GitListBranchesInput,
   GitListBranchesResult,
@@ -42,6 +44,8 @@ import {
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
+  GitSetPullRequestRemoteInput,
+  GitSetPullRequestRemoteResult,
   GitStatusInput,
   GitStatusResult,
   GitStatusStreamEvent,
@@ -116,6 +120,8 @@ export const WS_METHODS = {
   gitCheckout: "git.checkout",
   gitInit: "git.init",
   gitResolvePullRequest: "git.resolvePullRequest",
+  gitGetPullRequestRemoteOptions: "git.getPullRequestRemoteOptions",
+  gitSetPullRequestRemote: "git.setPullRequestRemote",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
 
   // Terminal methods
@@ -222,6 +228,21 @@ export const WsGitRunStackedActionRpc = Rpc.make(WS_METHODS.gitRunStackedAction,
 export const WsGitResolvePullRequestRpc = Rpc.make(WS_METHODS.gitResolvePullRequest, {
   payload: GitPullRequestRefInput,
   success: GitResolvePullRequestResult,
+  error: GitManagerServiceError,
+});
+
+export const WsGitGetPullRequestRemoteOptionsRpc = Rpc.make(
+  WS_METHODS.gitGetPullRequestRemoteOptions,
+  {
+    payload: GitGetPullRequestRemoteOptionsInput,
+    success: GitGetPullRequestRemoteOptionsResult,
+    error: GitManagerServiceError,
+  },
+);
+
+export const WsGitSetPullRequestRemoteRpc = Rpc.make(WS_METHODS.gitSetPullRequestRemote, {
+  payload: GitSetPullRequestRemoteInput,
+  success: GitSetPullRequestRemoteResult,
   error: GitManagerServiceError,
 });
 
@@ -409,6 +430,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
+  WsGitGetPullRequestRemoteOptionsRpc,
+  WsGitSetPullRequestRemoteRpc,
   WsGitPreparePullRequestThreadRpc,
   WsGitListBranchesRpc,
   WsGitCreateWorktreeRpc,

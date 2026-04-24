@@ -355,6 +355,8 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
     ]),
   );
   const ghCalls: string[] = [];
+  const appendRepositoryArg = (args: string[], repository?: string) =>
+    repository ? [...args, "--repo", repository] : args;
 
   const execute: GitHubCliShape["execute"] = (input) => {
     const args = [...input.args];
@@ -522,18 +524,21 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
       listOpenPullRequests: (input) =>
         execute({
           cwd: input.cwd,
-          args: [
-            "pr",
-            "list",
-            "--head",
-            input.headSelector,
-            "--state",
-            "open",
-            "--limit",
-            String(input.limit ?? 1),
-            "--json",
-            "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
-          ],
+          args: appendRepositoryArg(
+            [
+              "pr",
+              "list",
+              "--head",
+              input.headSelector,
+              "--state",
+              "open",
+              "--limit",
+              String(input.limit ?? 1),
+              "--json",
+              "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+            ],
+            input.repository,
+          ),
         }).pipe(
           Effect.map((result) => JSON.parse(result.stdout) as unknown[]),
           Effect.map((raw) =>
@@ -545,23 +550,29 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
       createPullRequest: (input) =>
         execute({
           cwd: input.cwd,
-          args: [
-            "pr",
-            "create",
-            "--base",
-            input.baseBranch,
-            "--head",
-            input.headSelector,
-            "--title",
-            input.title,
-            "--body-file",
-            input.bodyFile,
-          ],
+          args: appendRepositoryArg(
+            [
+              "pr",
+              "create",
+              "--base",
+              input.baseBranch,
+              "--head",
+              input.headSelector,
+              "--title",
+              input.title,
+              "--body-file",
+              input.bodyFile,
+            ],
+            input.repository,
+          ),
         }).pipe(Effect.asVoid),
       getDefaultBranch: (input) =>
         execute({
           cwd: input.cwd,
-          args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+          args: appendRepositoryArg(
+            ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+            input.repository,
+          ),
         }).pipe(
           Effect.map((result) => {
             const value = result.stdout.trim();
@@ -624,6 +635,14 @@ function preparePullRequestThread(
   input: GitPreparePullRequestThreadInput,
 ) {
   return manager.preparePullRequestThread(input);
+}
+
+function getPullRequestRemoteOptions(manager: GitManagerShape, input: { cwd: string }) {
+  return manager.getPullRequestRemoteOptions(input);
+}
+
+function setPullRequestRemote(manager: GitManagerShape, input: { cwd: string; remoteName: string }) {
+  return manager.setPullRequestRemote(input);
 }
 
 function makeManager(input?: {
@@ -2185,6 +2204,203 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           call.includes("pr create --base statemachine --head octocat:statemachine"),
         ),
       ).toBe(false);
+    }),
+  );
+
+  it.effect("asks for a PR target remote when multiple GitHub remotes are available", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "origin",
+        "git@github.com:tmacc/agentdynamo2.git",
+      ]);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "upstream",
+        "git@github.com:pingdotgg/t3code.git",
+      ]);
+
+      const { manager } = yield* makeManager();
+      const options = yield* getPullRequestRemoteOptions(manager, { cwd: repoDir });
+
+      expect(options.requiresSelection).toBe(true);
+      expect(options.selectedRemoteName).toBeNull();
+      expect(options.candidates.map((candidate) => candidate.remoteName)).toEqual([
+        "origin",
+        "upstream",
+      ]);
+      expect(options.candidates.map((candidate) => candidate.repositoryNameWithOwner)).toEqual([
+        "tmacc/agentdynamo2",
+        "pingdotgg/t3code",
+      ]);
+    }),
+  );
+
+  it.effect("persists and reuses a repo-local Dynamo PR target remote", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "origin",
+        "git@github.com:tmacc/agentdynamo2.git",
+      ]);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "upstream",
+        "git@github.com:pingdotgg/t3code.git",
+      ]);
+
+      const { manager } = yield* makeManager();
+      const saved = yield* setPullRequestRemote(manager, { cwd: repoDir, remoteName: "upstream" });
+      const options = yield* getPullRequestRemoteOptions(manager, { cwd: repoDir });
+      const configured = yield* runGit(repoDir, ["config", "--get", "dynamo.pullRequestRemote"]);
+
+      expect(saved.remoteName).toBe("upstream");
+      expect(configured.stdout.trim()).toBe("upstream");
+      expect(options.requiresSelection).toBe(false);
+      expect(options.selectedRemoteName).toBe("upstream");
+    }),
+  );
+
+  it.effect("reads legacy T3 PR target remote config as a compatibility fallback", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "origin",
+        "git@github.com:tmacc/agentdynamo2.git",
+      ]);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "upstream",
+        "git@github.com:pingdotgg/t3code.git",
+      ]);
+      yield* runGit(repoDir, ["config", "--local", "t3.pullRequestRemote", "origin"]);
+
+      const { manager } = yield* makeManager();
+      const options = yield* getPullRequestRemoteOptions(manager, { cwd: repoDir });
+
+      expect(options.configuredRemoteName).toBe("origin");
+      expect(options.selectedRemoteName).toBe("origin");
+      expect(options.requiresSelection).toBe(false);
+    }),
+  );
+
+  it.effect("fails PR creation with typed remote choices instead of guessing a target repo", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/multi-remote-pr"]);
+      fs.writeFileSync(path.join(repoDir, "changes.txt"), "change\n");
+      yield* runGit(repoDir, ["add", "changes.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Feature commit"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/multi-remote-pr"]);
+      yield* runGit(repoDir, [
+        "config",
+        "remote.origin.url",
+        "git@github.com:tmacc/agentdynamo2.git",
+      ]);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "upstream",
+        "git@github.com:pingdotgg/t3code.git",
+      ]);
+
+      const { manager } = yield* makeManager();
+      const error = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+      }).pipe(Effect.flip);
+
+      expect(error._tag).toBe("GitPullRequestRemoteSelectionRequiredError");
+      if (error._tag === "GitPullRequestRemoteSelectionRequiredError") {
+        expect(error.candidates.map((candidate) => candidate.remoteName)).toEqual([
+          "origin",
+          "upstream",
+        ]);
+      }
+    }),
+  );
+
+  it.effect("creates PRs against the selected base repository explicitly", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/selected-pr-target"]);
+      fs.writeFileSync(path.join(repoDir, "changes.txt"), "change\n");
+      yield* runGit(repoDir, ["add", "changes.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Feature commit"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/selected-pr-target"]);
+      yield* runGit(repoDir, [
+        "config",
+        "remote.origin.url",
+        "git@github.com:tmacc/agentdynamo2.git",
+      ]);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "upstream",
+        "git@github.com:pingdotgg/t3code.git",
+      ]);
+      yield* runGit(repoDir, ["config", "--local", "dynamo.pullRequestRemote", "upstream"]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequenceByHeadSelector: {
+            "tmacc:feature/selected-pr-target": [
+              JSON.stringify([]),
+              JSON.stringify([
+                {
+                  number: 205,
+                  title: "Selected PR target",
+                  url: "https://github.com/pingdotgg/t3code/pull/205",
+                  baseRefName: "main",
+                  headRefName: "feature/selected-pr-target",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "tmacc/agentdynamo2",
+                  },
+                  headRepositoryOwner: {
+                    login: "tmacc",
+                  },
+                },
+              ]),
+            ],
+          },
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+      });
+
+      expect(result.pr.status).toBe("created");
+      expect(result.pr.number).toBe(205);
+      expect(
+        ghCalls.some((call) =>
+          call.includes(
+            "pr create --base main --head tmacc:feature/selected-pr-target --title Add stacked git actions --body-file",
+          ),
+        ),
+      ).toBe(true);
+      expect(ghCalls.some((call) => call.includes("--repo pingdotgg/t3code"))).toBe(true);
     }),
   );
 
