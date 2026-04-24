@@ -1015,6 +1015,21 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       Effect.map(parseRemoteNamesInGitOrder),
     );
 
+  const readRemoteUrl = (
+    cwd: string,
+    remoteName: string,
+    push: boolean,
+  ): Effect.Effect<string | null, GitCommandError> =>
+    runGitStdout(
+      push ? "GitCore.readRemoteUrl.push" : "GitCore.readRemoteUrl.fetch",
+      cwd,
+      ["config", "--get", push ? `remote.${remoteName}.pushurl` : `remote.${remoteName}.url`],
+      true,
+    ).pipe(
+      Effect.map((stdout) => stdout.trim()),
+      Effect.map((trimmed) => (trimmed.length > 0 ? trimmed : null)),
+    );
+
   const resolvePrimaryRemoteName = Effect.fn("resolvePrimaryRemoteName")(function* (cwd: string) {
     if (yield* originRemoteExists(cwd)) {
       return "origin";
@@ -1634,6 +1649,33 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       Effect.map((trimmed) => (trimmed.length > 0 ? trimmed : null)),
     );
 
+  const setConfigValue: GitCoreShape["setConfigValue"] = (cwd, key, value) =>
+    runGit("GitCore.setConfigValue", cwd, ["config", "--local", key, value]);
+
+  const listRemotes: GitCoreShape["listRemotes"] = Effect.fn("listRemotes")(function* (cwd) {
+    const remoteNames = yield* listRemoteNames(cwd);
+    const remotes = yield* Effect.forEach(
+      remoteNames,
+      (remoteName) =>
+        Effect.all([readRemoteUrl(cwd, remoteName, false), readRemoteUrl(cwd, remoteName, true)], {
+          concurrency: "unbounded",
+        }).pipe(
+          Effect.map(([fetchUrl, pushUrl]) =>
+            fetchUrl
+              ? {
+                  remoteName,
+                  fetchUrl,
+                  pushUrl,
+                }
+              : null,
+          ),
+        ),
+      { concurrency: "unbounded" },
+    );
+
+    return remotes.filter((remote): remote is NonNullable<typeof remote> => remote !== null);
+  });
+
   const isInsideWorkTree: GitCoreShape["isInsideWorkTree"] = (cwd) =>
     executeGit("GitCore.isInsideWorkTree", cwd, ["rev-parse", "--is-inside-work-tree"], {
       allowNonZeroExit: true,
@@ -2185,6 +2227,8 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     pullCurrentBranch,
     readRangeContext,
     readConfigValue,
+    setConfigValue,
+    listRemotes,
     isInsideWorkTree,
     listWorkspaceFiles,
     filterIgnoredPaths,

@@ -1,6 +1,7 @@
 import {
   type EnvironmentId,
   type GitActionProgressEvent,
+  type GitGetPullRequestRemoteOptionsResult,
   type GitStackedAction,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -23,6 +24,8 @@ export const gitQueryKeys = {
     ["git", "branches", environmentId ?? null, cwd] as const,
   branchSearch: (environmentId: EnvironmentId | null, cwd: string | null, query: string) =>
     ["git", "branches", environmentId ?? null, cwd, "search", query] as const,
+  pullRequestRemoteOptions: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "pull-request-remote-options", environmentId ?? null, cwd] as const,
 };
 
 export const gitMutationKeys = {
@@ -36,6 +39,8 @@ export const gitMutationKeys = {
     ["git", "mutation", "pull", environmentId ?? null, cwd] as const,
   preparePullRequestThread: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "prepare-pull-request-thread", environmentId ?? null, cwd] as const,
+  setPullRequestRemote: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "mutation", "set-pull-request-remote", environmentId ?? null, cwd] as const,
 };
 
 export function invalidateGitQueries(
@@ -118,6 +123,27 @@ export function gitResolvePullRequestQueryOptions(input: {
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+  });
+}
+
+export function gitPullRequestRemoteOptionsQueryOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitQueryKeys.pullRequestRemoteOptions(input.environmentId, input.cwd),
+    queryFn: async (): Promise<GitGetPullRequestRemoteOptionsResult> => {
+      if (!input.cwd || !input.environmentId) {
+        throw new Error("Pull request remote lookup is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.git.getPullRequestRemoteOptions({ cwd: input.cwd });
+    },
+    enabled: input.environmentId !== null && input.cwd !== null && (input.enabled ?? true),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
   });
 }
 
@@ -212,6 +238,31 @@ export function gitPullMutationOptions(input: {
     },
     onSuccess: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
+    },
+  });
+}
+
+export function gitSetPullRequestRemoteMutationOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.setPullRequestRemote(input.environmentId, input.cwd),
+    mutationFn: async (remoteName: string) => {
+      if (!input.cwd || !input.environmentId) {
+        throw new Error("Pull request remote selection is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.git.setPullRequestRemote({ cwd: input.cwd, remoteName });
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        input.queryClient.invalidateQueries({
+          queryKey: gitQueryKeys.pullRequestRemoteOptions(input.environmentId, input.cwd),
+        }),
+        invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd),
+      ]);
     },
   });
 }
