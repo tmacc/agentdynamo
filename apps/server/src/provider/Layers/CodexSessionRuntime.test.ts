@@ -9,6 +9,7 @@ import * as CodexRpc from "effect-codex-app-server/rpc";
 import {
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+  CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS,
 } from "../CodexDeveloperInstructions.ts";
 import {
   buildTurnStartParams,
@@ -143,6 +144,41 @@ describe("buildTurnStartParams", () => {
           text: "Review",
         },
       ],
+    });
+  });
+
+  it("adds default collaboration instructions when team coordinator tools are enabled", () => {
+    const params = Effect.runSync(
+      buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeMode: "approval-required",
+        prompt: "Use a team of agents",
+        model: "gpt-5.3-codex",
+        teamCoordinatorTools: true,
+      }),
+    );
+
+    assert.deepStrictEqual(params, {
+      threadId: "provider-thread-1",
+      approvalPolicy: "untrusted",
+      sandboxPolicy: {
+        type: "readOnly",
+      },
+      input: [
+        {
+          type: "text",
+          text: "Use a team of agents",
+        },
+      ],
+      model: "gpt-5.3-codex",
+      collaborationMode: {
+        mode: "default",
+        settings: {
+          model: "gpt-5.3-codex",
+          reasoning_effort: "medium",
+          developer_instructions: `${CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS}\n\n${CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS}`,
+        },
+      },
     });
   });
 });

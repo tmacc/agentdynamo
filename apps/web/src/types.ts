@@ -5,13 +5,16 @@ import type {
   OrchestrationProposedPlanId,
   RepositoryIdentity,
   OrchestrationSessionStatus,
+  OrchestrationTeamTask,
   OrchestrationThreadActivity,
+  OrchestrationThreadTeamParent,
   ProjectScript as ContractProjectScript,
   ThreadId,
   ProjectId,
   TurnId,
   MessageId,
   OrchestrationThreadForkOrigin,
+  ProjectWorktreeSetupProfile,
   ProviderKind,
   CheckpointRef,
   ProviderInteractionMode,
@@ -91,6 +94,7 @@ export interface Project {
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
   scripts: ProjectScript[];
+  worktreeSetup?: ProjectWorktreeSetupProfile | null;
 }
 
 export interface Thread {
@@ -116,6 +120,8 @@ export interface Thread {
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
   forkOrigin?: OrchestrationThreadForkOrigin;
+  teamParent?: OrchestrationThreadTeamParent | null;
+  teamTasks?: ReadonlyArray<OrchestrationTeamTask>;
 }
 
 export interface ThreadShell {
@@ -134,6 +140,9 @@ export interface ThreadShell {
   branch: string | null;
   worktreePath: string | null;
   forkOrigin?: OrchestrationThreadForkOrigin;
+  teamParent?: OrchestrationThreadTeamParent | null;
+  teamTasks?: ReadonlyArray<OrchestrationTeamTask>;
+  activeTeamTaskCount?: number;
 }
 
 export interface ThreadTurnState {
@@ -155,6 +164,8 @@ export interface SidebarThreadSummary {
   branch: string | null;
   worktreePath: string | null;
   forkOrigin?: OrchestrationThreadForkOrigin;
+  teamParent?: OrchestrationThreadTeamParent | null;
+  activeTeamTaskCount?: number;
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;

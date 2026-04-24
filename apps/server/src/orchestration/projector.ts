@@ -3,6 +3,7 @@ import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
   OrchestrationSession,
+  OrchestrationTeamTask,
   OrchestrationThread,
   OrchestrationThreadContextHandoff,
 } from "@t3tools/contracts";
@@ -25,6 +26,12 @@ import {
   ThreadMetaUpdatedPayload,
   ThreadProposedPlanUpsertedPayload,
   ThreadRuntimeModeSetPayload,
+  ThreadTeamTaskCloseRequestedPayload,
+  ThreadTeamTaskCreatedPayload,
+  ThreadTeamTaskMessageRequestedPayload,
+  ThreadTeamTaskStartedPayload,
+  ThreadTeamTaskStatusChangedPayload,
+  ThreadTeamTaskSummaryUpdatedPayload,
   ThreadUnarchivedPayload,
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
@@ -189,6 +196,7 @@ export function projectEvent(
             workspaceRoot: payload.workspaceRoot,
             defaultModelSelection: payload.defaultModelSelection,
             scripts: payload.scripts,
+            worktreeSetup: payload.worktreeSetup,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             deletedAt: null,
@@ -221,6 +229,9 @@ export function projectEvent(
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
+                  ...(payload.worktreeSetup !== undefined
+                    ? { worktreeSetup: payload.worktreeSetup }
+                    : {}),
                   updatedAt: payload.updatedAt,
                 }
               : project,
@@ -269,7 +280,24 @@ export function projectEvent(
             archivedAt: null,
             deletedAt: null,
             ...(payload.forkOrigin ? { forkOrigin: payload.forkOrigin } : {}),
+            teamParent:
+              nextBase.threads
+                .flatMap((entry) => entry.teamTasks ?? [])
+                .find((task) => task.childThreadId === payload.threadId) === undefined
+                ? null
+                : (() => {
+                    const task = nextBase.threads
+                      .flatMap((entry) => entry.teamTasks ?? [])
+                      .find((task) => task.childThreadId === payload.threadId)!;
+                    return {
+                      parentThreadId: task.parentThreadId,
+                      taskId: task.id,
+                      roleLabel: task.roleLabel,
+                    };
+                  })(),
+            teamTasks: [],
             messages: [],
+            proposedPlans: [],
             contextHandoffs: [],
             activities: [],
             checkpoints: [],
@@ -619,6 +647,170 @@ export function projectEvent(
           }),
         };
       });
+
+    case "thread.team-task-created":
+      return Effect.gen(function* () {
+        const payload = yield* decodeForEvent(
+          ThreadTeamTaskCreatedPayload,
+          event.payload,
+          event.type,
+          "payload",
+        );
+        const parentThread = nextBase.threads.find((entry) => entry.id === payload.parentThreadId);
+        if (!parentThread) {
+          return nextBase;
+        }
+        const teamTask: OrchestrationTeamTask = yield* decodeForEvent(
+          OrchestrationTeamTask,
+          payload.teamTask,
+          event.type,
+          "teamTask",
+        );
+        const nextThreads = updateThread(nextBase.threads, payload.parentThreadId, {
+          teamTasks: [
+            ...(parentThread.teamTasks ?? []).filter((entry) => entry.id !== teamTask.id),
+            teamTask,
+          ].toSorted(
+            (left, right) =>
+              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+          ),
+          updatedAt: event.occurredAt,
+        }).map((thread) =>
+          thread.id === teamTask.childThreadId
+            ? {
+                ...thread,
+                teamParent: {
+                  parentThreadId: payload.parentThreadId,
+                  taskId: teamTask.id,
+                  roleLabel: teamTask.roleLabel,
+                },
+              }
+            : thread,
+        );
+        return {
+          ...nextBase,
+          threads: nextThreads,
+        };
+      });
+
+    case "thread.team-task-started":
+      return decodeForEvent(
+        ThreadTeamTaskStartedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const parentThread = nextBase.threads.find(
+            (entry) => entry.id === payload.parentThreadId,
+          );
+          if (!parentThread) {
+            return nextBase;
+          }
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.parentThreadId, {
+              teamTasks: (parentThread.teamTasks ?? []).map((task) =>
+                task.id === payload.taskId
+                  ? {
+                      ...task,
+                      startedAt: task.startedAt ?? payload.startedAt,
+                      updatedAt: payload.startedAt,
+                    }
+                  : task,
+              ),
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.team-task-status-changed":
+      return decodeForEvent(
+        ThreadTeamTaskStatusChangedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const parentThread = nextBase.threads.find(
+            (entry) => entry.id === payload.parentThreadId,
+          );
+          if (!parentThread) {
+            return nextBase;
+          }
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.parentThreadId, {
+              teamTasks: (parentThread.teamTasks ?? []).map((task) =>
+                task.id === payload.taskId
+                  ? {
+                      ...task,
+                      status: payload.status,
+                      ...(payload.errorText !== undefined ? { errorText: payload.errorText } : {}),
+                      ...(payload.latestSummary !== undefined
+                        ? { latestSummary: payload.latestSummary }
+                        : {}),
+                      ...(payload.completedAt !== undefined
+                        ? { completedAt: payload.completedAt }
+                        : {}),
+                      updatedAt: payload.updatedAt,
+                    }
+                  : task,
+              ),
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.team-task-summary-updated":
+      return decodeForEvent(
+        ThreadTeamTaskSummaryUpdatedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const parentThread = nextBase.threads.find(
+            (entry) => entry.id === payload.parentThreadId,
+          );
+          if (!parentThread) {
+            return nextBase;
+          }
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.parentThreadId, {
+              teamTasks: (parentThread.teamTasks ?? []).map((task) =>
+                task.id === payload.taskId
+                  ? {
+                      ...task,
+                      latestSummary: payload.latestSummary,
+                      updatedAt: payload.updatedAt,
+                    }
+                  : task,
+              ),
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.team-task-message-requested":
+      return decodeForEvent(
+        ThreadTeamTaskMessageRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(Effect.as(nextBase));
+
+    case "thread.team-task-close-requested":
+      return decodeForEvent(
+        ThreadTeamTaskCloseRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(Effect.as(nextBase));
 
     case "thread.turn-diff-completed":
       return Effect.gen(function* () {

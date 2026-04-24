@@ -1,5 +1,6 @@
 import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
+import type { TeamTaskInlineView } from "./TeamTaskInlineBlock";
 import {
   type MessageId,
   type OrchestrationThreadForkOrigin,
@@ -47,6 +48,7 @@ export type MessagesTimelineRow =
       sourceThreadId: ThreadId;
       sourceThreadTitle: string;
     }
+  | { kind: "team-tasks"; id: string; createdAt: string; tasks: ReadonlyArray<TeamTaskInlineView> }
   | { kind: "working"; id: string; createdAt: string | null };
 
 export interface StableMessagesTimelineRowsState {
@@ -182,6 +184,7 @@ export function deriveMessagesTimelineRows(input: {
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
   forkOrigin?: OrchestrationThreadForkOrigin | undefined;
+  teamTasks?: ReadonlyArray<TeamTaskInlineView> | undefined;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
   const durationStartByMessageId = computeMessageDurationStart(
@@ -271,6 +274,19 @@ export function deriveMessagesTimelineRows(input: {
     });
   }
 
+  if (input.teamTasks && input.teamTasks.length > 0) {
+    const earliestCreatedAt = input.teamTasks.reduce(
+      (earliest, view) => (view.task.createdAt < earliest ? view.task.createdAt : earliest),
+      input.teamTasks[0]!.task.createdAt,
+    );
+    insertRowByCreatedAt(nextRows, {
+      kind: "team-tasks",
+      id: "team-tasks-inline",
+      createdAt: earliestCreatedAt,
+      tasks: input.teamTasks,
+    });
+  }
+
   return nextRows;
 }
 
@@ -310,6 +326,9 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.sourceThreadId === (b as typeof a).sourceThreadId &&
         a.sourceThreadTitle === (b as typeof a).sourceThreadTitle
       );
+
+    case "team-tasks":
+      return a.tasks === (b as typeof a).tasks;
 
     case "work":
       return a.groupedEntries === (b as typeof a).groupedEntries;

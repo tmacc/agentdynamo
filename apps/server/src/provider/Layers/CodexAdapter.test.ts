@@ -262,6 +262,40 @@ validationLayer("CodexAdapterLive validation", (it) => {
       });
     }),
   );
+
+  it.effect("enables Dynamo team coordinator tools when start input includes a team grant", () =>
+    Effect.gen(function* () {
+      validationRuntimeFactory.factory.mockClear();
+      const adapter = yield* CodexAdapter;
+
+      yield* adapter.startSession({
+        provider: "codex",
+        threadId: asThreadId("thread-team"),
+        runtimeMode: "full-access",
+        teamCoordinator: {
+          parentThreadId: asThreadId("thread-team"),
+          mcpServerName: "dynamo_team",
+          mcpServerUrl: "http://127.0.0.1:13773/api/team-mcp",
+          accessToken: "token-1",
+        },
+      });
+
+      assert.deepStrictEqual(validationRuntimeFactory.factory.mock.calls[0]?.[0], {
+        binaryPath: "codex",
+        cwd: process.cwd(),
+        configOverrides: [
+          'mcp_servers.dynamo_team.url="http://127.0.0.1:13773/api/team-mcp"',
+          'mcp_servers.dynamo_team.bearer_token_env_var="DYNAMO_TEAM_MCP_TOKEN"',
+        ],
+        env: {
+          DYNAMO_TEAM_MCP_TOKEN: "token-1",
+        },
+        teamCoordinatorTools: true,
+        threadId: asThreadId("thread-team"),
+        runtimeMode: "full-access",
+      });
+    }),
+  );
 });
 
 const sessionRuntimeFactory = makeRuntimeFactory();

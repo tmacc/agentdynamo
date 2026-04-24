@@ -11,6 +11,7 @@ import {
   OrchestrationThread,
   OrchestrationThreadContextHandoff,
   ProjectScript,
+  ProjectWorktreeSetupProfile,
   TurnId,
   type OrchestrationCheckpointSummary,
   type OrchestrationLatestTurn,
@@ -42,6 +43,10 @@ import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionT
 import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadContextHandoff } from "../../persistence/Services/ProjectionThreadContextHandoffs.ts";
+import {
+  ProjectionThreadTeamTask,
+  projectionTeamTaskToReadModel,
+} from "../../persistence/Services/ProjectionThreadTeamTasks.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
 import { RepositoryIdentityResolver } from "../../project/Services/RepositoryIdentityResolver.ts";
@@ -60,6 +65,7 @@ const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+    worktreeSetup: Schema.NullOr(Schema.fromJsonString(ProjectWorktreeSetupProfile)),
   }),
 );
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
@@ -72,6 +78,12 @@ const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadContextHandoffDbRowSchema = ProjectionThreadContextHandoff.mapFields(
   Struct.assign({
     renderStats: Schema.NullOr(Schema.fromJsonString(OrchestrationContextHandoffRenderStats)),
+  }),
+);
+const ProjectionThreadTeamTaskDbRowSchema = ProjectionThreadTeamTask.mapFields(
+  Struct.assign({
+    modelSelection: Schema.fromJsonString(ModelSelection),
+    promptStats: Schema.NullOr(Schema.fromJsonString(OrchestrationContextHandoffRenderStats)),
   }),
 );
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
@@ -133,6 +145,7 @@ const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
   ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans,
   ORCHESTRATION_PROJECTOR_NAMES.threadContextHandoffs,
+  ORCHESTRATION_PROJECTOR_NAMES.threadTeamTasks,
   ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
   ORCHESTRATION_PROJECTOR_NAMES.threadSessions,
   ORCHESTRATION_PROJECTOR_NAMES.checkpoints,
@@ -272,6 +285,7 @@ function mapProjectShellRow(
     repositoryIdentity,
     defaultModelSelection: row.defaultModelSelection,
     scripts: row.scripts,
+    worktreeSetup: row.worktreeSetup,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -300,6 +314,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
+          worktree_setup_json AS "worktreeSetup",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -405,6 +420,39 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           render_stats_json AS "renderStats"
         FROM projection_thread_context_handoffs
         ORDER BY thread_id ASC, created_at ASC, handoff_id ASC
+      `,
+  });
+
+  const listThreadTeamTaskRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionThreadTeamTaskDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          task_id AS "taskId",
+          parent_thread_id AS "parentThreadId",
+          child_thread_id AS "childThreadId",
+          title,
+          task,
+          role_label AS "roleLabel",
+          kind,
+          model_selection_json AS "modelSelection",
+          model_selection_mode AS "modelSelectionMode",
+          model_selection_reason AS "modelSelectionReason",
+          workspace_mode AS "workspaceMode",
+          resolved_workspace_mode AS "resolvedWorkspaceMode",
+          setup_mode AS "setupMode",
+          resolved_setup_mode AS "resolvedSetupMode",
+          status,
+          latest_summary AS "latestSummary",
+          error_text AS "errorText",
+          prompt_stats_json AS "promptStats",
+          created_at AS "createdAt",
+          started_at AS "startedAt",
+          completed_at AS "completedAt",
+          updated_at AS "updatedAt"
+        FROM projection_thread_team_tasks
+        ORDER BY parent_thread_id ASC, created_at ASC, task_id ASC
       `,
   });
 
@@ -529,6 +577,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
+          worktree_setup_json AS "worktreeSetup",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -551,6 +600,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
+          worktree_setup_json AS "worktreeSetup",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -700,6 +750,74 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const listThreadTeamTaskRowsByParent = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadTeamTaskDbRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          task_id AS "taskId",
+          parent_thread_id AS "parentThreadId",
+          child_thread_id AS "childThreadId",
+          title,
+          task,
+          role_label AS "roleLabel",
+          kind,
+          model_selection_json AS "modelSelection",
+          model_selection_mode AS "modelSelectionMode",
+          model_selection_reason AS "modelSelectionReason",
+          workspace_mode AS "workspaceMode",
+          resolved_workspace_mode AS "resolvedWorkspaceMode",
+          setup_mode AS "setupMode",
+          resolved_setup_mode AS "resolvedSetupMode",
+          status,
+          latest_summary AS "latestSummary",
+          error_text AS "errorText",
+          prompt_stats_json AS "promptStats",
+          created_at AS "createdAt",
+          started_at AS "startedAt",
+          completed_at AS "completedAt",
+          updated_at AS "updatedAt"
+        FROM projection_thread_team_tasks
+        WHERE parent_thread_id = ${threadId}
+        ORDER BY created_at ASC, task_id ASC
+      `,
+  });
+
+  const listThreadTeamTaskRowsByChild = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadTeamTaskDbRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          task_id AS "taskId",
+          parent_thread_id AS "parentThreadId",
+          child_thread_id AS "childThreadId",
+          title,
+          task,
+          role_label AS "roleLabel",
+          kind,
+          model_selection_json AS "modelSelection",
+          model_selection_mode AS "modelSelectionMode",
+          model_selection_reason AS "modelSelectionReason",
+          workspace_mode AS "workspaceMode",
+          resolved_workspace_mode AS "resolvedWorkspaceMode",
+          setup_mode AS "setupMode",
+          resolved_setup_mode AS "resolvedSetupMode",
+          status,
+          latest_summary AS "latestSummary",
+          error_text AS "errorText",
+          prompt_stats_json AS "promptStats",
+          created_at AS "createdAt",
+          started_at AS "startedAt",
+          completed_at AS "completedAt",
+          updated_at AS "updatedAt"
+        FROM projection_thread_team_tasks
+        WHERE child_thread_id = ${threadId}
+        ORDER BY created_at ASC, task_id ASC
+      `,
+  });
+
   const listThreadActivityRowsByThread = SqlSchema.findAll({
     Request: ThreadIdLookupInput,
     Result: ProjectionThreadActivityDbRowSchema,
@@ -834,6 +952,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ),
             ),
           ),
+          listThreadTeamTaskRows(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getSnapshot:listThreadTeamTasks:query",
+                "ProjectionSnapshotQuery.getSnapshot:listThreadTeamTasks:decodeRows",
+              ),
+            ),
+          ),
           listThreadActivityRows(undefined).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
@@ -884,6 +1010,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             messageRows,
             proposedPlanRows,
             contextHandoffRows,
+            teamTaskRows,
             activityRows,
             sessionRows,
             checkpointRows,
@@ -896,6 +1023,18 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               const contextHandoffsByThread = new Map<
                 string,
                 Array<OrchestrationThreadContextHandoff>
+              >();
+              const teamTasksByParentThread = new Map<
+                string,
+                Array<ReturnType<typeof projectionTeamTaskToReadModel>>
+              >();
+              const teamParentByChildThread = new Map<
+                string,
+                {
+                  parentThreadId: ThreadId;
+                  taskId: ReturnType<typeof projectionTeamTaskToReadModel>["id"];
+                  roleLabel: string | null;
+                }
               >();
               const activitiesByThread = new Map<string, Array<OrchestrationThreadActivity>>();
               const checkpointsByThread = new Map<string, Array<OrchestrationCheckpointSummary>>();
@@ -956,6 +1095,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 const threadContextHandoffs = contextHandoffsByThread.get(row.threadId) ?? [];
                 threadContextHandoffs.push(mapContextHandoffRow(row));
                 contextHandoffsByThread.set(row.threadId, threadContextHandoffs);
+              }
+
+              for (const row of teamTaskRows) {
+                updatedAt = maxIso(updatedAt, row.updatedAt);
+                const teamTask = projectionTeamTaskToReadModel(row);
+                const parentTasks = teamTasksByParentThread.get(row.parentThreadId) ?? [];
+                parentTasks.push(teamTask);
+                teamTasksByParentThread.set(row.parentThreadId, parentTasks);
+                teamParentByChildThread.set(row.childThreadId, {
+                  parentThreadId: row.parentThreadId,
+                  taskId: row.taskId,
+                  roleLabel: row.roleLabel,
+                });
               }
 
               for (const row of activityRows) {
@@ -1056,6 +1208,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 repositoryIdentity: repositoryIdentities.get(row.projectId) ?? null,
                 defaultModelSelection: row.defaultModelSelection,
                 scripts: row.scripts,
+                worktreeSetup: row.worktreeSetup,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
                 deletedAt: row.deletedAt,
@@ -1076,6 +1229,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 archivedAt: row.archivedAt,
                 deletedAt: row.deletedAt,
                 ...forkOriginFields(row),
+                teamParent: teamParentByChildThread.get(row.threadId) ?? null,
+                teamTasks: teamTasksByParentThread.get(row.threadId) ?? [],
                 messages: messagesByThread.get(row.threadId) ?? [],
                 proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
                 contextHandoffs: contextHandoffsByThread.get(row.threadId) ?? [],
@@ -1142,6 +1297,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ),
             ),
           ),
+          listThreadTeamTaskRows(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getShellSnapshot:listThreadTeamTasks:query",
+                "ProjectionSnapshotQuery.getShellSnapshot:listThreadTeamTasks:decodeRows",
+              ),
+            ),
+          ),
           listLatestTurnRows(undefined).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
@@ -1162,7 +1325,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       )
       .pipe(
         Effect.flatMap(
-          ([projectRows, threadRows, sessionRows, contextHandoffRows, latestTurnRows, stateRows]) =>
+          ([
+            projectRows,
+            threadRows,
+            sessionRows,
+            contextHandoffRows,
+            teamTaskRows,
+            latestTurnRows,
+            stateRows,
+          ]) =>
             Effect.gen(function* () {
               let updatedAt: string | null = null;
               for (const row of projectRows) {
@@ -1182,6 +1353,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 if (row.lastFailureAt !== null) {
                   updatedAt = maxIso(updatedAt, row.lastFailureAt);
                 }
+              }
+              for (const row of teamTaskRows) {
+                updatedAt = maxIso(updatedAt, row.updatedAt);
               }
               for (const row of latestTurnRows) {
                 updatedAt = maxIso(updatedAt, row.requestedAt);
@@ -1216,10 +1390,37 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 string,
                 Array<OrchestrationThreadContextHandoff>
               >();
+              const activeTeamTaskCountByParent = new Map<string, number>();
+              const teamParentByChildThread = new Map<
+                string,
+                {
+                  parentThreadId: ThreadId;
+                  taskId: ReturnType<typeof projectionTeamTaskToReadModel>["id"];
+                  roleLabel: string | null;
+                }
+              >();
               for (const row of contextHandoffRows) {
                 const threadContextHandoffs = contextHandoffsByThread.get(row.threadId) ?? [];
                 threadContextHandoffs.push(mapContextHandoffRow(row));
                 contextHandoffsByThread.set(row.threadId, threadContextHandoffs);
+              }
+              for (const row of teamTaskRows) {
+                if (
+                  row.status === "queued" ||
+                  row.status === "starting" ||
+                  row.status === "running" ||
+                  row.status === "waiting"
+                ) {
+                  activeTeamTaskCountByParent.set(
+                    row.parentThreadId,
+                    (activeTeamTaskCountByParent.get(row.parentThreadId) ?? 0) + 1,
+                  );
+                }
+                teamParentByChildThread.set(row.childThreadId, {
+                  parentThreadId: row.parentThreadId,
+                  taskId: row.taskId,
+                  roleLabel: row.roleLabel,
+                });
               }
 
               const snapshot = {
@@ -1246,6 +1447,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                       updatedAt: row.updatedAt,
                       archivedAt: row.archivedAt,
                       session: sessionByThread.get(row.threadId) ?? null,
+                      teamParent: teamParentByChildThread.get(row.threadId) ?? null,
+                      activeTeamTaskCount: activeTeamTaskCountByParent.get(row.threadId) ?? 0,
                       contextHandoffs: contextHandoffsByThread.get(row.threadId) ?? [],
                       latestUserMessageAt: row.latestUserMessageAt,
                       hasPendingApprovals: row.pendingApprovalCount > 0,
@@ -1400,7 +1603,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
   const getThreadShellById: ProjectionSnapshotQueryShape["getThreadShellById"] = (threadId) =>
     Effect.gen(function* () {
-      const [threadRow, latestTurnRow, sessionRow, contextHandoffRows] = yield* Effect.all([
+      const [
+        threadRow,
+        latestTurnRow,
+        sessionRow,
+        contextHandoffRows,
+        parentTeamTaskRows,
+        childTeamTaskRows,
+      ] = yield* Effect.all([
         getActiveThreadRowById({ threadId }).pipe(
           Effect.mapError(
             toPersistenceSqlOrDecodeError(
@@ -1433,6 +1643,22 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ),
           ),
         ),
+        listThreadTeamTaskRowsByParent({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadShellById:listParentTeamTasks:query",
+              "ProjectionSnapshotQuery.getThreadShellById:listParentTeamTasks:decodeRows",
+            ),
+          ),
+        ),
+        listThreadTeamTaskRowsByChild({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadShellById:listChildTeamTasks:query",
+              "ProjectionSnapshotQuery.getThreadShellById:listChildTeamTasks:decodeRows",
+            ),
+          ),
+        ),
       ]);
 
       if (Option.isNone(threadRow)) {
@@ -1454,6 +1680,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         archivedAt: threadRow.value.archivedAt,
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
         ...forkOriginFields(threadRow.value),
+        teamParent:
+          childTeamTaskRows[0] === undefined
+            ? null
+            : {
+                parentThreadId: childTeamTaskRows[0].parentThreadId,
+                taskId: childTeamTaskRows[0].taskId,
+                roleLabel: childTeamTaskRows[0].roleLabel,
+              },
+        activeTeamTaskCount: parentTeamTaskRows.filter(
+          (task) =>
+            task.status === "queued" ||
+            task.status === "starting" ||
+            task.status === "running" ||
+            task.status === "waiting",
+        ).length,
         contextHandoffs: contextHandoffRows.map(mapContextHandoffRow),
         latestUserMessageAt: threadRow.value.latestUserMessageAt,
         hasPendingApprovals: threadRow.value.pendingApprovalCount > 0,
@@ -1469,6 +1710,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         messageRows,
         proposedPlanRows,
         contextHandoffRows,
+        parentTeamTaskRows,
+        childTeamTaskRows,
         activityRows,
         checkpointRows,
         latestTurnRow,
@@ -1503,6 +1746,22 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             toPersistenceSqlOrDecodeError(
               "ProjectionSnapshotQuery.getThreadDetailById:listContextHandoffs:query",
               "ProjectionSnapshotQuery.getThreadDetailById:listContextHandoffs:decodeRows",
+            ),
+          ),
+        ),
+        listThreadTeamTaskRowsByParent({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadDetailById:listParentTeamTasks:query",
+              "ProjectionSnapshotQuery.getThreadDetailById:listParentTeamTasks:decodeRows",
+            ),
+          ),
+        ),
+        listThreadTeamTaskRowsByChild({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadDetailById:listChildTeamTasks:query",
+              "ProjectionSnapshotQuery.getThreadDetailById:listChildTeamTasks:decodeRows",
             ),
           ),
         ),
@@ -1559,6 +1818,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         archivedAt: threadRow.value.archivedAt,
         deletedAt: null,
         ...forkOriginFields(threadRow.value),
+        teamParent:
+          childTeamTaskRows[0] === undefined
+            ? null
+            : {
+                parentThreadId: childTeamTaskRows[0].parentThreadId,
+                taskId: childTeamTaskRows[0].taskId,
+                roleLabel: childTeamTaskRows[0].roleLabel,
+              },
+        teamTasks: parentTeamTaskRows.map(projectionTeamTaskToReadModel),
         messages: messageRows.map((row) => {
           const message = {
             id: row.messageId,

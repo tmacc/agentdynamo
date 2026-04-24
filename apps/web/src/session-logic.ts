@@ -478,7 +478,9 @@ export function deriveWorkLogEntries(
   const entries = ordered
     .filter((activity) =>
       latestTurnId
-        ? activity.turnId === latestTurnId || activity.kind === "provider.session.switched"
+        ? activity.turnId === latestTurnId ||
+          activity.kind === "provider.session.switched" ||
+          activity.kind.startsWith("team.task.")
         : true,
     )
     .filter((activity) => activity.kind !== "tool.started")
@@ -511,6 +513,9 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       : null;
   if (activity.kind === "provider.session.switched") {
     return toProviderSwitchWorkLogEntry(activity, payload);
+  }
+  if (activity.kind.startsWith("team.task.")) {
+    return toTeamTaskWorkLogEntry(activity, payload);
   }
   const commandPreview = extractToolCommand(payload);
   const changedFiles = extractChangedFiles(payload);
@@ -580,6 +585,31 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     entry.collapseKey = collapseKey;
   }
   return entry;
+}
+
+function toTeamTaskWorkLogEntry(
+  activity: OrchestrationThreadActivity,
+  payload: Record<string, unknown> | null,
+): DerivedWorkLogEntry {
+  const provider = parseProviderKind(payload?.provider);
+  const model = typeof payload?.model === "string" ? payload.model : null;
+  const roleLabel = typeof payload?.roleLabel === "string" ? payload.roleLabel : null;
+  const title = typeof payload?.title === "string" ? payload.title : null;
+  const labelSubject = roleLabel || title || "Child agent";
+  const providerLabel = provider ? PROVIDER_DISPLAY_NAMES[provider] : null;
+  const detailParts = [
+    providerLabel && model ? `${providerLabel} ${model}` : providerLabel,
+    typeof payload?.modelSelectionReason === "string" ? payload.modelSelectionReason : null,
+  ].filter((part): part is string => part !== null && part.length > 0);
+
+  return {
+    id: activity.id,
+    createdAt: activity.createdAt,
+    label: `${labelSubject}: ${activity.summary}`,
+    ...(detailParts.length > 0 ? { detail: detailParts.join(" - ") } : {}),
+    tone: activity.kind === "team.task.failed" ? "error" : "info",
+    activityKind: activity.kind,
+  };
 }
 
 function toProviderSwitchWorkLogEntry(

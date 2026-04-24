@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   Cache,
@@ -23,6 +26,7 @@ import {
   type GitPullRequestRemoteCandidate,
   type GitStatusLocalResult,
   type GitStatusRemoteResult,
+  type GitWorktreePatchFile,
   ModelSelection,
 } from "@t3tools/contracts";
 import {
@@ -59,6 +63,7 @@ const SHORT_SHA_LENGTH = 7;
 const TOAST_DESCRIPTION_MAX = 72;
 const STATUS_RESULT_CACHE_TTL = Duration.seconds(1);
 const STATUS_RESULT_CACHE_CAPACITY = 2_048;
+const WORKTREE_PATCH_MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
 const PULL_REQUEST_REMOTE_CONFIG_KEY = "dynamo.pullRequestRemote";
 const LEGACY_PULL_REQUEST_REMOTE_CONFIG_KEY = "t3.pullRequestRemote";
 type StripProgressContext<T> = T extends any ? Omit<T, "actionId" | "cwd" | "action"> : never;
@@ -301,6 +306,24 @@ function gitManagerError(operation: string, detail: string, cause?: unknown): Gi
   });
 }
 
+function parseNumstat(stdout: string): ReadonlyArray<GitWorktreePatchFile> {
+  return stdout
+    .split(/\r?\n/g)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [insertionsRaw, deletionsRaw, ...pathParts] = line.split("\t");
+      const insertions = Number.parseInt(insertionsRaw ?? "0", 10);
+      const deletions = Number.parseInt(deletionsRaw ?? "0", 10);
+      return {
+        path: pathParts.join("\t"),
+        insertions: Number.isFinite(insertions) ? Math.max(0, insertions) : 0,
+        deletions: Number.isFinite(deletions) ? Math.max(0, deletions) : 0,
+      };
+    })
+    .filter((file) => file.path.length > 0);
+}
+
 function limitContext(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars)}\n\n[truncated]`;
@@ -535,6 +558,67 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       emit,
     };
   };
+
+  const makeTemporaryIndexDir = Effect.fn("makeTemporaryIndexDir")(function* () {
+    return yield* Effect.tryPromise({
+      try: () => mkdtemp(join(tmpdir(), "dynamo-child-patch-")),
+      catch: (cause) =>
+        gitManagerError(
+          "GitManager.applyWorktreePatch",
+          "Failed to create a temporary Git index for child worktree changes.",
+          cause,
+        ),
+    });
+  });
+
+  const removeTemporaryIndexDir = (dir: string) =>
+    Effect.promise(() => rm(dir, { recursive: true, force: true })).pipe(Effect.ignore);
+
+  const buildChildWorktreePatch = Effect.fn("buildChildWorktreePatch")(function* (
+    childCwd: string,
+  ) {
+    const tempDir = yield* makeTemporaryIndexDir();
+    const indexFile = join(tempDir, "index");
+    const env = { GIT_INDEX_FILE: indexFile };
+
+    const generatePatch = Effect.gen(function* () {
+      yield* gitCore.execute({
+        operation: "GitManager.applyWorktreePatch.readTree",
+        cwd: childCwd,
+        args: ["read-tree", "HEAD"],
+        env,
+      });
+      yield* gitCore.execute({
+        operation: "GitManager.applyWorktreePatch.addAll",
+        cwd: childCwd,
+        args: ["add", "-A"],
+        env,
+      });
+      const patch = yield* gitCore.execute({
+        operation: "GitManager.applyWorktreePatch.diff",
+        cwd: childCwd,
+        args: ["diff", "--cached", "--binary", "--full-index", "HEAD"],
+        env,
+        maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
+        truncateOutputAtMaxBytes: false,
+      });
+      const numstat = yield* gitCore.execute({
+        operation: "GitManager.applyWorktreePatch.numstat",
+        cwd: childCwd,
+        args: ["diff", "--cached", "--numstat", "HEAD"],
+        env,
+        maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
+        truncateOutputAtMaxBytes: false,
+      });
+
+      return {
+        patch: patch.stdout,
+        files: parseNumstat(numstat.stdout),
+      };
+    });
+
+    return yield* generatePatch.pipe(Effect.ensuring(removeTemporaryIndexDir(tempDir)));
+  });
 
   const configurePullRequestHeadUpstreamBase = Effect.fn("configurePullRequestHeadUpstream")(
     function* (
@@ -1687,6 +1771,72 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     }).pipe(Effect.ensuring(invalidateStatus(input.cwd)));
   });
 
+  const applyWorktreePatch: GitManagerShape["applyWorktreePatch"] = Effect.fn("applyWorktreePatch")(
+    function* (input) {
+      const parentIsWorkTree = yield* gitCore.isInsideWorkTree(input.parentCwd);
+      if (!parentIsWorkTree) {
+        return yield* gitManagerError(
+          "GitManager.applyWorktreePatch",
+          "The coordinator workspace is not a Git worktree.",
+        );
+      }
+
+      const childIsWorkTree = yield* gitCore.isInsideWorkTree(input.childCwd);
+      if (!childIsWorkTree) {
+        return yield* gitManagerError(
+          "GitManager.applyWorktreePatch",
+          "The child agent workspace is not a Git worktree.",
+        );
+      }
+
+      const parentStatus = yield* gitCore.execute({
+        operation: "GitManager.applyWorktreePatch.parentStatus",
+        cwd: input.parentCwd,
+        args: ["status", "--porcelain"],
+        maxOutputBytes: 2 * 1024 * 1024,
+        truncateOutputAtMaxBytes: false,
+      });
+      if (parentStatus.stdout.trim().length > 0) {
+        return yield* gitManagerError(
+          "GitManager.applyWorktreePatch",
+          "The coordinator worktree has local changes. Commit, stash, or discard them before applying child agent changes.",
+        );
+      }
+
+      const childPatch = yield* buildChildWorktreePatch(input.childCwd);
+      if (childPatch.patch.trim().length === 0) {
+        return {
+          status: "skipped_no_changes" as const,
+          files: [],
+        };
+      }
+
+      yield* gitCore.execute({
+        operation: "GitManager.applyWorktreePatch.check",
+        cwd: input.parentCwd,
+        args: ["apply", "--check", "--whitespace=nowarn", "-"],
+        stdin: childPatch.patch,
+        maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
+        truncateOutputAtMaxBytes: false,
+      });
+      yield* gitCore.execute({
+        operation: "GitManager.applyWorktreePatch.apply",
+        cwd: input.parentCwd,
+        args: ["apply", "--whitespace=nowarn", "-"],
+        stdin: childPatch.patch,
+        maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
+        truncateOutputAtMaxBytes: false,
+      });
+
+      yield* invalidateStatus(input.parentCwd);
+
+      return {
+        status: "applied" as const,
+        files: childPatch.files,
+      };
+    },
+  );
+
   const runFeatureBranchStep = Effect.fn("runFeatureBranchStep")(function* (
     modelSelection: ModelSelection,
     cwd: string,
@@ -1913,6 +2063,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     getPullRequestRemoteOptions,
     setPullRequestRemote,
     preparePullRequestThread,
+    applyWorktreePatch,
     runStackedAction,
   } satisfies GitManagerShape;
 });

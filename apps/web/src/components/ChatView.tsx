@@ -11,8 +11,10 @@ import {
   type ProviderApprovalDecision,
   type ServerProvider,
   type ResolvedKeybindingsConfig,
+  type OrchestrationTeamTask,
   type OrchestrationThreadShell,
   type ScopedThreadRef,
+  type TeamTaskId,
   type ThreadId,
   type TurnId,
   type KeybindingCommand,
@@ -70,6 +72,7 @@ import {
 } from "../pendingUserInput";
 import {
   selectProjectsAcrossEnvironments,
+  selectThreadByRef,
   selectThreadsAcrossEnvironments,
   useStore,
 } from "../store";
@@ -100,7 +103,7 @@ import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import { ChevronDownIcon } from "lucide-react";
+import { ArrowLeftIcon, BotIcon, ChevronDownIcon, UsersRoundIcon } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -113,6 +116,7 @@ import {
 import { newCommandId, newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
+import { useEnsureWorktreeSetup } from "../hooks/useEnsureWorktreeSetup";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
@@ -135,6 +139,13 @@ import {
 } from "../lib/terminalContext";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { TeamAgentsSidebar } from "./chat/TeamAgentsSidebar";
+import type { TeamTaskInlineView } from "./chat/TeamTaskInlineBlock";
+import {
+  teamTaskModelLabel,
+  teamTaskStatusClassName,
+  teamTaskStatusLabel,
+} from "./chat/TeamTaskShared";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { ForkThreadDialog } from "./ForkThreadDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -182,6 +193,8 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
+const EMPTY_TEAM_TASK_VIEWS: ReadonlyArray<TeamTaskInlineView> = [];
+const EMPTY_TEAM_TASK_CHILD_THREADS_BY_ID: Record<string, Thread | null> = {};
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 
@@ -299,6 +312,78 @@ function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalog
     }, [threadIds]),
   );
 }
+
+function formatTeamTaskElapsed(task: TeamTaskInlineView["task"]): string | null {
+  return formatElapsed(
+    task.startedAt ?? task.createdAt,
+    task.completedAt ?? new Date().toISOString(),
+  );
+}
+
+function deriveTeamTaskDiffSummary(childThread: Thread | null | undefined): string | null {
+  const latestDiff = childThread?.turnDiffSummaries.at(-1);
+  if (!latestDiff) {
+    return null;
+  }
+  const changedFiles = latestDiff.files.length;
+  const additions = latestDiff.files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
+  const deletions = latestDiff.files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
+  return `${changedFiles} file${changedFiles === 1 ? "" : "s"} changed, +${additions}/-${deletions}`;
+}
+
+const ChildAgentBanner = memo(function ChildAgentBanner({
+  task,
+  coordinatorTitle,
+  onOpenCoordinator,
+  onOpenAgents,
+}: {
+  task: TeamTaskInlineView["task"];
+  coordinatorTitle: string | null;
+  onOpenCoordinator: () => void;
+  onOpenAgents: () => void;
+}) {
+  return (
+    <div className="border-b border-border/70 bg-muted/20 px-3 py-2 sm:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <BotIcon className="size-4 shrink-0 text-muted-foreground/75" />
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+              <span className="font-medium text-foreground/90">
+                Child agent: {task.roleLabel || task.title}
+              </span>
+              <span className={cn("text-[11px]", teamTaskStatusClassName(task.status))}>
+                {teamTaskStatusLabel(task.status)}
+              </span>
+              <span className="text-muted-foreground/70">{teamTaskModelLabel(task)}</span>
+            </div>
+            <div className="truncate text-[11px] text-muted-foreground/70">
+              Coordinator: {coordinatorTitle ?? task.parentThreadId}
+            </div>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onOpenCoordinator}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-background/70 px-2 text-muted-foreground text-xs transition-colors hover:border-border hover:text-foreground"
+          >
+            <ArrowLeftIcon className="size-3.5" />
+            Back to coordinator
+          </button>
+          <button
+            type="button"
+            onClick={onOpenAgents}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-background/70 px-2 text-muted-foreground text-xs transition-colors hover:border-border hover:text-foreground"
+          >
+            <UsersRoundIcon className="size-3.5" />
+            Agents
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 function formatOutgoingPrompt(params: {
   provider: ProviderKind;
@@ -689,7 +774,8 @@ export default function ChatView(props: ChatViewProps) {
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
-  const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const [agentsSidebarOpen, setAgentsSidebarOpen] = useState(false);
+  const shouldUseRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
@@ -795,6 +881,17 @@ export default function ChatView(props: ChatViewProps) {
   );
   const isServerThread = routeKind === "server" && serverThread !== undefined;
   const activeThread = isServerThread ? serverThread : localDraftThread;
+  const activeTeamParentThread = useStore(
+    useMemo(() => {
+      const parentThreadId = activeThread?.teamParent?.parentThreadId;
+      if (!activeThread || !parentThreadId) {
+        return () => undefined;
+      }
+      const parentRef = scopeThreadRef(activeThread.environmentId, parentThreadId);
+      return (state) => selectThreadByRef(state, parentRef);
+    }, [activeThread]),
+  );
+  const teamRootThread = activeThread?.teamParent ? activeTeamParentThread : activeThread;
   const runtimeMode = composerRuntimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
     composerInteractionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
@@ -807,6 +904,60 @@ export default function ChatView(props: ChatViewProps) {
     [activeThread],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+  const teamTaskChildThreadsById = useStore(
+    useShallow(
+      useMemo(() => {
+        if (!teamRootThread || (teamRootThread.teamTasks ?? []).length === 0) {
+          return () => EMPTY_TEAM_TASK_CHILD_THREADS_BY_ID;
+        }
+        const childThreadRefs = (teamRootThread.teamTasks ?? []).map((task) =>
+          scopeThreadRef(teamRootThread.environmentId, task.childThreadId),
+        );
+        return (state) =>
+          Object.fromEntries(
+            childThreadRefs.map((childThreadRef) => [
+              childThreadRef.threadId,
+              selectThreadByRef(state, childThreadRef) ?? null,
+            ]),
+          ) as Record<string, Thread | null>;
+      }, [teamRootThread]),
+    ),
+  );
+  const teamTaskViews = useMemo<ReadonlyArray<TeamTaskInlineView>>(() => {
+    if (!teamRootThread || (teamRootThread.teamTasks ?? []).length === 0) {
+      return EMPTY_TEAM_TASK_VIEWS;
+    }
+    return (teamRootThread.teamTasks ?? []).map((task) => {
+      const childThread = teamTaskChildThreadsById[task.childThreadId] ?? null;
+      return {
+        task,
+        diffSummary: deriveTeamTaskDiffSummary(childThread),
+        elapsed: formatTeamTaskElapsed(task),
+        childWorktreePath: childThread?.worktreePath ?? null,
+      };
+    });
+  }, [teamRootThread, teamTaskChildThreadsById]);
+  const activeChildTeamTask = useMemo(() => {
+    const taskId = activeThread?.teamParent?.taskId;
+    if (!taskId) return null;
+    return teamTaskViews.find(({ task }) => task.id === taskId)?.task ?? null;
+  }, [activeThread?.teamParent?.taskId, teamTaskViews]);
+  const activeTeamTaskCount = useMemo(
+    () =>
+      teamTaskViews.filter(
+        ({ task }) =>
+          task.status === "queued" ||
+          task.status === "starting" ||
+          task.status === "running" ||
+          task.status === "waiting",
+      ).length,
+    [teamTaskViews],
+  );
+  const showAgentsToggle =
+    routeKind === "server" &&
+    activeThread !== undefined &&
+    teamRootThread !== undefined &&
+    settings.teamAgents.enabled;
   const existingOpenTerminalThreadKeys = useMemo(() => {
     const existingThreadKeys = new Set<string>([...serverThreadKeys, ...draftThreadKeys]);
     return openTerminalThreadKeys.filter((nextThreadKey) => existingThreadKeys.has(nextThreadKey));
@@ -847,6 +998,8 @@ export default function ChatView(props: ChatViewProps) {
   const activeProject = useStore(
     useMemo(() => createProjectSelectorByRef(activeProjectRef), [activeProjectRef]),
   );
+  const { ensureProjectWorktreeSetup, dialog: worktreeSetupDialog } =
+    useEnsureWorktreeSetup(environmentId);
 
   useEffect(() => {
     if (routeKind !== "server") {
@@ -1964,6 +2117,7 @@ export default function ChatView(props: ChatViewProps) {
           activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
       } else {
         planSidebarDismissedForTurnRef.current = null;
+        setAgentsSidebarOpen(false);
       }
       return !open;
     });
@@ -1973,6 +2127,17 @@ export default function ChatView(props: ChatViewProps) {
     planSidebarDismissedForTurnRef.current =
       activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
   }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
+  const toggleAgentsSidebar = useCallback(() => {
+    setAgentsSidebarOpen((open) => {
+      if (!open) {
+        setPlanSidebarOpen(false);
+      }
+      return !open;
+    });
+  }, []);
+  const closeAgentsSidebar = useCallback(() => {
+    setAgentsSidebarOpen(false);
+  }, []);
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -2064,6 +2229,12 @@ export default function ChatView(props: ChatViewProps) {
     planSidebarDismissedForTurnRef.current = null;
   }, [activeThread?.id]);
 
+  useEffect(() => {
+    if (!showAgentsToggle) {
+      setAgentsSidebarOpen(false);
+    }
+  }, [showAgentsToggle]);
+
   // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
   // Don't auto-open for plans carried over from a previous turn (the user can open manually).
   useEffect(() => {
@@ -2073,6 +2244,7 @@ export default function ChatView(props: ChatViewProps) {
     if (latestTurnId && activePlan.turnId !== latestTurnId) return;
     const turnKey = activePlan.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
     if (planSidebarDismissedForTurnRef.current === turnKey) return;
+    setAgentsSidebarOpen(false);
     setPlanSidebarOpen(true);
   }, [activePlan, activeLatestTurn?.turnId, planSidebarOpen, sidebarProposedPlan?.turnId]);
 
@@ -2504,6 +2676,15 @@ export default function ChatView(props: ChatViewProps) {
       setThreadError(threadIdForSend, "Select a base branch before sending in New worktree mode.");
       return;
     }
+    if (baseBranchForWorktree) {
+      const shouldContinue = await ensureProjectWorktreeSetup({
+        project: activeProject,
+        trigger: "thread_worktree",
+      });
+      if (!shouldContinue) {
+        return;
+      }
+    }
 
     sendInFlightRef.current = true;
     beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
@@ -2674,6 +2855,20 @@ export default function ChatView(props: ChatViewProps) {
         ...(bootstrap ? { bootstrap } : {}),
         createdAt: messageCreatedAt,
       });
+      if (activeThread.teamParent) {
+        await api.orchestration
+          .dispatchCommand({
+            type: "thread.team-task.send-message",
+            commandId: newCommandId(),
+            parentThreadId: activeThread.teamParent.parentThreadId,
+            taskId: activeThread.teamParent.taskId,
+            message: outgoingMessageText,
+            createdAt: messageCreatedAt,
+          })
+          .catch((err: unknown) => {
+            console.warn("Failed to record child agent follow-up on parent thread", err);
+          });
+      }
       turnStartSucceeded = true;
     })().catch(async (err: unknown) => {
       if (
@@ -3264,6 +3459,102 @@ export default function ChatView(props: ChatViewProps) {
     }
     void onRevertToTurnCountRef.current(targetTurnCount);
   }, []);
+  const openTeamTaskThread = useCallback(
+    (childThreadId: ThreadId) => {
+      openThreadById(childThreadId);
+    },
+    [openThreadById],
+  );
+  const reviewTeamTaskChanges = useCallback(
+    (childThreadId: ThreadId) => {
+      if (!teamRootThread) return;
+      onDiffPanelOpen?.();
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: teamRootThread.environmentId,
+          threadId: childThreadId,
+        },
+        search: (previous) => {
+          const rest = stripDiffSearchParams(previous);
+          return { ...rest, diff: "1" };
+        },
+      });
+    },
+    [navigate, onDiffPanelOpen, teamRootThread],
+  );
+  const applyTeamTaskChanges = useCallback(
+    async (task: OrchestrationTeamTask) => {
+      if (!teamRootThread || !activeProject) return;
+      const childThread = teamTaskChildThreadsById[task.childThreadId] ?? null;
+      const childCwd = childThread?.worktreePath ?? null;
+      if (!childCwd) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "warning",
+            title: "No isolated child worktree",
+            description:
+              "This child agent did not run in a worktree, so there is no patch to apply.",
+          }),
+        );
+        return;
+      }
+      const parentCwd = teamRootThread.worktreePath ?? activeProject.cwd;
+      const api = readEnvironmentApi(teamRootThread.environmentId);
+      if (!api) return;
+
+      try {
+        const result = await api.git.applyWorktreePatch({ parentCwd, childCwd });
+        if (result.status === "skipped_no_changes") {
+          toastManager.add(
+            stackedThreadToast({
+              type: "info",
+              title: "No child changes to apply",
+              description: "The child worktree does not have local file changes.",
+            }),
+          );
+          return;
+        }
+
+        const fileCount = result.files.length;
+        toastManager.add(
+          stackedThreadToast({
+            type: "success",
+            title: "Applied child changes",
+            description:
+              fileCount === 1
+                ? "Applied 1 changed file to the coordinator worktree."
+                : `Applied ${fileCount} changed files to the coordinator worktree.`,
+          }),
+        );
+      } catch (error) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not apply child changes",
+            description: error instanceof Error ? error.message : "An unexpected error occurred.",
+          }),
+        );
+      }
+    },
+    [activeProject, teamRootThread, teamTaskChildThreadsById],
+  );
+  const cancelTeamTask = useCallback(
+    (taskId: TeamTaskId) => {
+      if (!teamRootThread) return;
+      const api = readEnvironmentApi(teamRootThread.environmentId);
+      if (!api) return;
+      void api.orchestration.dispatchCommand({
+        type: "thread.team-task.close",
+        commandId: newCommandId(),
+        parentThreadId: teamRootThread.id,
+        taskId,
+        reason: "Cancelled from Dynamo UI.",
+        createdAt: new Date().toISOString(),
+      });
+    },
+    [teamRootThread],
+  );
 
   // Empty state: no active thread
   if (!activeThread) {
@@ -3310,6 +3601,26 @@ export default function ChatView(props: ChatViewProps) {
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
+          worktreeSetup={activeProject?.worktreeSetup ?? null}
+          onReviewWorktreeSetup={() => {
+            if (!activeProject) return;
+            void ensureProjectWorktreeSetup({ project: activeProject, trigger: "manual" });
+          }}
+          onDisableWorktreeSetup={() => {
+            if (!activeProject?.worktreeSetup) return;
+            const projectApi = readEnvironmentApi(activeProject.environmentId);
+            if (!projectApi) return;
+            void projectApi.orchestration.dispatchCommand({
+              type: "project.meta.update",
+              commandId: newCommandId(),
+              projectId: activeProject.id,
+              worktreeSetup: {
+                ...activeProject.worktreeSetup,
+                autoRunSetupOnWorktreeCreate: false,
+                updatedAt: new Date().toISOString(),
+              },
+            });
+          }}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
         />
@@ -3321,6 +3632,14 @@ export default function ChatView(props: ChatViewProps) {
         error={activeThread.error}
         onDismiss={() => setThreadError(activeThread.id, null)}
       />
+      {activeChildTeamTask ? (
+        <ChildAgentBanner
+          task={activeChildTeamTask}
+          coordinatorTitle={teamRootThread?.title ?? null}
+          onOpenCoordinator={() => openThreadById(activeChildTeamTask.parentThreadId)}
+          onOpenAgents={toggleAgentsSidebar}
+        />
+      ) : null}
       {/* Main content area with optional plan sidebar */}
       <div className="flex min-h-0 min-w-0 flex-1">
         {/* Chat column */}
@@ -3359,6 +3678,13 @@ export default function ChatView(props: ChatViewProps) {
               timestampFormat={timestampFormat}
               workspaceRoot={activeWorkspaceRoot}
               onIsAtEndChange={onIsAtEndChange}
+              {...(teamRootThread && activeThread.id === teamRootThread.id
+                ? { teamTasks: teamTaskViews }
+                : {})}
+              onOpenTeamTask={openTeamTaskThread}
+              onCancelTeamTask={cancelTeamTask}
+              onReviewTeamTaskChanges={reviewTeamTaskChanges}
+              onApplyTeamTaskChanges={applyTeamTaskChanges}
             />
 
             {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
@@ -3409,6 +3735,16 @@ export default function ChatView(props: ChatViewProps) {
               sidebarProposedPlan={sidebarProposedPlan as { turnId?: TurnId } | null}
               planSidebarLabel={planSidebarLabel}
               planSidebarOpen={planSidebarOpen}
+              showAgentsToggle={showAgentsToggle}
+              agentsSidebarOpen={agentsSidebarOpen}
+              activeTeamTaskCount={activeTeamTaskCount}
+              {...(activeChildTeamTask
+                ? {
+                    composerPlaceholder: "Message this child agent directly",
+                    composerAssistiveText:
+                      "This follow-up goes to the child agent and is logged on the coordinator thread.",
+                  }
+                : {})}
               runtimeMode={runtimeMode}
               interactionMode={interactionMode}
               lockedProvider={lockedProvider}
@@ -3441,6 +3777,7 @@ export default function ChatView(props: ChatViewProps) {
               handleRuntimeModeChange={handleRuntimeModeChange}
               handleInteractionModeChange={handleInteractionModeChange}
               togglePlanSidebar={togglePlanSidebar}
+              toggleAgentsSidebar={toggleAgentsSidebar}
               focusComposer={focusComposer}
               scheduleComposerFocus={scheduleComposerFocus}
               setThreadError={setThreadError}
@@ -3512,7 +3849,7 @@ export default function ChatView(props: ChatViewProps) {
         {/* end chat column */}
 
         {/* Plan sidebar */}
-        {planSidebarOpen && !shouldUsePlanSidebarSheet ? (
+        {planSidebarOpen && !shouldUseRightPanelSheet ? (
           <PlanSidebar
             activePlan={activePlan}
             activeProposedPlan={sidebarProposedPlan}
@@ -3523,6 +3860,21 @@ export default function ChatView(props: ChatViewProps) {
             timestampFormat={timestampFormat}
             mode="sidebar"
             onClose={closePlanSidebar}
+          />
+        ) : null}
+        {agentsSidebarOpen && showAgentsToggle && teamRootThread && !shouldUseRightPanelSheet ? (
+          <TeamAgentsSidebar
+            coordinatorTitle={teamRootThread.title}
+            coordinatorThreadId={teamRootThread.id}
+            activeThreadId={activeThread.id}
+            tasks={teamTaskViews}
+            timestampFormat={timestampFormat}
+            mode="sidebar"
+            onOpenThread={openTeamTaskThread}
+            onCancelTask={cancelTeamTask}
+            onReviewTaskChanges={reviewTeamTaskChanges}
+            onApplyTaskChanges={applyTeamTaskChanges}
+            onClose={closeAgentsSidebar}
           />
         ) : null}
       </div>
@@ -3545,7 +3897,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddTerminalContext={addTerminalContextToDraft}
         />
       ))}
-      {shouldUsePlanSidebarSheet ? (
+      {shouldUseRightPanelSheet ? (
         <RightPanelSheet open={planSidebarOpen} onClose={closePlanSidebar}>
           <PlanSidebar
             activePlan={activePlan}
@@ -3560,10 +3912,30 @@ export default function ChatView(props: ChatViewProps) {
           />
         </RightPanelSheet>
       ) : null}
+      {shouldUseRightPanelSheet ? (
+        <RightPanelSheet open={agentsSidebarOpen && showAgentsToggle} onClose={closeAgentsSidebar}>
+          {teamRootThread ? (
+            <TeamAgentsSidebar
+              coordinatorTitle={teamRootThread.title}
+              coordinatorThreadId={teamRootThread.id}
+              activeThreadId={activeThread.id}
+              tasks={teamTaskViews}
+              timestampFormat={timestampFormat}
+              mode="sheet"
+              onOpenThread={openTeamTaskThread}
+              onCancelTask={cancelTeamTask}
+              onReviewTaskChanges={reviewTeamTaskChanges}
+              onApplyTaskChanges={applyTeamTaskChanges}
+              onClose={closeAgentsSidebar}
+            />
+          ) : null}
+        </RightPanelSheet>
+      ) : null}
 
       {expandedImage && (
         <ExpandedImageDialog preview={expandedImage} onClose={closeExpandedImage} />
       )}
+      {worktreeSetupDialog}
     </div>
   );
 }

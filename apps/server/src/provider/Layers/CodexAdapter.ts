@@ -49,6 +49,22 @@ import {
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "codex" as const;
+const DYNAMO_TEAM_MCP_TOKEN_ENV = "DYNAMO_TEAM_MCP_TOKEN";
+
+function buildCodexTeamCoordinatorRuntimeOptions(
+  teamCoordinator: NonNullable<Parameters<CodexAdapterShape["startSession"]>[0]["teamCoordinator"]>,
+): Pick<CodexSessionRuntimeOptions, "configOverrides" | "env" | "teamCoordinatorTools"> {
+  return {
+    configOverrides: [
+      `mcp_servers.${teamCoordinator.mcpServerName}.url=${JSON.stringify(teamCoordinator.mcpServerUrl)}`,
+      `mcp_servers.${teamCoordinator.mcpServerName}.bearer_token_env_var=${JSON.stringify(DYNAMO_TEAM_MCP_TOKEN_ENV)}`,
+    ],
+    env: {
+      [DYNAMO_TEAM_MCP_TOKEN_ENV]: teamCoordinator.accessToken,
+    },
+    teamCoordinatorTools: true,
+  };
+}
 
 export interface CodexAdapterLiveOptions {
   readonly makeRuntime?: (
@@ -1375,6 +1391,9 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
             ? { serviceTier: "fast" }
             : {}),
+          ...(input.teamCoordinator !== undefined
+            ? buildCodexTeamCoordinatorRuntimeOptions(input.teamCoordinator)
+            : {}),
         };
         const sessionScope = yield* Scope.make("sequential");
         let sessionScopeTransferred = false;
@@ -1645,6 +1664,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      teamCoordinatorTools: "mcp-http",
     },
     startSession,
     sendTurn,

@@ -43,6 +43,10 @@ import Migration0027 from "./Migrations/027_ProjectionBoardDismissedGhosts.ts";
 import Migration0028 from "./Migrations/028_ProjectionThreadsForkOrigin.ts";
 import Migration0029 from "./Migrations/029_ProjectionThreadContextHandoffs.ts";
 import Migration0034 from "./Migrations/034_EnsureProjectionThreadContextHandoffs.ts";
+import Migration0035 from "./Migrations/035_ProjectionProjectWorktreeSetup.ts";
+import Migration0036 from "./Migrations/036_ProjectionThreadTeamTasks.ts";
+import Migration0037 from "./Migrations/037_TeamCoordinatorAccessGrants.ts";
+import Migration0038 from "./Migrations/038_EnsureProjectionThreadTeamTasks.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -85,6 +89,10 @@ export const migrationEntries = [
   [28, "ProjectionThreadsForkOrigin", Migration0028],
   [29, "ProjectionThreadContextHandoffs", Migration0029],
   [34, "EnsureProjectionThreadContextHandoffs", Migration0034],
+  [35, "ProjectionProjectWorktreeSetup", Migration0035],
+  [36, "ProjectionThreadTeamTasks", Migration0036],
+  [37, "TeamCoordinatorAccessGrants", Migration0037],
+  [38, "EnsureProjectionThreadTeamTasks", Migration0038],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

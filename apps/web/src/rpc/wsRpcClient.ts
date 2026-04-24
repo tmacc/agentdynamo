@@ -73,6 +73,8 @@ export interface WsRpcClient {
   readonly projects: {
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
     readonly writeFile: RpcUnaryMethod<typeof WS_METHODS.projectsWriteFile>;
+    readonly scanWorktreeSetup: RpcUnaryMethod<typeof WS_METHODS.projectsScanWorktreeSetup>;
+    readonly applyWorktreeSetup: RpcUnaryMethod<typeof WS_METHODS.projectsApplyWorktreeSetup>;
   };
   readonly filesystem: {
     readonly browse: RpcUnaryMethod<typeof WS_METHODS.filesystemBrowse>;
@@ -98,6 +100,7 @@ export interface WsRpcClient {
     readonly listBranches: RpcUnaryMethod<typeof WS_METHODS.gitListBranches>;
     readonly createWorktree: RpcUnaryMethod<typeof WS_METHODS.gitCreateWorktree>;
     readonly removeWorktree: RpcUnaryMethod<typeof WS_METHODS.gitRemoveWorktree>;
+    readonly applyWorktreePatch: RpcUnaryMethod<typeof WS_METHODS.gitApplyWorktreePatch>;
     readonly createBranch: RpcUnaryMethod<typeof WS_METHODS.gitCreateBranch>;
     readonly checkout: RpcUnaryMethod<typeof WS_METHODS.gitCheckout>;
     readonly init: RpcUnaryMethod<typeof WS_METHODS.gitInit>;
@@ -169,6 +172,10 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.projectsSearchEntries](input)),
       writeFile: (input) =>
         transport.request((client) => client[WS_METHODS.projectsWriteFile](input)),
+      scanWorktreeSetup: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsScanWorktreeSetup](input)),
+      applyWorktreeSetup: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsApplyWorktreeSetup](input)),
     },
     filesystem: {
       browse: (input) => transport.request((client) => client[WS_METHODS.filesystemBrowse](input)),
@@ -217,6 +224,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.gitCreateWorktree](input)),
       removeWorktree: (input) =>
         transport.request((client) => client[WS_METHODS.gitRemoveWorktree](input)),
+      applyWorktreePatch: (input) =>
+        transport.request((client) => client[WS_METHODS.gitApplyWorktreePatch](input)),
       createBranch: (input) =>
         transport.request((client) => client[WS_METHODS.gitCreateBranch](input)),
       checkout: (input) => transport.request((client) => client[WS_METHODS.gitCheckout](input)),

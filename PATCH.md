@@ -13,50 +13,110 @@
 
 As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
-- `Multi-provider subagents`: missing on merged baseline
+- `Multi-provider subagents`: restored on top of merged baseline as autonomous coordinator-led team agents
 - `Board View`: restored on top of merged baseline
 - `Forking threads`: restored on top of merged baseline
-- `Provider switching / handoff`: missing on merged baseline
+- `Provider switching / handoff`: restored on top of merged baseline using shared durable context handoff
 - `Saving prompts`: restored on top of merged baseline
 - `Repository/release personalization`: preserved on merged baseline, with follow-up workflow repairs
 - `GitHub PR target remote selection`: restored on top of merged baseline with Dynamo config keys and typed selection flow
 - `Dynamo branding`: restored, including runtime storage isolation and release/build metadata
-- `Worktree readiness / bootstrap`: partially present, but reduced from the fuller fork implementation
+- `Worktree setup runtime profile`: restored on top of merged baseline with Dynamo-managed runtime helpers
 - `Project intelligence`: missing on merged baseline
 
 ## Fork Feature Inventory
 
 ### Multi-provider subagents
 
-- `Status`: Present on the pre-merge fork at `365ae6d9`. Missing on merged baseline `ed85e9ce`.
-- `User-visible behavior`: A top-level thread can delegate bounded child tasks to other agent threads, choose provider and model per child, keep children on their own branch/worktree, wait for results, and close children when done. Child progress and summaries show back up in the parent thread.
-- `Why it exists`: Lets Dynamo coordinate real parallel agent work inside the product instead of relying on provider-native delegation alone.
+- `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce` as autonomous coordinator-led team agents.
+  - `User-visible behavior`: The user asks for a team/delegation in normal chat. No modal or pre-spawn confirmation appears. The coordinator provider can call Dynamo's `dynamo_team` MCP tools to spawn bounded child threads, omit provider/model when it wants Dynamo to choose, inspect/wait for child work, send follow-ups, and close children. The parent thread shows created child agents, selected provider/model, status, summaries, and open/cancel/review/apply actions. Users can open an Agents drawer from the composer controls to inspect child agents and jump into their chat streams. Child agent chats show an explicit child-agent banner with a back-to-coordinator action. Users can message a child agent directly; the follow-up is logged on the coordinator thread. Users can explicitly review a child diff and apply that child worktree patch into the coordinator worktree; Dynamo never auto-merges child changes. Users can turn team agents off from General settings.
+- `Why it exists`: Lets Dynamo coordinate real parallel agent work inside the product while keeping provider/model choice, worktree isolation, lifecycle state, and UI visibility under Dynamo's control.
 - `Key fork files`:
+  - `packages/contracts/src/orchestration.ts`
+  - `packages/contracts/src/provider.ts`
+  - `packages/contracts/src/server.ts`
+  - `packages/contracts/src/settings.ts`
+  - `packages/contracts/src/git.ts`
+  - `packages/contracts/src/rpc.ts`
+  - `packages/contracts/src/ipc.ts`
+  - `apps/server/src/git/Layers/GitManager.ts`
+  - `apps/server/src/git/Services/GitManager.ts`
+  - `apps/server/src/team/teamContext.ts`
+  - `apps/server/src/team/teamModelSelection.ts`
   - `apps/server/src/team/Layers/TeamOrchestrationService.ts`
   - `apps/server/src/team/Layers/TeamTaskReactor.ts`
+  - `apps/server/src/team/Layers/TeamCoordinatorAccess.ts`
   - `apps/server/src/team/http.ts`
-  - `apps/server/src/provider/teamToolRegistration.ts`
+  - `apps/server/src/persistence/Migrations/036_ProjectionThreadTeamTasks.ts`
+  - `apps/server/src/persistence/Migrations/037_TeamCoordinatorAccessGrants.ts`
+  - `apps/server/src/persistence/Migrations/038_EnsureProjectionThreadTeamTasks.ts`
   - `apps/server/src/persistence/Layers/ProjectionThreadTeamTasks.ts`
-  - `packages/contracts/src/orchestration.ts`
-  - `apps/web/src/components/chat/TeamAgentPills.tsx`
+  - `apps/server/src/orchestration/decider.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`
+  - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
+  - `apps/server/src/provider/Layers/CodexAdapter.ts`
+  - `apps/server/src/provider/Layers/ClaudeAdapter.ts`
+  - `apps/web/src/components/settings/SettingsPanels.tsx`
+  - `apps/web/src/components/chat/TeamAgentsSidebar.tsx`
   - `apps/web/src/components/chat/TeamTaskInlineBlock.tsx`
   - `apps/web/src/components/chat/TeamTaskInspector.tsx`
+  - `apps/web/src/components/chat/TeamTaskShared.ts`
+  - `apps/web/src/components/chat/teamTaskTimeline.ts`
+  - `apps/web/src/components/ChatView.tsx`
+  - `apps/web/src/session-logic.ts`
+  - `apps/web/src/store.ts`
 - `Important invariants`:
-  - Child threads must remain linked to a parent thread.
-  - Child agents must not recursively delegate in v1.
-  - Provider session startup must inject the team MCP/coordinator wiring for supported providers.
+  - Team delegation is only allowed from top-level threads; child threads must not recursively delegate in v1.
+  - Team agents are enabled by default, with a default max of three active child agents per parent.
+  - Coordinator tools are injected only into supported top-level provider sessions, currently Codex and Claude, using MCP server name `dynamo_team`.
+  - The `/api/team-mcp` route must behave like a normal MCP server during provider startup: authenticated POST requests support `initialize`, `notifications/initialized`, `ping`, `tools/list`, and `tools/call`, plus a lightweight GET health response.
+  - Team agents can be disabled through server settings; disabling prevents coordinator tool injection and rejects team spawn attempts.
+  - Codex coordinator sessions must receive explicit developer instructions to use Dynamo's team MCP tools instead of Codex-native subagents for team/delegation requests.
+  - The MCP route exposes underscore aliases such as `team_spawn_child` in addition to dotted names so provider tool bridges with stricter tool-name rules can still surface the tools.
+  - Tool descriptions should list available worker models, and worker selection should normalize known model aliases such as `opus-4.7` to canonical provider slugs.
+  - Coordinator access grants must store only token hashes and be revocable; raw bearer tokens must not be persisted.
+  - Worker support is provider-agnostic: any enabled worker-capable provider/model can be selected for a child task.
+  - Provider/model selection must be persisted with `modelSelectionMode` and `modelSelectionReason` so the UI can explain coordinator-selected choices.
+  - Child threads must remain linked to the parent by durable event-sourced team task state and projection rows.
+  - Git projects default to isolated child worktrees/branches; non-Git projects fall back to shared workspace and should record the limitation.
+  - Worktree setup should auto-run only for coding/test/UI tasks when the project has configured worktree setup; review/exploration/docs/general tasks skip setup by default.
   - Parent UI must show child status changes and final summaries without requiring a refresh.
+  - Child agent threads should not appear as independent top-level sidebar rows; they are reached through the coordinator's Agents drawer and durable inline team blocks.
+  - The Agents drawer is the primary team roster/control surface. It should show role/topic, provider/model, status, latest summary/error, worktree/setup metadata, and open/cancel actions.
+  - Child agent chats must make parent navigation obvious with a child-agent banner and `Back to coordinator` action.
+  - Child composer copy must make clear that typed follow-ups go directly to the child agent. Direct child follow-ups must emit `thread.team-task.send-message` so the coordinator history records `team.task.message.sent`.
+  - Sending a direct follow-up to a completed/failed/cancelled child task reopens the durable task status to `running`; later child events can complete/fail/cancel it again.
+  - Child code changes remain isolated until explicitly applied. Review opens the child thread diff. Apply builds a binary Git patch from the child worktree's dirty state, including untracked files via a temporary index, checks it against a clean coordinator worktree, then applies it there. If the coordinator worktree is dirty or the patch conflicts, the operation must fail clearly without partial application.
+  - Team membership surfaces are persistent task/thread state, not closable document tabs. Future file tabs should remain a separate UI concept.
+  - Parent activity entries for `team.task.*` must be event-sourced so replay/restart does not duplicate lifecycle milestones.
+  - Existing incompatible/partial team-task projection tables should be repaired by migration, then rebuilt from the event stream.
 - `Merge hotspots`:
-  - Orchestration thread schemas and read-model shape
-  - Provider session start inputs and provider registration
-  - Server HTTP/WebSocket routes for team operations
-  - Persistence and projection tables for team task state
-  - Chat timeline/sidebar UI that understands child threads
+  - Orchestration command/event schemas and thread read-model shape
+  - Projection pipeline, snapshot query, and team task projection repository
+  - Provider session start inputs and provider adapter capability metadata
+  - Codex/Claude launch configuration for `dynamo_team` MCP registration
+  - Server HTTP routes and auth for `/api/team-mcp`
+  - MCP protocol compatibility and Codex startup behavior for team tools
+  - Worktree bootstrap/setup interactions used by child task creation
+  - GitManager patch/apply behavior and RPC contracts
+  - Chat timeline, store normalization, sidebar filtering, settings toggle, and active team-agent UI
 - `Verification`:
-  - Spawn a child on the same provider.
-  - Spawn a child on a different provider/model.
-  - Confirm child gets a distinct branch/worktree.
-  - Confirm wait/close flows work and parent thread receives the result summary.
+  - Ask a top-level coordinator for a team of agents and confirm no confirmation dialog appears.
+  - Spawn a child without specifying provider/model and confirm Dynamo selects a valid provider/model and records the reason.
+  - Spawn a child with explicit provider/model and confirm the request is honored or fails clearly if invalid.
+  - Confirm child gets a distinct branch/worktree in a Git project.
+  - Confirm child setup follows task-kind policy.
+  - Confirm inline child task blocks appear in the parent and open/cancel actions work.
+  - Confirm the Agents drawer opens from the composer, shows model/status/summary for every child, and opens child chat streams.
+  - Confirm child chat streams show the child-agent banner, `Back to coordinator`, and child-specific composer copy.
+  - Confirm typing into a child chat sends only to that child and appends a parent-side `team.task.message.sent` activity.
+  - Confirm typing into a completed child chat reopens that task as running until the new child turn settles.
+  - Confirm review opens the child diff, apply copies child worktree changes into a clean coordinator worktree, and dirty/conflicting coordinator worktrees fail without changing files.
+  - Confirm child agent threads are hidden from the top-level sidebar list.
+  - Confirm completed/failed/cancelled child summaries remain visible after reload/reprojection.
+  - Confirm child threads do not receive coordinator tools.
+  - Disable Team agents in General settings and confirm new coordinator sessions do not receive `dynamo_team` tools.
 
 ### Board View
 
@@ -218,38 +278,56 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Switch back and verify the thread remains resumable.
   - Reload and confirm the thread still routes to a valid provider session.
 
-### Worktree readiness / bootstrap
+### Worktree setup runtime profile
 
-- `Status`: Present on the pre-merge fork at `365ae6d9`. Still partially present on merged baseline `ed85e9ce`.
-- `User-visible behavior`: Projects can scan for worktree readiness, approve managed bootstrap behavior, generate managed setup/dev scripts, configure env handling, and run setup automatically when a new worktree thread is created. The merged baseline still has the setup-script slice, but most of the readiness scan/apply flow is gone.
-- `Why it exists`: New worktree threads should come up ready to use without repeated manual environment setup.
+- `Status`: Reimplemented after merge as the improved `Worktree setup` flow. The old repo-helper-first readiness implementation is replaced by a persisted project-level setup profile and Dynamo-managed runtime helpers.
+- `User-visible behavior`: Before the first worktree that needs setup, Dynamo scans the project, proposes install/dev/env/port settings, lets the user edit them, and stores the approved setup for future worktrees. New worktrees can automatically open a setup terminal without the user maintaining project-specific launch scripts.
+- `Why it exists`: New worktree threads should come up ready to use without repeated manual environment setup, while keeping generated helper files out of tracked project files by default.
 - `Key fork files`:
-  - `apps/web/src/components/ProjectScriptsControl.tsx`
-  - `apps/web/src/hooks/useEnsureWorktreeReadiness.tsx`
-  - `apps/web/src/components/WorktreeReadinessDialog.tsx`
-  - `apps/server/src/project/Layers/ProjectSetupScriptRunner.ts`
-  - `apps/server/src/project/Layers/WorktreeReadinessApplicator.ts`
-  - `apps/server/src/project/Layers/WorktreeReadinessScanner.ts`
-  - `apps/server/src/orchestration/Layers/ThreadBootstrapDispatcher.ts`
-  - `apps/server/src/git/Layers/GitManager.ts`
+  - `packages/contracts/src/orchestration.ts`
   - `packages/contracts/src/project.ts`
+  - `packages/contracts/src/rpc.ts`
+  - `packages/contracts/src/ipc.ts`
+  - `packages/contracts/src/settings.ts`
+  - `apps/server/src/project/worktreeSetup.ts`
+  - `apps/server/src/project/Services/WorktreeSetupScanner.ts`
+  - `apps/server/src/project/Layers/WorktreeSetupScanner.ts`
+  - `apps/server/src/project/Services/WorktreeSetupApplicator.ts`
+  - `apps/server/src/project/Layers/WorktreeSetupApplicator.ts`
+  - `apps/server/src/project/Services/WorktreeSetupRuntime.ts`
+  - `apps/server/src/project/Layers/WorktreeSetupRuntime.ts`
+  - `apps/web/src/components/ProjectScriptsControl.tsx`
+  - `apps/web/src/hooks/useEnsureWorktreeSetup.tsx`
+  - `apps/web/src/components/WorktreeSetupDialog.tsx`
+  - `apps/web/src/components/ChatView.tsx`
+  - `apps/server/src/project/Layers/ProjectSetupScriptRunner.ts`
+  - `apps/server/src/persistence/Migrations/035_ProjectionProjectWorktreeSetup.ts`
+  - `apps/server/src/persistence/Services/ProjectionProjects.ts`
+  - `apps/server/src/persistence/Layers/ProjectionProjects.ts`
+  - `apps/server/src/ws.ts`
+  - `apps/server/src/git/Layers/GitManager.ts`
   - `packages/shared/src/projectScripts.ts`
 - `Important invariants`:
-  - Worktree setup scripts should only fire when creating a new worktree flow that needs them.
-  - Generated or managed setup files must not clobber tracked project files unexpectedly.
-  - Runtime env handling must stay scoped to the worktree, not the root repo.
-  - Setup failures should be visible without blocking the entire thread forever.
+  - The persisted project `worktreeSetup` profile is the source of truth; generated scripts are derived artifacts.
+  - Generated setup/dev helpers live under Dynamo runtime storage by default, not in the project repo.
+  - Applying setup must not create or overwrite `.dynamo`, `.t3code`, or helper scripts inside the project checkout.
+  - Per-worktree runtime env lives under the worktree Git admin dir at `dynamo/worktree.env`.
+  - Setup failures should be visible without stranding the thread or deleting the worktree.
+  - Existing custom project scripts with `runOnWorktreeCreate` remain a backward-compatible fallback when no configured auto-run setup profile exists.
+  - Runtime env includes `DYNAMO_*` variables and `T3CODE_*` compatibility aliases.
 - `Merge hotspots`:
-  - Project/worktree readiness RPC contracts
+  - Project/worktree setup RPC contracts
   - Git worktree creation/bootstrap flow
   - Terminal launch context and runtime env handling
-  - Project metadata persistence for readiness profiles and scripts
+  - Project metadata persistence and projection hydration for `worktreeSetup`
+  - Project scripts UI and first worktree prompt flow
 - `Verification`:
-  - Scan a project for worktree readiness and review the proposed config.
-  - Apply readiness and confirm managed files/scripts are generated as expected.
-  - Configure a setup script with `Run automatically on worktree creation`.
+  - Scan a project for worktree setup and review the proposed config.
+  - Apply setup and confirm helper scripts are written under Dynamo state/runtime storage, not the project repo.
+  - Confirm per-worktree env is written under the worktree Git admin dir.
   - Create a new worktree thread and confirm the setup terminal launches automatically.
-  - Verify env/runtime setup is scoped to the worktree.
+  - Disable automatic setup and confirm custom `runOnWorktreeCreate` scripts still act as fallback.
+  - Skip once and disable prompt from the setup dialog.
   - Verify existing worktrees do not rerun setup unexpectedly.
 
 ### Project intelligence

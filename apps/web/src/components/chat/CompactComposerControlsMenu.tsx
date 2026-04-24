@@ -1,6 +1,6 @@
 import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
 import { memo, type ReactNode } from "react";
-import { EllipsisIcon, ListTodoIcon } from "lucide-react";
+import { EllipsisIcon, ListTodoIcon, UsersRoundIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -14,6 +14,9 @@ import {
 
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   activePlan: boolean;
+  activeAgents: boolean;
+  activeTeamTaskCount: number;
+  agentsSidebarOpen: boolean;
   interactionMode: ProviderInteractionMode;
   planSidebarLabel: string;
   planSidebarOpen: boolean;
@@ -21,6 +24,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   showInteractionModeToggle: boolean;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
+  onToggleAgentsSidebar: () => void;
   onTogglePlanSidebar: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
@@ -81,6 +85,16 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
               {props.planSidebarOpen
                 ? `Hide ${props.planSidebarLabel.toLowerCase()} sidebar`
                 : `Show ${props.planSidebarLabel.toLowerCase()} sidebar`}
+            </MenuItem>
+          </>
+        ) : null}
+        {props.activeAgents ? (
+          <>
+            <MenuDivider />
+            <MenuItem onClick={props.onToggleAgentsSidebar}>
+              <UsersRoundIcon className="size-4 shrink-0" />
+              {props.agentsSidebarOpen ? "Hide agents sidebar" : "Show agents sidebar"}
+              {props.activeTeamTaskCount > 0 ? ` (${props.activeTeamTaskCount} active)` : ""}
             </MenuItem>
           </>
         ) : null}

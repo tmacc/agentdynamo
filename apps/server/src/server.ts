@@ -52,6 +52,13 @@ import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner.ts";
+import { WorktreeSetupApplicatorLive } from "./project/Layers/WorktreeSetupApplicator.ts";
+import { WorktreeSetupRuntimeLive } from "./project/Layers/WorktreeSetupRuntime.ts";
+import { WorktreeSetupScannerLive } from "./project/Layers/WorktreeSetupScanner.ts";
+import { TeamCoordinatorAccessLive } from "./team/Layers/TeamCoordinatorAccess.ts";
+import { TeamOrchestrationServiceLive } from "./team/Layers/TeamOrchestrationService.ts";
+import { TeamTaskReactorLive } from "./team/Layers/TeamTaskReactor.ts";
+import { teamMcpRoutesLayer } from "./team/http.ts";
 import { ObservabilityLive } from "./observability/Layers/Observability.ts";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment.ts";
 import {
@@ -129,7 +136,7 @@ const PlatformServicesLive = Layer.unwrap(
 );
 
 const ReactorLayerLive = Layer.empty.pipe(
-  Layer.provideMerge(OrchestrationReactorLive),
+  Layer.provideMerge(OrchestrationReactorLive.pipe(Layer.provideMerge(TeamTaskReactorLive))),
   Layer.provideMerge(ProviderRuntimeIngestionLive),
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
@@ -185,8 +192,26 @@ const ProviderLayerLive = Layer.unwrap(
 
 const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
 
+const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive));
+
+const WorktreeSetupRuntimeLayerLive = WorktreeSetupRuntimeLive.pipe(
+  Layer.provideMerge(TerminalLayerLive),
+);
+
+const ProjectSetupScriptRunnerLayerLive = ProjectSetupScriptRunnerLive.pipe(
+  Layer.provideMerge(TerminalLayerLive),
+  Layer.provideMerge(WorktreeSetupRuntimeLayerLive),
+);
+
+const WorktreeSetupLayerLive = Layer.mergeAll(
+  WorktreeSetupRuntimeLayerLive,
+  WorktreeSetupScannerLive,
+  WorktreeSetupApplicatorLive.pipe(Layer.provideMerge(WorktreeSetupRuntimeLayerLive)),
+  ProjectSetupScriptRunnerLayerLive,
+);
+
 const GitManagerLayerLive = GitManagerLive.pipe(
-  Layer.provideMerge(ProjectSetupScriptRunnerLive),
+  Layer.provideMerge(ProjectSetupScriptRunnerLayerLive),
   Layer.provideMerge(GitCoreLive),
   Layer.provideMerge(GitHubCliLive),
   Layer.provideMerge(RoutingTextGenerationLive),
@@ -197,8 +222,6 @@ const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitStatusBroadcasterLive.pipe(Layer.provide(GitManagerLayerLive))),
   Layer.provideMerge(GitCoreLive),
 );
-
-const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive));
 
 const WorkspaceEntriesLayerLive = WorkspaceEntriesLive.pipe(
   Layer.provide(WorkspacePathsLive),
@@ -230,7 +253,11 @@ const ThreadForkLayerLive = ThreadForkDispatcherLive.pipe(
   Layer.provideMerge(ThreadForkMaterializerLive),
 );
 
-const RuntimeDependenciesLive = Layer.mergeAll(ReactorLayerLive, ThreadForkLayerLive).pipe(
+const TeamLayerLive = Layer.mergeAll(TeamCoordinatorAccessLive, TeamOrchestrationServiceLive);
+
+const RuntimeDependenciesCoreLive = ReactorLayerLive.pipe(
+  Layer.provideMerge(ThreadForkLayerLive),
+  Layer.provideMerge(TeamLayerLive),
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(GitLayerLive),
@@ -241,6 +268,11 @@ const RuntimeDependenciesLive = Layer.mergeAll(ReactorLayerLive, ThreadForkLayer
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(ServerSettingsLive),
   Layer.provideMerge(WorkspaceLayerLive),
+  Layer.provideMerge(WorktreeSetupLayerLive),
+);
+
+const RuntimeDependenciesLive = RuntimeDependenciesCoreLive.pipe(
+  Layer.provideMerge(OrchestrationLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
   Layer.provideMerge(RepositoryIdentityResolverLive),
   Layer.provideMerge(ServerEnvironmentLive),
@@ -257,7 +289,7 @@ const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
   Layer.provideMerge(RuntimeDependenciesLive),
 );
 
-export const makeRoutesLayer = Layer.mergeAll(
+const authRoutesLayer = Layer.mergeAll(
   authBearerBootstrapRouteLayer,
   authBootstrapRouteLayer,
   authClientsRevokeOthersRouteLayer,
@@ -268,6 +300,10 @@ export const makeRoutesLayer = Layer.mergeAll(
   authPairingCredentialRouteLayer,
   authSessionRouteLayer,
   authWebSocketTokenRouteLayer,
+);
+
+export const makeRoutesLayer = Layer.mergeAll(
+  authRoutesLayer,
   attachmentsRouteLayer,
   orchestrationDispatchRouteLayer,
   orchestrationSnapshotRouteLayer,
@@ -275,6 +311,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   projectFaviconRouteLayer,
   serverEnvironmentRouteLayer,
   staticAndDevRouteLayer,
+  teamMcpRoutesLayer,
   websocketRpcRouteLayer,
 ).pipe(Layer.provide(browserApiCorsLayer));
 
@@ -332,8 +369,6 @@ export const makeServerLayer = Layer.unwrap(
 );
 
 // Important: Only `ServerConfig` should be provided by the CLI layer!!! Don't let other requirements leak into the launch layer.
-export const runServer = Layer.launch(makeServerLayer) satisfies Effect.Effect<
-  never,
-  any,
-  ServerConfig
->;
+export const runServer: Effect.Effect<never, Error, ServerConfig> = Layer.launch(
+  makeServerLayer,
+) as Effect.Effect<never, Error, ServerConfig>;

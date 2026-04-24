@@ -29,6 +29,7 @@ import { buildCodexInitializeParams } from "./CodexProvider.ts";
 import {
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+  CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS,
 } from "../CodexDeveloperInstructions.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 
@@ -83,6 +84,9 @@ export interface CodexSessionRuntimeOptions {
   readonly model?: string;
   readonly serviceTier?: EffectCodexSchema.V2ThreadStartParams__ServiceTier | undefined;
   readonly resumeCursor?: CodexResumeCursor;
+  readonly configOverrides?: ReadonlyArray<string>;
+  readonly env?: Readonly<Record<string, string>>;
+  readonly teamCoordinatorTools?: boolean;
 }
 
 export interface CodexSessionRuntimeSendTurnInput {
@@ -299,20 +303,26 @@ function buildCodexCollaborationMode(input: {
   readonly interactionMode?: ProviderInteractionMode;
   readonly model?: string;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
+  readonly teamCoordinatorTools?: boolean;
 }): EffectCodexSchema.V2TurnStartParams__CollaborationMode | undefined {
-  if (input.interactionMode === undefined) {
+  if (input.interactionMode === undefined && input.teamCoordinatorTools !== true) {
     return undefined;
   }
   const model = normalizeCodexModelSlug(input.model) ?? DEFAULT_MODEL_BY_PROVIDER.codex;
+  const baseDeveloperInstructions =
+    input.interactionMode === "plan"
+      ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
+      : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
+  const developerInstructions =
+    input.teamCoordinatorTools === true
+      ? `${baseDeveloperInstructions}\n\n${CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS}`
+      : baseDeveloperInstructions;
   return {
-    mode: input.interactionMode,
+    mode: input.interactionMode ?? "default",
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions:
-        input.interactionMode === "plan"
-          ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
-          : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+      developer_instructions: developerInstructions,
     },
   };
 }
@@ -326,6 +336,7 @@ export function buildTurnStartParams(input: {
   readonly serviceTier?: EffectCodexSchema.V2TurnStartParams__ServiceTier;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
   readonly interactionMode?: ProviderInteractionMode;
+  readonly teamCoordinatorTools?: boolean;
 }): Effect.Effect<
   CodexTurnStartParamsWithCollaborationMode,
   CodexErrors.CodexAppServerProtocolParseError
@@ -346,6 +357,7 @@ export function buildTurnStartParams(input: {
     ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
     ...(input.model ? { model: input.model } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
+    ...(input.teamCoordinatorTools === true ? { teamCoordinatorTools: true } : {}),
   });
 
   return Schema.decodeUnknownEffect(CodexTurnStartParamsWithCollaborationMode)({
@@ -680,13 +692,20 @@ export const makeCodexSessionRuntime = (
     const collabReceiverTurnsRef = yield* Ref.make(new Map<string, TurnId>());
     const closedRef = yield* Ref.make(false);
 
+    const codexArgs = [
+      ...(options.configOverrides ?? []).flatMap((override) => ["-c", override]),
+      "app-server",
+    ];
+    const childEnv = {
+      ...process.env,
+      ...(options.homePath ? { CODEX_HOME: expandHomePath(options.homePath) } : {}),
+      ...options.env,
+    };
     const child = yield* spawner
       .spawn(
-        ChildProcess.make(options.binaryPath, ["app-server"], {
+        ChildProcess.make(options.binaryPath, codexArgs, {
           cwd: options.cwd,
-          ...(options.homePath
-            ? { env: { ...process.env, CODEX_HOME: expandHomePath(options.homePath) } }
-            : {}),
+          env: childEnv,
           shell: process.platform === "win32",
         }),
       )
@@ -695,7 +714,7 @@ export const makeCodexSessionRuntime = (
         Effect.mapError(
           (cause) =>
             new CodexErrors.CodexAppServerSpawnError({
-              command: `${options.binaryPath} app-server`,
+              command: `${options.binaryPath} ${codexArgs.join(" ")}`,
               cause,
             }),
         ),
@@ -1211,6 +1230,7 @@ export const makeCodexSessionRuntime = (
             ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
             ...(input.effort ? { effort: input.effort } : {}),
             ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
+            ...(options.teamCoordinatorTools === true ? { teamCoordinatorTools: true } : {}),
           });
           const rawResponse = yield* client.raw.request("turn/start", params);
           const response = yield* Schema.decodeUnknownEffect(EffectCodexSchema.V2TurnStartResponse)(

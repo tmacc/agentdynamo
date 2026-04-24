@@ -5,9 +5,11 @@ import {
   EnvironmentId,
   EventId,
   MessageId,
+  TeamTaskId,
   ProjectId,
   ThreadId,
   TurnId,
+  type OrchestrationTeamTask,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
@@ -85,6 +87,36 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
   };
 }
 
+function makeTeamTask(overrides: Partial<OrchestrationTeamTask> = {}): OrchestrationTeamTask {
+  return {
+    id: TeamTaskId.make("team-task-1"),
+    parentThreadId: ThreadId.make("thread-1"),
+    childThreadId: ThreadId.make("team-thread-1"),
+    title: "Research agent",
+    task: "Research the requested topic.",
+    roleLabel: "Research",
+    kind: "exploration",
+    modelSelection: {
+      provider: "codex",
+      model: "gpt-5.5",
+    },
+    modelSelectionMode: "coordinator-selected",
+    modelSelectionReason: "Selected a fast capable model for exploration.",
+    workspaceMode: "auto",
+    resolvedWorkspaceMode: "shared",
+    setupMode: "auto",
+    resolvedSetupMode: "skip",
+    status: "running",
+    latestSummary: null,
+    errorText: null,
+    createdAt: "2026-02-13T00:05:00.000Z",
+    startedAt: "2026-02-13T00:05:05.000Z",
+    completedAt: null,
+    updatedAt: "2026-02-13T00:05:05.000Z",
+    ...overrides,
+  };
+}
+
 function makeState(thread: Thread): AppState {
   const projectId = ProjectId.make("project-1");
   const project = {
@@ -126,6 +158,7 @@ function makeState(thread: Thread): AppState {
         updatedAt: thread.updatedAt,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
+        ...(thread.teamTasks ? { teamTasks: thread.teamTasks } : {}),
       },
     },
     threadSessionById: {
@@ -351,6 +384,19 @@ describe("thread selection memoization", () => {
     expect(second?.messages[0]?.text).toBe("new");
   });
 
+  it("preserves team tasks on derived parent threads", () => {
+    const teamTask = makeTeamTask();
+    const thread = makeThread({
+      teamTasks: [teamTask],
+    });
+    const state = makeState(thread);
+    const ref = scopeThreadRef(thread.environmentId, thread.id);
+
+    const selected = selectThreadByRef(state, ref);
+
+    expect(selected?.teamTasks).toEqual([teamTask]);
+  });
+
   it("checks thread existence without materializing the full thread", () => {
     const thread = makeThread();
     const state = makeState(thread);
@@ -469,6 +515,7 @@ describe("incremental orchestration updates", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
           scripts: [],
+          worktreeSetup: null,
         },
       },
     });
@@ -484,6 +531,7 @@ describe("incremental orchestration updates", () => {
           model: DEFAULT_MODEL_BY_PROVIDER.codex,
         },
         scripts: [],
+        worktreeSetup: null,
         createdAt: "2026-02-27T00:00:01.000Z",
         updatedAt: "2026-02-27T00:00:01.000Z",
       }),

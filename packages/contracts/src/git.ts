@@ -177,6 +177,12 @@ export const GitRemoveWorktreeInput = Schema.Struct({
 });
 export type GitRemoveWorktreeInput = typeof GitRemoveWorktreeInput.Type;
 
+export const GitApplyWorktreePatchInput = Schema.Struct({
+  parentCwd: TrimmedNonEmptyStringSchema,
+  childCwd: TrimmedNonEmptyStringSchema,
+});
+export type GitApplyWorktreePatchInput = typeof GitApplyWorktreePatchInput.Type;
+
 export const GitCreateBranchInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   branch: TrimmedNonEmptyStringSchema,
@@ -310,6 +316,19 @@ export const GitPreparePullRequestThreadResult = Schema.Struct({
   worktreePath: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
 });
 export type GitPreparePullRequestThreadResult = typeof GitPreparePullRequestThreadResult.Type;
+
+export const GitWorktreePatchFile = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema,
+  insertions: NonNegativeInt,
+  deletions: NonNegativeInt,
+});
+export type GitWorktreePatchFile = typeof GitWorktreePatchFile.Type;
+
+export const GitApplyWorktreePatchResult = Schema.Struct({
+  status: Schema.Literals(["applied", "skipped_no_changes"]),
+  files: Schema.Array(GitWorktreePatchFile),
+});
+export type GitApplyWorktreePatchResult = typeof GitApplyWorktreePatchResult.Type;
 
 export const GitCheckoutResult = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyStringSchema),

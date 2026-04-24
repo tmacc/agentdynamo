@@ -76,6 +76,24 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         aggregateKind: "board",
         aggregateId: command.projectId,
       };
+    case "thread.team-task.spawn":
+      return {
+        aggregateKind: "thread",
+        aggregateId: command.teamTask.parentThreadId,
+      };
+    case "thread.team-task.mark-starting":
+    case "thread.team-task.mark-running":
+    case "thread.team-task.mark-waiting":
+    case "thread.team-task.mark-completed":
+    case "thread.team-task.mark-failed":
+    case "thread.team-task.mark-cancelled":
+    case "thread.team-task.update-summary":
+    case "thread.team-task.send-message":
+    case "thread.team-task.close":
+      return {
+        aggregateKind: "thread",
+        aggregateId: command.parentThreadId,
+      };
     default:
       return {
         aggregateKind: "thread",
