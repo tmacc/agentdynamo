@@ -100,8 +100,7 @@ interface TimelineRowSharedState {
   activeThreadProjectId: ProjectId | undefined;
   onOpenTeamTask: (threadId: ThreadId) => void;
   onCancelTeamTask: (taskId: TeamTaskId) => void;
-  onReviewTeamTaskChanges: (threadId: ThreadId) => void;
-  onApplyTeamTaskChanges: (task: OrchestrationTeamTask) => void;
+  onReviewTeamTaskChanges: (task: OrchestrationTeamTask) => void;
   onRevertUserMessage: (messageId: MessageId) => void;
   onOpenForkSourceThread: (threadId: ThreadId) => void;
   onForkUserMessage: (messageId: MessageId) => void;
@@ -145,8 +144,7 @@ interface MessagesTimelineProps {
   teamTasks?: ReadonlyArray<TeamTaskInlineView>;
   onOpenTeamTask?: (threadId: ThreadId) => void;
   onCancelTeamTask?: (taskId: TeamTaskId) => void;
-  onReviewTeamTaskChanges?: (threadId: ThreadId) => void;
-  onApplyTeamTaskChanges?: (task: OrchestrationTeamTask) => void;
+  onReviewTeamTaskChanges?: (task: OrchestrationTeamTask) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,13 +181,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenTeamTask,
   onCancelTeamTask,
   onReviewTeamTaskChanges,
-  onApplyTeamTaskChanges,
 }: MessagesTimelineProps) {
   const noopForkUserMessage = useCallback(() => {}, []);
   const noopOpenForkSourceThread = useCallback(() => {}, []);
   const noopOpenTeamTask = useCallback(() => {}, []);
   const noopCancelTeamTask = useCallback(() => {}, []);
-  const noopApplyTeamTaskChanges = useCallback(() => {}, []);
+  const noopReviewTeamTaskChanges = useCallback(() => {}, []);
   const createSavedPromptSnippet = useSavedPromptStore((store) => store.createSnippet);
   const currentProjectRef =
     activeThreadProjectId !== undefined
@@ -315,8 +312,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadProjectId,
       onOpenTeamTask: onOpenTeamTask ?? noopOpenTeamTask,
       onCancelTeamTask: onCancelTeamTask ?? noopCancelTeamTask,
-      onReviewTeamTaskChanges: onReviewTeamTaskChanges ?? noopOpenTeamTask,
-      onApplyTeamTaskChanges: onApplyTeamTaskChanges ?? noopApplyTeamTaskChanges,
+      onReviewTeamTaskChanges: onReviewTeamTaskChanges ?? noopReviewTeamTaskChanges,
       onForkUserMessage: onForkUserMessage ?? noopForkUserMessage,
       onOpenForkSourceThread: onOpenForkSourceThread ?? noopOpenForkSourceThread,
       onRevertUserMessage,
@@ -340,7 +336,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenTeamTask,
       onCancelTeamTask,
       onReviewTeamTaskChanges,
-      onApplyTeamTaskChanges,
       onForkUserMessage,
       onOpenForkSourceThread,
       onRevertUserMessage,
@@ -349,7 +344,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       handleSaveUserPrompt,
       noopOpenTeamTask,
       noopCancelTeamTask,
-      noopApplyTeamTaskChanges,
+      noopReviewTeamTaskChanges,
       noopForkUserMessage,
       noopOpenForkSourceThread,
     ],
@@ -464,7 +459,6 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
             onOpenTask={ctx.onOpenTeamTask}
             onCancelTask={ctx.onCancelTeamTask}
             onReviewTaskChanges={ctx.onReviewTeamTaskChanges}
-            onApplyTaskChanges={ctx.onApplyTeamTaskChanges}
           />
         </div>
       )}

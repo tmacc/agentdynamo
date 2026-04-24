@@ -14,6 +14,8 @@ import {
   GitGetPullRequestRemoteOptionsResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
+  GitPreviewWorktreePatchInput,
+  GitPreviewWorktreePatchResult,
   GitPullRequestRefInput,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
@@ -107,7 +109,14 @@ export interface GitManagerShape {
   ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
 
   /**
-   * Apply the full dirty diff from a child worktree into a parent/coordinator worktree.
+   * Preview the full change snapshot for a child team task.
+   */
+  readonly previewWorktreePatch: (
+    input: GitPreviewWorktreePatchInput,
+  ) => Effect.Effect<GitPreviewWorktreePatchResult, GitManagerServiceError>;
+
+  /**
+   * Apply a reviewed child team task change snapshot into its parent/coordinator worktree.
    */
   readonly applyWorktreePatch: (
     input: GitApplyWorktreePatchInput,

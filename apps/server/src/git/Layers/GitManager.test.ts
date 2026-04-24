@@ -4,12 +4,13 @@ import { spawnSync } from "node:child_process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
+import { Effect, FileSystem, Layer, Option, PlatformError, Scope } from "effect";
 import { expect } from "vitest";
 import type {
   GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
   ModelSelection,
+  OrchestrationThread,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -31,6 +32,10 @@ import {
   type ProjectSetupScriptRunnerInput,
   type ProjectSetupScriptRunnerShape,
 } from "../../project/Services/ProjectSetupScriptRunner.ts";
+import {
+  ProjectionSnapshotQuery,
+  type ProjectionSnapshotQueryShape,
+} from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 
 interface FakeGhScenario {
   prListSequence?: string[];
@@ -654,6 +659,7 @@ function makeManager(input?: {
   ghScenario?: FakeGhScenario;
   textGeneration?: Partial<FakeGitTextGeneration>;
   setupScriptRunner?: ProjectSetupScriptRunnerShape;
+  projectionSnapshotQuery?: ProjectionSnapshotQueryShape;
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
@@ -675,6 +681,26 @@ function makeManager(input?: {
       ProjectSetupScriptRunner,
       input?.setupScriptRunner ?? {
         runForThread: () => Effect.succeed({ status: "no-script" as const }),
+      },
+    ),
+    Layer.succeed(
+      ProjectionSnapshotQuery,
+      input?.projectionSnapshotQuery ?? {
+        getSnapshot: () => Effect.die("getSnapshot should not be called in this test"),
+        getShellSnapshot: () => Effect.die("getShellSnapshot should not be called in this test"),
+        getCounts: () => Effect.die("getCounts should not be called in this test"),
+        getActiveProjectByWorkspaceRoot: () =>
+          Effect.die("getActiveProjectByWorkspaceRoot should not be called in this test"),
+        getProjectShellById: () =>
+          Effect.die("getProjectShellById should not be called in this test"),
+        getFirstActiveThreadIdByProjectId: () =>
+          Effect.die("getFirstActiveThreadIdByProjectId should not be called in this test"),
+        getThreadCheckpointContext: () =>
+          Effect.die("getThreadCheckpointContext should not be called in this test"),
+        getThreadShellById: () =>
+          Effect.die("getThreadShellById should not be called in this test"),
+        getThreadDetailById: () =>
+          Effect.die("getThreadDetailById should not be called in this test"),
       },
     ),
     gitCoreLayer,
@@ -707,10 +733,94 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       fs.writeFileSync(path.join(childDir, "README.md"), "hello\nfrom child\n");
       fs.writeFileSync(path.join(childDir, "child.txt"), "new file\n");
 
-      const { manager } = yield* makeManager();
+      const parentThreadId = asThreadId("parent-thread");
+      const childThreadId = asThreadId("child-thread");
+      const taskId = "task-1";
+      const teamTask = {
+        id: taskId,
+        parentThreadId,
+        childThreadId,
+        title: "Child task",
+        task: "Edit files",
+        roleLabel: null,
+        kind: "coding",
+        modelSelection: { provider: "codex", model: "gpt-5.5" },
+        modelSelectionMode: "coordinator-selected",
+        modelSelectionReason: "Test",
+        workspaceMode: "worktree",
+        resolvedWorkspaceMode: "worktree",
+        setupMode: "skip",
+        resolvedSetupMode: "skip",
+        status: "completed",
+        latestSummary: null,
+        errorText: null,
+        createdAt: new Date().toISOString(),
+        startedAt: null,
+        completedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as const;
+      const parentThread = {
+        id: parentThreadId,
+        projectId: "project-1",
+        worktreePath: null,
+        teamTasks: [teamTask],
+      } as unknown as OrchestrationThread;
+      const childThread = {
+        id: childThreadId,
+        projectId: "project-1",
+        worktreePath: childDir,
+        teamParent: {
+          parentThreadId,
+          taskId,
+          roleLabel: null,
+        },
+      } as unknown as OrchestrationThread;
+
+      const { manager } = yield* makeManager({
+        projectionSnapshotQuery: {
+          getSnapshot: () => Effect.die("getSnapshot should not be called in this test"),
+          getShellSnapshot: () => Effect.die("getShellSnapshot should not be called in this test"),
+          getCounts: () => Effect.die("getCounts should not be called in this test"),
+          getActiveProjectByWorkspaceRoot: () =>
+            Effect.die("getActiveProjectByWorkspaceRoot should not be called in this test"),
+          getProjectShellById: () =>
+            Effect.die("getProjectShellById should not be called in this test"),
+          getFirstActiveThreadIdByProjectId: () =>
+            Effect.die("getFirstActiveThreadIdByProjectId should not be called in this test"),
+          getThreadShellById: () =>
+            Effect.die("getThreadShellById should not be called in this test"),
+          getThreadDetailById: (threadId) =>
+            Effect.succeed(
+              threadId === parentThreadId
+                ? Option.some(parentThread)
+                : threadId === childThreadId
+                  ? Option.some(childThread)
+                  : Option.none(),
+            ),
+          getThreadCheckpointContext: (threadId) =>
+            Effect.succeed(
+              threadId === parentThreadId
+                ? Option.some({
+                    threadId: parentThreadId,
+                    projectId: "project-1" as never,
+                    workspaceRoot: repoDir,
+                    worktreePath: null,
+                    checkpoints: [],
+                  })
+                : Option.none(),
+            ),
+        },
+      });
+      const preview = yield* manager.previewWorktreePatch({
+        parentThreadId,
+        taskId,
+      });
+      expect(preview.status).toBe("has_changes");
+
       const result = yield* manager.applyWorktreePatch({
-        parentCwd: repoDir,
-        childCwd: childDir,
+        parentThreadId,
+        taskId,
+        expectedPatchHash: preview.patchHash,
       });
 
       expect(result.status).toBe("applied");

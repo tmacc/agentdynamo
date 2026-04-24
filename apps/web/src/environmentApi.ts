@@ -37,6 +37,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       listBranches: rpcClient.git.listBranches,
       createWorktree: rpcClient.git.createWorktree,
       removeWorktree: rpcClient.git.removeWorktree,
+      previewWorktreePatch: rpcClient.git.previewWorktreePatch,
       applyWorktreePatch: rpcClient.git.applyWorktreePatch,
       createBranch: rpcClient.git.createBranch,
       checkout: rpcClient.git.checkout,

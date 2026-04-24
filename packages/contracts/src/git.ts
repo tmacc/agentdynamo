@@ -178,10 +178,17 @@ export const GitRemoveWorktreeInput = Schema.Struct({
 export type GitRemoveWorktreeInput = typeof GitRemoveWorktreeInput.Type;
 
 export const GitApplyWorktreePatchInput = Schema.Struct({
-  parentCwd: TrimmedNonEmptyStringSchema,
-  childCwd: TrimmedNonEmptyStringSchema,
+  parentThreadId: ThreadId,
+  taskId: TrimmedNonEmptyStringSchema,
+  expectedPatchHash: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type GitApplyWorktreePatchInput = typeof GitApplyWorktreePatchInput.Type;
+
+export const GitPreviewWorktreePatchInput = Schema.Struct({
+  parentThreadId: ThreadId,
+  taskId: TrimmedNonEmptyStringSchema,
+});
+export type GitPreviewWorktreePatchInput = typeof GitPreviewWorktreePatchInput.Type;
 
 export const GitCreateBranchInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -329,6 +336,15 @@ export const GitApplyWorktreePatchResult = Schema.Struct({
   files: Schema.Array(GitWorktreePatchFile),
 });
 export type GitApplyWorktreePatchResult = typeof GitApplyWorktreePatchResult.Type;
+
+export const GitPreviewWorktreePatchResult = Schema.Struct({
+  status: Schema.Literals(["has_changes", "skipped_no_changes"]),
+  files: Schema.Array(GitWorktreePatchFile),
+  patch: Schema.String,
+  patchHash: TrimmedNonEmptyStringSchema,
+  includesCommittedChanges: Schema.Boolean,
+});
+export type GitPreviewWorktreePatchResult = typeof GitPreviewWorktreePatchResult.Type;
 
 export const GitCheckoutResult = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyStringSchema),

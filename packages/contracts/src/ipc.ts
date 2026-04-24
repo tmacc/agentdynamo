@@ -3,6 +3,8 @@ import type {
   GitCheckoutResult,
   GitApplyWorktreePatchInput,
   GitApplyWorktreePatchResult,
+  GitPreviewWorktreePatchInput,
+  GitPreviewWorktreePatchResult,
   GitCreateBranchInput,
   GitCreateBranchResult,
   GitPreparePullRequestThreadInput,
@@ -279,6 +281,9 @@ export interface EnvironmentApi {
     listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
     createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
     removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
+    previewWorktreePatch: (
+      input: GitPreviewWorktreePatchInput,
+    ) => Promise<GitPreviewWorktreePatchResult>;
     applyWorktreePatch: (input: GitApplyWorktreePatchInput) => Promise<GitApplyWorktreePatchResult>;
     createBranch: (input: GitCreateBranchInput) => Promise<GitCreateBranchResult>;
     checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResult>;
