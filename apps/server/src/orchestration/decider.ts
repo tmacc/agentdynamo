@@ -2,6 +2,7 @@ import type {
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
+  OrchestrationTeamTask,
 } from "@t3tools/contracts";
 import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
 import { Effect } from "effect";
@@ -67,6 +68,33 @@ function providerDisplayName(provider: keyof typeof PROVIDER_DISPLAY_NAMES): str
 type DecideOrchestrationCommandResult =
   | PlannedOrchestrationEvent
   | ReadonlyArray<PlannedOrchestrationEvent>;
+
+const FINAL_TEAM_TASK_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+function findTeamTask(readModel: OrchestrationReadModel, parentThreadId: string, taskId: string) {
+  const parentThread = readModel.threads.find((thread) => thread.id === parentThreadId);
+  return parentThread?.teamTasks?.find((task) => task.id === taskId) ?? null;
+}
+
+function teamTaskActivityPayload(task: {
+  readonly id: string;
+  readonly childThreadId: string;
+  readonly modelSelection: unknown;
+  readonly roleLabel: string | null;
+  readonly kind: string;
+  readonly modelSelectionMode: string;
+  readonly modelSelectionReason: string;
+}) {
+  return {
+    taskId: task.id,
+    childThreadId: task.childThreadId,
+    modelSelection: task.modelSelection,
+    roleLabel: task.roleLabel,
+    taskKind: task.kind,
+    modelSelectionMode: task.modelSelectionMode,
+    modelSelectionReason: task.modelSelectionReason,
+  };
+}
 
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
   commands,
@@ -138,6 +166,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           workspaceRoot: command.workspaceRoot,
           defaultModelSelection: command.defaultModelSelection ?? null,
           scripts: [],
+          worktreeSetup: null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -167,6 +196,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
+          ...(command.worktreeSetup !== undefined ? { worktreeSetup: command.worktreeSetup } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -486,6 +516,332 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: command.detail,
           ...(command.renderStats !== undefined ? { renderStats: command.renderStats } : {}),
           failedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.team-task.spawn": {
+      const parentThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.teamTask.parentThreadId,
+      });
+      yield* requireThreadAbsent({
+        readModel,
+        command,
+        threadId: command.teamTask.childThreadId,
+      });
+      if (parentThread.teamParent != null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Child threads cannot delegate to more team agents in v1.",
+        });
+      }
+      if ((parentThread.teamTasks ?? []).some((task) => task.id === command.teamTask.id)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Team task '${command.teamTask.id}' already exists.`,
+        });
+      }
+
+      return [
+        {
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.teamTask.parentThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.team-task-created" as const,
+          payload: {
+            parentThreadId: command.teamTask.parentThreadId,
+            teamTask: command.teamTask,
+          },
+        },
+        {
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.teamTask.parentThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.activity-appended" as const,
+          payload: {
+            threadId: command.teamTask.parentThreadId,
+            activity: {
+              id: crypto.randomUUID() as OrchestrationEvent["eventId"],
+              tone: "info" as const,
+              kind: "team.task.spawned",
+              summary: `Spawned child task: ${command.teamTask.title}`,
+              payload: teamTaskActivityPayload(command.teamTask),
+              turnId: null,
+              createdAt: command.createdAt,
+            },
+          },
+        },
+      ];
+    }
+
+    case "thread.team-task.mark-starting":
+    case "thread.team-task.mark-running":
+    case "thread.team-task.mark-waiting":
+    case "thread.team-task.mark-completed":
+    case "thread.team-task.mark-failed":
+    case "thread.team-task.mark-cancelled": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.parentThreadId,
+      });
+      const task = findTeamTask(readModel, command.parentThreadId, command.taskId);
+      if (!task) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Team task '${command.taskId}' was not found.`,
+        });
+      }
+      if (FINAL_TEAM_TASK_STATUSES.has(task.status)) {
+        const requestedFinalStatus =
+          command.type === "thread.team-task.mark-completed"
+            ? "completed"
+            : command.type === "thread.team-task.mark-failed"
+              ? "failed"
+              : command.type === "thread.team-task.mark-cancelled"
+                ? "cancelled"
+                : null;
+        if (requestedFinalStatus !== task.status) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Team task '${command.taskId}' is already final with status '${task.status}'.`,
+          });
+        }
+      }
+
+      const status: OrchestrationTeamTask["status"] =
+        command.type === "thread.team-task.mark-starting"
+          ? "starting"
+          : command.type === "thread.team-task.mark-running"
+            ? "running"
+            : command.type === "thread.team-task.mark-waiting"
+              ? "waiting"
+              : command.type === "thread.team-task.mark-completed"
+                ? "completed"
+                : command.type === "thread.team-task.mark-failed"
+                  ? "failed"
+                  : "cancelled";
+      const completedAt =
+        status === "completed" || status === "failed" || status === "cancelled"
+          ? command.createdAt
+          : null;
+      const statusEvent = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.parentThreadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.team-task-status-changed" as const,
+        payload: {
+          parentThreadId: command.parentThreadId,
+          taskId: command.taskId,
+          status,
+          ...(command.type === "thread.team-task.mark-failed" ? { errorText: command.detail } : {}),
+          ...(command.type === "thread.team-task.mark-completed" &&
+          command.latestSummary !== undefined
+            ? { latestSummary: command.latestSummary }
+            : {}),
+          updatedAt: command.createdAt,
+          completedAt,
+        },
+      };
+
+      const events: PlannedOrchestrationEvent[] = [];
+      if (command.type === "thread.team-task.mark-starting") {
+        events.push({
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.parentThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.team-task-started" as const,
+          payload: {
+            parentThreadId: command.parentThreadId,
+            taskId: command.taskId,
+            startedAt: command.createdAt,
+          },
+        });
+      }
+      events.push(statusEvent);
+
+      const activityKind =
+        status === "starting"
+          ? "team.task.started"
+          : status === "waiting"
+            ? "team.task.waiting"
+            : status === "completed"
+              ? "team.task.completed"
+              : status === "failed"
+                ? "team.task.failed"
+                : status === "cancelled"
+                  ? "team.task.cancelled"
+                  : null;
+      if (activityKind !== null && task.status !== status) {
+        events.push({
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.parentThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.activity-appended" as const,
+          payload: {
+            threadId: command.parentThreadId,
+            activity: {
+              id: crypto.randomUUID() as OrchestrationEvent["eventId"],
+              tone: status === "failed" ? "error" : "info",
+              kind: activityKind,
+              summary:
+                status === "waiting"
+                  ? `Child task waiting: ${task.title}`
+                  : status === "completed"
+                    ? `Child task completed: ${task.title}`
+                    : status === "failed"
+                      ? `Child task failed: ${task.title}`
+                      : status === "cancelled"
+                        ? `Child task cancelled: ${task.title}`
+                        : `Child task started: ${task.title}`,
+              payload: {
+                ...teamTaskActivityPayload(task),
+                ...(command.type === "thread.team-task.mark-failed"
+                  ? { errorText: command.detail }
+                  : {}),
+              },
+              turnId: null,
+              createdAt: command.createdAt,
+            },
+          },
+        });
+      }
+
+      return events;
+    }
+
+    case "thread.team-task.update-summary": {
+      yield* requireThread({ readModel, command, threadId: command.parentThreadId });
+      const task = findTeamTask(readModel, command.parentThreadId, command.taskId);
+      if (!task) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Team task '${command.taskId}' was not found.`,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.parentThreadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.team-task-summary-updated" as const,
+        payload: {
+          parentThreadId: command.parentThreadId,
+          taskId: command.taskId,
+          latestSummary: command.latestSummary,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.team-task.send-message": {
+      yield* requireThread({ readModel, command, threadId: command.parentThreadId });
+      const task = findTeamTask(readModel, command.parentThreadId, command.taskId);
+      if (!task) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Team task '${command.taskId}' was not found.`,
+        });
+      }
+      const events: PlannedOrchestrationEvent[] = [];
+      if (FINAL_TEAM_TASK_STATUSES.has(task.status)) {
+        events.push({
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.parentThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.team-task-status-changed" as const,
+          payload: {
+            parentThreadId: command.parentThreadId,
+            taskId: command.taskId,
+            status: "running" as const,
+            updatedAt: command.createdAt,
+            completedAt: null,
+          },
+        });
+      }
+      events.push({
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.parentThreadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.team-task-message-requested" as const,
+        payload: {
+          parentThreadId: command.parentThreadId,
+          taskId: command.taskId,
+          message: command.message,
+          createdAt: command.createdAt,
+        },
+      });
+      events.push({
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.parentThreadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.activity-appended" as const,
+        payload: {
+          threadId: command.parentThreadId,
+          activity: {
+            id: crypto.randomUUID() as OrchestrationEvent["eventId"],
+            tone: "info" as const,
+            kind: "team.task.message.sent",
+            summary: `Sent follow-up to child task: ${task.title}`,
+            payload: teamTaskActivityPayload(task),
+            turnId: null,
+            createdAt: command.createdAt,
+          },
+        },
+      });
+      return events;
+    }
+
+    case "thread.team-task.close": {
+      yield* requireThread({ readModel, command, threadId: command.parentThreadId });
+      const task = findTeamTask(readModel, command.parentThreadId, command.taskId);
+      if (!task) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Team task '${command.taskId}' was not found.`,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.parentThreadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.team-task-close-requested" as const,
+        payload: {
+          parentThreadId: command.parentThreadId,
+          taskId: command.taskId,
+          ...(command.reason !== undefined ? { reason: command.reason } : {}),
+          createdAt: command.createdAt,
         },
       };
     }

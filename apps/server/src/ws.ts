@@ -19,6 +19,8 @@ import {
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  ProjectApplyWorktreeSetupError,
+  ProjectScanWorktreeSetupError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
@@ -61,6 +63,8 @@ import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem.ts
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths.ts";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner.ts";
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver.ts";
+import { WorktreeSetupApplicator } from "./project/Services/WorktreeSetupApplicator.ts";
+import { WorktreeSetupScanner } from "./project/Services/WorktreeSetupScanner.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
 import { ServerAuth } from "./auth/Services/ServerAuth.ts";
 import {
@@ -160,6 +164,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
+      const worktreeSetupScanner = yield* WorktreeSetupScanner;
+      const worktreeSetupApplicator = yield* WorktreeSetupApplicator;
       const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment;
       const serverAuth = yield* ServerAuth;
@@ -911,6 +917,34 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.projectsScanWorktreeSetup]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsScanWorktreeSetup,
+            worktreeSetupScanner.scan(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectScanWorktreeSetupError({
+                    message: cause.message,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "project" },
+          ),
+        [WS_METHODS.projectsApplyWorktreeSetup]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsApplyWorktreeSetup,
+            worktreeSetupApplicator.apply(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectApplyWorktreeSetupError({
+                    message: cause.message,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "project" },
+          ),
         [WS_METHODS.shellOpenInEditor]: (input) =>
           observeRpcEffect(WS_METHODS.shellOpenInEditor, open.openInEditor(input), {
             "rpc.aggregate": "workspace",
@@ -1024,6 +1058,21 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             WS_METHODS.gitRemoveWorktree,
             git.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitApplyWorktreePatch]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitApplyWorktreePatch,
+            gitManager
+              .applyWorktreePatch(input)
+              .pipe(
+                Effect.tap(() =>
+                  Effect.all([
+                    refreshGitStatus(input.parentCwd),
+                    refreshGitStatus(input.childCwd),
+                  ]).pipe(Effect.asVoid),
+                ),
+              ),
             { "rpc.aggregate": "git" },
           ),
         [WS_METHODS.gitCreateBranch]: (input) =>

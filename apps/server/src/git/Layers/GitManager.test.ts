@@ -695,6 +695,31 @@ const GitManagerTestLayer = GitCoreLive.pipe(
 );
 
 it.layer(GitManagerTestLayer)("GitManager", (it) => {
+  it.effect("applies tracked and untracked child worktree changes to a clean parent", () =>
+    Effect.gen(function* () {
+      const rootDir = yield* makeTempDir("t3code-git-manager-child-patch-");
+      const repoDir = path.join(rootDir, "repo");
+      const childDir = path.join(rootDir, "child");
+      yield* makeDirectory(repoDir);
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["worktree", "add", "-b", "child-agent", childDir, "HEAD"]);
+
+      fs.writeFileSync(path.join(childDir, "README.md"), "hello\nfrom child\n");
+      fs.writeFileSync(path.join(childDir, "child.txt"), "new file\n");
+
+      const { manager } = yield* makeManager();
+      const result = yield* manager.applyWorktreePatch({
+        parentCwd: repoDir,
+        childCwd: childDir,
+      });
+
+      expect(result.status).toBe("applied");
+      expect(result.files.map((file) => file.path).toSorted()).toEqual(["README.md", "child.txt"]);
+      expect(fs.readFileSync(path.join(repoDir, "README.md"), "utf8")).toBe("hello\nfrom child\n");
+      expect(fs.readFileSync(path.join(repoDir, "child.txt"), "utf8")).toBe("new file\n");
+    }),
+  );
+
   it.effect("status includes PR metadata when branch already has an open PR", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");

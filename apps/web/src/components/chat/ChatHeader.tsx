@@ -3,6 +3,7 @@ import {
   type EditorId,
   type ProjectId,
   type ProjectScript,
+  type ProjectWorktreeSetupProfile,
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -30,6 +31,7 @@ interface ChatHeaderProps {
   isGitRepo: boolean;
   openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
+  worktreeSetup: ProjectWorktreeSetupProfile | null;
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
@@ -43,6 +45,8 @@ interface ChatHeaderProps {
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
+  onReviewWorktreeSetup: () => void;
+  onDisableWorktreeSetup: () => void;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
 }
@@ -57,6 +61,7 @@ export const ChatHeader = memo(function ChatHeader({
   isGitRepo,
   openInCwd,
   activeProjectScripts,
+  worktreeSetup,
   preferredScriptId,
   keybindings,
   availableEditors,
@@ -70,6 +75,8 @@ export const ChatHeader = memo(function ChatHeader({
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  onReviewWorktreeSetup,
+  onDisableWorktreeSetup,
   onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
@@ -110,6 +117,9 @@ export const ChatHeader = memo(function ChatHeader({
             onAddScript={onAddProjectScript}
             onUpdateScript={onUpdateProjectScript}
             onDeleteScript={onDeleteProjectScript}
+            worktreeSetup={worktreeSetup}
+            onReviewWorktreeSetup={onReviewWorktreeSetup}
+            onDisableWorktreeSetup={onDisableWorktreeSetup}
           />
         )}
         {activeProjectName && (

@@ -332,6 +332,7 @@ describe("wsApi", () => {
           model: "gpt-5-codex",
         },
         scripts: [],
+        worktreeSetup: null,
         createdAt: "2026-02-24T00:00:00.000Z",
         updatedAt: "2026-02-24T00:00:00.000Z",
       },
@@ -540,6 +541,7 @@ describe("wsApi", () => {
       sidebarProjectSortOrder: "manual" as const,
       sidebarThreadSortOrder: "created_at" as const,
       timestampFormat: "24-hour" as const,
+      worktreeSetupPromptStateByProjectId: {},
     };
     const getClientSettings = vi.fn().mockResolvedValue({
       ...clientSettings,
@@ -598,6 +600,7 @@ describe("wsApi", () => {
       sidebarProjectSortOrder: "manual" as const,
       sidebarThreadSortOrder: "created_at" as const,
       timestampFormat: "24-hour" as const,
+      worktreeSetupPromptStateByProjectId: {},
     };
 
     await api.persistence.setClientSettings(clientSettings);

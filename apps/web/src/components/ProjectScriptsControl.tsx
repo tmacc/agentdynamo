@@ -1,6 +1,7 @@
 import type {
   ProjectScript,
   ProjectScriptIcon,
+  ProjectWorktreeSetupProfile,
   ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import {
@@ -94,6 +95,9 @@ interface ProjectScriptsControlProps {
   onAddScript: (input: NewProjectScriptInput) => Promise<void> | void;
   onUpdateScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void> | void;
   onDeleteScript: (scriptId: string) => Promise<void> | void;
+  worktreeSetup?: ProjectWorktreeSetupProfile | null;
+  onReviewWorktreeSetup?: () => void;
+  onDisableWorktreeSetup?: () => void;
 }
 
 function normalizeShortcutKeyToken(key: string): string | null {
@@ -155,6 +159,9 @@ export default function ProjectScriptsControl({
   onAddScript,
   onUpdateScript,
   onDeleteScript,
+  worktreeSetup = null,
+  onReviewWorktreeSetup,
+  onDisableWorktreeSetup,
 }: ProjectScriptsControlProps) {
   const addScriptFormId = React.useId();
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
@@ -336,16 +343,48 @@ export default function ProjectScriptsControl({
                 <PlusIcon className="size-4" />
                 Add action
               </MenuItem>
+              {worktreeSetup ? (
+                <>
+                  <MenuItem className={dropdownItemClassName} onClick={onReviewWorktreeSetup}>
+                    <WrenchIcon className="size-4" />
+                    Worktree setup configured
+                  </MenuItem>
+                  {worktreeSetup.autoRunSetupOnWorktreeCreate ? (
+                    <MenuItem className={dropdownItemClassName} onClick={onDisableWorktreeSetup}>
+                      <SettingsIcon className="size-4" />
+                      Disable automatic setup
+                    </MenuItem>
+                  ) : null}
+                </>
+              ) : null}
             </MenuPopup>
           </Menu>
         </Group>
       ) : (
-        <Button size="xs" variant="outline" onClick={openAddDialog} title="Add action">
-          <PlusIcon className="size-3.5" />
-          <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
-            Add action
-          </span>
-        </Button>
+        <Group>
+          <Button size="xs" variant="outline" onClick={openAddDialog} title="Add action">
+            <PlusIcon className="size-3.5" />
+            <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+              Add action
+            </span>
+          </Button>
+          {worktreeSetup && onReviewWorktreeSetup ? (
+            <>
+              <GroupSeparator />
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={onReviewWorktreeSetup}
+                title="Review worktree setup"
+              >
+                <WrenchIcon className="size-3.5" />
+                <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+                  Worktree setup
+                </span>
+              </Button>
+            </>
+          ) : null}
+        </Group>
       )}
 
       <Dialog

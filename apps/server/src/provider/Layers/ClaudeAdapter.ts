@@ -2821,6 +2821,20 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       );
       const claudeBinaryPath = claudeSettings.binaryPath;
       const extraArgs = parseCliArgs(claudeSettings.launchArgs).flags;
+      const teamMcpConfig =
+        input.teamCoordinator !== undefined
+          ? {
+              mcpServers: {
+                [input.teamCoordinator.mcpServerName]: {
+                  type: "http",
+                  url: input.teamCoordinator.mcpServerUrl,
+                  headers: {
+                    Authorization: `Bearer ${input.teamCoordinator.accessToken}`,
+                  },
+                },
+              },
+            }
+          : undefined;
       const modelSelection =
         input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
       const caps = getClaudeModelCapabilities(modelSelection?.model);
@@ -2866,7 +2880,16 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         canUseTool,
         env: process.env,
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
-        ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
+        ...(Object.keys(extraArgs).length > 0 || teamMcpConfig !== undefined
+          ? {
+              extraArgs: {
+                ...extraArgs,
+                ...(teamMcpConfig !== undefined
+                  ? { "mcp-config": JSON.stringify(teamMcpConfig) }
+                  : {}),
+              },
+            }
+          : {}),
       };
 
       const queryRuntime = yield* Effect.try({
@@ -3192,6 +3215,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      teamCoordinatorTools: "mcp-http",
     },
     startSession,
     sendTurn,

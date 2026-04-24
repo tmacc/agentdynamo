@@ -476,6 +476,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
+      ...(!Equal.equals(settings.teamAgents, DEFAULT_UNIFIED_SETTINGS.teamAgents)
+        ? ["Team agents"]
+        : []),
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
@@ -500,6 +503,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
+      settings.teamAgents,
       settings.timestampFormat,
       theme,
     ],
@@ -942,6 +946,37 @@ export function GeneralSettingsPanel() {
                 updateSettings({ enableAssistantStreaming: Boolean(checked) })
               }
               aria-label="Stream assistant messages"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Team agents"
+          description="Allow coordinator threads to spawn child agents across supported providers."
+          resetAction={
+            !Equal.equals(settings.teamAgents, DEFAULT_UNIFIED_SETTINGS.teamAgents) ? (
+              <SettingResetButton
+                label="team agents"
+                onClick={() =>
+                  updateSettings({
+                    teamAgents: DEFAULT_UNIFIED_SETTINGS.teamAgents,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.teamAgents.enabled}
+              onCheckedChange={(checked) =>
+                updateSettings({
+                  teamAgents: {
+                    ...settings.teamAgents,
+                    enabled: Boolean(checked),
+                  },
+                })
+              }
+              aria-label="Enable team agents"
             />
           }
         />

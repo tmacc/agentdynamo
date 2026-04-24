@@ -13,6 +13,7 @@ import {
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   ProjectCreatedPayload,
+  ProjectWorktreeSetupProfile,
   ProjectMetaUpdatedPayload,
   OrchestrationProposedPlan,
   OrchestrationSession,
@@ -23,12 +24,21 @@ import {
   ThreadTurnDiff,
   ThreadTurnStartRequestedPayload,
 } from "./orchestration.ts";
+import { ProjectApplyWorktreeSetupInput, ProjectScanWorktreeSetupResult } from "./project.ts";
+import { WS_METHODS } from "./rpc.ts";
 
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
 const decodeThreadTurnDiff = Schema.decodeUnknownEffect(ThreadTurnDiff);
 const decodeProjectCreateCommand = Schema.decodeUnknownEffect(ProjectCreateCommand);
 const decodeProjectCreatedPayload = Schema.decodeUnknownEffect(ProjectCreatedPayload);
+const decodeProjectWorktreeSetupProfile = Schema.decodeUnknownEffect(ProjectWorktreeSetupProfile);
 const decodeProjectMetaUpdatedPayload = Schema.decodeUnknownEffect(ProjectMetaUpdatedPayload);
+const decodeProjectApplyWorktreeSetupInput = Schema.decodeUnknownEffect(
+  ProjectApplyWorktreeSetupInput,
+);
+const decodeProjectScanWorktreeSetupResult = Schema.decodeUnknownEffect(
+  ProjectScanWorktreeSetupResult,
+);
 const decodeThreadTurnStartCommand = Schema.decodeUnknownEffect(ThreadTurnStartCommand);
 const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
   ThreadTurnStartRequestedPayload,
@@ -144,6 +154,74 @@ it.effect("decodes historical project.created payloads with a default provider",
     assert.strictEqual(parsed.defaultModelSelection?.provider, "codex");
   }),
 );
+
+it.effect("decodes project worktree setup profiles and apply inputs", () =>
+  Effect.gen(function* () {
+    const profile = yield* decodeProjectWorktreeSetupProfile({
+      version: 1,
+      status: "configured",
+      scanFingerprint: "fingerprint-1",
+      packageManager: "bun",
+      framework: "vite",
+      installCommand: "bun install",
+      devCommand: "bun run dev",
+      envStrategy: "symlink_root",
+      envSourcePath: ".env",
+      portCount: 5,
+      storageMode: "dynamo-managed",
+      autoRunSetupOnWorktreeCreate: true,
+      createdAt: "2026-04-24T00:00:00.000Z",
+      updatedAt: "2026-04-24T00:00:00.000Z",
+    });
+
+    assert.strictEqual(profile.storageMode, "dynamo-managed");
+
+    const applyInput = yield* decodeProjectApplyWorktreeSetupInput({
+      projectId: "project-1",
+      projectCwd: "/tmp/project",
+      scanFingerprint: profile.scanFingerprint,
+      installCommand: profile.installCommand,
+      devCommand: profile.devCommand,
+      envStrategy: profile.envStrategy,
+      envSourcePath: profile.envSourcePath,
+      portCount: profile.portCount,
+      autoRunSetupOnWorktreeCreate: true,
+    });
+    assert.strictEqual(applyInput.projectId, "project-1");
+  }),
+);
+
+it.effect("decodes worktree setup scan results", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeProjectScanWorktreeSetupResult({
+      configured: false,
+      promptRequired: true,
+      scanFingerprint: "fingerprint-1",
+      detectedProjectType: "Vite",
+      recommendation: {
+        packageManager: "bun",
+        framework: "vite",
+        installCommand: "bun install",
+        devCommand: "bun run dev",
+        envStrategy: "none",
+        envSourcePath: null,
+        portCount: 5,
+        confidence: "high",
+      },
+      runtimeHelperPreview: {
+        storageMode: "dynamo-managed",
+        setupDescription: "Setup helpers are stored by Dynamo.",
+        devDescription: "Dev helpers are stored by Dynamo.",
+      },
+    });
+    assert.deepStrictEqual(parsed.warnings, []);
+  }),
+);
+
+it("exposes worktree setup RPC method names", () => {
+  assert.strictEqual(WS_METHODS.projectsScanWorktreeSetup, "projects.scanWorktreeSetup");
+  assert.strictEqual(WS_METHODS.projectsApplyWorktreeSetup, "projects.applyWorktreeSetup");
+});
 
 it.effect("decodes project.meta-updated payloads with explicit default provider", () =>
   Effect.gen(function* () {

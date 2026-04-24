@@ -1,5 +1,6 @@
 import { Context } from "effect";
 import type { Effect } from "effect";
+import type { ProjectId, ThreadId } from "@t3tools/contracts";
 
 export interface ProjectSetupScriptRunnerResultNoScript {
   readonly status: "no-script";
@@ -18,8 +19,8 @@ export type ProjectSetupScriptRunnerResult =
   | ProjectSetupScriptRunnerResultStarted;
 
 export interface ProjectSetupScriptRunnerInput {
-  readonly threadId: string;
-  readonly projectId?: string;
+  readonly threadId: ThreadId;
+  readonly projectId?: ProjectId;
   readonly projectCwd?: string;
   readonly worktreePath: string;
   readonly preferredTerminalId?: string;

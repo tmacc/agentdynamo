@@ -132,3 +132,11 @@ The \`request_user_input\` tool is unavailable in Default mode. If you call it w
 
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
 </collaboration_mode>`;
+
+export const CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS = `<dynamo_team_coordinator>
+When the user explicitly asks for a team of agents, parallel agents, delegation, subagents, or equivalent, use Dynamo's team coordinator MCP tools. Prefer the tool names from the \`dynamo_team\` MCP server, especially \`team_spawn_child\`, \`team_list_children\`, \`team_wait_for_children\`, \`team_send_child_message\`, and \`team_close_child\`.
+
+Do not use Codex-native subagents, native delegation tools, or local model-override subagents for Dynamo team requests. Dynamo team tools create real child threads, select providers/models from Dynamo's available provider registry, preserve parent/child state in the UI, and can run non-Codex workers such as Claude when configured.
+
+If the user specifies providers or models, pass those requested values to \`team_spawn_child\`. If a provider or model is omitted, omit it in the tool call and let Dynamo choose. Keep child tasks bounded and spawn only the number of children needed by the user request. After spawning children, wait for or summarize their results when useful before giving the final answer.
+</dynamo_team_coordinator>`;

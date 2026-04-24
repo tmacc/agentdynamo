@@ -7,10 +7,12 @@ import {
   type ProjectSetupScriptRunnerShape,
   ProjectSetupScriptRunner,
 } from "../Services/ProjectSetupScriptRunner.ts";
+import { WorktreeSetupRuntime } from "../Services/WorktreeSetupRuntime.ts";
 
 const makeProjectSetupScriptRunner = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const terminalManager = yield* TerminalManager;
+  const worktreeSetupRuntime = yield* WorktreeSetupRuntime;
 
   const runForThread: ProjectSetupScriptRunnerShape["runForThread"] = (input) =>
     Effect.gen(function* () {
@@ -26,6 +28,20 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
 
       if (!project) {
         return yield* Effect.fail(new Error("Project was not found for setup script execution."));
+      }
+
+      if (
+        project.worktreeSetup?.status === "configured" &&
+        project.worktreeSetup.autoRunSetupOnWorktreeCreate
+      ) {
+        return yield* worktreeSetupRuntime.runSetupForThread({
+          threadId: input.threadId,
+          projectId: project.id,
+          projectCwd: project.workspaceRoot,
+          worktreePath: input.worktreePath,
+          profile: project.worktreeSetup,
+          ...(input.preferredTerminalId ? { preferredTerminalId: input.preferredTerminalId } : {}),
+        });
       }
 
       const script = setupProjectScript(project.scripts);

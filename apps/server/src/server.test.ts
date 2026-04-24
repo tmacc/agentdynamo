@@ -106,9 +106,25 @@ import {
   type ProjectSetupScriptRunnerShape,
 } from "./project/Services/ProjectSetupScriptRunner.ts";
 import {
+  WorktreeSetupApplicator,
+  type WorktreeSetupApplicatorShape,
+} from "./project/Services/WorktreeSetupApplicator.ts";
+import {
+  WorktreeSetupScanner,
+  type WorktreeSetupScannerShape,
+} from "./project/Services/WorktreeSetupScanner.ts";
+import {
   RepositoryIdentityResolver,
   type RepositoryIdentityResolverShape,
 } from "./project/Services/RepositoryIdentityResolver.ts";
+import {
+  TeamCoordinatorAccess,
+  type TeamCoordinatorAccessShape,
+} from "./team/Services/TeamCoordinatorAccess.ts";
+import {
+  TeamOrchestrationService,
+  type TeamOrchestrationServiceShape,
+} from "./team/Services/TeamOrchestrationService.ts";
 import {
   ServerEnvironment,
   type ServerEnvironmentShape,
@@ -207,16 +223,6 @@ const makeDefaultOrchestrationThreadShell = (
     ...overrides,
   };
 };
-
-const workspaceAndProjectServicesLayer = Layer.mergeAll(
-  WorkspacePathsLive,
-  WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
-  WorkspaceFileSystemLive.pipe(
-    Layer.provide(WorkspacePathsLive),
-    Layer.provide(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
-  ),
-  ProjectFaviconResolverLive,
-);
 
 const browserOtlpTracingLayer = Layer.mergeAll(
   FetchHttpClient.layer,
@@ -341,6 +347,8 @@ const buildAppUnderTest = (options?: {
     gitManager?: Partial<GitManagerShape>;
     gitStatusBroadcaster?: Partial<GitStatusBroadcasterShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
+    worktreeSetupScanner?: Partial<WorktreeSetupScannerShape>;
+    worktreeSetupApplicator?: Partial<WorktreeSetupApplicatorShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
@@ -353,6 +361,8 @@ const buildAppUnderTest = (options?: {
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     serverEnvironment?: Partial<ServerEnvironmentShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
+    teamCoordinatorAccess?: Partial<TeamCoordinatorAccessShape>;
+    teamOrchestrationService?: Partial<TeamOrchestrationServiceShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -467,6 +477,18 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
+        Layer.mock(WorktreeSetupScanner)({
+          scan: () => Effect.die(new Error("unused")),
+          ...options?.layers?.worktreeSetupScanner,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(WorktreeSetupApplicator)({
+          apply: () => Effect.die(new Error("unused")),
+          ...options?.layers?.worktreeSetupApplicator,
+        }),
+      ),
+      Layer.provide(
         Layer.mock(TerminalManager)({
           ...options?.layers?.terminalManager,
         }),
@@ -478,6 +500,32 @@ const buildAppUnderTest = (options?: {
           dispatch: () => Effect.succeed({ sequence: 0 }),
           streamDomainEvents: Stream.empty,
           ...options?.layers?.orchestrationEngine,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(TeamCoordinatorAccess)({
+          issueGrant: () =>
+            Effect.succeed({
+              grantId: "grant-test" as never,
+              parentThreadId: defaultThreadId,
+              provider: "codex",
+              accessToken: "test-token",
+              createdAt: new Date(0).toISOString(),
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            }),
+          authenticate: () => Effect.succeed(Option.some(defaultThreadId)),
+          revokeForThread: () => Effect.void,
+          ...options?.layers?.teamCoordinatorAccess,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(TeamOrchestrationService)({
+          spawnChild: () => Effect.die(new Error("unused")),
+          listChildren: () => Effect.succeed([]),
+          waitForChildren: () => Effect.succeed([]),
+          sendChildMessage: () => Effect.die(new Error("unused")),
+          closeChild: () => Effect.die(new Error("unused")),
+          ...options?.layers?.teamOrchestrationService,
         }),
       ),
       Layer.provide(

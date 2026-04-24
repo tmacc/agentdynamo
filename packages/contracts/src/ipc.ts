@@ -1,6 +1,8 @@
 import type {
   GitCheckoutInput,
   GitCheckoutResult,
+  GitApplyWorktreePatchInput,
+  GitApplyWorktreePatchResult,
   GitCreateBranchInput,
   GitCreateBranchResult,
   GitPreparePullRequestThreadInput,
@@ -33,6 +35,10 @@ import type {
   BoardSubscribeProjectInput,
 } from "./board.ts";
 import type {
+  ProjectApplyWorktreeSetupInput,
+  ProjectApplyWorktreeSetupResult,
+  ProjectScanWorktreeSetupInput,
+  ProjectScanWorktreeSetupResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -259,6 +265,12 @@ export interface EnvironmentApi {
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+    scanWorktreeSetup: (
+      input: ProjectScanWorktreeSetupInput,
+    ) => Promise<ProjectScanWorktreeSetupResult>;
+    applyWorktreeSetup: (
+      input: ProjectApplyWorktreeSetupInput,
+    ) => Promise<ProjectApplyWorktreeSetupResult>;
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
@@ -267,6 +279,7 @@ export interface EnvironmentApi {
     listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
     createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
     removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
+    applyWorktreePatch: (input: GitApplyWorktreePatchInput) => Promise<GitApplyWorktreePatchResult>;
     createBranch: (input: GitCreateBranchInput) => Promise<GitCreateBranchResult>;
     checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResult>;
     init: (input: GitInitInput) => Promise<void>;

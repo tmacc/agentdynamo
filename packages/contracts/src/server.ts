@@ -11,7 +11,7 @@ import {
 import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings.ts";
 import { EditorId } from "./editor.ts";
 import { ModelCapabilities } from "./model.ts";
-import { ProviderKind } from "./orchestration.ts";
+import { ProviderKind, TeamTaskKind } from "./orchestration.ts";
 import { ServerSettings } from "./settings.ts";
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
@@ -50,6 +50,14 @@ export const ServerProviderAuth = Schema.Struct({
 });
 export type ServerProviderAuth = typeof ServerProviderAuth.Type;
 
+export const ServerProviderModelTeamCapabilities = Schema.Struct({
+  workerRank: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(50))),
+  preferredTaskKinds: Schema.Array(TeamTaskKind).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+});
+export type ServerProviderModelTeamCapabilities = typeof ServerProviderModelTeamCapabilities.Type;
+
 export const ServerProviderModel = Schema.Struct({
   slug: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
@@ -57,8 +65,15 @@ export const ServerProviderModel = Schema.Struct({
   subProvider: Schema.optional(TrimmedNonEmptyString),
   isCustom: Schema.Boolean,
   capabilities: Schema.NullOr(ModelCapabilities),
+  teamCapabilities: Schema.optional(ServerProviderModelTeamCapabilities),
 });
 export type ServerProviderModel = typeof ServerProviderModel.Type;
+
+export const ServerProviderTeamCapabilities = Schema.Struct({
+  supportsCoordinatorTools: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  supportsWorker: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+});
+export type ServerProviderTeamCapabilities = typeof ServerProviderTeamCapabilities.Type;
 
 export const ServerProviderSlashCommandInput = Schema.Struct({
   hint: TrimmedNonEmptyString,
@@ -93,6 +108,7 @@ export const ServerProvider = Schema.Struct({
   checkedAt: IsoDateTime,
   message: Schema.optional(TrimmedNonEmptyString),
   models: Schema.Array(ServerProviderModel),
+  teamCapabilities: Schema.optional(ServerProviderTeamCapabilities),
   slashCommands: Schema.Array(ServerProviderSlashCommand).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),

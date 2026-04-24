@@ -24,6 +24,8 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
     projects: {
       searchEntries: rpcClient.projects.searchEntries,
       writeFile: rpcClient.projects.writeFile,
+      scanWorktreeSetup: rpcClient.projects.scanWorktreeSetup,
+      applyWorktreeSetup: rpcClient.projects.applyWorktreeSetup,
     },
     filesystem: {
       browse: rpcClient.filesystem.browse,
@@ -35,6 +37,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       listBranches: rpcClient.git.listBranches,
       createWorktree: rpcClient.git.createWorktree,
       removeWorktree: rpcClient.git.removeWorktree,
+      applyWorktreePatch: rpcClient.git.applyWorktreePatch,
       createBranch: rpcClient.git.createBranch,
       checkout: rpcClient.git.checkout,
       init: rpcClient.git.init,

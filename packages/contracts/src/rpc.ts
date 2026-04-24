@@ -23,6 +23,8 @@ import {
 } from "./filesystem.ts";
 import {
   GitActionProgressEvent,
+  GitApplyWorktreePatchInput,
+  GitApplyWorktreePatchResult,
   GitCheckoutInput,
   GitCheckoutResult,
   GitCommandError,
@@ -67,6 +69,12 @@ import {
   OrchestrationRpcSchemas,
 } from "./orchestration.ts";
 import {
+  ProjectApplyWorktreeSetupError,
+  ProjectApplyWorktreeSetupInput,
+  ProjectApplyWorktreeSetupResult,
+  ProjectScanWorktreeSetupError,
+  ProjectScanWorktreeSetupInput,
+  ProjectScanWorktreeSetupResult,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -102,6 +110,8 @@ export const WS_METHODS = {
   projectsRemove: "projects.remove",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsScanWorktreeSetup: "projects.scanWorktreeSetup",
+  projectsApplyWorktreeSetup: "projects.applyWorktreeSetup",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -116,6 +126,7 @@ export const WS_METHODS = {
   gitListBranches: "git.listBranches",
   gitCreateWorktree: "git.createWorktree",
   gitRemoveWorktree: "git.removeWorktree",
+  gitApplyWorktreePatch: "git.applyWorktreePatch",
   gitCreateBranch: "git.createBranch",
   gitCheckout: "git.checkout",
   gitInit: "git.init",
@@ -186,6 +197,18 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
   success: ProjectWriteFileResult,
   error: ProjectWriteFileError,
+});
+
+export const WsProjectsScanWorktreeSetupRpc = Rpc.make(WS_METHODS.projectsScanWorktreeSetup, {
+  payload: ProjectScanWorktreeSetupInput,
+  success: ProjectScanWorktreeSetupResult,
+  error: ProjectScanWorktreeSetupError,
+});
+
+export const WsProjectsApplyWorktreeSetupRpc = Rpc.make(WS_METHODS.projectsApplyWorktreeSetup, {
+  payload: ProjectApplyWorktreeSetupInput,
+  success: ProjectApplyWorktreeSetupResult,
+  error: ProjectApplyWorktreeSetupError,
 });
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
@@ -267,6 +290,12 @@ export const WsGitCreateWorktreeRpc = Rpc.make(WS_METHODS.gitCreateWorktree, {
 export const WsGitRemoveWorktreeRpc = Rpc.make(WS_METHODS.gitRemoveWorktree, {
   payload: GitRemoveWorktreeInput,
   error: GitCommandError,
+});
+
+export const WsGitApplyWorktreePatchRpc = Rpc.make(WS_METHODS.gitApplyWorktreePatch, {
+  payload: GitApplyWorktreePatchInput,
+  success: GitApplyWorktreePatchResult,
+  error: GitManagerServiceError,
 });
 
 export const WsGitCreateBranchRpc = Rpc.make(WS_METHODS.gitCreateBranch, {
@@ -423,6 +452,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpdateSettingsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsScanWorktreeSetupRpc,
+  WsProjectsApplyWorktreeSetupRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsSubscribeGitStatusRpc,
@@ -436,6 +467,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitListBranchesRpc,
   WsGitCreateWorktreeRpc,
   WsGitRemoveWorktreeRpc,
+  WsGitApplyWorktreePatchRpc,
   WsGitCreateBranchRpc,
   WsGitCheckoutRpc,
   WsGitInitRpc,

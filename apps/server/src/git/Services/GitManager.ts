@@ -7,6 +7,8 @@
  * @module GitManager
  */
 import {
+  GitApplyWorktreePatchInput,
+  GitApplyWorktreePatchResult,
   GitActionProgressEvent,
   GitGetPullRequestRemoteOptionsInput,
   GitGetPullRequestRemoteOptionsResult,
@@ -103,6 +105,13 @@ export interface GitManagerShape {
   readonly preparePullRequestThread: (
     input: GitPreparePullRequestThreadInput,
   ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
+
+  /**
+   * Apply the full dirty diff from a child worktree into a parent/coordinator worktree.
+   */
+  readonly applyWorktreePatch: (
+    input: GitApplyWorktreePatchInput,
+  ) => Effect.Effect<GitApplyWorktreePatchResult, GitManagerServiceError>;
 
   /**
    * Run a Git action (`commit`, `push`, `create_pr`, `commit_push`, `commit_push_pr`).

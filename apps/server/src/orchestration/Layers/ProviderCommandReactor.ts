@@ -34,6 +34,8 @@ import {
 } from "../Services/ProviderCommandReactor.ts";
 import { renderContextHandoff, type ContextHandoffRenderResult } from "../contextHandoff.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ServerConfig } from "../../config.ts";
+import { TeamCoordinatorAccess } from "../../team/Services/TeamCoordinatorAccess.ts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -271,6 +273,8 @@ const make = Effect.gen(function* () {
   const gitStatusBroadcaster = yield* GitStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
+  const serverConfig = yield* ServerConfig;
+  const teamCoordinatorAccess = yield* TeamCoordinatorAccess;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
     timeToLive: HANDLED_TURN_START_KEY_TTL,
@@ -403,18 +407,50 @@ const make = Effect.gen(function* () {
         .listSessions()
         .pipe(Effect.map((sessions) => sessions.find((session) => session.threadId === threadId)));
 
+    const resolveTeamCoordinator = Effect.fnUntraced(function* (provider: ProviderKind) {
+      if (thread.teamParent != null) {
+        return undefined;
+      }
+      const settings = yield* serverSettingsService.getSettings;
+      if (!settings.teamAgents.enabled || !settings.teamAgents.coordinatorToolsOnTopLevelThreads) {
+        return undefined;
+      }
+      const capabilities = yield* providerService.getCapabilities(provider);
+      if (capabilities.teamCoordinatorTools !== "mcp-http") {
+        return undefined;
+      }
+      const grant = yield* teamCoordinatorAccess.issueGrant({
+        parentThreadId: thread.id,
+        provider,
+      });
+      const host =
+        serverConfig.host && serverConfig.host.length > 0 ? serverConfig.host : "127.0.0.1";
+      return {
+        parentThreadId: thread.id,
+        mcpServerName: "dynamo_team",
+        mcpServerUrl: `http://${host}:${serverConfig.port}/api/team-mcp`,
+        accessToken: grant.accessToken,
+      };
+    });
+
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
-    }) =>
-      providerService.startSession(threadId, {
-        threadId,
-        provider: input?.provider ?? desiredProvider,
-        ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-        modelSelection: desiredModelSelection,
-        ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-        runtimeMode: desiredRuntimeMode,
+    }) => {
+      const provider = input?.provider ?? desiredProvider;
+      return Effect.gen(function* () {
+        const teamCoordinator = yield* resolveTeamCoordinator(provider);
+        return yield* providerService.startSession(threadId, {
+          threadId,
+          provider,
+          ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+          modelSelection: desiredModelSelection,
+          ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+          runtimeMode: desiredRuntimeMode,
+          ...(teamCoordinator !== undefined ? { teamCoordinator } : {}),
+        });
       });
+    };
 
     const bindSessionToThread = (session: ProviderSession) =>
       setThreadSession({

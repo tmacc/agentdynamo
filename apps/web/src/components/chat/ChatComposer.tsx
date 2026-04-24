@@ -106,6 +106,7 @@ import {
   LockOpenIcon,
   PenLineIcon,
   XIcon,
+  UsersRoundIcon,
 } from "lucide-react";
 import { proposedPlanTitle } from "../../proposedPlan";
 import { resolveSelectableProvider, getProviderModels } from "../../providerModels";
@@ -180,9 +181,13 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   showPlanToggle: boolean;
   planSidebarLabel: string;
   planSidebarOpen: boolean;
+  showAgentsToggle: boolean;
+  agentsSidebarOpen: boolean;
+  activeTeamTaskCount: number;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onTogglePlanSidebar: () => void;
+  onToggleAgentsSidebar: () => void;
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
@@ -272,6 +277,33 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           >
             <ListTodoIcon />
             <span className="sr-only sm:not-sr-only">{props.planSidebarLabel}</span>
+          </Button>
+        </>
+      ) : null}
+
+      {props.showAgentsToggle ? (
+        <>
+          <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+          <Button
+            variant="ghost"
+            className={cn(
+              "relative shrink-0 whitespace-nowrap px-2 sm:px-3",
+              props.agentsSidebarOpen
+                ? "text-primary hover:text-primary"
+                : "text-muted-foreground/70 hover:text-foreground/80",
+            )}
+            size="sm"
+            type="button"
+            onClick={props.onToggleAgentsSidebar}
+            title={props.agentsSidebarOpen ? "Hide agents sidebar" : "Show agents sidebar"}
+          >
+            <UsersRoundIcon />
+            <span className="sr-only sm:not-sr-only">Agents</span>
+            {props.activeTeamTaskCount > 0 ? (
+              <span className="-right-0.5 -top-0.5 absolute flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+                {props.activeTeamTaskCount}
+              </span>
+            ) : null}
           </Button>
         </>
       ) : null}
@@ -410,6 +442,11 @@ export interface ChatComposerProps {
   sidebarProposedPlan: { turnId?: TurnId } | null;
   planSidebarLabel: string;
   planSidebarOpen: boolean;
+  showAgentsToggle: boolean;
+  agentsSidebarOpen: boolean;
+  activeTeamTaskCount: number;
+  composerPlaceholder?: string;
+  composerAssistiveText?: string;
 
   // Mode
   runtimeMode: RuntimeMode;
@@ -464,6 +501,7 @@ export interface ChatComposerProps {
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
   togglePlanSidebar: () => void;
+  toggleAgentsSidebar: () => void;
 
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
@@ -507,6 +545,9 @@ export const ChatComposer = memo(
       sidebarProposedPlan,
       planSidebarLabel,
       planSidebarOpen,
+      showAgentsToggle,
+      agentsSidebarOpen,
+      activeTeamTaskCount,
       runtimeMode,
       interactionMode,
       lockedProvider,
@@ -537,6 +578,7 @@ export const ChatComposer = memo(
       handleRuntimeModeChange,
       handleInteractionModeChange,
       togglePlanSidebar,
+      toggleAgentsSidebar,
       focusComposer,
       scheduleComposerFocus,
       setThreadError,
@@ -1961,10 +2003,18 @@ export const ChatComposer = memo(
                           ? "Add feedback to refine the plan, or leave this blank to implement it"
                           : phase === "disconnected"
                             ? "Ask for follow-up changes or attach images"
-                            : "Ask anything, @tag files/folders, or use / to show available commands"
+                            : (props.composerPlaceholder ??
+                              "Ask anything, @tag files/folders, or use / to show available commands")
                   }
                   disabled={isConnecting || isComposerApprovalState}
                 />
+                {props.composerAssistiveText &&
+                !isComposerApprovalState &&
+                !activePendingProgress ? (
+                  <div className="px-2 pt-1 text-[11px] text-muted-foreground/65">
+                    {props.composerAssistiveText}
+                  </div>
+                ) : null}
               </div>
 
               {/* Bottom toolbar */}
@@ -2022,6 +2072,9 @@ export const ChatComposer = memo(
                     {isComposerFooterCompact ? (
                       <CompactComposerControlsMenu
                         activePlan={showPlanSidebarToggle}
+                        activeAgents={showAgentsToggle}
+                        activeTeamTaskCount={activeTeamTaskCount}
+                        agentsSidebarOpen={agentsSidebarOpen}
                         interactionMode={interactionMode}
                         planSidebarLabel={planSidebarLabel}
                         planSidebarOpen={planSidebarOpen}
@@ -2031,6 +2084,7 @@ export const ChatComposer = memo(
                         }
                         traitsMenuContent={providerTraitsMenuContent}
                         onToggleInteractionMode={toggleInteractionMode}
+                        onToggleAgentsSidebar={toggleAgentsSidebar}
                         onTogglePlanSidebar={togglePlanSidebar}
                         onRuntimeModeChange={handleRuntimeModeChange}
                       />
@@ -2054,9 +2108,13 @@ export const ChatComposer = memo(
                           showPlanToggle={showPlanSidebarToggle}
                           planSidebarLabel={planSidebarLabel}
                           planSidebarOpen={planSidebarOpen}
+                          showAgentsToggle={showAgentsToggle}
+                          agentsSidebarOpen={agentsSidebarOpen}
+                          activeTeamTaskCount={activeTeamTaskCount}
                           onToggleInteractionMode={toggleInteractionMode}
                           onRuntimeModeChange={handleRuntimeModeChange}
                           onTogglePlanSidebar={togglePlanSidebar}
+                          onToggleAgentsSidebar={toggleAgentsSidebar}
                         />
                       </>
                     )}
