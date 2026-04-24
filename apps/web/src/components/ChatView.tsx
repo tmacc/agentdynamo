@@ -1,6 +1,7 @@
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
+  type GitPreviewWorktreePatchResult,
   type ClaudeAgentEffort,
   type EnvironmentId,
   type MessageId,
@@ -139,6 +140,16 @@ import {
 } from "../lib/terminalContext";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
 import { TeamAgentsSidebar } from "./chat/TeamAgentsSidebar";
 import type { TeamTaskInlineView } from "./chat/TeamTaskInlineBlock";
 import {
@@ -775,6 +786,11 @@ export default function ChatView(props: ChatViewProps) {
     useState<Record<string, number>>({});
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [agentsSidebarOpen, setAgentsSidebarOpen] = useState(false);
+  const [teamPatchReview, setTeamPatchReview] = useState<{
+    task: OrchestrationTeamTask;
+    preview: GitPreviewWorktreePatchResult;
+    applying: boolean;
+  } | null>(null);
   const shouldUseRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
@@ -3466,79 +3482,96 @@ export default function ChatView(props: ChatViewProps) {
     [openThreadById],
   );
   const reviewTeamTaskChanges = useCallback(
-    (childThreadId: ThreadId) => {
-      if (!teamRootThread) return;
-      onDiffPanelOpen?.();
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: {
-          environmentId: teamRootThread.environmentId,
-          threadId: childThreadId,
-        },
-        search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
-          return { ...rest, diff: "1" };
-        },
-      });
-    },
-    [navigate, onDiffPanelOpen, teamRootThread],
-  );
-  const applyTeamTaskChanges = useCallback(
     async (task: OrchestrationTeamTask) => {
-      if (!teamRootThread || !activeProject) return;
-      const childThread = teamTaskChildThreadsById[task.childThreadId] ?? null;
-      const childCwd = childThread?.worktreePath ?? null;
-      if (!childCwd) {
+      if (!teamRootThread) return;
+      const api = readEnvironmentApi(teamRootThread.environmentId);
+      if (!api) return;
+      if (["queued", "starting", "running", "waiting"].includes(task.status)) {
         toastManager.add(
           stackedThreadToast({
             type: "warning",
-            title: "No isolated child worktree",
-            description:
-              "This child agent did not run in a worktree, so there is no patch to apply.",
+            title: "Child agent is still working",
+            description: "Wait for the child agent to finish before applying its changes.",
           }),
         );
         return;
       }
-      const parentCwd = teamRootThread.worktreePath ?? activeProject.cwd;
-      const api = readEnvironmentApi(teamRootThread.environmentId);
-      if (!api) return;
 
       try {
-        const result = await api.git.applyWorktreePatch({ parentCwd, childCwd });
-        if (result.status === "skipped_no_changes") {
+        const preview = await api.git.previewWorktreePatch({
+          parentThreadId: teamRootThread.id,
+          taskId: task.id,
+        });
+        if (preview.status === "skipped_no_changes") {
           toastManager.add(
             stackedThreadToast({
               type: "info",
-              title: "No child changes to apply",
-              description: "The child worktree does not have local file changes.",
+              title: "No child changes to review",
+              description: "The child worktree does not contain changes to apply.",
             }),
           );
           return;
         }
-
-        const fileCount = result.files.length;
-        toastManager.add(
-          stackedThreadToast({
-            type: "success",
-            title: "Applied child changes",
-            description:
-              fileCount === 1
-                ? "Applied 1 changed file to the coordinator worktree."
-                : `Applied ${fileCount} changed files to the coordinator worktree.`,
-          }),
-        );
+        setTeamPatchReview({ task, preview, applying: false });
       } catch (error) {
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Could not apply child changes",
+            title: "Could not load child changes",
             description: error instanceof Error ? error.message : "An unexpected error occurred.",
           }),
         );
       }
     },
-    [activeProject, teamRootThread, teamTaskChildThreadsById],
+    [teamRootThread],
   );
+  const applyReviewedTeamTaskChanges = useCallback(async () => {
+    if (!teamRootThread || !teamPatchReview) return;
+    const { task, preview } = teamPatchReview;
+    const api = readEnvironmentApi(teamRootThread.environmentId);
+    if (!api) return;
+
+    setTeamPatchReview((current) => (current ? { ...current, applying: true } : current));
+    try {
+      const result = await api.git.applyWorktreePatch({
+        parentThreadId: teamRootThread.id,
+        taskId: task.id,
+        expectedPatchHash: preview.patchHash,
+      });
+      setTeamPatchReview(null);
+      if (result.status === "skipped_no_changes") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "info",
+            title: "No child changes to apply",
+            description: "The child worktree does not contain changes to apply.",
+          }),
+        );
+        return;
+      }
+
+      const fileCount = result.files.length;
+      toastManager.add(
+        stackedThreadToast({
+          type: "success",
+          title: "Applied child changes",
+          description:
+            fileCount === 1
+              ? "Applied 1 changed file to the coordinator worktree."
+              : `Applied ${fileCount} changed files to the coordinator worktree.`,
+        }),
+      );
+    } catch (error) {
+      setTeamPatchReview((current) => (current ? { ...current, applying: false } : current));
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not apply child changes",
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        }),
+      );
+    }
+  }, [teamPatchReview, teamRootThread]);
   const cancelTeamTask = useCallback(
     (taskId: TeamTaskId) => {
       if (!teamRootThread) return;
@@ -3684,7 +3717,6 @@ export default function ChatView(props: ChatViewProps) {
               onOpenTeamTask={openTeamTaskThread}
               onCancelTeamTask={cancelTeamTask}
               onReviewTeamTaskChanges={reviewTeamTaskChanges}
-              onApplyTeamTaskChanges={applyTeamTaskChanges}
             />
 
             {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
@@ -3873,7 +3905,6 @@ export default function ChatView(props: ChatViewProps) {
             onOpenThread={openTeamTaskThread}
             onCancelTask={cancelTeamTask}
             onReviewTaskChanges={reviewTeamTaskChanges}
-            onApplyTaskChanges={applyTeamTaskChanges}
             onClose={closeAgentsSidebar}
           />
         ) : null}
@@ -3925,12 +3956,61 @@ export default function ChatView(props: ChatViewProps) {
               onOpenThread={openTeamTaskThread}
               onCancelTask={cancelTeamTask}
               onReviewTaskChanges={reviewTeamTaskChanges}
-              onApplyTaskChanges={applyTeamTaskChanges}
               onClose={closeAgentsSidebar}
             />
           ) : null}
         </RightPanelSheet>
       ) : null}
+
+      <Dialog
+        open={teamPatchReview !== null}
+        onOpenChange={(open) => !open && setTeamPatchReview(null)}
+      >
+        <DialogPopup className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Review child changes</DialogTitle>
+            <DialogDescription>
+              {teamPatchReview
+                ? `${teamPatchReview.task.roleLabel || teamPatchReview.task.title} changed ${teamPatchReview.preview.files.length} file${teamPatchReview.preview.files.length === 1 ? "" : "s"}. Applying copies this reviewed patch into the coordinator worktree as uncommitted changes.`
+                : "Review the child agent patch before applying it."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-3">
+            {teamPatchReview?.preview.includesCommittedChanges ? (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-700 text-xs dark:text-amber-300">
+                This patch includes committed child branch changes and uncommitted worktree changes.
+              </div>
+            ) : null}
+            <div className="flex flex-wrap gap-2 text-muted-foreground text-xs">
+              {teamPatchReview?.preview.files.slice(0, 12).map((file) => (
+                <span key={file.path} className="rounded-md border border-border/70 px-2 py-1">
+                  {file.path} +{file.insertions}/-{file.deletions}
+                </span>
+              ))}
+              {teamPatchReview && teamPatchReview.preview.files.length > 12 ? (
+                <span className="rounded-md border border-border/70 px-2 py-1">
+                  +{teamPatchReview.preview.files.length - 12} more
+                </span>
+              ) : null}
+            </div>
+            <pre className="max-h-[52vh] overflow-auto rounded-md border border-border/70 bg-muted/40 p-3 font-mono text-[11px] leading-relaxed">
+              {teamPatchReview?.preview.patch ?? ""}
+            </pre>
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setTeamPatchReview(null)}
+              disabled={teamPatchReview?.applying}
+            >
+              Cancel
+            </Button>
+            <Button onClick={applyReviewedTeamTaskChanges} disabled={teamPatchReview?.applying}>
+              Apply reviewed patch
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
 
       {expandedImage && (
         <ExpandedImageDialog preview={expandedImage} onClose={closeExpandedImage} />

@@ -40,6 +40,8 @@ import {
   GitManagerServiceError,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
+  GitPreviewWorktreePatchInput,
+  GitPreviewWorktreePatchResult,
   GitPullInput,
   GitPullRequestRefInput,
   GitPullResult,
@@ -126,6 +128,7 @@ export const WS_METHODS = {
   gitListBranches: "git.listBranches",
   gitCreateWorktree: "git.createWorktree",
   gitRemoveWorktree: "git.removeWorktree",
+  gitPreviewWorktreePatch: "git.previewWorktreePatch",
   gitApplyWorktreePatch: "git.applyWorktreePatch",
   gitCreateBranch: "git.createBranch",
   gitCheckout: "git.checkout",
@@ -298,6 +301,12 @@ export const WsGitApplyWorktreePatchRpc = Rpc.make(WS_METHODS.gitApplyWorktreePa
   error: GitManagerServiceError,
 });
 
+export const WsGitPreviewWorktreePatchRpc = Rpc.make(WS_METHODS.gitPreviewWorktreePatch, {
+  payload: GitPreviewWorktreePatchInput,
+  success: GitPreviewWorktreePatchResult,
+  error: GitManagerServiceError,
+});
+
 export const WsGitCreateBranchRpc = Rpc.make(WS_METHODS.gitCreateBranch, {
   payload: GitCreateBranchInput,
   success: GitCreateBranchResult,
@@ -467,6 +476,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitListBranchesRpc,
   WsGitCreateWorktreeRpc,
   WsGitRemoveWorktreeRpc,
+  WsGitPreviewWorktreePatchRpc,
   WsGitApplyWorktreePatchRpc,
   WsGitCreateBranchRpc,
   WsGitCheckoutRpc,

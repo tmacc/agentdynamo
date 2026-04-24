@@ -27,7 +27,6 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
   onOpenThread,
   onCancelTask,
   onReviewTaskChanges,
-  onApplyTaskChanges,
   onClose,
 }: {
   coordinatorTitle: string;
@@ -38,8 +37,7 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
   mode?: "sheet" | "sidebar";
   onOpenThread: (threadId: ThreadId) => void;
   onCancelTask: (taskId: TeamTaskId) => void;
-  onReviewTaskChanges: (threadId: ThreadId) => void;
-  onApplyTaskChanges: (task: OrchestrationTeamTask) => void;
+  onReviewTaskChanges: (task: OrchestrationTeamTask) => void;
   onClose: () => void;
 }) {
   const activeCount = tasks.filter((view) => isActiveTeamTask(view.task)).length;
@@ -109,7 +107,6 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
                   onOpenThread={onOpenThread}
                   onCancelTask={onCancelTask}
                   onReviewTaskChanges={onReviewTaskChanges}
-                  onApplyTaskChanges={onApplyTaskChanges}
                 />
               ))}
             </div>
@@ -134,7 +131,6 @@ const AgentCard = memo(function AgentCard({
   onOpenThread,
   onCancelTask,
   onReviewTaskChanges,
-  onApplyTaskChanges,
 }: {
   task: OrchestrationTeamTask;
   active: boolean;
@@ -144,8 +140,7 @@ const AgentCard = memo(function AgentCard({
   timestampFormat: TimestampFormat;
   onOpenThread: (threadId: ThreadId) => void;
   onCancelTask: (taskId: TeamTaskId) => void;
-  onReviewTaskChanges: (threadId: ThreadId) => void;
-  onApplyTaskChanges: (task: OrchestrationTeamTask) => void;
+  onReviewTaskChanges: (task: OrchestrationTeamTask) => void;
 }) {
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[task.modelSelection.provider];
   const isActive = isActiveTeamTask(task);
@@ -194,14 +189,10 @@ const AgentCard = memo(function AgentCard({
           <ExternalLinkIcon className="size-3" />
           Open chat
         </Button>
-        <Button size="xs" variant="outline" onClick={() => onReviewTaskChanges(task.childThreadId)}>
-          <ExternalLinkIcon className="size-3" />
-          Review diff
-        </Button>
-        {childWorktreePath ? (
-          <Button size="xs" variant="ghost" onClick={() => onApplyTaskChanges(task)}>
+        {childWorktreePath && !isActive ? (
+          <Button size="xs" variant="ghost" onClick={() => onReviewTaskChanges(task)}>
             <CheckIcon className="size-3" />
-            Apply
+            Review & apply
           </Button>
         ) : null}
         {isActive ? (

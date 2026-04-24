@@ -74,6 +74,8 @@ function makeTestLayer(state: {
       Effect.die("setPullRequestRemote should not be called in this test"),
     preparePullRequestThread: () =>
       Effect.die("preparePullRequestThread should not be called in this test"),
+    previewWorktreePatch: () =>
+      Effect.die("previewWorktreePatch should not be called in this test"),
     applyWorktreePatch: () => Effect.die("applyWorktreePatch should not be called in this test"),
     runStackedAction: () => Effect.die("runStackedAction should not be called in this test"),
   };
@@ -277,6 +279,8 @@ describe("GitStatusBroadcasterLive", () => {
             Effect.die("setPullRequestRemote should not be called in this test"),
           preparePullRequestThread: () =>
             Effect.die("preparePullRequestThread should not be called in this test"),
+          previewWorktreePatch: () =>
+            Effect.die("previewWorktreePatch should not be called in this test"),
           applyWorktreePatch: () =>
             Effect.die("applyWorktreePatch should not be called in this test"),
           runStackedAction: () => Effect.die("runStackedAction should not be called in this test"),

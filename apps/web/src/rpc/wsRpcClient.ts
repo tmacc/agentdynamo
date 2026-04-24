@@ -100,6 +100,7 @@ export interface WsRpcClient {
     readonly listBranches: RpcUnaryMethod<typeof WS_METHODS.gitListBranches>;
     readonly createWorktree: RpcUnaryMethod<typeof WS_METHODS.gitCreateWorktree>;
     readonly removeWorktree: RpcUnaryMethod<typeof WS_METHODS.gitRemoveWorktree>;
+    readonly previewWorktreePatch: RpcUnaryMethod<typeof WS_METHODS.gitPreviewWorktreePatch>;
     readonly applyWorktreePatch: RpcUnaryMethod<typeof WS_METHODS.gitApplyWorktreePatch>;
     readonly createBranch: RpcUnaryMethod<typeof WS_METHODS.gitCreateBranch>;
     readonly checkout: RpcUnaryMethod<typeof WS_METHODS.gitCheckout>;
@@ -224,6 +225,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.gitCreateWorktree](input)),
       removeWorktree: (input) =>
         transport.request((client) => client[WS_METHODS.gitRemoveWorktree](input)),
+      previewWorktreePatch: (input) =>
+        transport.request((client) => client[WS_METHODS.gitPreviewWorktreePatch](input)),
       applyWorktreePatch: (input) =>
         transport.request((client) => client[WS_METHODS.gitApplyWorktreePatch](input)),
       createBranch: (input) =>

@@ -30,13 +30,11 @@ export const TeamTaskInlineBlocks = memo(function TeamTaskInlineBlocks({
   onOpenTask,
   onCancelTask,
   onReviewTaskChanges,
-  onApplyTaskChanges,
 }: {
   tasks: ReadonlyArray<TeamTaskInlineView>;
   onOpenTask: (threadId: ThreadId) => void;
   onCancelTask: (taskId: TeamTaskId) => void;
-  onReviewTaskChanges: (threadId: ThreadId) => void;
-  onApplyTaskChanges: (task: OrchestrationTeamTask) => void;
+  onReviewTaskChanges: (task: OrchestrationTeamTask) => void;
 }) {
   if (tasks.length === 0) {
     return null;
@@ -54,7 +52,6 @@ export const TeamTaskInlineBlocks = memo(function TeamTaskInlineBlocks({
           onOpenTask={onOpenTask}
           onCancelTask={onCancelTask}
           onReviewTaskChanges={onReviewTaskChanges}
-          onApplyTaskChanges={onApplyTaskChanges}
         />
       ))}
     </div>
@@ -66,13 +63,11 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
   onOpenTask,
   onCancelTask,
   onReviewTaskChanges,
-  onApplyTaskChanges,
 }: {
   view: TeamTaskInlineView;
   onOpenTask: (threadId: ThreadId) => void;
   onCancelTask: (taskId: TeamTaskId) => void;
-  onReviewTaskChanges: (threadId: ThreadId) => void;
-  onApplyTaskChanges: (task: OrchestrationTeamTask) => void;
+  onReviewTaskChanges: (task: OrchestrationTeamTask) => void;
 }) {
   const [open, setOpen] = useState(false);
   const { task, diffSummary, elapsed } = view;
@@ -134,21 +129,13 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
               Open child thread
               <ExternalLinkIcon className="size-3" />
             </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 text-primary/85 transition-colors hover:text-primary"
-              onClick={stopPropagation(() => onReviewTaskChanges(task.childThreadId))}
-            >
-              Review diff
-              <ExternalLinkIcon className="size-3" />
-            </button>
-            {view.childWorktreePath ? (
+            {view.childWorktreePath && !active ? (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-success transition-colors hover:text-success/80"
-                onClick={stopPropagation(() => onApplyTaskChanges(task))}
+                onClick={stopPropagation(() => onReviewTaskChanges(task))}
               >
-                Apply changes
+                Review & apply
                 <CheckIcon className="size-3" />
               </button>
             ) : null}

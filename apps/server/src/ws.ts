@@ -1060,21 +1060,16 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             git.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },
           ),
-        [WS_METHODS.gitApplyWorktreePatch]: (input) =>
+        [WS_METHODS.gitPreviewWorktreePatch]: (input) =>
           observeRpcEffect(
-            WS_METHODS.gitApplyWorktreePatch,
-            gitManager
-              .applyWorktreePatch(input)
-              .pipe(
-                Effect.tap(() =>
-                  Effect.all([
-                    refreshGitStatus(input.parentCwd),
-                    refreshGitStatus(input.childCwd),
-                  ]).pipe(Effect.asVoid),
-                ),
-              ),
+            WS_METHODS.gitPreviewWorktreePatch,
+            gitManager.previewWorktreePatch(input),
             { "rpc.aggregate": "git" },
           ),
+        [WS_METHODS.gitApplyWorktreePatch]: (input) =>
+          observeRpcEffect(WS_METHODS.gitApplyWorktreePatch, gitManager.applyWorktreePatch(input), {
+            "rpc.aggregate": "git",
+          }),
         [WS_METHODS.gitCreateBranch]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitCreateBranch,

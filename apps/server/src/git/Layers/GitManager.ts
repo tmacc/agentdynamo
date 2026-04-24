@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,6 +24,7 @@ import {
   GitRunStackedActionResult,
   GitStackedAction,
   type GitPullRequestRemoteCandidate,
+  type GitPreviewWorktreePatchResult,
   type GitStatusLocalResult,
   type GitStatusRemoteResult,
   type GitWorktreePatchFile,
@@ -51,6 +52,7 @@ import { TextGeneration } from "../Services/TextGeneration.ts";
 import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScriptRunner.ts";
 import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
 import {
   decodeGitHubPullRequestListJson,
@@ -66,6 +68,7 @@ const STATUS_RESULT_CACHE_CAPACITY = 2_048;
 const WORKTREE_PATCH_MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
 const PULL_REQUEST_REMOTE_CONFIG_KEY = "dynamo.pullRequestRemote";
 const LEGACY_PULL_REQUEST_REMOTE_CONFIG_KEY = "t3.pullRequestRemote";
+const TEAM_TASK_ACTIVE_STATUSES = new Set(["queued", "starting", "running", "waiting"]);
 type StripProgressContext<T> = T extends any ? Omit<T, "actionId" | "cwd" | "action"> : never;
 type GitActionProgressPayload = StripProgressContext<GitActionProgressEvent>;
 type GitActionProgressEmitter = (event: GitActionProgressPayload) => Effect.Effect<void, never>;
@@ -324,6 +327,10 @@ function parseNumstat(stdout: string): ReadonlyArray<GitWorktreePatchFile> {
     .filter((file) => file.path.length > 0);
 }
 
+function hashPatch(patch: string): string {
+  return createHash("sha256").update(patch).digest("hex");
+}
+
 function limitContext(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars)}\n\n[truncated]`;
@@ -535,6 +542,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const textGeneration = yield* TextGeneration;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
   const serverSettingsService = yield* ServerSettingsService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
   const createProgressEmitter = (
     input: { cwd: string; action: GitStackedAction },
@@ -576,6 +584,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   const buildChildWorktreePatch = Effect.fn("buildChildWorktreePatch")(function* (
     childCwd: string,
+    baseSha: string,
   ) {
     const tempDir = yield* makeTemporaryIndexDir();
     const indexFile = join(tempDir, "index");
@@ -597,7 +606,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       const patch = yield* gitCore.execute({
         operation: "GitManager.applyWorktreePatch.diff",
         cwd: childCwd,
-        args: ["diff", "--cached", "--binary", "--full-index", "HEAD"],
+        args: ["diff", "--cached", "--binary", "--full-index", baseSha],
         env,
         maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
         truncateOutputAtMaxBytes: false,
@@ -605,7 +614,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       const numstat = yield* gitCore.execute({
         operation: "GitManager.applyWorktreePatch.numstat",
         cwd: childCwd,
-        args: ["diff", "--cached", "--numstat", "HEAD"],
+        args: ["diff", "--cached", "--numstat", baseSha],
         env,
         maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
         truncateOutputAtMaxBytes: false,
@@ -618,6 +627,138 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     });
 
     return yield* generatePatch.pipe(Effect.ensuring(removeTemporaryIndexDir(tempDir)));
+  });
+
+  const resolveGitCommonDir = Effect.fn("resolveGitCommonDir")(function* (cwd: string) {
+    const result = yield* gitCore.execute({
+      operation: "GitManager.applyWorktreePatch.commonDir",
+      cwd,
+      args: ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    });
+    return canonicalizeExistingPath(result.stdout.trim());
+  });
+
+  const resolveHeadSha = Effect.fn("resolveHeadSha")(function* (cwd: string) {
+    const result = yield* gitCore.execute({
+      operation: "GitManager.applyWorktreePatch.head",
+      cwd,
+      args: ["rev-parse", "HEAD"],
+    });
+    return result.stdout.trim();
+  });
+
+  const resolveMergeBase = Effect.fn("resolveMergeBase")(function* (
+    childCwd: string,
+    parentHeadSha: string,
+  ) {
+    const result = yield* gitCore.execute({
+      operation: "GitManager.applyWorktreePatch.mergeBase",
+      cwd: childCwd,
+      args: ["merge-base", "HEAD", parentHeadSha],
+    });
+    return result.stdout.trim();
+  });
+
+  const resolveTeamTaskPatchContext = Effect.fn("resolveTeamTaskPatchContext")(function* (input: {
+    parentThreadId: string;
+    taskId: string;
+    requireFinalTask: boolean;
+  }) {
+    const mapProjectionLookupError = (cause: unknown) =>
+      gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "Failed to read team task projection state.",
+        cause,
+      );
+    const parentThreadOption = yield* projectionSnapshotQuery
+      .getThreadDetailById(input.parentThreadId as never)
+      .pipe(Effect.mapError(mapProjectionLookupError));
+    if (Option.isNone(parentThreadOption)) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "The coordinator thread could not be found.",
+      );
+    }
+    const parentThread = parentThreadOption.value;
+    const task = (parentThread.teamTasks ?? []).find((candidate) => candidate.id === input.taskId);
+    if (!task || task.parentThreadId !== parentThread.id) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "The child agent task does not belong to the coordinator thread.",
+      );
+    }
+    if (input.requireFinalTask && TEAM_TASK_ACTIVE_STATUSES.has(task.status)) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "Wait for the child agent to finish before applying its changes.",
+      );
+    }
+
+    const childThreadOption = yield* projectionSnapshotQuery
+      .getThreadDetailById(task.childThreadId)
+      .pipe(Effect.mapError(mapProjectionLookupError));
+    if (Option.isNone(childThreadOption)) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "The child agent thread could not be found.",
+      );
+    }
+    const childThread = childThreadOption.value;
+    if (
+      childThread.teamParent?.parentThreadId !== parentThread.id ||
+      childThread.teamParent.taskId !== task.id
+    ) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "The child thread is not linked back to this coordinator task.",
+      );
+    }
+    if (!childThread.worktreePath) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "This child agent did not run in an isolated worktree.",
+      );
+    }
+
+    const parentCheckpointContext = yield* projectionSnapshotQuery
+      .getThreadCheckpointContext(parentThread.id)
+      .pipe(Effect.mapError(mapProjectionLookupError));
+    if (Option.isNone(parentCheckpointContext)) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "The coordinator workspace could not be resolved.",
+      );
+    }
+    const parentCwd = parentThread.worktreePath ?? parentCheckpointContext.value.workspaceRoot;
+    const childCwd = childThread.worktreePath;
+
+    const [parentCommonDir, childCommonDir] = yield* Effect.all(
+      [resolveGitCommonDir(parentCwd), resolveGitCommonDir(childCwd)],
+      { concurrency: "unbounded" },
+    );
+    if (parentCommonDir !== childCommonDir) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "The child worktree does not belong to the coordinator repository.",
+      );
+    }
+
+    const parentHeadSha = yield* resolveHeadSha(parentCwd);
+    const childHeadSha = yield* resolveHeadSha(childCwd);
+    const baseSha = yield* resolveMergeBase(childCwd, parentHeadSha);
+    const childPatch = yield* buildChildWorktreePatch(childCwd, baseSha);
+    const patchHash = hashPatch(childPatch.patch);
+
+    return {
+      parentCwd,
+      childCwd,
+      baseSha,
+      childHeadSha,
+      patch: childPatch.patch,
+      files: childPatch.files,
+      patchHash,
+      includesCommittedChanges: childHeadSha !== baseSha,
+    };
   });
 
   const configurePullRequestHeadUpstreamBase = Effect.fn("configurePullRequestHeadUpstream")(
@@ -1771,27 +1912,57 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     }).pipe(Effect.ensuring(invalidateStatus(input.cwd)));
   });
 
+  const previewWorktreePatch: GitManagerShape["previewWorktreePatch"] = Effect.fn(
+    "previewWorktreePatch",
+  )(function* (input) {
+    const context = yield* resolveTeamTaskPatchContext({
+      parentThreadId: input.parentThreadId,
+      taskId: input.taskId,
+      requireFinalTask: false,
+    });
+    if (context.patch.trim().length === 0) {
+      return {
+        status: "skipped_no_changes" as const,
+        files: [],
+        patch: "",
+        patchHash: context.patchHash,
+        includesCommittedChanges: false,
+      } satisfies GitPreviewWorktreePatchResult;
+    }
+    return {
+      status: "has_changes" as const,
+      files: context.files,
+      patch: context.patch,
+      patchHash: context.patchHash,
+      includesCommittedChanges: context.includesCommittedChanges,
+    } satisfies GitPreviewWorktreePatchResult;
+  });
+
   const applyWorktreePatch: GitManagerShape["applyWorktreePatch"] = Effect.fn("applyWorktreePatch")(
     function* (input) {
-      const parentIsWorkTree = yield* gitCore.isInsideWorkTree(input.parentCwd);
-      if (!parentIsWorkTree) {
-        return yield* gitManagerError(
-          "GitManager.applyWorktreePatch",
-          "The coordinator workspace is not a Git worktree.",
-        );
+      const context = yield* resolveTeamTaskPatchContext({
+        parentThreadId: input.parentThreadId,
+        taskId: input.taskId,
+        requireFinalTask: true,
+      });
+
+      if (context.patch.trim().length === 0) {
+        return {
+          status: "skipped_no_changes" as const,
+          files: [],
+        };
       }
 
-      const childIsWorkTree = yield* gitCore.isInsideWorkTree(input.childCwd);
-      if (!childIsWorkTree) {
+      if (input.expectedPatchHash && input.expectedPatchHash !== context.patchHash) {
         return yield* gitManagerError(
           "GitManager.applyWorktreePatch",
-          "The child agent workspace is not a Git worktree.",
+          "The child changes changed after review. Review the latest diff and try again.",
         );
       }
 
       const parentStatus = yield* gitCore.execute({
         operation: "GitManager.applyWorktreePatch.parentStatus",
-        cwd: input.parentCwd,
+        cwd: context.parentCwd,
         args: ["status", "--porcelain"],
         maxOutputBytes: 2 * 1024 * 1024,
         truncateOutputAtMaxBytes: false,
@@ -1803,36 +1974,28 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         );
       }
 
-      const childPatch = yield* buildChildWorktreePatch(input.childCwd);
-      if (childPatch.patch.trim().length === 0) {
-        return {
-          status: "skipped_no_changes" as const,
-          files: [],
-        };
-      }
-
       yield* gitCore.execute({
         operation: "GitManager.applyWorktreePatch.check",
-        cwd: input.parentCwd,
+        cwd: context.parentCwd,
         args: ["apply", "--check", "--whitespace=nowarn", "-"],
-        stdin: childPatch.patch,
+        stdin: context.patch,
         maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
         truncateOutputAtMaxBytes: false,
       });
       yield* gitCore.execute({
         operation: "GitManager.applyWorktreePatch.apply",
-        cwd: input.parentCwd,
+        cwd: context.parentCwd,
         args: ["apply", "--whitespace=nowarn", "-"],
-        stdin: childPatch.patch,
+        stdin: context.patch,
         maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
         truncateOutputAtMaxBytes: false,
       });
 
-      yield* invalidateStatus(input.parentCwd);
+      yield* invalidateStatus(context.parentCwd);
 
       return {
         status: "applied" as const,
-        files: childPatch.files,
+        files: context.files,
       };
     },
   );
@@ -2063,6 +2226,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     getPullRequestRemoteOptions,
     setPullRequestRemote,
     preparePullRequestThread,
+    previewWorktreePatch,
     applyWorktreePatch,
     runStackedAction,
   } satisfies GitManagerShape;
