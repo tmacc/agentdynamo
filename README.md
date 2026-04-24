@@ -1,11 +1,11 @@
-# T3 Code
+# Dynamo
 
-T3 Code is a minimal web GUI for coding agents (currently Codex and Claude, more coming soon).
+Dynamo is a minimal web GUI for coding agents (currently Codex and Claude, more coming soon).
 
 ## Installation
 
 > [!WARNING]
-> T3 Code currently supports Codex and Claude.
+> Dynamo currently supports Codex and Claude.
 > Install and authenticate at least one provider before use:
 >
 > - Codex: install [Codex CLI](https://github.com/openai/codex) and run `codex login`
@@ -19,25 +19,7 @@ npx t3
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/tmacc/agentdynamo2/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Arch Linux (AUR)
-
-```bash
-yay -S t3code-bin
-```
+Install the latest version of the desktop app from [GitHub Releases](https://github.com/tmacc/agentdynamo2/releases).
 
 ## Some notes
 

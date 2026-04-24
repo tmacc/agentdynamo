@@ -103,7 +103,7 @@ jobs:
             echo "release_channel=stable" >> "$GITHUB_OUTPUT"
             echo "version=$version" >> "$GITHUB_OUTPUT"
             echo "tag=v$version" >> "$GITHUB_OUTPUT"
-            echo "name=T3 Code v$version" >> "$GITHUB_OUTPUT"
+            echo "name=Dynamo v$version" >> "$GITHUB_OUTPUT"
             echo "cli_dist_tag=latest" >> "$GITHUB_OUTPUT"
             if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
@@ -343,7 +343,7 @@ jobs:
           for x64_manifest in release-assets/*-mac-x64.yml; do
             arm64_manifest="${x64_manifest%-x64.yml}.yml"
             if [[ -f "$arm64_manifest" ]]; then
-              node scripts/merge-mac-update-manifests.ts "$arm64_manifest" "$x64_manifest"
+              node scripts/merge-update-manifests.ts --platform mac "$arm64_manifest" "$x64_manifest"
               rm -f "$x64_manifest"
             fi
           done

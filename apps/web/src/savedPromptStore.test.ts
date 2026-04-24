@@ -49,7 +49,7 @@ describe("savedPromptStore", () => {
   it("hydrates persisted snippets from localStorage", async () => {
     const testWindow = getTestWindow();
     testWindow.localStorage.setItem(
-      "t3code:saved-prompts:v1",
+      "dynamo:saved-prompts:v1",
       JSON.stringify({
         version: 1,
         state: {

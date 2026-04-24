@@ -8,6 +8,14 @@ import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { getDefaultBuildArch } from "./lib/build-target-arch.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
 
+import {
+  APP_AUTHOR,
+  APP_BASE_NAME,
+  APP_BUNDLE_ID,
+  APP_COMMIT_HASH_FIELD,
+  APP_SLUG,
+  resolveDesktopLinuxWmClass,
+} from "@t3tools/shared/branding";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -212,7 +220,7 @@ interface StagePackageJson {
   readonly name: string;
   readonly version: string;
   readonly buildVersion: string;
-  readonly t3codeCommitHash: string;
+  readonly [APP_COMMIT_HASH_FIELD]: string;
   readonly private: true;
   readonly description: string;
   readonly author: string;
@@ -552,10 +560,16 @@ export function resolveMockUpdateServerUrl(mockUpdateServerPort: number | undefi
   return `http://localhost:${mockUpdateServerPort ?? 3000}`;
 }
 
+function resolveDesktopProductBaseName(): string {
+  const configuredName = desktopPackageJson.productName?.trim();
+  return configuredName ? configuredName.replace(/\s+\([^)]*\)$/, "") : APP_BASE_NAME;
+}
+
 export function resolveDesktopProductName(version: string): string {
+  const baseName = resolveDesktopProductBaseName();
   return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "T3 Code (Nightly)"
-    : (desktopPackageJson.productName ?? "T3 Code");
+    ? `${baseName} (Nightly)`
+    : (desktopPackageJson.productName ?? `${baseName} (Alpha)`);
 }
 
 const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -567,9 +581,9 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   mockUpdateServerPort: number | undefined,
 ) {
   const buildConfig: Record<string, unknown> = {
-    appId: "com.t3tools.t3code",
+    appId: APP_BUNDLE_ID,
     productName: resolveDesktopProductName(version),
-    artifactName: "T3-Code-${version}-${arch}.${ext}",
+    artifactName: "Dynamo-${version}-${arch}.${ext}",
     directories: {
       buildResources: "apps/desktop/resources",
     },
@@ -598,12 +612,12 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   if (platform === "linux") {
     buildConfig.linux = {
       target: [target],
-      executableName: "t3code",
+      executableName: APP_SLUG,
       icon: "icon.png",
       category: "Development",
       desktop: {
         entry: {
-          StartupWMClass: "t3code",
+          StartupWMClass: resolveDesktopLinuxWmClass(false),
         },
       },
     };
@@ -715,7 +729,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const commitHash = yield* resolveGitCommitHash(repoRoot);
   const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
   const stageRoot = yield* mkdir({
-    prefix: `t3code-desktop-${options.platform}-stage-`,
+    prefix: `${APP_SLUG}-desktop-${options.platform}-stage-`,
   });
 
   const stageAppDir = path.join(stageRoot, "app");
@@ -778,13 +792,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
 
   const stagePackageJson: StagePackageJson = {
-    name: "t3code",
+    name: APP_SLUG,
     version: appVersion,
     buildVersion: appVersion,
-    t3codeCommitHash: commitHash,
+    [APP_COMMIT_HASH_FIELD]: commitHash,
     private: true,
-    description: "T3 Code desktop build",
-    author: "T3 Tools",
+    description: `${APP_BASE_NAME} desktop build`,
+    author: APP_AUTHOR,
     main: "apps/desktop/dist-electron/main.cjs",
     build: yield* createBuildConfig(
       options.platform,
@@ -942,7 +956,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
     Flag.optional,
   ),
 }).pipe(
-  Command.withDescription("Build a desktop artifact for T3 Code."),
+  Command.withDescription("Build a desktop artifact for Dynamo."),
   Command.withHandler((input) => Effect.flatMap(resolveBuildOptions(input), buildDesktopArtifact)),
 );
 
