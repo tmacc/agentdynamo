@@ -42,6 +42,7 @@ import Migration0026 from "./Migrations/026_ProjectionBoardCards.ts";
 import Migration0027 from "./Migrations/027_ProjectionBoardDismissedGhosts.ts";
 import Migration0028 from "./Migrations/028_ProjectionThreadsForkOrigin.ts";
 import Migration0029 from "./Migrations/029_ProjectionThreadContextHandoffs.ts";
+import Migration0034 from "./Migrations/034_EnsureProjectionThreadContextHandoffs.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -83,6 +84,7 @@ export const migrationEntries = [
   [27, "ProjectionBoardDismissedGhosts", Migration0027],
   [28, "ProjectionThreadsForkOrigin", Migration0028],
   [29, "ProjectionThreadContextHandoffs", Migration0029],
+  [34, "EnsureProjectionThreadContextHandoffs", Migration0034],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

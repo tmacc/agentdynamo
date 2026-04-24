@@ -7,7 +7,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
 import { randomUUID } from "./lib/utils";
 
-export const SAVED_PROMPTS_STORAGE_KEY = "t3code:saved-prompts:v1";
+export const SAVED_PROMPTS_STORAGE_KEY = "dynamo:saved-prompts:v1";
 const SAVED_PROMPTS_STORAGE_VERSION = 1;
 const SAVED_PROMPTS_PERSIST_DEBOUNCE_MS = 300;
 const SAVED_PROMPT_MAX_TITLE_LENGTH = 80;

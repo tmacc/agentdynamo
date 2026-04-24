@@ -18,6 +18,8 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Forking threads`: restored on top of merged baseline
 - `Provider switching / handoff`: missing on merged baseline
 - `Saving prompts`: restored on top of merged baseline
+- `Repository/release personalization`: preserved on merged baseline, with follow-up workflow repairs
+- `Dynamo branding`: restored, including runtime storage isolation and release/build metadata
 - `Worktree readiness / bootstrap`: partially present, but reduced from the fuller fork implementation
 - `Project intelligence`: missing on merged baseline
 
@@ -108,6 +110,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/server/src/orchestration/Layers/ThreadForkMaterializer.ts`
   - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
   - `apps/server/src/persistence/Migrations/029_ProjectionThreadContextHandoffs.ts`
+  - `apps/server/src/persistence/Migrations/034_EnsureProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Services/ProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Layers/ProjectionThreadContextHandoffs.ts`
   - `apps/server/src/orchestration/forkThreadExecution.ts`
@@ -128,6 +131,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - The first live post-fork provider turn must receive the imported fork transcript, imported proposed plans, attachment metadata, and the new live message in the actual provider-visible input, not just in the UI/read model. This closes the `Fork Context Loss` bug.
   - Once a handoff is delivered and projected, reload/reprojection must not resend the imported context on later turns.
   - Attachments cloned for fork UI continuity must be represented in provider-visible handoff text as metadata only, not binary/image content.
+  - Handoff projection DDL must also run at migration id `034` for existing Dynamo databases whose pre-merge fork-only migration history already advanced past id `029`.
   - Known residual race: if a provider accepts the turn but the server crashes before `thread.context-handoff-delivered` is persisted, retry can resend the handoff. Fixing that requires provider-side idempotency or a pre-send marker.
   - Auto-title replacement on the first live post-fork turn must treat the default `Fork of X` title the same way it treats `New thread`, so generated titles can replace the placeholder.
 - `Merge hotspots`:
@@ -184,6 +188,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
   - `apps/server/src/provider/Layers/ProviderService.ts`
   - `apps/server/src/persistence/Migrations/029_ProjectionThreadContextHandoffs.ts`
+  - `apps/server/src/persistence/Migrations/034_EnsureProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Services/ProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Layers/ProjectionThreadContextHandoffs.ts`
   - `apps/web/src/components/ChatView.logic.ts`
@@ -194,6 +199,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - The target provider's first switched turn must receive imported transcript/proposed-plan/attachment metadata plus the new live user message in provider-visible input.
   - Successful target-provider acceptance must mark the provider-switch handoff delivered; failed sends must leave it pending for retry.
   - Successful provider switches must append a timeline-visible `provider.session.switched` activity with the source provider, target provider, and target model.
+  - Handoff projection DDL must also run at migration id `034` for existing Dynamo databases whose pre-merge fork-only migration history already advanced past id `029`.
   - Handoff state must stay aligned with branch and worktree metadata.
   - A provider switch should preserve resumability and avoid leaving the thread in an unroutable state.
   - Current restored behavior uses a full visible-context handoff. The old incremental provider-slot marker system and migration `033_ProviderSessionRuntimeSlots.ts` are not restored; if provider-native sync markers return later, they should extend the shared handoff state rather than replace it.
@@ -276,6 +282,128 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Confirm the main sections render with non-empty summaries.
   - Open an individual surface preview and verify the content is relevant and sanitized.
   - Reload and confirm navigation/section state still matches the resolver output.
+
+### Repository/release personalization
+
+- `Status`: Present on the pre-merge fork at `365ae6d9`. Preserved on merged baseline `ed85e9ce`; `.github` files were not lost in the merge. Follow-up workflow repairs keep this branch aligned with the current build output and release scripts.
+- `User-visible behavior`: Repository links, marketing download links, release API calls, GitHub Actions, and release publishing target `tmacc/agentdynamo2` and this fork's available CI/release infrastructure rather than upstream `pingdotgg/t3code` assumptions.
+- `Why it exists`: This fork publishes, tests, and presents itself from the fork repository. Losing these values sends users to the wrong GitHub releases page or breaks CI/release automation.
+- `Key fork files`:
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/release.yml`
+  - `.github/ISSUE_TEMPLATE/bug_report.yml`
+  - `.github/ISSUE_TEMPLATE/feature_request.yml`
+  - `.github/pull_request_template.md`
+  - `.github/workflows/issue-labels.yml`
+  - `.github/workflows/pr-size.yml`
+  - `.github/workflows/pr-vouch.yml`
+  - `.github/VOUCHED.td`
+  - `apps/marketing/src/lib/releases.ts`
+  - `apps/marketing/src/layouts/Layout.astro`
+  - `apps/marketing/src/pages/download.astro`
+  - `apps/marketing/src/pages/index.astro`
+  - `scripts/merge-update-manifests.ts`
+  - `scripts/lib/update-manifest.ts`
+  - `AGENTS.md`
+- `Important invariants`:
+  - Marketing and release API links must point to `https://github.com/tmacc/agentdynamo2`.
+  - CI must run on infrastructure available to the fork, not upstream-only runner labels.
+  - CI install steps that run in pull requests should avoid lifecycle scripts unless the workflow explicitly needs them.
+  - Desktop preload verification must match the actual desktop build output (`apps/desktop/dist-electron/preload.cjs`).
+  - Release manifest merge steps must call the script that exists in the current tree: `scripts/merge-update-manifests.ts --platform mac`.
+  - Optional release steps such as CLI publishing and release finalization must remain gated by repository variables/secrets.
+  - `AGENTS.md` must keep directing agents to update `PATCH.md` for upstream-touching fork behavior.
+- `Merge hotspots`:
+  - GitHub Actions runner labels, install flags, artifact paths, and release job dependencies
+  - Marketing links and release API repository constants
+  - Desktop artifact naming and Electron bundle extension changes
+  - Update manifest merge script names and CLI arguments
+  - Release secrets, repository variables, and app-token publishing behavior
+- `Verification`:
+  - Run `bun run build:desktop` and confirm `apps/desktop/dist-electron/preload.cjs` exists.
+  - Run `node scripts/release-smoke.ts`.
+  - Run `bun run test scripts/merge-update-manifests.test.ts`.
+  - Review marketing links and release API constants for `tmacc/agentdynamo2`.
+  - Dry-run or inspect the release workflow when GitHub runner labels, signing, or artifact names change upstream.
+
+### Dynamo branding
+
+- `Status`: Active fork customization restored after the merge onto `ed85e9ce`.
+- `User-visible behavior`: The app should present as Dynamo in the desktop shell, web boot/splash surfaces, update prompts, release names, release artifacts, and desktop package metadata. Dynamo must be able to run alongside upstream T3 Code on the same machine without sharing default runtime state.
+- `Why it exists`: This fork is branded as Dynamo. Losing this customization creates mixed product identity: the desktop title can say Dynamo while splash screens, update prompts, artifact names, marketing copy, and release metadata still say T3 Code.
+- `Current audit notes`:
+  - Preserved: `apps/desktop/package.json` still has `productName: "Dynamo (Alpha)"`.
+  - Preserved: `apps/desktop/src/appBranding.ts` still uses `Dynamo`.
+  - Preserved: `apps/web/index.html` boot shell still says `Dynamo (Alpha)`.
+  - Restored: shared branding constants live in `packages/shared/src/branding.ts`.
+  - Restored: fallback web branding in `apps/web/src/branding.ts` uses `Dynamo`.
+  - Restored: `apps/web/src/components/SplashScreen.tsx` alt/aria labels use `Dynamo`.
+  - Restored: `apps/web/src/components/Sidebar.tsx` shows the Dynamo wordmark instead of the T3 vector plus `Code`.
+  - Restored: desktop update, settings, connection, startup, and provider-disabled app copy use `Dynamo`.
+  - Restored: server defaults use `~/.dynamo`; desktop passes `DYNAMO_HOME` and keeps `T3CODE_HOME` only as an explicit compatibility alias for internal consumers.
+  - Restored: desktop userData/profile folders use `dynamo` and `dynamo-dev`, not `t3code` and `t3code-dev`.
+  - Restored: browser persistence keys use the `dynamo:*` namespace; Dynamo should not import or remove upstream `t3code:*` browser state.
+  - Restored: release/nightly names in `scripts/resolve-nightly-release.ts` and `scripts/release-smoke.ts` use `Dynamo`.
+  - Restored: `scripts/build-desktop-artifact.ts` derives product name, artifact name, bundle id, executable name, staged package name, commit hash field, author, and description from shared Dynamo branding.
+  - Icon files under `apps/desktop/resources`, `apps/web/public`, and `apps/marketing/public` currently match both the pre-merge fork and upstream; if there were newer custom icon edits, they were not present as tracked differences in `365ae6d9`.
+  - Ignored dev runtime assets under `apps/desktop/.electron-runtime` currently contain Dynamo dev icon/name data, but those are generated/ignored and must not be treated as merge-preserved source of truth.
+- `Key fork files`:
+  - `packages/shared/src/branding.ts`
+  - `packages/shared/package.json`
+  - `apps/desktop/package.json`
+  - `apps/desktop/src/appBranding.ts`
+  - `apps/desktop/src/main.ts`
+  - `apps/desktop/scripts/electron-launcher.mjs`
+  - `apps/web/index.html`
+  - `apps/web/src/branding.ts`
+  - `apps/web/src/components/SplashScreen.tsx`
+  - `apps/web/src/components/desktopUpdate.logic.ts`
+  - `scripts/build-desktop-artifact.ts`
+  - `scripts/dev-runner.ts`
+  - `scripts/resolve-nightly-release.ts`
+  - `scripts/release-smoke.ts`
+  - `apps/server/src/cli.ts`
+  - `apps/server/src/os-jank.ts`
+  - `apps/server/src/checkpointing/Layers/CheckpointStore.ts`
+  - `README.md`
+  - `AGENTS.md`
+  - `.github/workflows/release.yml`
+  - `apps/marketing/src/layouts/Layout.astro`
+  - `apps/marketing/src/pages/index.astro`
+  - `apps/marketing/src/pages/download.astro`
+  - `apps/desktop/resources/icon.icns`
+  - `apps/desktop/resources/icon.ico`
+  - `apps/desktop/resources/icon.png`
+  - `apps/web/public/apple-touch-icon.png`
+  - `apps/web/public/favicon.ico`
+- `Important invariants`:
+  - Desktop display names should resolve to `Dynamo (Dev)`, `Dynamo (Alpha)`, or `Dynamo (Nightly)`.
+  - Release artifact names should use `Dynamo-${version}-${arch}.${ext}` unless we intentionally keep an old filename for updater compatibility.
+  - Bundle id, protocol, Linux executable/WM class, staged package name, and commit-hash metadata should come from one shared branding source instead of scattered literals.
+  - User-facing update, splash, connection, and release text should say Dynamo.
+  - Repository-facing context that agents read first, especially `README.md` and `AGENTS.md`, should identify the product as Dynamo so local AI does not infer the project is named T3 Code.
+  - Marketing page titles, release names, and generated checkpoint commit author/committer names should say Dynamo.
+  - Default runtime state should live under `~/.dynamo`, including `userdata/state.sqlite`, logs, settings, keybindings, and worktrees.
+  - `DYNAMO_HOME` is the primary home override. `T3CODE_HOME` remains a fallback alias and is set to the same path for child processes that still expect it.
+  - Desktop Chromium profile/userData should use Dynamo-specific folders so upstream T3 Code and Dynamo do not share local profile state.
+  - Browser local-storage keys should use `dynamo:*`. Do not read, migrate, or remove upstream `t3code:*` keys unless we intentionally add a user-approved migration path.
+- `Merge hotspots`:
+  - Desktop app branding, bundle metadata, and Electron builder config
+  - Desktop userData/profile path setup and custom protocol registration
+  - Server CLI/config defaults, dev runner home handling, state/log/keybinding paths
+  - Web local-storage keys for theme, UI state, saved prompts, editor preferences, terminal state, and client settings
+  - Web boot shell, branding fallback, splash, settings, update prompts, and connection error copy
+  - README/agent instructions and marketing copy
+  - Checkpoint commit metadata and release workflow display names
+  - Release scripts, artifact names, updater manifests, and nightly release metadata
+  - Icon generation/input assets and ignored dev `.electron-runtime` bundle output
+- `Verification`:
+  - Run `bun run test src/appBranding.test.ts` in `apps/desktop`.
+  - Run `bun run test src/branding.test.ts src/components/desktopUpdate.logic.test.ts src/savedPromptStore.test.ts src/clientPersistenceStorage.test.ts src/uiStateStore.test.ts` in `apps/web`.
+  - Run `bun run test scripts/build-desktop-artifact.test.ts scripts/resolve-nightly-release.test.ts scripts/dev-runner.test.ts`.
+  - Run `bun run test src/cli-config.test.ts` in `apps/server`.
+  - Run `bun run build:desktop` and inspect staged builder metadata/artifact names for Dynamo.
+  - Launch `bun run dev:desktop` and confirm the window title, splash, dock/app display name, and update prompts use Dynamo.
 
 ### 2026-04-23 - Restore upstream macOS dev Electron launcher bypass
 

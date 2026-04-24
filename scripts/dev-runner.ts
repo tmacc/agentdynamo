@@ -5,6 +5,11 @@ import * as NodeOS from "node:os";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { NetService } from "@t3tools/shared/Net";
+import {
+  APP_HOME_DIR_NAME,
+  APP_HOME_ENV_VAR,
+  LEGACY_APP_HOME_ENV_VAR,
+} from "@t3tools/shared/branding";
 import { Config, Data, Effect, Hash, Layer, Logger, Option, Path, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { ChildProcess } from "effect/unstable/process";
@@ -16,8 +21,8 @@ const MAX_PORT = 65535;
 const DESKTOP_DEV_LOOPBACK_HOST = "127.0.0.1";
 const DEV_PORT_PROBE_HOSTS = ["127.0.0.1", "0.0.0.0", "::1", "::"] as const;
 
-export const DEFAULT_T3_HOME = Effect.map(Effect.service(Path.Path), (path) =>
-  path.join(NodeOS.homedir(), ".t3"),
+export const DEFAULT_APP_HOME = Effect.map(Effect.service(Path.Path), (path) =>
+  path.join(NodeOS.homedir(), APP_HOME_DIR_NAME),
 );
 
 const MODE_ARGS = {
@@ -112,7 +117,7 @@ function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, neve
       return path.resolve(configured);
     }
 
-    return yield* DEFAULT_T3_HOME;
+    return yield* DEFAULT_APP_HOME;
   });
 }
 
@@ -155,7 +160,8 @@ export function createDevRunnerEnv({
       VITE_DEV_SERVER_URL:
         devUrl?.toString() ??
         `http://${isDesktopMode ? DESKTOP_DEV_LOOPBACK_HOST : "localhost"}:${webPort}`,
-      T3CODE_HOME: resolvedBaseDir,
+      [APP_HOME_ENV_VAR]: resolvedBaseDir,
+      [LEGACY_APP_HOME_ENV_VAR]: resolvedBaseDir,
     };
 
     if (!isDesktopMode) {
@@ -423,7 +429,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
         : "";
 
     yield* Effect.logInfo(
-      `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${String(env.T3CODE_HOME)}`,
+      `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${String(env[APP_HOME_ENV_VAR] ?? env[LEGACY_APP_HOME_ENV_VAR])}`,
     );
 
     if (input.dryRun) {
@@ -472,8 +478,15 @@ const devRunnerCli = Command.make("dev-runner", {
     Argument.withDescription("Development mode to run."),
   ),
   t3Home: Flag.string("home-dir").pipe(
-    Flag.withDescription("Base directory for all T3 Code data (equivalent to T3CODE_HOME)."),
-    Flag.withFallbackConfig(optionalStringConfig("T3CODE_HOME")),
+    Flag.withDescription(
+      `Base directory for all Dynamo data (equivalent to ${APP_HOME_ENV_VAR}; ${LEGACY_APP_HOME_ENV_VAR} remains a fallback alias).`,
+    ),
+    Flag.withFallbackConfig(
+      Config.all({
+        appHome: optionalStringConfig(APP_HOME_ENV_VAR),
+        legacyHome: optionalStringConfig(LEGACY_APP_HOME_ENV_VAR),
+      }).pipe(Config.map(({ appHome, legacyHome }) => appHome ?? legacyHome)),
+    ),
   ),
   noBrowser: Flag.boolean("no-browser").pipe(
     Flag.withDescription("Browser auto-open toggle (equivalent to T3CODE_NO_BROWSER)."),
