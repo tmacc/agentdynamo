@@ -765,9 +765,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         Effect.map((remotes) =>
           remotes
             .map(toPullRequestRemoteCandidate)
-            .filter(
-              (candidate): candidate is GitPullRequestRemoteCandidate => candidate !== null,
-            )
+            .filter((candidate): candidate is GitPullRequestRemoteCandidate => candidate !== null)
             .toSorted((a, b) => a.remoteName.localeCompare(b.remoteName)),
         ),
       );

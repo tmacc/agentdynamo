@@ -2,8 +2,11 @@ import type {
   GitCheckoutInput,
   GitCheckoutResult,
   GitCreateBranchInput,
+  GitCreateBranchResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
+  GitGetPullRequestRemoteOptionsInput,
+  GitGetPullRequestRemoteOptionsResult,
   GitPullRequestRefInput,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
@@ -14,9 +17,10 @@ import type {
   GitPullResult,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
+  GitSetPullRequestRemoteInput,
+  GitSetPullRequestRemoteResult,
   GitStatusInput,
   GitStatusResult,
-  GitCreateBranchResult,
 } from "./git.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type {
@@ -267,6 +271,12 @@ export interface EnvironmentApi {
     checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResult>;
     init: (input: GitInitInput) => Promise<void>;
     resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
+    getPullRequestRemoteOptions: (
+      input: GitGetPullRequestRemoteOptionsInput,
+    ) => Promise<GitGetPullRequestRemoteOptionsResult>;
+    setPullRequestRemote: (
+      input: GitSetPullRequestRemoteInput,
+    ) => Promise<GitSetPullRequestRemoteResult>;
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Promise<GitPreparePullRequestThreadResult>;

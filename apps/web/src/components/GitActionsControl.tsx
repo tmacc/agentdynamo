@@ -522,7 +522,8 @@ export default function GitActionsControl({
         return false;
       }
 
-      const initialRemoteName = options.selectedRemoteName ?? options.candidates[0]?.remoteName ?? "";
+      const initialRemoteName =
+        options.selectedRemoteName ?? options.candidates[0]?.remoteName ?? "";
       setSelectedPullRequestRemoteName(initialRemoteName);
       setPendingPullRequestRemoteSelection({
         ...input,
@@ -576,15 +577,17 @@ export default function GitActionsControl({
       }
       onConfirmed?.();
 
-      if (await requestPullRequestRemoteSelection({
-        action,
-        ...(commitMessage ? { commitMessage } : {}),
-        skipDefaultBranchPrompt,
-        ...(statusOverride !== undefined ? { statusOverride } : {}),
-        featureBranch,
-        ...(progressToastId ? { progressToastId } : {}),
-        ...(filePaths ? { filePaths } : {}),
-      })) {
+      if (
+        await requestPullRequestRemoteSelection({
+          action,
+          ...(commitMessage ? { commitMessage } : {}),
+          skipDefaultBranchPrompt,
+          ...(statusOverride !== undefined ? { statusOverride } : {}),
+          featureBranch,
+          ...(progressToastId ? { progressToastId } : {}),
+          ...(filePaths ? { filePaths } : {}),
+        })
+      ) {
         return;
       }
 

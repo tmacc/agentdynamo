@@ -334,13 +334,15 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Why it exists`: Repositories that have both a fork remote and an upstream remote can otherwise create PRs against the wrong repository or fail because `gh pr create` infers an ambiguous base repo. The user should make this choice once instead of being surprised on every PR action.
 - `Key fork files`:
   - `packages/contracts/src/git.ts`
+  - `packages/contracts/src/ipc.ts`
   - `packages/contracts/src/rpc.ts`
   - `apps/server/src/git/Services/GitManager.ts`
   - `apps/server/src/git/Layers/GitManager.ts`
   - `apps/server/src/ws.ts`
   - `apps/web/src/lib/gitReactQuery.ts`
+  - `apps/web/src/rpc/wsRpcClient.ts`
+  - `apps/web/src/environmentApi.ts`
   - `apps/web/src/components/GitActionsControl.tsx`
-  - `apps/web/src/lib/gitReactQuery.ts`
 - `Important invariants`:
   - PR creation must not silently choose between multiple different GitHub target repositories.
   - If zero GitHub remotes are detected, preserve the existing GitHub CLI inference path instead of blocking local/test repositories.

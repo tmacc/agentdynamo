@@ -118,8 +118,7 @@ export type GitPullInput = typeof GitPullInput.Type;
 export const GitGetPullRequestRemoteOptionsInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
 });
-export type GitGetPullRequestRemoteOptionsInput =
-  typeof GitGetPullRequestRemoteOptionsInput.Type;
+export type GitGetPullRequestRemoteOptionsInput = typeof GitGetPullRequestRemoteOptionsInput.Type;
 
 export const GitSetPullRequestRemoteInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -226,8 +225,7 @@ export const GitGetPullRequestRemoteOptionsResult = Schema.Struct({
   candidates: Schema.Array(GitPullRequestRemoteCandidate),
   requiresSelection: Schema.Boolean,
 });
-export type GitGetPullRequestRemoteOptionsResult =
-  typeof GitGetPullRequestRemoteOptionsResult.Type;
+export type GitGetPullRequestRemoteOptionsResult = typeof GitGetPullRequestRemoteOptionsResult.Type;
 
 export const GitSetPullRequestRemoteResult = Schema.Struct({
   remoteName: TrimmedNonEmptyStringSchema,

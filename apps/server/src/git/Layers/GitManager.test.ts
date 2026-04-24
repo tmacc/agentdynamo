@@ -343,6 +343,10 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
   };
 }
 
+function appendRepositoryArg(args: string[], repository?: string) {
+  return repository ? [...args, "--repo", repository] : args;
+}
+
 function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
   service: GitHubCliShape;
   ghCalls: string[];
@@ -355,8 +359,6 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
     ]),
   );
   const ghCalls: string[] = [];
-  const appendRepositoryArg = (args: string[], repository?: string) =>
-    repository ? [...args, "--repo", repository] : args;
 
   const execute: GitHubCliShape["execute"] = (input) => {
     const args = [...input.args];
@@ -641,7 +643,10 @@ function getPullRequestRemoteOptions(manager: GitManagerShape, input: { cwd: str
   return manager.getPullRequestRemoteOptions(input);
 }
 
-function setPullRequestRemote(manager: GitManagerShape, input: { cwd: string; remoteName: string }) {
+function setPullRequestRemote(
+  manager: GitManagerShape,
+  input: { cwd: string; remoteName: string },
+) {
   return manager.setPullRequestRemote(input);
 }
 
@@ -2211,18 +2216,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
-      yield* runGit(repoDir, [
-        "remote",
-        "add",
-        "origin",
-        "git@github.com:tmacc/agentdynamo2.git",
-      ]);
-      yield* runGit(repoDir, [
-        "remote",
-        "add",
-        "upstream",
-        "git@github.com:pingdotgg/t3code.git",
-      ]);
+      yield* runGit(repoDir, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo2.git"]);
+      yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
 
       const { manager } = yield* makeManager();
       const options = yield* getPullRequestRemoteOptions(manager, { cwd: repoDir });
@@ -2244,18 +2239,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
-      yield* runGit(repoDir, [
-        "remote",
-        "add",
-        "origin",
-        "git@github.com:tmacc/agentdynamo2.git",
-      ]);
-      yield* runGit(repoDir, [
-        "remote",
-        "add",
-        "upstream",
-        "git@github.com:pingdotgg/t3code.git",
-      ]);
+      yield* runGit(repoDir, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo2.git"]);
+      yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
 
       const { manager } = yield* makeManager();
       const saved = yield* setPullRequestRemote(manager, { cwd: repoDir, remoteName: "upstream" });
@@ -2273,18 +2258,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
-      yield* runGit(repoDir, [
-        "remote",
-        "add",
-        "origin",
-        "git@github.com:tmacc/agentdynamo2.git",
-      ]);
-      yield* runGit(repoDir, [
-        "remote",
-        "add",
-        "upstream",
-        "git@github.com:pingdotgg/t3code.git",
-      ]);
+      yield* runGit(repoDir, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo2.git"]);
+      yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
       yield* runGit(repoDir, ["config", "--local", "t3.pullRequestRemote", "origin"]);
 
       const { manager } = yield* makeManager();
@@ -2312,12 +2287,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         "remote.origin.url",
         "git@github.com:tmacc/agentdynamo2.git",
       ]);
-      yield* runGit(repoDir, [
-        "remote",
-        "add",
-        "upstream",
-        "git@github.com:pingdotgg/t3code.git",
-      ]);
+      yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
 
       const { manager } = yield* makeManager();
       const error = yield* runStackedAction(manager, {
@@ -2351,12 +2321,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         "remote.origin.url",
         "git@github.com:tmacc/agentdynamo2.git",
       ]);
-      yield* runGit(repoDir, [
-        "remote",
-        "add",
-        "upstream",
-        "git@github.com:pingdotgg/t3code.git",
-      ]);
+      yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
       yield* runGit(repoDir, ["config", "--local", "dynamo.pullRequestRemote", "upstream"]);
 
       const { manager, ghCalls } = yield* makeManager({
