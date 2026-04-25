@@ -552,6 +552,15 @@ const CLAUDE_SETTING_SOURCES = [
   "project",
   "local",
 ] as const satisfies ReadonlyArray<SettingSource>;
+const CLAUDE_TEAM_COORDINATOR_SYSTEM_PROMPT = `<dynamo_team_coordinator>
+When the user explicitly asks for a team of agents, parallel agents, delegation, subagents, or equivalent, choose the delegation runtime from the user's constraints.
+
+Use Claude-native Agent/Task tools for generic same-provider requests that do not name a specific non-Claude provider/model and do not ask for Dynamo-visible child threads, the Agents drawer, separate worktrees, or cross-provider work. Native subagents are faster and preserve Claude's built-in collaboration behavior.
+
+Use Dynamo's team coordinator MCP tools only when the request needs Dynamo-managed child threads: explicit non-Claude providers/models such as OpenAI/GPT/Codex, exact model routing across providers, Dynamo Agents drawer visibility, child worktrees, or explicit Dynamo child agents. The MCP server is named "dynamo_team"; prefer the tool names "mcp__dynamo_team__team_spawn_child", "mcp__dynamo_team__team_list_children", "mcp__dynamo_team__team_wait_for_children", "mcp__dynamo_team__team_send_child_message", and "mcp__dynamo_team__team_close_child".
+
+If the user specifies providers or models for Dynamo-managed work, pass those requested values to team_spawn_child. Do not silently substitute unavailable requested models with same-provider alternatives. If a provider or model is omitted for a Dynamo-managed child, omit it in the tool call and let Dynamo choose.
+</dynamo_team_coordinator>`;
 
 function buildPromptText(input: ProviderSendTurnInput): string {
   const rawEffort =
@@ -2874,9 +2883,20 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ? { allowDangerouslySkipPermissions: true }
           : {}),
         ...(Object.keys(settings).length > 0 ? { settings } : {}),
+        ...(input.teamCoordinator !== undefined
+          ? {
+              systemPrompt: {
+                type: "preset",
+                preset: "claude_code",
+                append: CLAUDE_TEAM_COORDINATOR_SYSTEM_PROMPT,
+              },
+            }
+          : {}),
         ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
         ...(newSessionId ? { sessionId: newSessionId } : {}),
         includePartialMessages: true,
+        includeHookEvents: true,
+        agentProgressSummaries: true,
         canUseTool,
         env: process.env,
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),

@@ -81,6 +81,11 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         aggregateKind: "thread",
         aggregateId: command.teamTask.parentThreadId,
       };
+    case "thread.team-task.upsert-native":
+      return {
+        aggregateKind: "thread",
+        aggregateId: command.parentThreadId,
+      };
     case "thread.team-task.mark-starting":
     case "thread.team-task.mark-running":
     case "thread.team-task.mark-waiting":
@@ -90,6 +95,9 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "thread.team-task.update-summary":
     case "thread.team-task.send-message":
     case "thread.team-task.close":
+    case "thread.team-task.native-trace.upsert-item":
+    case "thread.team-task.native-trace.append-content":
+    case "thread.team-task.native-trace.mark-completed":
       return {
         aggregateKind: "thread",
         aggregateId: command.parentThreadId,

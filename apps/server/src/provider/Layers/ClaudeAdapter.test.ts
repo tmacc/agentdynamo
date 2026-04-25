@@ -326,6 +326,60 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect(
+    "adds conditional Dynamo team coordinator tools without disabling native delegation",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+          teamCoordinator: {
+            parentThreadId: THREAD_ID,
+            mcpServerName: "dynamo_team",
+            mcpServerUrl: "http://127.0.0.1:13773/api/team-mcp",
+            accessToken: "token-1",
+          },
+        });
+
+        const createInput = harness.getLastCreateQueryInput();
+        assert.equal(createInput?.options.disallowedTools, undefined);
+        assert.deepEqual(createInput?.options.extraArgs, {
+          "mcp-config": JSON.stringify({
+            mcpServers: {
+              dynamo_team: {
+                type: "http",
+                url: "http://127.0.0.1:13773/api/team-mcp",
+                headers: {
+                  Authorization: "Bearer token-1",
+                },
+              },
+            },
+          }),
+        });
+        const systemPrompt = createInput?.options.systemPrompt;
+        assert.equal(typeof systemPrompt, "object");
+        assert.equal(Array.isArray(systemPrompt), false);
+        if (
+          typeof systemPrompt === "object" &&
+          systemPrompt !== null &&
+          !Array.isArray(systemPrompt)
+        ) {
+          assert.equal(systemPrompt.type, "preset");
+          assert.equal(systemPrompt.preset, "claude_code");
+          assert.match(systemPrompt.append ?? "", /Claude-native Agent\/Task tools/);
+          assert.match(systemPrompt.append ?? "", /generic same-provider requests/);
+          assert.match(systemPrompt.append ?? "", /mcp__dynamo_team__team_spawn_child/);
+        }
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
   it.effect("forwards claude effort levels into query options", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

@@ -26,6 +26,7 @@ import {
 } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadContextHandoffRepository } from "../../persistence/Services/ProjectionThreadContextHandoffs.ts";
 import { ProjectionThreadTeamTaskRepository } from "../../persistence/Services/ProjectionThreadTeamTasks.ts";
+import { ProjectionNativeSubagentTraceRepository } from "../../persistence/Services/ProjectionNativeSubagentTrace.ts";
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import {
   type ProjectionTurn,
@@ -42,6 +43,7 @@ import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/
 import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadContextHandoffRepositoryLive } from "../../persistence/Layers/ProjectionThreadContextHandoffs.ts";
 import { ProjectionThreadTeamTaskRepositoryLive } from "../../persistence/Layers/ProjectionThreadTeamTasks.ts";
+import { ProjectionNativeSubagentTraceRepositoryLive } from "../../persistence/Layers/ProjectionNativeSubagentTrace.ts";
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
@@ -64,6 +66,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadProposedPlans: "projection.thread-proposed-plans",
   threadContextHandoffs: "projection.thread-context-handoffs",
   threadTeamTasks: "projection.thread-team-tasks",
+  nativeSubagentTrace: "projection.native-subagent-trace",
   threadActivities: "projection.thread-activities",
   threadSessions: "projection.thread-sessions",
   threadTurns: "projection.thread-turns",
@@ -462,6 +465,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadContextHandoffRepository =
       yield* ProjectionThreadContextHandoffRepository;
     const projectionThreadTeamTaskRepository = yield* ProjectionThreadTeamTaskRepository;
+    const projectionNativeSubagentTraceRepository = yield* ProjectionNativeSubagentTraceRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
@@ -854,6 +858,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             resolvedWorkspaceMode: event.payload.teamTask.resolvedWorkspaceMode,
             setupMode: event.payload.teamTask.setupMode,
             resolvedSetupMode: event.payload.teamTask.resolvedSetupMode,
+            source: event.payload.teamTask.source ?? "dynamo",
+            childThreadMaterialized: event.payload.teamTask.childThreadMaterialized ?? true,
+            nativeProviderRef: event.payload.teamTask.nativeProviderRef ?? null,
             status: event.payload.teamTask.status,
             latestSummary: event.payload.teamTask.latestSummary,
             errorText: event.payload.teamTask.errorText,
@@ -896,6 +903,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.latestSummary !== undefined
               ? { latestSummary: event.payload.latestSummary }
               : {}),
+            ...(event.payload.nativeProviderRef !== undefined
+              ? { nativeProviderRef: event.payload.nativeProviderRef }
+              : {}),
             ...(event.payload.completedAt !== undefined
               ? { completedAt: event.payload.completedAt }
               : {}),
@@ -918,6 +928,44 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           });
           return;
         }
+
+        default:
+          return;
+      }
+    });
+
+    const applyNativeSubagentTraceProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyNativeSubagentTraceProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "thread.team-task-native-trace-item-upserted":
+          yield* projectionNativeSubagentTraceRepository.upsertItem(event.payload.item);
+          return;
+
+        case "thread.team-task-native-trace-content-appended":
+          yield* projectionNativeSubagentTraceRepository.appendContent({
+            parentThreadId: event.payload.parentThreadId,
+            taskId: event.payload.taskId,
+            traceItemId: event.payload.traceItemId,
+            delta: event.payload.delta,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+
+        case "thread.team-task-native-trace-item-completed":
+          yield* projectionNativeSubagentTraceRepository.markCompleted({
+            parentThreadId: event.payload.parentThreadId,
+            taskId: event.payload.taskId,
+            traceItemId: event.payload.traceItemId,
+            status: event.payload.status,
+            ...(event.payload.detail !== undefined ? { detail: event.payload.detail } : {}),
+            ...(event.payload.outputSummary !== undefined
+              ? { outputSummary: event.payload.outputSummary }
+              : {}),
+            completedAt: event.payload.completedAt,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
 
         default:
           return;
@@ -1668,6 +1716,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyThreadTeamTasksProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.nativeSubagentTrace,
+        apply: applyNativeSubagentTraceProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
         apply: applyThreadActivitiesProjection,
       },
@@ -1799,6 +1851,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadContextHandoffRepositoryLive),
   Layer.provideMerge(ProjectionThreadTeamTaskRepositoryLive),
+  Layer.provideMerge(ProjectionNativeSubagentTraceRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),

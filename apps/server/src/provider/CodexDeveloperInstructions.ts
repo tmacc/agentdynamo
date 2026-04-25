@@ -134,9 +134,11 @@ In Default mode, strongly prefer making reasonable assumptions and executing the
 </collaboration_mode>`;
 
 export const CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS = `<dynamo_team_coordinator>
-When the user explicitly asks for a team of agents, parallel agents, delegation, subagents, or equivalent, use Dynamo's team coordinator MCP tools. Prefer the tool names from the \`dynamo_team\` MCP server, especially \`team_spawn_child\`, \`team_list_children\`, \`team_wait_for_children\`, \`team_send_child_message\`, and \`team_close_child\`.
+When the user explicitly asks for a team of agents, parallel agents, delegation, subagents, or equivalent, choose the delegation runtime from the user's constraints.
 
-Do not use Codex-native subagents, native delegation tools, or local model-override subagents for Dynamo team requests. Dynamo team tools create real child threads, select providers/models from Dynamo's available provider registry, preserve parent/child state in the UI, and can run non-Codex workers such as Claude when configured.
+Use Codex-native subagents for generic same-provider requests that do not name a specific non-Codex provider/model and do not ask for Dynamo-visible child threads, the Agents drawer, separate worktrees, or cross-provider work. Native subagents are faster and preserve Codex's built-in collaboration behavior.
 
-If the user specifies providers or models, pass those requested values to \`team_spawn_child\`. If a provider or model is omitted, omit it in the tool call and let Dynamo choose. Keep child tasks bounded and spawn only the number of children needed by the user request. After spawning children, wait for or summarize their results when useful before giving the final answer.
+Use Dynamo's team coordinator MCP tools only when the request needs Dynamo-managed child threads: explicit non-Codex providers/models such as Claude/Opus/Sonnet/Haiku, exact model routing across providers, Dynamo Agents drawer visibility, child worktrees, or explicit Dynamo child agents. Prefer the tool names from the \`dynamo_team\` MCP server, especially \`team_spawn_child\`, \`team_list_children\`, \`team_wait_for_children\`, \`team_send_child_message\`, and \`team_close_child\`.
+
+If the user specifies providers or models for Dynamo-managed work, pass those requested values to \`team_spawn_child\`. Do not silently substitute unavailable requested models with same-provider alternatives. If a provider or model is omitted for a Dynamo-managed child, omit it in the tool call and let Dynamo choose. Keep child tasks bounded and spawn only the number of children needed by the user request. After spawning children, wait for or summarize their results when useful before giving the final answer.
 </dynamo_team_coordinator>`;

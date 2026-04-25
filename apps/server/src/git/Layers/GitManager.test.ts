@@ -701,6 +701,7 @@ function makeManager(input?: {
           Effect.die("getThreadShellById should not be called in this test"),
         getThreadDetailById: () =>
           Effect.die("getThreadDetailById should not be called in this test"),
+        getTeamTaskTrace: () => Effect.die("getTeamTaskTrace should not be called in this test"),
       },
     ),
     gitCoreLayer,
@@ -809,6 +810,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   })
                 : Option.none(),
             ),
+          getTeamTaskTrace: () => Effect.die("getTeamTaskTrace should not be called in this test"),
         },
       });
       const preview = yield* manager.previewWorktreePatch({

@@ -693,6 +693,12 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         "Wait for the child agent to finish before applying its changes.",
       );
     }
+    if (task.source !== "dynamo" || !task.childThreadMaterialized) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "Native provider subagents do not have Dynamo-managed worktrees.",
+      );
+    }
 
     const childThreadOption = yield* projectionSnapshotQuery
       .getThreadDetailById(task.childThreadId)

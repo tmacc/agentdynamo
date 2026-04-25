@@ -12,6 +12,8 @@ import type {
   OrchestrationProjectShell,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
+  OrchestrationTeamTaskTraceSnapshot,
+  OrchestrationGetTeamTaskTraceInput,
   OrchestrationThread,
   OrchestrationThreadShell,
   ProjectId,
@@ -105,6 +107,10 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadDetailById: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
+
+  readonly getTeamTaskTrace: (
+    input: OrchestrationGetTeamTaskTraceInput,
+  ) => Effect.Effect<OrchestrationTeamTaskTraceSnapshot, ProjectionRepositoryError>;
 }
 
 /**

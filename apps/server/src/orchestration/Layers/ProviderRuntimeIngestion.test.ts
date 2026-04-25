@@ -2833,6 +2833,286 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBe("# Plan title");
   });
 
+  it("mirrors Claude native task events into team tasks", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "task.started",
+      eventId: asEventId("evt-claude-task-started"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-claude-native"),
+      payload: {
+        taskId: "claude-task-1",
+        description: "Research pricing ideas",
+        taskType: "general",
+      },
+    });
+
+    let thread = await waitForThread(harness.engine, (entry) =>
+      (entry.teamTasks ?? []).some((task) => task.source === "native-provider"),
+    );
+    let task = thread.teamTasks?.find((entry) => entry.source === "native-provider");
+    expect(task).toMatchObject({
+      title: "Research pricing ideas",
+      source: "native-provider",
+      childThreadMaterialized: false,
+      status: "running",
+      modelSelection: {
+        provider: "claudeAgent",
+      },
+      nativeProviderRef: {
+        provider: "claudeAgent",
+        providerTaskId: "claude-task-1",
+        providerTurnId: "turn-claude-native",
+      },
+    });
+
+    harness.emit({
+      type: "task.progress",
+      eventId: asEventId("evt-claude-task-progress"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-claude-native"),
+      payload: {
+        taskId: "claude-task-1",
+        description: "Still researching pricing ideas",
+        summary: "Found three pricing ideas.",
+        lastToolName: "Read",
+      },
+    });
+
+    thread = await waitForThread(harness.engine, (entry) =>
+      (entry.teamTasks ?? []).some((entry) => entry.latestSummary === "Found three pricing ideas."),
+    );
+    task = thread.teamTasks?.find((entry) => entry.source === "native-provider");
+    expect(task?.latestSummary).toBe("Found three pricing ideas.");
+    expect(task?.nativeProviderRef?.toolName).toBe("Read");
+
+    harness.emit({
+      type: "task.completed",
+      eventId: asEventId("evt-claude-task-completed"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-claude-native"),
+      payload: {
+        taskId: "claude-task-1",
+        status: "completed",
+        summary: "Finished pricing research.",
+      },
+    });
+
+    thread = await waitForThread(harness.engine, (entry) =>
+      (entry.teamTasks ?? []).some(
+        (entry) => entry.source === "native-provider" && entry.status === "completed",
+      ),
+    );
+    task = thread.teamTasks?.find((entry) => entry.source === "native-provider");
+    expect(task?.latestSummary).toBe("Finished pricing research.");
+  });
+
+  it("maps failed and stopped Claude native tasks to failed and cancelled team tasks", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "task.completed",
+      eventId: asEventId("evt-claude-task-failed"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        taskId: "claude-task-failed",
+        status: "failed",
+        summary: "Native task failed.",
+      },
+    });
+    harness.emit({
+      type: "task.completed",
+      eventId: asEventId("evt-claude-task-stopped"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        taskId: "claude-task-stopped",
+        status: "stopped",
+        summary: "Native task stopped.",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        (entry.teamTasks ?? []).filter((task) => task.source === "native-provider").length === 2,
+    );
+    const statuses = (thread.teamTasks ?? [])
+      .filter((task) => task.source === "native-provider")
+      .map((task) => task.status)
+      .toSorted();
+    expect(statuses).toEqual(["cancelled", "failed"]);
+  });
+
+  it("mirrors Codex native subagents by receiver thread and completes them from wait results", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-codex-collab-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-codex-native"),
+      itemId: asItemId("item-collab-1"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "inProgress",
+        title: "Subagent task",
+        detail: "Research mobile app ideas",
+        data: {
+          item: {
+            receiverThreadIds: [],
+            tool: "spawnAgent",
+          },
+        },
+      },
+    });
+
+    await harness.drain();
+    let readModel = await Effect.runPromise(harness.engine.getReadModel());
+    let thread = readModel.threads.find((entry) => entry.id === asThreadId("thread-1"));
+    expect(thread?.teamTasks ?? []).toHaveLength(0);
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-codex-collab-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-codex-native"),
+      itemId: asItemId("item-collab-1"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "completed",
+        title: "Subagent task",
+        detail: "Finished mobile app ideas",
+        data: {
+          item: {
+            agentsStates: {
+              "provider-thread-child-1": {
+                message: null,
+                status: "pendingInit",
+              },
+            },
+            prompt: "Research mobile app ideas",
+            receiverThreadIds: ["provider-thread-child-1"],
+            tool: "spawnAgent",
+          },
+        },
+      },
+    });
+
+    thread = await waitForThread(harness.engine, (entry) =>
+      (entry.teamTasks ?? []).some(
+        (entry) => entry.source === "native-provider" && entry.status === "running",
+      ),
+    );
+    let task = thread.teamTasks?.find((entry) => entry.source === "native-provider");
+    expect(task).toMatchObject({
+      title: "Finished mobile app ideas",
+      task: "Research mobile app ideas",
+      source: "native-provider",
+      childThreadMaterialized: false,
+      status: "running",
+      nativeProviderRef: {
+        provider: "codex",
+        providerItemId: "item-collab-1",
+        providerThreadIds: ["provider-thread-child-1"],
+        toolName: "spawnAgent",
+      },
+    });
+    expect(task?.completedAt).toBeNull();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-codex-collab-wait-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-codex-native"),
+      itemId: asItemId("item-collab-wait-1"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "completed",
+        data: {
+          item: {
+            agentsStates: {
+              "provider-thread-child-1": {
+                message: "Mobile app research complete.",
+                status: "completed",
+              },
+            },
+            receiverThreadIds: ["provider-thread-child-1"],
+            tool: "wait",
+          },
+        },
+      },
+    });
+
+    thread = await waitForThread(harness.engine, (entry) =>
+      (entry.teamTasks ?? []).some(
+        (entry) =>
+          entry.source === "native-provider" &&
+          entry.status === "completed" &&
+          entry.latestSummary === "Mobile app research complete.",
+      ),
+    );
+    const nativeTasks = (thread.teamTasks ?? []).filter(
+      (entry) => entry.source === "native-provider",
+    );
+    expect(nativeTasks).toHaveLength(1);
+    task = nativeTasks[0];
+    expect(task?.completedAt).not.toBeNull();
+    expect(task?.nativeProviderRef).toMatchObject({
+      provider: "codex",
+      providerItemId: "item-collab-wait-1",
+      providerThreadIds: ["provider-thread-child-1"],
+      toolName: "wait",
+    });
+  });
+
+  it("does not mirror non-collab tool calls into team tasks", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-codex-command-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-codex-command"),
+      itemId: asItemId("item-command-1"),
+      payload: {
+        itemType: "command_execution",
+        status: "inProgress",
+        title: "Ran command",
+        detail: "pwd",
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity) => activity.id === "evt-codex-command-started"),
+    );
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === "thread-1");
+    expect(thread?.teamTasks ?? []).toEqual([]);
+  });
+
   it("projects structured user input request and resolution as thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

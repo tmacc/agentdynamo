@@ -70,6 +70,11 @@ type DecideOrchestrationCommandResult =
   | ReadonlyArray<PlannedOrchestrationEvent>;
 
 const FINAL_TEAM_TASK_STATUSES = new Set(["completed", "failed", "cancelled"]);
+const ACTIVE_TEAM_TASK_STATUSES = new Set(["queued", "starting", "running", "waiting"]);
+
+function jsonEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
 
 function findTeamTask(readModel: OrchestrationReadModel, parentThreadId: string, taskId: string) {
   const parentThread = readModel.threads.find((thread) => thread.id === parentThreadId);
@@ -526,6 +531,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.teamTask.parentThreadId,
       });
+      if (
+        (command.teamTask.source ?? "dynamo") !== "dynamo" ||
+        command.teamTask.childThreadMaterialized !== true
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Dynamo team task spawn requires a materialized Dynamo child thread.",
+        });
+      }
       yield* requireThreadAbsent({
         readModel,
         command,
@@ -580,6 +594,289 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           },
         },
       ];
+    }
+
+    case "thread.team-task.upsert-native": {
+      const parentThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.parentThreadId,
+      });
+      if (parentThread.teamParent != null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Child threads cannot delegate to more team agents in v1.",
+        });
+      }
+      if (command.teamTask.parentThreadId !== command.parentThreadId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Native team task parent does not match command parent.",
+        });
+      }
+      if (
+        command.teamTask.source !== "native-provider" ||
+        command.teamTask.childThreadMaterialized !== false
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Native team task mirrors must be non-materialized provider-native tasks.",
+        });
+      }
+
+      const existingTask = findTeamTask(readModel, command.parentThreadId, command.teamTask.id);
+      if (!existingTask) {
+        const events: PlannedOrchestrationEvent[] = [
+          {
+            ...withEventBase({
+              aggregateKind: "thread",
+              aggregateId: command.parentThreadId,
+              occurredAt: command.createdAt,
+              commandId: command.commandId,
+            }),
+            type: "thread.team-task-created" as const,
+            payload: {
+              parentThreadId: command.parentThreadId,
+              teamTask: command.teamTask,
+            },
+          },
+        ];
+        if (
+          command.teamTask.startedAt !== null &&
+          ACTIVE_TEAM_TASK_STATUSES.has(command.teamTask.status)
+        ) {
+          events.push({
+            ...withEventBase({
+              aggregateKind: "thread",
+              aggregateId: command.parentThreadId,
+              occurredAt: command.createdAt,
+              commandId: command.commandId,
+            }),
+            type: "thread.team-task-started" as const,
+            payload: {
+              parentThreadId: command.parentThreadId,
+              taskId: command.teamTask.id,
+              startedAt: command.teamTask.startedAt,
+            },
+          });
+        }
+        events.push({
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.parentThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.activity-appended" as const,
+          payload: {
+            threadId: command.parentThreadId,
+            activity: {
+              id: crypto.randomUUID() as OrchestrationEvent["eventId"],
+              tone: "info" as const,
+              kind: "team.task.observed",
+              summary: `Observed native subagent: ${command.teamTask.title}`,
+              payload: teamTaskActivityPayload(command.teamTask),
+              turnId: null,
+              createdAt: command.createdAt,
+            },
+          },
+        });
+        return events;
+      }
+
+      const events: PlannedOrchestrationEvent[] = [];
+      if (existingTask.startedAt === null && command.teamTask.startedAt !== null) {
+        events.push({
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.parentThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.team-task-started" as const,
+          payload: {
+            parentThreadId: command.parentThreadId,
+            taskId: command.teamTask.id,
+            startedAt: command.teamTask.startedAt,
+          },
+        });
+      }
+
+      const nextStatus =
+        FINAL_TEAM_TASK_STATUSES.has(existingTask.status) &&
+        ACTIVE_TEAM_TASK_STATUSES.has(command.teamTask.status)
+          ? existingTask.status
+          : command.teamTask.status;
+      const statusChanged =
+        existingTask.status !== nextStatus ||
+        existingTask.errorText !== command.teamTask.errorText ||
+        existingTask.completedAt !== command.teamTask.completedAt ||
+        !jsonEqual(
+          existingTask.nativeProviderRef ?? null,
+          command.teamTask.nativeProviderRef ?? null,
+        );
+      if (statusChanged) {
+        events.push({
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.parentThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.team-task-status-changed" as const,
+          payload: {
+            parentThreadId: command.parentThreadId,
+            taskId: command.teamTask.id,
+            status: nextStatus,
+            errorText: command.teamTask.errorText,
+            nativeProviderRef: command.teamTask.nativeProviderRef ?? null,
+            updatedAt: command.teamTask.updatedAt,
+            completedAt: command.teamTask.completedAt,
+          },
+        });
+      }
+      if (
+        command.teamTask.latestSummary !== null &&
+        existingTask.latestSummary !== command.teamTask.latestSummary
+      ) {
+        events.push({
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.parentThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.team-task-summary-updated" as const,
+          payload: {
+            parentThreadId: command.parentThreadId,
+            taskId: command.teamTask.id,
+            latestSummary: command.teamTask.latestSummary,
+            updatedAt: command.teamTask.updatedAt,
+          },
+        });
+      }
+      return events;
+    }
+
+    case "thread.team-task.native-trace.upsert-item": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.parentThreadId,
+      });
+      const task = findTeamTask(readModel, command.parentThreadId, command.taskId);
+      if (!task) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Native trace task '${command.taskId}' was not found.`,
+        });
+      }
+      if (task.source !== "native-provider" || task.childThreadMaterialized !== false) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Native trace items can only be attached to non-materialized native tasks.",
+        });
+      }
+      if (
+        command.item.parentThreadId !== command.parentThreadId ||
+        command.item.taskId !== command.taskId
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Native trace item parent/task does not match command.",
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.parentThreadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.team-task-native-trace-item-upserted" as const,
+        payload: {
+          parentThreadId: command.parentThreadId,
+          taskId: command.taskId,
+          item: command.item,
+        },
+      };
+    }
+
+    case "thread.team-task.native-trace.append-content": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.parentThreadId,
+      });
+      const task = findTeamTask(readModel, command.parentThreadId, command.taskId);
+      if (!task) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Native trace task '${command.taskId}' was not found.`,
+        });
+      }
+      if (task.source !== "native-provider" || task.childThreadMaterialized !== false) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Native trace content can only be attached to non-materialized native tasks.",
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.parentThreadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.team-task-native-trace-content-appended" as const,
+        payload: {
+          parentThreadId: command.parentThreadId,
+          taskId: command.taskId,
+          traceItemId: command.traceItemId,
+          delta: command.delta,
+          updatedAt: command.updatedAt,
+        },
+      };
+    }
+
+    case "thread.team-task.native-trace.mark-completed": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.parentThreadId,
+      });
+      const task = findTeamTask(readModel, command.parentThreadId, command.taskId);
+      if (!task) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Native trace task '${command.taskId}' was not found.`,
+        });
+      }
+      if (task.source !== "native-provider" || task.childThreadMaterialized !== false) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Native trace completion can only be attached to non-materialized native tasks.",
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.parentThreadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.team-task-native-trace-item-completed" as const,
+        payload: {
+          parentThreadId: command.parentThreadId,
+          taskId: command.taskId,
+          traceItemId: command.traceItemId,
+          status: command.status,
+          ...(command.detail !== undefined ? { detail: command.detail } : {}),
+          ...(command.outputSummary !== undefined ? { outputSummary: command.outputSummary } : {}),
+          completedAt: command.completedAt,
+          updatedAt: command.updatedAt,
+        },
+      };
     }
 
     case "thread.team-task.mark-starting":

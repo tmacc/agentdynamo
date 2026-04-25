@@ -4,6 +4,7 @@ import { memo, useState, type MouseEvent } from "react";
 
 import { cn } from "~/lib/utils";
 import {
+  isDynamoManagedTeamTask,
   isActiveTeamTask,
   teamTaskModelLabel,
   teamTaskStatusClassName,
@@ -73,6 +74,7 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
   const { task, diffSummary, elapsed } = view;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[task.modelSelection.provider];
   const active = isActiveTeamTask(task);
+  const isDynamoManaged = isDynamoManagedTeamTask(task);
 
   return (
     <div className="border-border/50 border-b last:border-b-0">
@@ -121,15 +123,17 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
             <div className="line-clamp-4 text-destructive">{task.errorText}</div>
           ) : null}
           <div className="flex flex-wrap items-center gap-3 pt-0.5">
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 text-primary/85 transition-colors hover:text-primary"
-              onClick={stopPropagation(() => onOpenTask(task.childThreadId))}
-            >
-              Open child thread
-              <ExternalLinkIcon className="size-3" />
-            </button>
-            {view.childWorktreePath && !active ? (
+            {isDynamoManaged ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-primary/85 transition-colors hover:text-primary"
+                onClick={stopPropagation(() => onOpenTask(task.childThreadId))}
+              >
+                Open child thread
+                <ExternalLinkIcon className="size-3" />
+              </button>
+            ) : null}
+            {view.childWorktreePath && !active && isDynamoManaged ? (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-success transition-colors hover:text-success/80"
@@ -139,7 +143,7 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
                 <CheckIcon className="size-3" />
               </button>
             ) : null}
-            {active ? (
+            {active && isDynamoManaged ? (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-muted-foreground transition-colors hover:text-destructive"
@@ -148,6 +152,9 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
                 Cancel
                 <XIcon className="size-3" />
               </button>
+            ) : null}
+            {!isDynamoManaged ? (
+              <span className="text-muted-foreground/70">Observed in parent thread</span>
             ) : null}
           </div>
         </div>

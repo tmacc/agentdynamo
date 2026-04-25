@@ -540,6 +540,50 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Confirm the app launches without `icudtl.dat not found in bundle`.
   - Confirm the app does not enter a relaunch loop or leave `127.0.0.1:13774` orphaned after a failed boot.
 
+### 2026-04-25 - Stabilize Dynamo team agent visibility and Claude routing
+
+- `Status`: active
+- `Area`: orchestration | provider | web
+- `User-visible impact`: Dynamo-managed child agents appear in the Agents drawer as soon as they spawn. Provider-native Codex/Claude subagents are mirrored into the same drawer as read-only `Native` tasks for generic same-provider delegation, with an `Inspect activity` panel that shows durable read-only native provider trace items. Coordinator sessions still use Dynamo team MCP tools when the request needs cross-provider models, exact model routing, Dynamo-visible child threads, or child worktrees.
+- `Why this patch exists`: Team task lifecycle events were projected into work-log activity, but the active thread detail stream did not forward `thread.team-task-*` events, so the drawer could remain empty until a full detail reload. Claude sessions received the MCP server config but no coordinator prompt, so Claude could silently substitute models instead of routing explicit cross-provider work through Dynamo.
+- `Key files`:
+  - `apps/server/src/ws.ts`
+  - `apps/server/src/provider/Layers/ClaudeAdapter.ts`
+  - `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`
+  - `packages/contracts/src/orchestration.ts`
+  - `apps/server/src/persistence/Migrations/039_ProjectionThreadTeamTaskNativeSource.ts`
+  - `apps/server/src/persistence/Migrations/041_ProjectionNativeSubagentTrace.ts`
+  - `apps/server/src/persistence/Layers/ProjectionNativeSubagentTrace.ts`
+  - `apps/web/src/store.ts`
+  - `apps/web/src/components/chat/TeamAgentsSidebar.tsx`
+  - `apps/web/src/components/chat/NativeSubagentTracePanel.tsx`
+  - `apps/server/src/provider/Layers/ClaudeAdapter.test.ts`
+  - `apps/web/src/store.test.ts`
+- `Important invariants`:
+  - Active thread detail subscriptions must receive all `thread.team-task-*` events for the coordinator thread.
+  - Live-created child threads must be linked back to an existing parent `teamTask` even when `thread.team-task-created` arrives before `thread.created`.
+  - Coordinator sessions with Dynamo team tools must append provider-specific policy that preserves native subagents for generic same-provider requests and reserves Dynamo MCP tools for cross-provider, exact-model, Dynamo-visible, or worktree-backed child work.
+  - Native provider subagents must be represented as `source: "native-provider"` and `childThreadMaterialized: false`; they are drawer-visible but do not expose child-thread, worktree, cancel, or follow-up semantics.
+  - Native provider trace items are durable read-only projections. They must not materialize Dynamo child threads or expose follow-up/cancel/review/apply controls.
+  - Hidden chain-of-thought is not exposed in native traces. Codex `reasoning_text` deltas are ignored; only provider-exposed summaries/messages/tool data are rendered.
+  - Codex native subagent mirrors must be keyed by `receiverThreadIds`, not the parent-side `collabAgentToolCall` item id. `spawnAgent` completion only means the child thread was created and should remain `running`; the later `wait` result owns final completion/summary updates.
+  - Dynamo-managed tasks remain the only tasks with materialized child threads, worktrees, follow-up/cancel controls, and review/apply behavior.
+- `Merge hotspots`:
+  - WebSocket orchestration detail event filtering
+  - Store handling for `thread.created` and team task events
+  - `OrchestrationTeamTask` schema defaults and the `projection_thread_team_tasks` repository/migrations
+  - Provider-native task event mapping in `ProviderRuntimeIngestion`
+  - Native trace RPC methods and projection repository
+  - Agents drawer source-aware controls in `TeamAgentsSidebar`
+  - Native trace panel rendering and environment API wiring
+  - Claude SDK query option construction, especially `systemPrompt`, native Agent/Task availability, and MCP config
+- `Verification`:
+  - Run `bun run test src/orchestration.test.ts` in `packages/contracts`.
+  - Run `bun run test src/orchestration/Layers/ProviderRuntimeIngestion.test.ts` in `apps/server`.
+  - Run `bun run test src/provider/Layers/ClaudeAdapter.test.ts` in `apps/server`.
+  - Run `bun run test src/store.test.ts` in `apps/web`.
+  - Launch `bun run dev:desktop`; verify generic same-provider subagent prompts can use provider-native delegation, then verify explicit cross-provider or Dynamo-visible child requests spawn Dynamo team agents and appear in the Agents drawer.
+
 ## Upstream-Touching Patch Entry Template
 
 Use this template for future bugfixes or behavioral patches that modify upstream-derived code:

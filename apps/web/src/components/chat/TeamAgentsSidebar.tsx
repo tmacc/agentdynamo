@@ -1,7 +1,19 @@
-import type { OrchestrationTeamTask, TeamTaskId, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  OrchestrationTeamTask,
+  TeamTaskId,
+  ThreadId,
+} from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
-import { BotIcon, CheckIcon, ExternalLinkIcon, PanelRightCloseIcon, XIcon } from "lucide-react";
-import { memo } from "react";
+import {
+  ActivityIcon,
+  BotIcon,
+  CheckIcon,
+  ExternalLinkIcon,
+  PanelRightCloseIcon,
+  XIcon,
+} from "lucide-react";
+import { memo, useState } from "react";
 
 import { formatTimestamp } from "../../timestampFormat";
 import { Badge } from "../ui/badge";
@@ -9,15 +21,20 @@ import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "~/lib/utils";
 import {
+  isDynamoManagedTeamTask,
   isActiveTeamTask,
+  isNativeProviderTeamTask,
   teamTaskModelLabel,
+  teamTaskSourceLabel,
   teamTaskStatusClassName,
   teamTaskStatusLabel,
 } from "./TeamTaskShared";
 import type { TeamTaskInlineView } from "./TeamTaskInlineBlock";
+import { NativeSubagentTracePanel } from "./NativeSubagentTracePanel";
 import { PROVIDER_ICON_BY_PROVIDER } from "./providerIconUtils";
 
 export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
+  environmentId,
   coordinatorTitle,
   coordinatorThreadId,
   activeThreadId,
@@ -29,6 +46,7 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
   onReviewTaskChanges,
   onClose,
 }: {
+  environmentId: EnvironmentId;
   coordinatorTitle: string;
   coordinatorThreadId: ThreadId;
   activeThreadId: ThreadId;
@@ -41,6 +59,29 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
   onClose: () => void;
 }) {
   const activeCount = tasks.filter((view) => isActiveTeamTask(view.task)).length;
+  const [inspectedNativeTaskId, setInspectedNativeTaskId] = useState<TeamTaskId | null>(null);
+  const inspectedNativeTask =
+    tasks.find(({ task }) => task.id === inspectedNativeTaskId)?.task ?? null;
+
+  if (inspectedNativeTask && isNativeProviderTeamTask(inspectedNativeTask)) {
+    return (
+      <div
+        className={cn(
+          "flex min-h-0 flex-col bg-card/50",
+          mode === "sidebar"
+            ? "h-full w-[360px] shrink-0 border-l border-border/70"
+            : "h-full w-full",
+        )}
+      >
+        <NativeSubagentTracePanel
+          environmentId={environmentId}
+          parentThreadId={coordinatorThreadId}
+          task={inspectedNativeTask}
+          onBack={() => setInspectedNativeTaskId(null)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -107,6 +148,7 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
                   onOpenThread={onOpenThread}
                   onCancelTask={onCancelTask}
                   onReviewTaskChanges={onReviewTaskChanges}
+                  onInspectNativeTask={setInspectedNativeTaskId}
                 />
               ))}
             </div>
@@ -131,6 +173,7 @@ const AgentCard = memo(function AgentCard({
   onOpenThread,
   onCancelTask,
   onReviewTaskChanges,
+  onInspectNativeTask,
 }: {
   task: OrchestrationTeamTask;
   active: boolean;
@@ -141,9 +184,13 @@ const AgentCard = memo(function AgentCard({
   onOpenThread: (threadId: ThreadId) => void;
   onCancelTask: (taskId: TeamTaskId) => void;
   onReviewTaskChanges: (task: OrchestrationTeamTask) => void;
+  onInspectNativeTask: (taskId: TeamTaskId) => void;
 }) {
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[task.modelSelection.provider];
   const isActive = isActiveTeamTask(task);
+  const isDynamoManaged = isDynamoManagedTeamTask(task);
+  const isNativeProvider = isNativeProviderTeamTask(task);
+  const hasActions = isDynamoManaged || Boolean(childWorktreePath && !isActive);
 
   return (
     <div
@@ -160,8 +207,15 @@ const AgentCard = memo(function AgentCard({
             <span className="truncate font-medium text-foreground/90">
               {task.roleLabel || task.title}
             </span>
-            <span className={cn("shrink-0 text-[11px]", teamTaskStatusClassName(task.status))}>
-              {teamTaskStatusLabel(task.status)}
+            <span className="flex shrink-0 items-center gap-1.5">
+              {isNativeProvider ? (
+                <span className="rounded border border-border/70 px-1 py-0 text-[10px] text-muted-foreground/70 uppercase">
+                  {teamTaskSourceLabel(task)}
+                </span>
+              ) : null}
+              <span className={cn("text-[11px]", teamTaskStatusClassName(task.status))}>
+                {teamTaskStatusLabel(task.status)}
+              </span>
             </span>
           </div>
           <div className="mt-0.5 truncate text-muted-foreground/75">{teamTaskModelLabel(task)}</div>
@@ -180,26 +234,38 @@ const AgentCard = memo(function AgentCard({
         <span>{formatTimestamp(task.createdAt, timestampFormat)}</span>
         {elapsed ? <span>{elapsed}</span> : null}
         <span>
-          {task.resolvedWorkspaceMode}
-          {task.resolvedSetupMode === "run" ? " · setup" : ""}
+          {isNativeProvider
+            ? "provider-native · shared"
+            : `${task.resolvedWorkspaceMode}${task.resolvedSetupMode === "run" ? " · setup" : ""}`}
         </span>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button size="xs" variant="outline" onClick={() => onOpenThread(task.childThreadId)}>
-          <ExternalLinkIcon className="size-3" />
-          Open chat
-        </Button>
-        {childWorktreePath && !isActive ? (
+        {isDynamoManaged ? (
+          <Button size="xs" variant="outline" onClick={() => onOpenThread(task.childThreadId)}>
+            <ExternalLinkIcon className="size-3" />
+            Open chat
+          </Button>
+        ) : null}
+        {isNativeProvider ? (
+          <Button size="xs" variant="outline" onClick={() => onInspectNativeTask(task.id)}>
+            <ActivityIcon className="size-3" />
+            Inspect activity
+          </Button>
+        ) : null}
+        {childWorktreePath && !isActive && isDynamoManaged ? (
           <Button size="xs" variant="ghost" onClick={() => onReviewTaskChanges(task)}>
             <CheckIcon className="size-3" />
             Review & apply
           </Button>
         ) : null}
-        {isActive ? (
+        {isActive && isDynamoManaged ? (
           <Button size="xs" variant="ghost" onClick={() => onCancelTask(task.id)}>
             <XIcon className="size-3" />
             Cancel
           </Button>
+        ) : null}
+        {!hasActions && !isNativeProvider ? (
+          <span className="text-[11px] text-muted-foreground/60">Observed in parent thread</span>
         ) : null}
       </div>
     </div>

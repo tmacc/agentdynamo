@@ -386,6 +386,15 @@ export const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
   },
 );
 
+export const WsOrchestrationGetTeamTaskTraceRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getTeamTaskTrace,
+  {
+    payload: OrchestrationRpcSchemas.getTeamTaskTrace.input,
+    success: OrchestrationRpcSchemas.getTeamTaskTrace.output,
+    error: OrchestrationGetSnapshotError,
+  },
+);
+
 export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.replayEvents, {
   payload: OrchestrationReplayEventsInput,
   success: OrchestrationRpcSchemas.replayEvents.output,
@@ -404,6 +413,16 @@ export const WsOrchestrationSubscribeThreadRpc = Rpc.make(
   {
     payload: OrchestrationRpcSchemas.subscribeThread.input,
     success: OrchestrationRpcSchemas.subscribeThread.output,
+    error: OrchestrationGetSnapshotError,
+    stream: true,
+  },
+);
+
+export const WsOrchestrationSubscribeTeamTaskTraceRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.subscribeTeamTaskTrace,
+  {
+    payload: OrchestrationRpcSchemas.subscribeTeamTaskTrace.input,
+    success: OrchestrationRpcSchemas.subscribeTeamTaskTrace.output,
     error: OrchestrationGetSnapshotError,
     stream: true,
   },
@@ -495,9 +514,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationForkThreadRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
+  WsOrchestrationGetTeamTaskTraceRpc,
   WsOrchestrationReplayEventsRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,
+  WsOrchestrationSubscribeTeamTaskTraceRpc,
   WsBoardListCardsRpc,
   WsBoardListDismissedGhostsRpc,
   WsBoardSubscribeProjectRpc,

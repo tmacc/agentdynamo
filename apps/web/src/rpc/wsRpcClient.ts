@@ -131,8 +131,12 @@ export interface WsRpcClient {
     readonly forkThread: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.forkThread>;
     readonly getTurnDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getTurnDiff>;
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
+    readonly getTeamTaskTrace: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getTeamTaskTrace>;
     readonly subscribeShell: RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeShell>;
     readonly subscribeThread: RpcInputStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeThread>;
+    readonly subscribeTeamTaskTrace: RpcInputStreamMethod<
+      typeof ORCHESTRATION_WS_METHODS.subscribeTeamTaskTrace
+    >;
   };
   readonly board: {
     readonly listCards: (input: BoardListCardsInput) => Promise<BoardListCardsResult>;
@@ -279,6 +283,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getTurnDiff](input)),
       getFullThreadDiff: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getFullThreadDiff](input)),
+      getTeamTaskTrace: (input) =>
+        transport.request((client) => client[ORCHESTRATION_WS_METHODS.getTeamTaskTrace](input)),
       subscribeShell: (listener, options) =>
         transport.subscribe(
           (client) => client[ORCHESTRATION_WS_METHODS.subscribeShell]({}),
@@ -288,6 +294,12 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       subscribeThread: (input, listener, options) =>
         transport.subscribe(
           (client) => client[ORCHESTRATION_WS_METHODS.subscribeThread](input),
+          listener,
+          options,
+        ),
+      subscribeTeamTaskTrace: (input, listener, options) =>
+        transport.subscribe(
+          (client) => client[ORCHESTRATION_WS_METHODS.subscribeTeamTaskTrace](input),
           listener,
           options,
         ),
