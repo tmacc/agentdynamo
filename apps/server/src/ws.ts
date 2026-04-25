@@ -911,8 +911,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [BOARD_WS_METHODS.subscribeProject]: (input) =>
           observeRpcStreamEffect(
             BOARD_WS_METHODS.subscribeProject,
-            Effect.gen(function* () {
-              return Stream.unwrap(
+            Effect.succeed(
+              Stream.unwrap(
                 Effect.gen(function* () {
                   const liveQueue = yield* Queue.unbounded<OrchestrationEvent>();
                   yield* orchestrationEngine.streamDomainEvents.pipe(
@@ -1005,8 +1005,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                     Stream.merge(replayStream, liveStream),
                   );
                 }),
-              );
-            }),
+              ),
+            ),
             { "rpc.aggregate": "board" },
           ),
         [WS_METHODS.serverGetConfig]: (_input) =>

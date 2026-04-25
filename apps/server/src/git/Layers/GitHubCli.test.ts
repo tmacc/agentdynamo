@@ -175,6 +175,59 @@ layer("GitHubCliLive", (it) => {
     }),
   );
 
+  it.effect(
+    "keeps same-repository PR list entries when gh omits headRepository.nameWithOwner",
+    () =>
+      Effect.gen(function* () {
+        mockedRunProcess.mockResolvedValueOnce({
+          stdout: JSON.stringify([
+            {
+              number: 18,
+              title: "Restore fork features",
+              url: "https://github.com/tmacc/agentdynamo2/pull/18",
+              baseRefName: "main",
+              headRefName: "t3code/apply-requested-patch",
+              state: "OPEN",
+              isCrossRepository: false,
+              headRepository: {
+                id: "R_kgDOSDwZ9A",
+                name: "agentdynamo2",
+              },
+              headRepositoryOwner: {
+                login: "tmacc",
+              },
+            },
+          ]),
+          stderr: "",
+          code: 0,
+          signal: null,
+          timedOut: false,
+        });
+
+        const result = yield* Effect.gen(function* () {
+          const gh = yield* GitHubCli;
+          return yield* gh.listOpenPullRequests({
+            cwd: "/repo",
+            headSelector: "t3code/apply-requested-patch",
+            repository: "tmacc/agentdynamo2",
+          });
+        });
+
+        assert.deepStrictEqual(result, [
+          {
+            number: 18,
+            title: "Restore fork features",
+            url: "https://github.com/tmacc/agentdynamo2/pull/18",
+            baseRefName: "main",
+            headRefName: "t3code/apply-requested-patch",
+            state: "open",
+            isCrossRepository: false,
+            headRepositoryOwnerLogin: "tmacc",
+          },
+        ]);
+      }),
+  );
+
   it.effect("reads repository clone URLs", () =>
     Effect.gen(function* () {
       mockedRunProcess.mockResolvedValueOnce({

@@ -42,6 +42,7 @@ interface FakeGhScenario {
   prListByHeadSelector?: Record<string, string>;
   prListSequenceByHeadSelector?: Record<string, string[]>;
   createdPrUrl?: string;
+  createPullRequestError?: GitHubCliError;
   defaultBranch?: string;
   pullRequest?: {
     number: number;
@@ -398,6 +399,9 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
     }
 
     if (args[0] === "pr" && args[1] === "create") {
+      if (scenario.createPullRequestError) {
+        return Effect.fail(scenario.createPullRequestError);
+      }
       return Effect.succeed({
         stdout:
           (scenario.createdPrUrl ?? "https://github.com/pingdotgg/codething-mvp/pull/101") + "\n",
@@ -2208,6 +2212,64 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         ghCalls.some((call) => call.includes("pr create --base main --head feature-create-pr")),
       ).toBe(true);
       expect(ghCalls.some((call) => call.startsWith("pr view "))).toBe(false);
+    }),
+  );
+
+  it.effect("opens an existing PR when gh create reports the branch already has one", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "t3code/apply-requested-patch"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      fs.writeFileSync(path.join(repoDir, "changes.txt"), "change\n");
+      yield* runGit(repoDir, ["add", "changes.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Feature commit"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "t3code/apply-requested-patch"]);
+      yield* runGit(repoDir, [
+        "config",
+        "branch.t3code/apply-requested-patch.gh-merge-base",
+        "main",
+      ]);
+
+      const existingPr = JSON.stringify([
+        {
+          number: 18,
+          title: "Restore fork features",
+          url: "https://github.com/tmacc/agentdynamo2/pull/18",
+          baseRefName: "main",
+          headRefName: "t3code/apply-requested-patch",
+          state: "OPEN",
+          isCrossRepository: false,
+          headRepository: {
+            name: "agentdynamo2",
+          },
+          headRepositoryOwner: {
+            login: "tmacc",
+          },
+        },
+      ]);
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: ["[]", existingPr],
+          createPullRequestError: new GitHubCliError({
+            operation: "execute",
+            detail:
+              'GitHub CLI command failed: a pull request for branch "t3code/apply-requested-patch" into branch "main" already exists',
+          }),
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+      });
+
+      expect(result.pr.status).toBe("opened_existing");
+      expect(result.pr.number).toBe(18);
+      expect(result.pr.url).toBe("https://github.com/tmacc/agentdynamo2/pull/18");
+      expect(ghCalls.filter((call) => call.startsWith("pr create "))).toHaveLength(1);
+      expect(ghCalls.filter((call) => call.startsWith("pr list "))).toHaveLength(2);
     }),
   );
 
