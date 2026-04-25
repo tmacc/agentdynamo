@@ -81,6 +81,11 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
         new TeamOrchestrationError(`Unknown parent thread '${parentThreadId}'.`),
       );
     }
+    if (parentThread.archivedAt !== null) {
+      return yield* Effect.fail(
+        new TeamOrchestrationError(`Parent thread '${parentThreadId}' is archived.`),
+      );
+    }
     if (parentThread.teamParent != null) {
       return yield* Effect.fail(
         new TeamOrchestrationError("Child threads cannot delegate further in v1."),

@@ -95,6 +95,7 @@ const makeProjectionBoardCardRepository = Effect.gen(function* () {
       SELECT ${sql.unsafe(SELECT_COLUMNS)}
       FROM projection_board_cards
       WHERE linked_thread_id = ${linkedThreadId}
+        AND archived_at IS NULL
     `,
   });
 

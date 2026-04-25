@@ -330,6 +330,8 @@ export const makeOrchestrationIntegrationHarness = (
         }),
       authenticate: () => Effect.succeed(Option.none()),
       revokeForThread: () => Effect.void,
+      revokeGrant: () => Effect.void,
+      revokeOtherGrantsForThread: () => Effect.void,
     } as typeof TeamCoordinatorAccess.Service);
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),

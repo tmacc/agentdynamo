@@ -307,6 +307,8 @@ describe("ProviderCommandReactor", () => {
             }),
           authenticate: () => Effect.succeed(Option.none()),
           revokeForThread: () => Effect.void,
+          revokeGrant: () => Effect.void,
+          revokeOtherGrantsForThread: () => Effect.void,
         } as typeof TeamCoordinatorAccess.Service),
       ),
       Layer.provideMerge(ServerSettingsService.layerTest()),

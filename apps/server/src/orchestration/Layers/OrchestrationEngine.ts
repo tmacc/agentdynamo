@@ -4,7 +4,7 @@ import type {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import { OrchestrationCommand } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, OrchestrationCommand } from "@t3tools/contracts";
 import {
   Cause,
   Deferred,
@@ -44,6 +44,7 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 
 interface CommandEnvelope {
   command: OrchestrationCommand;
@@ -117,6 +118,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const projectionPipeline = yield* OrchestrationProjectionPipeline;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const boardCardRepository = yield* ProjectionBoardCardRepository;
+  const serverSettings = yield* Effect.serviceOption(ServerSettingsService);
 
   let readModel = createEmptyReadModel(new Date().toISOString());
 
@@ -174,10 +176,14 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           });
         }
 
+        const settings = Option.isSome(serverSettings)
+          ? yield* serverSettings.value.getSettings
+          : DEFAULT_SERVER_SETTINGS;
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel,
           boardCardRepository,
+          teamAgents: settings.teamAgents,
         });
         const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
         const committedCommand = yield* sql

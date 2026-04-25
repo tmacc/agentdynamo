@@ -427,6 +427,7 @@ const make = Effect.gen(function* () {
         serverConfig.host && serverConfig.host.length > 0 ? serverConfig.host : "127.0.0.1";
       return {
         parentThreadId: thread.id,
+        grantId: grant.grantId,
         mcpServerName: "dynamo_team",
         mcpServerUrl: `http://${host}:${serverConfig.port}/api/team-mcp`,
         accessToken: grant.accessToken,
@@ -440,15 +441,56 @@ const make = Effect.gen(function* () {
       const provider = input?.provider ?? desiredProvider;
       return Effect.gen(function* () {
         const teamCoordinator = yield* resolveTeamCoordinator(provider);
-        return yield* providerService.startSession(threadId, {
-          threadId,
-          provider,
-          ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-          modelSelection: desiredModelSelection,
-          ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-          runtimeMode: desiredRuntimeMode,
-          ...(teamCoordinator !== undefined ? { teamCoordinator } : {}),
-        });
+        const started = yield* Effect.exit(
+          providerService.startSession(threadId, {
+            threadId,
+            provider,
+            ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+            modelSelection: desiredModelSelection,
+            ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+            runtimeMode: desiredRuntimeMode,
+            ...(teamCoordinator !== undefined
+              ? {
+                  teamCoordinator: {
+                    parentThreadId: teamCoordinator.parentThreadId,
+                    mcpServerName: teamCoordinator.mcpServerName,
+                    mcpServerUrl: teamCoordinator.mcpServerUrl,
+                    accessToken: teamCoordinator.accessToken,
+                  },
+                }
+              : {}),
+          }),
+        );
+        if (teamCoordinator !== undefined) {
+          if (Exit.isSuccess(started)) {
+            yield* teamCoordinatorAccess
+              .revokeOtherGrantsForThread({
+                parentThreadId: teamCoordinator.parentThreadId,
+                keepGrantId: teamCoordinator.grantId,
+              })
+              .pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("failed to revoke stale team coordinator grants", {
+                    threadId,
+                    cause: Cause.pretty(cause),
+                  }),
+                ),
+              );
+          } else {
+            yield* teamCoordinatorAccess.revokeGrant({ grantId: teamCoordinator.grantId }).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("failed to revoke unused team coordinator grant", {
+                  threadId,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            );
+          }
+        }
+        if (Exit.isFailure(started)) {
+          return yield* Effect.failCause(started.cause);
+        }
+        return started.value;
       });
     };
 

@@ -33,6 +33,6 @@ export default Effect.gen(function* () {
   yield* sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_projection_board_cards_linked_thread_id_unique
     ON projection_board_cards(linked_thread_id)
-    WHERE linked_thread_id IS NOT NULL
+    WHERE linked_thread_id IS NOT NULL AND archived_at IS NULL
   `;
 });

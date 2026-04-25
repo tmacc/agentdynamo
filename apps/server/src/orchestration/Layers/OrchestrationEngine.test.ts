@@ -31,6 +31,7 @@ import {
 } from "../Services/ProjectionPipeline.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
@@ -50,6 +51,7 @@ async function createOrchestrationSystem() {
     Layer.provide(ProjectionBoardCardRepositoryLive),
     Layer.provide(RepositoryIdentityResolverLive),
     Layer.provide(SqlitePersistenceMemory),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(ServerConfigLayer),
     Layer.provideMerge(NodeServices.layer),
   );
@@ -174,6 +176,7 @@ describe("OrchestrationEngine", () => {
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
       Layer.provide(ProjectionBoardCardRepositoryLive),
       Layer.provide(SqlitePersistenceMemory),
+      Layer.provideMerge(ServerSettingsService.layerTest()),
     );
 
     const runtime = ManagedRuntime.make(layer);
@@ -643,6 +646,7 @@ describe("OrchestrationEngine", () => {
         Layer.provide(ProjectionBoardCardRepositoryLive),
         Layer.provide(RepositoryIdentityResolverLive),
         Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(ServerSettingsService.layerTest()),
         Layer.provideMerge(ServerConfigLayer),
         Layer.provideMerge(NodeServices.layer),
       ),
@@ -741,6 +745,7 @@ describe("OrchestrationEngine", () => {
         Layer.provide(ProjectionBoardCardRepositoryLive),
         Layer.provide(RepositoryIdentityResolverLive),
         Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(ServerSettingsService.layerTest()),
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
@@ -885,6 +890,7 @@ describe("OrchestrationEngine", () => {
         Layer.provide(ProjectionBoardCardRepositoryLive),
         Layer.provide(RepositoryIdentityResolverLive),
         Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(ServerSettingsService.layerTest()),
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
