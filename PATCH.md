@@ -250,6 +250,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/server/src/provider/Layers/ProviderService.ts`
   - `apps/server/src/persistence/Migrations/029_ProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Migrations/034_EnsureProjectionThreadContextHandoffs.ts`
+  - `apps/server/src/persistence/Migrations/042_EnsureProviderSessionRuntimeSchema.ts`
   - `apps/server/src/persistence/Services/ProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Layers/ProjectionThreadContextHandoffs.ts`
   - `apps/web/src/components/ChatView.logic.ts`
@@ -263,6 +264,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Handoff projection DDL must also run at migration id `034` for existing Dynamo databases whose pre-merge fork-only migration history already advanced past id `029`.
   - Handoff state must stay aligned with branch and worktree metadata.
   - A provider switch should preserve resumability and avoid leaving the thread in an unroutable state.
+  - Existing installed databases with a stale `provider_session_runtime` table must be repaired in place so provider session startup can write `adapter_key`, `last_seen_at`, and `runtime_payload_json` without forcing users to delete local app data.
   - Current restored behavior uses a full visible-context handoff. The old incremental provider-slot marker system and migration `033_ProviderSessionRuntimeSlots.ts` are not restored; if provider-native sync markers return later, they should extend the shared handoff state rather than replace it.
 - `Merge hotspots`:
   - Orchestration turn-start and provider command flows
@@ -277,6 +279,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Confirm switching is blocked while a turn or provider interaction is pending and does not prepare a stray handoff.
   - Switch back and verify the thread remains resumable.
   - Reload and confirm the thread still routes to a valid provider session.
+  - Start a chat from an installed app using a database created by an older build and confirm the provider session binding is written without a SQL prepare error.
 
 ### Worktree setup runtime profile
 
