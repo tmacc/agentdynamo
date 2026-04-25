@@ -1214,7 +1214,7 @@ export const ChatComposer = memo(
     useLayoutEffect(() => {
       const composerForm = composerFormRef.current;
       if (!composerForm) return;
-      const measureComposerFormWidth = () => composerForm.clientWidth;
+      const measureComposerFormWidth = () => Math.min(composerForm.clientWidth, window.innerWidth);
       const measureFooterCompactness = () => {
         const composerFormWidth = measureComposerFormWidth();
         const footerCompact = shouldUseCompactComposerFooter(composerFormWidth, {
@@ -1230,16 +1230,7 @@ export const ChatComposer = memo(
           footerCompact,
         };
       };
-
-      composerFormHeightRef.current = composerForm.getBoundingClientRect().height;
-      const initialCompactness = measureFooterCompactness();
-      setIsComposerPrimaryActionsCompact(initialCompactness.primaryActionsCompact);
-      setIsComposerFooterCompact(initialCompactness.footerCompact);
-      if (typeof ResizeObserver === "undefined") return;
-
-      const observer = new ResizeObserver((entries) => {
-        const [entry] = entries;
-        if (!entry) return;
+      const updateFooterCompactness = () => {
         const nextCompactness = measureFooterCompactness();
         setIsComposerPrimaryActionsCompact((previous) =>
           previous === nextCompactness.primaryActionsCompact
@@ -1249,6 +1240,21 @@ export const ChatComposer = memo(
         setIsComposerFooterCompact((previous) =>
           previous === nextCompactness.footerCompact ? previous : nextCompactness.footerCompact,
         );
+      };
+
+      composerFormHeightRef.current = composerForm.getBoundingClientRect().height;
+      updateFooterCompactness();
+      window.addEventListener("resize", updateFooterCompactness);
+      if (typeof ResizeObserver === "undefined") {
+        return () => {
+          window.removeEventListener("resize", updateFooterCompactness);
+        };
+      }
+
+      const observer = new ResizeObserver((entries) => {
+        const [entry] = entries;
+        if (!entry) return;
+        updateFooterCompactness();
         const nextHeight = entry.contentRect.height;
         const previousHeight = composerFormHeightRef.current;
         composerFormHeightRef.current = nextHeight;
@@ -1259,6 +1265,7 @@ export const ChatComposer = memo(
 
       observer.observe(composerForm);
       return () => {
+        window.removeEventListener("resize", updateFooterCompactness);
         observer.disconnect();
       };
     }, [
