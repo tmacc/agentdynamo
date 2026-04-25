@@ -309,6 +309,21 @@ function gitManagerError(operation: string, detail: string, cause?: unknown): Gi
   });
 }
 
+function isExistingPullRequestCreateError(error: unknown): boolean {
+  const detail =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "detail" in error
+        ? String((error as { detail?: unknown }).detail ?? "")
+        : "";
+  const normalized = detail.toLowerCase();
+  return (
+    normalized.includes("pull request") &&
+    normalized.includes("already exists") &&
+    normalized.includes("branch")
+  );
+}
+
 function parseNumstat(stdout: string): ReadonlyArray<GitWorktreePatchFile> {
   return stdout
     .split(/\r?\n/g)
@@ -1654,7 +1669,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       phase: "pr",
       label: "Creating GitHub pull request...",
     });
-    yield* gitHubCli
+    const recoveredExisting = yield* gitHubCli
       .createPullRequest({
         cwd,
         baseBranch,
@@ -1663,7 +1678,28 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         title: generated.title,
         bodyFile,
       })
-      .pipe(Effect.ensuring(fileSystem.remove(bodyFile).pipe(Effect.catch(() => Effect.void))));
+      .pipe(
+        Effect.as(null as PullRequestInfo | null),
+        Effect.catchIf(isExistingPullRequestCreateError, (error) =>
+          findOpenPr(cwd, headContext, baseRepository).pipe(
+            Effect.flatMap((existing) =>
+              existing ? Effect.succeed(existing) : Effect.fail(error),
+            ),
+          ),
+        ),
+        Effect.ensuring(fileSystem.remove(bodyFile).pipe(Effect.catch(() => Effect.void))),
+      );
+
+    if (recoveredExisting) {
+      return {
+        status: "opened_existing" as const,
+        url: recoveredExisting.url,
+        number: recoveredExisting.number,
+        baseBranch: recoveredExisting.baseRefName,
+        headBranch: recoveredExisting.headRefName,
+        title: recoveredExisting.title,
+      };
+    }
 
     const created = yield* findOpenPr(cwd, headContext, baseRepository);
     if (!created) {

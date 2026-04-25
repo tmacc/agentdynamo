@@ -28,7 +28,8 @@ const GitHubPullRequestSchema = Schema.Struct({
   headRepository: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
-        nameWithOwner: Schema.String,
+        nameWithOwner: Schema.optional(Schema.String),
+        name: Schema.optional(Schema.String),
       }),
     ),
   ),
