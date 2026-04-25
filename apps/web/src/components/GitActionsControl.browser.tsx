@@ -79,7 +79,9 @@ vi.mock("@tanstack/react-query", async () => {
       };
     }),
     useQuery: vi.fn(() => ({ data: null, error: null })),
-    useQueryClient: vi.fn(() => ({})),
+    useQueryClient: vi.fn(() => ({
+      fetchQuery: vi.fn((options: { queryFn: () => Promise<unknown> }) => options.queryFn()),
+    })),
   };
 });
 
@@ -104,7 +106,12 @@ vi.mock("~/lib/gitReactQuery", () => ({
     runStackedAction: vi.fn(() => ["run-stacked-action"]),
   },
   gitPullMutationOptions: vi.fn(() => ({ __kind: "pull" })),
+  gitPullRequestRemoteOptionsQueryOptions: vi.fn(() => ({
+    queryKey: ["git", "pull-request-remote-options"],
+    queryFn: () => Promise.resolve({ requiresSelection: false, candidates: [] }),
+  })),
   gitRunStackedActionMutationOptions: vi.fn(() => ({ __kind: "run-stacked-action" })),
+  gitSetPullRequestRemoteMutationOptions: vi.fn(() => ({ __kind: "set-pull-request-remote" })),
   invalidateGitQueries: invalidateGitQueriesSpy,
 }));
 
@@ -295,12 +302,14 @@ describe("GitActionsControl thread-scoped progress toast", () => {
       }
       quickActionButton.click();
 
-      expect(toastAddSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { threadRef: scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID) },
-          title: "Pushing...",
-          type: "loading",
-        }),
+      await vi.waitFor(() =>
+        expect(toastAddSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: { threadRef: scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID) },
+            title: "Pushing...",
+            type: "loading",
+          }),
+        ),
       );
 
       await vi.advanceTimersByTimeAsync(1_000);

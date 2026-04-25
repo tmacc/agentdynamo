@@ -58,6 +58,7 @@ import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 
 vi.mock("../lib/gitStatusState", () => ({
   useGitStatus: () => ({ data: null, error: null, cause: null, isPending: false }),
+  useGitStatusSnapshots: () => new Map(),
   useGitStatuses: () => new Map(),
   refreshGitStatus: () => Promise.resolve(null),
   resetGitStatusStateForTests: () => undefined,
@@ -1563,6 +1564,7 @@ async function mountChatView(options: {
     setContainerSize: async (viewport) => {
       host.style.width = `${viewport.width}px`;
       host.style.height = `${viewport.height}px`;
+      window.dispatchEvent(new Event("resize"));
       await waitForLayout();
     },
     router,
@@ -5516,9 +5518,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForButtonByText("Implement");
 
-      await mounted.setContainerSize({
+      await mounted.setViewport({
+        name: "wide-follow-up-overflow",
         width: 804,
         height: WIDE_FOOTER_VIEWPORT.height,
+        textTolerancePx: WIDE_FOOTER_VIEWPORT.textTolerancePx,
+        attachmentTolerancePx: WIDE_FOOTER_VIEWPORT.attachmentTolerancePx,
       });
 
       await expectComposerActionsContained();
