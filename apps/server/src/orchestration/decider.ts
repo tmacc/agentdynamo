@@ -3,6 +3,7 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
   OrchestrationTeamTask,
+  TeamAgentsSettings,
 } from "@t3tools/contracts";
 import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
 import { Effect } from "effect";
@@ -72,6 +73,10 @@ type DecideOrchestrationCommandResult =
 
 const FINAL_TEAM_TASK_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const ACTIVE_TEAM_TASK_STATUSES = new Set(["queued", "starting", "running", "waiting"]);
+const DEFAULT_TEAM_AGENTS_INVARIANTS: Pick<TeamAgentsSettings, "enabled" | "maxActiveChildren"> = {
+  enabled: true,
+  maxActiveChildren: Number.MAX_SAFE_INTEGER,
+};
 
 function jsonEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
@@ -117,14 +122,20 @@ function requireMaterializedDynamoTeamTask(input: {
   );
 }
 
+function hasActiveStatus(task: Pick<OrchestrationTeamTask, "status">): boolean {
+  return ACTIVE_TEAM_TASK_STATUSES.has(task.status);
+}
+
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
   commands,
   readModel,
   boardCardRepository,
+  teamAgents,
 }: {
   readonly commands: ReadonlyArray<OrchestrationCommand>;
   readonly readModel: OrchestrationReadModel;
   readonly boardCardRepository?: ProjectionBoardCardRepositoryShape;
+  readonly teamAgents?: Pick<TeamAgentsSettings, "enabled" | "maxActiveChildren">;
 }): Effect.fn.Return<
   ReadonlyArray<PlannedOrchestrationEvent>,
   OrchestrationCommandInvariantError | ProjectionRepositoryError
@@ -138,6 +149,7 @@ const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
       command: nextCommand,
       readModel: nextReadModel,
       ...(boardCardRepository ? { boardCardRepository } : {}),
+      ...(teamAgents ? { teamAgents } : {}),
     });
     const nextEvents = Array.isArray(decided) ? decided : [decided];
     for (const nextEvent of nextEvents) {
@@ -157,10 +169,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   command,
   readModel,
   boardCardRepository,
+  teamAgents = DEFAULT_TEAM_AGENTS_INVARIANTS,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
   readonly boardCardRepository?: ProjectionBoardCardRepositoryShape;
+  readonly teamAgents?: Pick<TeamAgentsSettings, "enabled" | "maxActiveChildren">;
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,
   OrchestrationCommandInvariantError | ProjectionRepositoryError
@@ -547,6 +561,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.teamTask.parentThreadId,
       });
+      if (!teamAgents.enabled) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Team agents are disabled.",
+        });
+      }
       if (
         (command.teamTask.source ?? "dynamo") !== "dynamo" ||
         command.teamTask.childThreadMaterialized !== true
@@ -571,6 +591,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Team task '${command.teamTask.id}' already exists.`,
+        });
+      }
+      const activeCount = (parentThread.teamTasks ?? []).filter(hasActiveStatus).length;
+      if (activeCount >= teamAgents.maxActiveChildren) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `This thread already has ${activeCount} active child agents. The limit is ${teamAgents.maxActiveChildren}.`,
         });
       }
 
@@ -718,20 +745,48 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
 
-      const nextStatus =
-        FINAL_TEAM_TASK_STATUSES.has(existingTask.status) &&
-        ACTIVE_TEAM_TASK_STATUSES.has(command.teamTask.status)
-          ? existingTask.status
-          : command.teamTask.status;
+      const existingStatusIsFinal = FINAL_TEAM_TASK_STATUSES.has(existingTask.status);
+      const incomingStatusIsFinal = FINAL_TEAM_TASK_STATUSES.has(command.teamTask.status);
+      const incomingStatusIsActive = ACTIVE_TEAM_TASK_STATUSES.has(command.teamTask.status);
+      const incomingStatusIsSameFinal =
+        existingStatusIsFinal &&
+        incomingStatusIsFinal &&
+        existingTask.status === command.teamTask.status;
+      const keepExistingFinalStatus =
+        existingStatusIsFinal &&
+        (incomingStatusIsActive ||
+          (incomingStatusIsFinal && existingTask.status !== command.teamTask.status));
+      const nextStatus = keepExistingFinalStatus ? existingTask.status : command.teamTask.status;
+      const nextErrorText =
+        (keepExistingFinalStatus || incomingStatusIsSameFinal) && existingTask.errorText !== null
+          ? existingTask.errorText
+          : keepExistingFinalStatus
+            ? existingTask.errorText
+            : command.teamTask.errorText;
+      const nextCompletedAt =
+        (keepExistingFinalStatus || incomingStatusIsSameFinal) && existingTask.completedAt !== null
+          ? existingTask.completedAt
+          : keepExistingFinalStatus
+            ? existingTask.completedAt
+            : command.teamTask.completedAt;
+      const nextNativeProviderRef =
+        (keepExistingFinalStatus || incomingStatusIsSameFinal) &&
+        existingTask.nativeProviderRef !== null
+          ? existingTask.nativeProviderRef
+          : keepExistingFinalStatus
+            ? (existingTask.nativeProviderRef ?? null)
+            : (command.teamTask.nativeProviderRef ?? null);
+      const shouldPreserveFinalRegression = existingStatusIsFinal && incomingStatusIsActive;
+      const shouldIgnoreDifferentFinal =
+        existingStatusIsFinal &&
+        incomingStatusIsFinal &&
+        existingTask.status !== command.teamTask.status;
       const statusChanged =
         existingTask.status !== nextStatus ||
-        existingTask.errorText !== command.teamTask.errorText ||
-        existingTask.completedAt !== command.teamTask.completedAt ||
-        !jsonEqual(
-          existingTask.nativeProviderRef ?? null,
-          command.teamTask.nativeProviderRef ?? null,
-        );
-      if (statusChanged) {
+        existingTask.errorText !== nextErrorText ||
+        existingTask.completedAt !== nextCompletedAt ||
+        !jsonEqual(existingTask.nativeProviderRef ?? null, nextNativeProviderRef);
+      if (statusChanged || shouldPreserveFinalRegression) {
         events.push({
           ...withEventBase({
             aggregateKind: "thread",
@@ -744,16 +799,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             parentThreadId: command.parentThreadId,
             taskId: command.teamTask.id,
             status: nextStatus,
-            errorText: command.teamTask.errorText,
-            nativeProviderRef: command.teamTask.nativeProviderRef ?? null,
+            errorText: nextErrorText,
+            nativeProviderRef: nextNativeProviderRef,
             updatedAt: command.teamTask.updatedAt,
-            completedAt: command.teamTask.completedAt,
+            completedAt: nextCompletedAt,
           },
         });
       }
       if (
         command.teamTask.latestSummary !== null &&
-        existingTask.latestSummary !== command.teamTask.latestSummary
+        existingTask.latestSummary !== command.teamTask.latestSummary &&
+        !shouldPreserveFinalRegression &&
+        !shouldIgnoreDifferentFinal
       ) {
         events.push({
           ...withEventBase({

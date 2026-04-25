@@ -1026,6 +1026,18 @@ export default function ChatView(props: ChatViewProps) {
     return retainThreadDetailSubscription(environmentId, threadId);
   }, [environmentId, routeKind, threadId]);
 
+  const activeTeamParentThreadId = activeThread?.teamParent?.parentThreadId ?? null;
+  useEffect(() => {
+    if (
+      routeKind !== "server" ||
+      activeTeamParentThreadId === null ||
+      activeTeamParentThreadId === threadId
+    ) {
+      return;
+    }
+    return retainThreadDetailSubscription(environmentId, activeTeamParentThreadId);
+  }, [activeTeamParentThreadId, environmentId, routeKind, threadId]);
+
   // Compute the list of environments this logical project spans, used to
   // drive the environment picker in BranchToolbar.
   const allProjects = useStore(useShallow(selectProjectsAcrossEnvironments));

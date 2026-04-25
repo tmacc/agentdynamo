@@ -589,6 +589,46 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/store.test.ts` in `apps/web`.
   - Launch `bun run dev:desktop`; verify generic same-provider subagent prompts can use provider-native delegation, then verify explicit cross-provider or Dynamo-visible child requests spawn Dynamo team agents and appear in the Agents drawer.
 
+### 2026-04-25 - Harden team coordinator grants and board projections
+
+- `Status`: active
+- `Area`: orchestration | team | board | web | persistence
+- `User-visible impact`: Stale coordinator MCP tokens stop working when a parent thread is archived, deleted, or explicitly stopped, while recoverable provider errors do not break active sessions. Team child limits are enforced under concurrent/direct dispatch. Board subscriptions no longer miss updates during initial load, and archived linked cards preserve history without blocking the same thread from being linked to an active card. Directly opened child threads reload parent task context for follow-up bookkeeping.
+- `Why this patch exists`: The fork adds durable Dynamo team orchestration and board projection behavior that upstream does not own. Those additions need lifecycle cleanup, serialized invariants, projection-compatible subscriptions, and merge-safe schema repair so future upstream syncs do not reintroduce stale access tokens, child-limit races, missing board events, native final-state regressions, or archived-card link locks.
+- `Key files`:
+  - `apps/server/src/team/Layers/TeamCoordinatorAccess.ts`
+  - `apps/server/src/team/Layers/TeamOrchestrationService.ts`
+  - `apps/server/src/team/http.ts`
+  - `apps/server/src/orchestration/decider.ts`
+  - `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`
+  - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
+  - `apps/server/src/orchestration/Layers/ThreadDeletionReactor.ts`
+  - `apps/server/src/ws.ts`
+  - `apps/server/src/persistence/Migrations/045_RelaxProjectionBoardLinkedThreadUniquenessForArchivedCards.ts`
+  - `apps/server/src/persistence/Layers/ProjectionBoardCards.ts`
+  - `apps/web/src/components/ChatView.tsx`
+- `Important invariants`:
+  - Coordinator grants keep the 24h TTL but are revoked on replacement, archive, delete, explicit session stop, and stopped session-set events. Do not revoke on recoverable `error` session state.
+  - `thread.team-task.spawn` must enforce `teamAgents.enabled` and `maxActiveChildren` inside the serialized decider path; native-provider upserts remain exempt because they mirror provider-created state.
+  - Native-provider task final states are sticky. Late active upserts must not clear final status, completion time, error text, or summary.
+  - Board subscriptions must emit a snapshot first, then replay/live board events using projection-specific cursors for board cards and dismissed ghosts.
+  - Archived board cards may retain `linkedThreadId`, but only non-archived cards reserve the unique linked-thread slot.
+  - Child thread routes should retain parent detail subscriptions when `teamParent` is present; do not add full team task lists to shell snapshots.
+- `Merge hotspots`:
+  - Team coordinator MCP auth route and grant repository
+  - Provider session startup and coordinator MCP config creation
+  - Orchestration decider team-task branches
+  - Board projection migrations and linked-thread uniqueness index
+  - Board WebSocket subscription implementation
+  - ChatView thread detail subscription lifecycle
+- `Verification`:
+  - Run `bun run test src/orchestration/decider.teamTasks.test.ts` in `apps/server`.
+  - Run `bun run test src/orchestration/Layers/OrchestrationEngine.test.ts` in `apps/server`.
+  - Run `bun run test src/orchestration/Layers/ProviderCommandReactor.test.ts` in `apps/server`.
+  - Run `bun run test src/team/Layers/TeamCoordinatorAccess.test.ts` in `apps/server`.
+  - Run `bun run test src/persistence/Migrations/045_RelaxProjectionBoardLinkedThreadUniquenessForArchivedCards.test.ts` in `apps/server`.
+  - Run `bun run test src/environments/runtime/service.threadSubscriptions.test.ts src/boardStore.test.ts src/boardProjection.test.ts` in `apps/web`.
+
 ## Upstream-Touching Patch Entry Template
 
 Use this template for future bugfixes or behavioral patches that modify upstream-derived code:

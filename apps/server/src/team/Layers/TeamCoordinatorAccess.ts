@@ -22,6 +22,17 @@ const RevokeForThreadInput = Schema.Struct({
   revokedAt: Schema.String,
 });
 
+const RevokeGrantInput = Schema.Struct({
+  grantId: TeamCoordinatorGrant.fields.grantId,
+  revokedAt: Schema.String,
+});
+
+const RevokeOtherGrantsForThreadInput = Schema.Struct({
+  parentThreadId: TeamCoordinatorGrant.fields.parentThreadId,
+  keepGrantId: TeamCoordinatorGrant.fields.grantId,
+  revokedAt: Schema.String,
+});
+
 const hashToken = async (token: string): Promise<string> => {
   const bytes = new TextEncoder().encode(token);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -88,6 +99,29 @@ const makeTeamCoordinatorAccess = Effect.gen(function* () {
       `,
   });
 
+  const revokeGrantRow = SqlSchema.void({
+    Request: RevokeGrantInput,
+    execute: ({ grantId, revokedAt }) =>
+      sql`
+        UPDATE team_coordinator_access_grants
+        SET revoked_at = ${revokedAt}
+        WHERE grant_id = ${grantId}
+          AND revoked_at IS NULL
+      `,
+  });
+
+  const revokeOtherRowsForThread = SqlSchema.void({
+    Request: RevokeOtherGrantsForThreadInput,
+    execute: ({ parentThreadId, keepGrantId, revokedAt }) =>
+      sql`
+        UPDATE team_coordinator_access_grants
+        SET revoked_at = ${revokedAt}
+        WHERE parent_thread_id = ${parentThreadId}
+          AND grant_id <> ${keepGrantId}
+          AND revoked_at IS NULL
+      `,
+  });
+
   const issueGrant: TeamCoordinatorAccessShape["issueGrant"] = (input) =>
     Effect.gen(function* () {
       const createdAt = new Date().toISOString();
@@ -136,10 +170,31 @@ const makeTeamCoordinatorAccess = Effect.gen(function* () {
       Effect.mapError((cause) => (cause instanceof Error ? cause : new Error(String(cause)))),
     );
 
+  const revokeGrant: TeamCoordinatorAccessShape["revokeGrant"] = (input) =>
+    revokeGrantRow({
+      grantId: input.grantId,
+      revokedAt: new Date().toISOString(),
+    }).pipe(
+      Effect.mapError((cause) => (cause instanceof Error ? cause : new Error(String(cause)))),
+    );
+
+  const revokeOtherGrantsForThread: TeamCoordinatorAccessShape["revokeOtherGrantsForThread"] = (
+    input,
+  ) =>
+    revokeOtherRowsForThread({
+      parentThreadId: input.parentThreadId,
+      keepGrantId: input.keepGrantId,
+      revokedAt: new Date().toISOString(),
+    }).pipe(
+      Effect.mapError((cause) => (cause instanceof Error ? cause : new Error(String(cause)))),
+    );
+
   return {
     issueGrant,
     authenticate,
     revokeForThread,
+    revokeGrant,
+    revokeOtherGrantsForThread,
   } satisfies TeamCoordinatorAccessShape;
 });
 

@@ -42,6 +42,13 @@ export interface TeamCoordinatorAccessShape {
   readonly revokeForThread: (input: {
     readonly parentThreadId: ThreadId;
   }) => Effect.Effect<void, Error>;
+  readonly revokeGrant: (input: {
+    readonly grantId: TeamCoordinatorGrantId;
+  }) => Effect.Effect<void, Error>;
+  readonly revokeOtherGrantsForThread: (input: {
+    readonly parentThreadId: ThreadId;
+    readonly keepGrantId: TeamCoordinatorGrantId;
+  }) => Effect.Effect<void, Error>;
 }
 
 export class TeamCoordinatorAccess extends Context.Service<

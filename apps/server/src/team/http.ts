@@ -206,6 +206,14 @@ export const teamMcpRouteLayer = HttpRouter.add(
     if (body.method === "ping") {
       return isNotification ? emptyResponse() : jsonRpcResult(id, {});
     }
+    if (body.method === "tools/list" || body.method === "tools/call") {
+      const parentAccess = yield* Effect.exit(
+        team.listChildren({ parentThreadId: parentThreadId.value }),
+      );
+      if (Exit.isFailure(parentAccess)) {
+        return jsonRpcError(id, -32001, "Team coordinator access is no longer valid.");
+      }
+    }
     if (body.method === "tools/list") {
       const providers = yield* providerRegistry.getProviders;
       return jsonRpcResult(id, { tools: buildTools(providers) });

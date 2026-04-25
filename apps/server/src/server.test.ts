@@ -89,6 +89,10 @@ import {
   type ProjectionBoardDismissedGhostRepositoryShape,
 } from "./persistence/Services/ProjectionBoardDismissedGhosts.ts";
 import {
+  ProjectionStateRepository,
+  type ProjectionStateRepositoryShape,
+} from "./persistence/Services/ProjectionState.ts";
+import {
   ProviderRegistry,
   type ProviderRegistryShape,
 } from "./provider/Services/ProviderRegistry.ts";
@@ -356,6 +360,7 @@ const buildAppUnderTest = (options?: {
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     projectionBoardCardRepository?: Partial<ProjectionBoardCardRepositoryShape>;
     projectionBoardDismissedGhostRepository?: Partial<ProjectionBoardDismissedGhostRepositoryShape>;
+    projectionStateRepository?: Partial<ProjectionStateRepositoryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
@@ -515,6 +520,8 @@ const buildAppUnderTest = (options?: {
             }),
           authenticate: () => Effect.succeed(Option.some(defaultThreadId)),
           revokeForThread: () => Effect.void,
+          revokeGrant: () => Effect.void,
+          revokeOtherGrantsForThread: () => Effect.void,
           ...options?.layers?.teamCoordinatorAccess,
         }),
       ),
@@ -594,6 +601,15 @@ const buildAppUnderTest = (options?: {
           listByProject: () => Effect.succeed([]),
           delete: () => Effect.void,
           ...options?.layers?.projectionBoardDismissedGhostRepository,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProjectionStateRepository)({
+          upsert: () => Effect.void,
+          getByProjector: () => Effect.succeed(Option.none()),
+          listAll: () => Effect.succeed([]),
+          minLastAppliedSequence: () => Effect.succeed(null),
+          ...options?.layers?.projectionStateRepository,
         }),
       ),
     );

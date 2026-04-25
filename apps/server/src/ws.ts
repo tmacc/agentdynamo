@@ -3,6 +3,7 @@ import {
   type AuthAccessStreamEvent,
   AuthSessionId,
   BOARD_WS_METHODS,
+  type BoardStreamEvent,
   BoardListCardsError,
   BoardListDismissedGhostsError,
   BoardSubscribeProjectError,
@@ -48,6 +49,7 @@ import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnap
 import { ThreadForkDispatcher } from "./orchestration/Services/ThreadForkDispatcher.ts";
 import { ProjectionBoardCardRepository } from "./persistence/Services/ProjectionBoardCards.ts";
 import { ProjectionBoardDismissedGhostRepository } from "./persistence/Services/ProjectionBoardDismissedGhosts.ts";
+import { ProjectionStateRepository } from "./persistence/Services/ProjectionState.ts";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -112,6 +114,30 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
 }
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
+const BOARD_CARDS_PROJECTOR = "projection.board-cards";
+const BOARD_DISMISSED_GHOSTS_PROJECTOR = "projection.board-dismissed-ghosts";
+
+function isBoardCardEvent(event: OrchestrationEvent): boolean {
+  return (
+    event.type === "board.card-created" ||
+    event.type === "board.card-updated" ||
+    event.type === "board.card-moved" ||
+    event.type === "board.card-archived" ||
+    event.type === "board.card-deleted" ||
+    event.type === "board.card-thread-linked" ||
+    event.type === "board.card-thread-unlinked"
+  );
+}
+
+function isBoardDismissedGhostEvent(event: OrchestrationEvent): boolean {
+  return (
+    event.type === "board.ghost-card-dismissed" || event.type === "board.ghost-card-undismissed"
+  );
+}
+
+function isBoardProjectEvent(event: OrchestrationEvent, projectId: string): boolean {
+  return event.aggregateKind === "board" && event.aggregateId === projectId;
+}
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -161,6 +187,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const projectionBoardCardRepository = yield* ProjectionBoardCardRepository;
       const projectionBoardDismissedGhostRepository =
         yield* ProjectionBoardDismissedGhostRepository;
+      const projectionStateRepository = yield* ProjectionStateRepository;
       const checkpointDiffQuery = yield* CheckpointDiffQuery;
       const keybindings = yield* Keybindings;
       const open = yield* Open;
@@ -885,43 +912,99 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcStreamEffect(
             BOARD_WS_METHODS.subscribeProject,
             Effect.gen(function* () {
-              const [cards, dismissedGhosts, snapshotSequence] = yield* Effect.all([
-                projectionBoardCardRepository.listByProject({ projectId: input.projectId }),
-                projectionBoardDismissedGhostRepository.listByProject({
-                  projectId: input.projectId,
-                }),
-                orchestrationEngine
-                  .getReadModel()
-                  .pipe(Effect.map((readModel) => readModel.snapshotSequence)),
-              ]).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new BoardSubscribeProjectError({
-                      message: `Failed to load board snapshot for project ${input.projectId}`,
-                      cause,
+              return Stream.unwrap(
+                Effect.gen(function* () {
+                  const liveQueue = yield* Queue.unbounded<OrchestrationEvent>();
+                  yield* orchestrationEngine.streamDomainEvents.pipe(
+                    Stream.runForEach((event) => Queue.offer(liveQueue, event)),
+                    Effect.forkScoped,
+                  );
+                  const [cards, dismissedGhosts, cardState, dismissedGhostState] =
+                    yield* Effect.all([
+                      projectionBoardCardRepository.listByProject({ projectId: input.projectId }),
+                      projectionBoardDismissedGhostRepository.listByProject({
+                        projectId: input.projectId,
+                      }),
+                      projectionStateRepository.getByProjector({
+                        projector: BOARD_CARDS_PROJECTOR,
+                      }),
+                      projectionStateRepository.getByProjector({
+                        projector: BOARD_DISMISSED_GHOSTS_PROJECTOR,
+                      }),
+                    ]).pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new BoardSubscribeProjectError({
+                            message: `Failed to load board snapshot for project ${input.projectId}`,
+                            cause,
+                          }),
+                      ),
+                    );
+                  const cardSequence = Option.match(cardState, {
+                    onNone: () => 0,
+                    onSome: (state) => state.lastAppliedSequence,
+                  });
+                  const dismissedGhostSequence = Option.match(dismissedGhostState, {
+                    onNone: () => 0,
+                    onSome: (state) => state.lastAppliedSequence,
+                  });
+                  const snapshotSequence = Math.min(cardSequence, dismissedGhostSequence);
+                  const lastCardSequence = yield* Ref.make(cardSequence);
+                  const lastDismissedGhostSequence = yield* Ref.make(dismissedGhostSequence);
+                  const toBoardStreamEvent = (
+                    event: OrchestrationEvent,
+                  ): Effect.Effect<Option.Option<BoardStreamEvent>> => {
+                    if (!isBoardProjectEvent(event, input.projectId)) {
+                      return Effect.succeed(Option.none());
+                    }
+                    if (isBoardCardEvent(event)) {
+                      return Ref.modify(lastCardSequence, (lastSequence) =>
+                        event.sequence > lastSequence
+                          ? [Option.some({ kind: "event" as const, event }), event.sequence]
+                          : [Option.none(), lastSequence],
+                      );
+                    }
+                    if (isBoardDismissedGhostEvent(event)) {
+                      return Ref.modify(lastDismissedGhostSequence, (lastSequence) =>
+                        event.sequence > lastSequence
+                          ? [Option.some({ kind: "event" as const, event }), event.sequence]
+                          : [Option.none(), lastSequence],
+                      );
+                    }
+                    return Effect.succeed(Option.none());
+                  };
+                  const mapBoardEvents = <E>(
+                    stream: Stream.Stream<OrchestrationEvent, E>,
+                  ): Stream.Stream<BoardStreamEvent, E> =>
+                    stream.pipe(
+                      Stream.mapEffect(toBoardStreamEvent),
+                      Stream.flatMap((event) =>
+                        Option.isSome(event) ? Stream.succeed(event.value) : Stream.empty,
+                      ),
+                    );
+                  const replayStream = mapBoardEvents(
+                    orchestrationEngine.readEvents(snapshotSequence).pipe(
+                      Stream.mapError(
+                        (cause) =>
+                          new BoardSubscribeProjectError({
+                            message: `Failed to replay board events for project ${input.projectId}`,
+                            cause,
+                          }),
+                      ),
+                    ),
+                  );
+                  const liveStream = mapBoardEvents(Stream.fromQueue(liveQueue));
+
+                  return Stream.concat(
+                    Stream.make({
+                      kind: "snapshot" as const,
+                      cards,
+                      dismissedGhosts,
+                      snapshotSequence,
                     }),
-                ),
-              );
-
-              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-                Stream.filter(
-                  (event) =>
-                    event.aggregateKind === "board" && event.aggregateId === input.projectId,
-                ),
-                Stream.map((event) => ({
-                  kind: "event" as const,
-                  event,
-                })),
-              );
-
-              return Stream.concat(
-                Stream.make({
-                  kind: "snapshot" as const,
-                  cards,
-                  dismissedGhosts,
-                  snapshotSequence,
+                    Stream.merge(replayStream, liveStream),
+                  );
                 }),
-                liveStream,
               );
             }),
             { "rpc.aggregate": "board" },

@@ -332,4 +332,118 @@ describe("decider team tasks", () => {
 
     expect(Exit.isFailure(result)).toBe(true);
   });
+
+  it("rejects direct Dynamo spawns when team agents are disabled", async () => {
+    const readModel = await readModelWithParentThread();
+    const task = dynamoTask({ status: "queued", startedAt: null });
+    const result = await Effect.runPromiseExit(
+      decideOrchestrationCommand({
+        readModel,
+        teamAgents: { enabled: false, maxActiveChildren: 3 },
+        command: {
+          type: "thread.team-task.spawn",
+          commandId: CommandId.make("cmd-spawn-disabled"),
+          teamTask: task,
+          createdAt: now,
+        },
+      }),
+    );
+
+    expect(Exit.isFailure(result)).toBe(true);
+  });
+
+  it("rejects direct Dynamo spawns at the active child limit including native tasks", async () => {
+    const readModel = await readModelWithTeamTask(nativeTask({ status: "running" }));
+    const task = dynamoTask({ id: TeamTaskId.make("team-task:dynamo:limit"), status: "queued" });
+    const result = await Effect.runPromiseExit(
+      decideOrchestrationCommand({
+        readModel,
+        teamAgents: { enabled: true, maxActiveChildren: 1 },
+        command: {
+          type: "thread.team-task.spawn",
+          commandId: CommandId.make("cmd-spawn-limit"),
+          teamTask: task,
+          createdAt: now,
+        },
+      }),
+    );
+
+    expect(Exit.isFailure(result)).toBe(true);
+  });
+
+  it("preserves final native task metadata when a late active upsert arrives", async () => {
+    const completedAt = "2026-01-01T00:02:00.000Z";
+    const readModel = await readModelWithTeamTask(
+      nativeTask({
+        status: "completed",
+        latestSummary: "Finished native work.",
+        completedAt,
+        updatedAt: completedAt,
+      }),
+    );
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        readModel,
+        command: {
+          type: "thread.team-task.upsert-native",
+          commandId: CommandId.make("cmd-native-late-active"),
+          parentThreadId: ThreadId.make("thread-parent"),
+          teamTask: nativeTask({
+            status: "running",
+            latestSummary: "Still running.",
+            completedAt: null,
+            updatedAt: "2026-01-01T00:03:00.000Z",
+          }),
+          createdAt: "2026-01-01T00:03:00.000Z",
+        },
+      }),
+    );
+
+    const events = Array.isArray(result) ? result : [result];
+    expect(events).toHaveLength(1);
+    expect(events[0]?.type).toBe("thread.team-task-status-changed");
+    expect(events[0]?.payload).toMatchObject({
+      status: "completed",
+      completedAt,
+    });
+  });
+
+  it("allows same-final native upserts to fill missing final metadata", async () => {
+    const completedAt = "2026-01-01T00:02:00.000Z";
+    const readModel = await readModelWithTeamTask(
+      nativeTask({
+        status: "completed",
+        completedAt: null,
+        latestSummary: null,
+        updatedAt: completedAt,
+      }),
+    );
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        readModel,
+        command: {
+          type: "thread.team-task.upsert-native",
+          commandId: CommandId.make("cmd-native-final-fill"),
+          parentThreadId: ThreadId.make("thread-parent"),
+          teamTask: nativeTask({
+            status: "completed",
+            completedAt,
+            latestSummary: "Finished native work.",
+            updatedAt: completedAt,
+          }),
+          createdAt: completedAt,
+        },
+      }),
+    );
+
+    const events = Array.isArray(result) ? result : [result];
+    expect(events.map((event) => event.type)).toEqual([
+      "thread.team-task-status-changed",
+      "thread.team-task-summary-updated",
+    ]);
+    expect(events[0]?.payload).toMatchObject({
+      status: "completed",
+      completedAt,
+    });
+  });
 });
