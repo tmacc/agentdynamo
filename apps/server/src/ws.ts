@@ -86,7 +86,13 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
       | "thread.activity-appended"
       | "thread.turn-diff-completed"
       | "thread.reverted"
-      | "thread.session-set";
+      | "thread.session-set"
+      | "thread.team-task-created"
+      | "thread.team-task-started"
+      | "thread.team-task-status-changed"
+      | "thread.team-task-summary-updated"
+      | "thread.team-task-message-requested"
+      | "thread.team-task-close-requested";
   }
 > {
   return (
@@ -95,7 +101,13 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
     event.type === "thread.activity-appended" ||
     event.type === "thread.turn-diff-completed" ||
     event.type === "thread.reverted" ||
-    event.type === "thread.session-set"
+    event.type === "thread.session-set" ||
+    event.type === "thread.team-task-created" ||
+    event.type === "thread.team-task-started" ||
+    event.type === "thread.team-task-status-changed" ||
+    event.type === "thread.team-task-summary-updated" ||
+    event.type === "thread.team-task-message-requested" ||
+    event.type === "thread.team-task-close-requested"
   );
 }
 
@@ -677,6 +689,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "orchestration" },
           ),
+        [ORCHESTRATION_WS_METHODS.getTeamTaskTrace]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.getTeamTaskTrace,
+            projectionSnapshotQuery.getTeamTaskTrace(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to load native subagent trace",
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
         [ORCHESTRATION_WS_METHODS.replayEvents]: (input) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.replayEvents,
@@ -777,6 +803,46 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                     snapshotSequence,
                     thread: threadDetail.value,
                   },
+                }),
+                liveStream,
+              );
+            }),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.subscribeTeamTaskTrace]: (input) =>
+          observeRpcStreamEffect(
+            ORCHESTRATION_WS_METHODS.subscribeTeamTaskTrace,
+            Effect.gen(function* () {
+              const snapshot = yield* projectionSnapshotQuery.getTeamTaskTrace(input).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationGetSnapshotError({
+                      message: "Failed to load native subagent trace",
+                      cause,
+                    }),
+                ),
+              );
+
+              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
+                Stream.filter(
+                  (event) =>
+                    event.aggregateKind === "thread" &&
+                    event.aggregateId === input.parentThreadId &&
+                    (event.type === "thread.team-task-native-trace-item-upserted" ||
+                      event.type === "thread.team-task-native-trace-content-appended" ||
+                      event.type === "thread.team-task-native-trace-item-completed") &&
+                    event.payload.taskId === input.taskId,
+                ),
+                Stream.map((event) => ({
+                  kind: "event" as const,
+                  event,
+                })),
+              );
+
+              return Stream.concat(
+                Stream.make({
+                  kind: "snapshot" as const,
+                  snapshot,
                 }),
                 liveStream,
               );

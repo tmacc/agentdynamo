@@ -4,6 +4,7 @@ import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers
 import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore.ts";
 import { ProjectionBoardCardRepositoryLive } from "../persistence/Layers/ProjectionBoardCards.ts";
 import { ProjectionBoardDismissedGhostRepositoryLive } from "../persistence/Layers/ProjectionBoardDismissedGhosts.ts";
+import { ProjectionNativeSubagentTraceRepositoryLive } from "../persistence/Layers/ProjectionNativeSubagentTrace.ts";
 import { ProjectionThreadTeamTaskRepositoryLive } from "../persistence/Layers/ProjectionThreadTeamTasks.ts";
 import { OrchestrationEngineLive } from "./Layers/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./Layers/ProjectionPipeline.ts";
@@ -25,6 +26,7 @@ export const OrchestrationInfrastructureLayerLive = Layer.mergeAll(
   ProjectionBoardCardRepositoryLive,
   ProjectionBoardDismissedGhostRepositoryLive,
   ProjectionThreadTeamTaskRepositoryLive,
+  ProjectionNativeSubagentTraceRepositoryLive,
 );
 
 export const OrchestrationLayerLive = Layer.mergeAll(

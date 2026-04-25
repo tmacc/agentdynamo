@@ -47,6 +47,9 @@ import Migration0035 from "./Migrations/035_ProjectionProjectWorktreeSetup.ts";
 import Migration0036 from "./Migrations/036_ProjectionThreadTeamTasks.ts";
 import Migration0037 from "./Migrations/037_TeamCoordinatorAccessGrants.ts";
 import Migration0038 from "./Migrations/038_EnsureProjectionThreadTeamTasks.ts";
+import Migration0039 from "./Migrations/039_ProjectionThreadTeamTaskNativeSource.ts";
+import Migration0040 from "./Migrations/040_EnsureProjectionThreadTeamTaskNativeSource.ts";
+import Migration0041 from "./Migrations/041_ProjectionNativeSubagentTrace.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -93,6 +96,9 @@ export const migrationEntries = [
   [36, "ProjectionThreadTeamTasks", Migration0036],
   [37, "TeamCoordinatorAccessGrants", Migration0037],
   [38, "EnsureProjectionThreadTeamTasks", Migration0038],
+  [39, "ProjectionThreadTeamTaskNativeSource", Migration0039],
+  [40, "EnsureProjectionThreadTeamTaskNativeSource", Migration0040],
+  [41, "ProjectionNativeSubagentTrace", Migration0041],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

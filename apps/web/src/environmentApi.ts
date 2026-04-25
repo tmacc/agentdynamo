@@ -52,10 +52,13 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       forkThread: rpcClient.orchestration.forkThread,
       getTurnDiff: rpcClient.orchestration.getTurnDiff,
       getFullThreadDiff: rpcClient.orchestration.getFullThreadDiff,
+      getTeamTaskTrace: rpcClient.orchestration.getTeamTaskTrace,
       subscribeShell: (callback, options) =>
         rpcClient.orchestration.subscribeShell(callback, options),
       subscribeThread: (input, callback, options) =>
         rpcClient.orchestration.subscribeThread(input, callback, options),
+      subscribeTeamTaskTrace: (input, callback, options) =>
+        rpcClient.orchestration.subscribeTeamTaskTrace(input, callback, options),
     },
     board: {
       listCards: (input) => rpcClient.board.listCards(input) as Promise<BoardListCardsResult>,

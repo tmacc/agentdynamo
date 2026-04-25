@@ -112,6 +112,7 @@ const makeTeamTaskReactor = Effect.gen(function* () {
       (entry) => entry.id === childThread.teamParent?.taskId,
     );
     if (!parentThread || !task) return;
+    if (task.source !== "dynamo" || !task.childThreadMaterialized) return;
 
     const nextStatus = deriveStatus({ task, childThread });
     const nextSummary = latestAssistantSummary(childThread);

@@ -1,4 +1,8 @@
-import { ModelSelection, OrchestrationContextHandoffRenderStats } from "@t3tools/contracts";
+import {
+  ModelSelection,
+  NativeProviderTeamTaskRef,
+  OrchestrationContextHandoffRenderStats,
+} from "@t3tools/contracts";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -17,8 +21,20 @@ const ProjectionThreadTeamTaskDbRow = ProjectionThreadTeamTask.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
     promptStats: Schema.NullOr(Schema.fromJsonString(OrchestrationContextHandoffRenderStats)),
+    nativeProviderRef: Schema.NullOr(Schema.fromJsonString(NativeProviderTeamTaskRef)),
+    childThreadMaterialized: Schema.Number,
   }),
 );
+type ProjectionThreadTeamTaskDbRow = typeof ProjectionThreadTeamTaskDbRow.Type;
+
+function dbRowToProjectionThreadTeamTask(
+  row: ProjectionThreadTeamTaskDbRow,
+): ProjectionThreadTeamTask {
+  return {
+    ...row,
+    childThreadMaterialized: row.childThreadMaterialized === 1,
+  };
+}
 
 const selectColumns = `
   task_id AS "taskId",
@@ -35,6 +51,9 @@ const selectColumns = `
   resolved_workspace_mode AS "resolvedWorkspaceMode",
   setup_mode AS "setupMode",
   resolved_setup_mode AS "resolvedSetupMode",
+  source,
+  child_thread_materialized AS "childThreadMaterialized",
+  native_provider_ref_json AS "nativeProviderRef",
   status,
   latest_summary AS "latestSummary",
   error_text AS "errorText",
@@ -67,6 +86,9 @@ const makeProjectionThreadTeamTaskRepository = Effect.gen(function* () {
           resolved_workspace_mode,
           setup_mode,
           resolved_setup_mode,
+          source,
+          child_thread_materialized,
+          native_provider_ref_json,
           status,
           latest_summary,
           error_text,
@@ -91,6 +113,9 @@ const makeProjectionThreadTeamTaskRepository = Effect.gen(function* () {
           ${row.resolvedWorkspaceMode},
           ${row.setupMode},
           ${row.resolvedSetupMode},
+          ${row.source},
+          ${row.childThreadMaterialized ? 1 : 0},
+          ${row.nativeProviderRef === null ? null : JSON.stringify(row.nativeProviderRef)},
           ${row.status},
           ${row.latestSummary},
           ${row.errorText},
@@ -115,6 +140,9 @@ const makeProjectionThreadTeamTaskRepository = Effect.gen(function* () {
           resolved_workspace_mode = excluded.resolved_workspace_mode,
           setup_mode = excluded.setup_mode,
           resolved_setup_mode = excluded.resolved_setup_mode,
+          source = excluded.source,
+          child_thread_materialized = excluded.child_thread_materialized,
+          native_provider_ref_json = excluded.native_provider_ref_json,
           status = excluded.status,
           latest_summary = excluded.latest_summary,
           error_text = excluded.error_text,
@@ -167,7 +195,11 @@ const makeProjectionThreadTeamTaskRepository = Effect.gen(function* () {
       Effect.mapError(
         toPersistenceSqlError("ProjectionThreadTeamTaskRepository.getByTaskId:query"),
       ),
-      Effect.map((row) => (Option.isSome(row) ? Option.some(row.value) : Option.none())),
+      Effect.map((row) =>
+        Option.isSome(row)
+          ? Option.some(dbRowToProjectionThreadTeamTask(row.value))
+          : Option.none(),
+      ),
     );
 
   const listByParentThreadId: ProjectionThreadTeamTaskRepositoryShape["listByParentThreadId"] = (
@@ -177,6 +209,7 @@ const makeProjectionThreadTeamTaskRepository = Effect.gen(function* () {
       Effect.mapError(
         toPersistenceSqlError("ProjectionThreadTeamTaskRepository.listByParentThreadId:query"),
       ),
+      Effect.map((rows) => rows.map(dbRowToProjectionThreadTeamTask)),
     );
 
   const listByChildThreadId: ProjectionThreadTeamTaskRepositoryShape["listByChildThreadId"] = (
@@ -186,6 +219,7 @@ const makeProjectionThreadTeamTaskRepository = Effect.gen(function* () {
       Effect.mapError(
         toPersistenceSqlError("ProjectionThreadTeamTaskRepository.listByChildThreadId:query"),
       ),
+      Effect.map((rows) => rows.map(dbRowToProjectionThreadTeamTask)),
     );
 
   return {

@@ -68,10 +68,14 @@ import type {
   OrchestrationForkThreadResult,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
+  OrchestrationGetTeamTaskTraceInput,
   OrchestrationGetTurnDiffInput,
   OrchestrationGetTurnDiffResult,
   OrchestrationShellStreamItem,
+  OrchestrationSubscribeTeamTaskTraceInput,
   OrchestrationSubscribeThreadInput,
+  OrchestrationTeamTaskTraceSnapshot,
+  OrchestrationTeamTaskTraceStreamItem,
   OrchestrationThreadStreamItem,
 } from "./orchestration.ts";
 import type { EnvironmentId } from "./baseSchemas.ts";
@@ -315,6 +319,9 @@ export interface EnvironmentApi {
     getFullThreadDiff: (
       input: OrchestrationGetFullThreadDiffInput,
     ) => Promise<OrchestrationGetFullThreadDiffResult>;
+    getTeamTaskTrace: (
+      input: OrchestrationGetTeamTaskTraceInput,
+    ) => Promise<OrchestrationTeamTaskTraceSnapshot>;
     subscribeShell: (
       callback: (event: OrchestrationShellStreamItem) => void,
       options?: {
@@ -324,6 +331,13 @@ export interface EnvironmentApi {
     subscribeThread: (
       input: OrchestrationSubscribeThreadInput,
       callback: (event: OrchestrationThreadStreamItem) => void,
+      options?: {
+        onResubscribe?: () => void;
+      },
+    ) => () => void;
+    subscribeTeamTaskTrace: (
+      input: OrchestrationSubscribeTeamTaskTraceInput,
+      callback: (event: OrchestrationTeamTaskTraceStreamItem) => void,
       options?: {
         onResubscribe?: () => void;
       },

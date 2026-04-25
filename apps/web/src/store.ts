@@ -1307,6 +1307,11 @@ function applyEnvironmentOrchestrationEvent(
 
     case "thread.created": {
       const previousThread = getThreadFromEnvironmentState(state, event.payload.threadId);
+      const teamParentTask = Object.values(state.threadShellById)
+        .flatMap((thread) => thread.teamTasks ?? [])
+        .find(
+          (task) => task.childThreadMaterialized && task.childThreadId === event.payload.threadId,
+        );
       const nextThread = mapThread(
         {
           id: event.payload.threadId,
@@ -1325,7 +1330,13 @@ function applyEnvironmentOrchestrationEvent(
           messages: [],
           proposedPlans: [],
           contextHandoffs: [],
-          teamParent: null,
+          teamParent: teamParentTask
+            ? {
+                parentThreadId: teamParentTask.parentThreadId,
+                taskId: teamParentTask.id,
+                roleLabel: teamParentTask.roleLabel,
+              }
+            : null,
           teamTasks: [],
           activities: [],
           checkpoints: [],
@@ -1701,15 +1712,17 @@ function applyEnvironmentOrchestrationEvent(
         ),
         updatedAt: event.occurredAt,
       }));
-      nextState = updateThreadState(nextState, task.childThreadId, (thread) => ({
-        ...thread,
-        teamParent: {
-          parentThreadId: task.parentThreadId,
-          taskId: task.id,
-          roleLabel: task.roleLabel,
-        },
-        updatedAt: event.occurredAt,
-      }));
+      if (task.childThreadMaterialized) {
+        nextState = updateThreadState(nextState, task.childThreadId, (thread) => ({
+          ...thread,
+          teamParent: {
+            parentThreadId: task.parentThreadId,
+            taskId: task.id,
+            roleLabel: task.roleLabel,
+          },
+          updatedAt: event.occurredAt,
+        }));
+      }
       return nextState;
     }
 
@@ -1738,6 +1751,10 @@ function applyEnvironmentOrchestrationEvent(
                 status: event.payload.status,
                 errorText: event.payload.errorText ?? task.errorText,
                 latestSummary: event.payload.latestSummary ?? task.latestSummary,
+                nativeProviderRef:
+                  event.payload.nativeProviderRef !== undefined
+                    ? event.payload.nativeProviderRef
+                    : (task.nativeProviderRef ?? null),
                 completedAt:
                   event.payload.completedAt !== undefined
                     ? event.payload.completedAt

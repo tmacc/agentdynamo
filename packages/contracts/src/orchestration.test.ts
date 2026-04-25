@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Exit, Schema } from "effect";
 
 import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -10,6 +10,7 @@ import {
   OrchestrationEvent,
   OrchestrationGetTurnDiffInput,
   OrchestrationLatestTurn,
+  OrchestrationTeamTask,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   ProjectCreatedPayload,
@@ -54,6 +55,7 @@ const decodeContextHandoffRenderStats = Schema.decodeUnknownEffect(
 const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPayload);
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
+const decodeOrchestrationTeamTask = Schema.decodeUnknownEffect(OrchestrationTeamTask);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
@@ -617,6 +619,113 @@ it.effect("defaults context handoffs on decoded read models", () =>
 
     assert.deepStrictEqual(readModel.threads[0]?.contextHandoffs, []);
     assert.deepStrictEqual(shellSnapshot.threads[0]?.contextHandoffs, []);
+  }),
+);
+
+it.effect("defaults old team tasks to Dynamo materialized tasks", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationTeamTask({
+      id: "team-task-1",
+      parentThreadId: "thread-parent",
+      childThreadId: "thread-child",
+      title: "Research",
+      task: "Research the request.",
+      roleLabel: null,
+      kind: "exploration",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.5",
+      },
+      modelSelectionMode: "coordinator-selected",
+      modelSelectionReason: "Selected by coordinator.",
+      workspaceMode: "auto",
+      resolvedWorkspaceMode: "shared",
+      setupMode: "auto",
+      resolvedSetupMode: "skip",
+      status: "running",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.strictEqual(parsed.source, "dynamo");
+    assert.strictEqual(parsed.childThreadMaterialized, true);
+    assert.strictEqual(parsed.nativeProviderRef, undefined);
+  }),
+);
+
+it.effect("accepts native provider team task references", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationTeamTask({
+      id: "team-task:native:codex:abc123",
+      parentThreadId: "thread-parent",
+      childThreadId: "native-child:codex:abc123",
+      title: "Native subagent",
+      task: "Provider-native Codex subagent",
+      roleLabel: null,
+      kind: "general",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.5",
+      },
+      modelSelectionMode: "coordinator-selected",
+      modelSelectionReason:
+        "Provider-native subagent; exact worker runtime is managed by the provider.",
+      workspaceMode: "shared",
+      resolvedWorkspaceMode: "shared",
+      setupMode: "skip",
+      resolvedSetupMode: "skip",
+      source: "native-provider",
+      childThreadMaterialized: false,
+      nativeProviderRef: {
+        provider: "codex",
+        providerItemId: "item-1",
+        providerTurnId: "turn-1",
+        providerThreadIds: ["provider-child-1"],
+      },
+      status: "completed",
+      latestSummary: "Done.",
+      errorText: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      completedAt: "2026-01-01T00:01:00.000Z",
+      updatedAt: "2026-01-01T00:01:00.000Z",
+    });
+
+    assert.strictEqual(parsed.source, "native-provider");
+    assert.strictEqual(parsed.childThreadMaterialized, false);
+    assert.deepStrictEqual(parsed.nativeProviderRef?.providerThreadIds, ["provider-child-1"]);
+  }),
+);
+
+it.effect("rejects invalid team task sources", () =>
+  Effect.gen(function* () {
+    const result = yield* Effect.exit(
+      decodeOrchestrationTeamTask({
+        id: "team-task-1",
+        parentThreadId: "thread-parent",
+        childThreadId: "thread-child",
+        title: "Research",
+        task: "Research the request.",
+        roleLabel: null,
+        kind: "exploration",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.5",
+        },
+        modelSelectionMode: "coordinator-selected",
+        modelSelectionReason: "Selected by coordinator.",
+        workspaceMode: "auto",
+        resolvedWorkspaceMode: "shared",
+        setupMode: "auto",
+        resolvedSetupMode: "skip",
+        source: "external",
+        status: "running",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    assert.strictEqual(Exit.isFailure(result), true);
   }),
 );
 

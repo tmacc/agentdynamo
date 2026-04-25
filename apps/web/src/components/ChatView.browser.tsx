@@ -214,9 +214,14 @@ function createMockEnvironmentApi(input: {
       getFullThreadDiff: (() => {
         throw new Error("Not implemented in browser test.");
       }) as EnvironmentApi["orchestration"]["getFullThreadDiff"],
+      getTeamTaskTrace: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["orchestration"]["getTeamTaskTrace"],
       subscribeShell: (() => () => undefined) as EnvironmentApi["orchestration"]["subscribeShell"],
       subscribeThread: (() => () =>
         undefined) as EnvironmentApi["orchestration"]["subscribeThread"],
+      subscribeTeamTaskTrace: (() => () =>
+        undefined) as EnvironmentApi["orchestration"]["subscribeTeamTaskTrace"],
     },
     board: {
       listCards: (async () => ({ cards: [] })) as EnvironmentApi["board"]["listCards"],

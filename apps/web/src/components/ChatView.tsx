@@ -3896,6 +3896,7 @@ export default function ChatView(props: ChatViewProps) {
         ) : null}
         {agentsSidebarOpen && showAgentsToggle && teamRootThread && !shouldUseRightPanelSheet ? (
           <TeamAgentsSidebar
+            environmentId={environmentId}
             coordinatorTitle={teamRootThread.title}
             coordinatorThreadId={teamRootThread.id}
             activeThreadId={activeThread.id}
@@ -3947,6 +3948,7 @@ export default function ChatView(props: ChatViewProps) {
         <RightPanelSheet open={agentsSidebarOpen && showAgentsToggle} onClose={closeAgentsSidebar}>
           {teamRootThread ? (
             <TeamAgentsSidebar
+              environmentId={environmentId}
               coordinatorTitle={teamRootThread.title}
               coordinatorThreadId={teamRootThread.id}
               activeThreadId={activeThread.id}

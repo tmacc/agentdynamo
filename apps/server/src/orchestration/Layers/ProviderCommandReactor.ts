@@ -956,18 +956,20 @@ const make = Effect.gen(function* () {
       Effect.tap((turn) =>
         pendingHandoff === undefined || handoffRender === undefined
           ? Effect.void
-          : orchestrationEngine.dispatch({
-              type: "thread.context-handoff.mark-delivered",
-              commandId: serverCommandId("context-handoff-delivered"),
-              threadId: event.payload.threadId,
-              handoffId: pendingHandoff.id,
-              liveMessageId: message.id,
-              provider: targetProvider,
-              turnId: turn.turnId,
-              modelSelection: deliveredModelSelection,
-              renderStats: handoffRender.stats,
-              createdAt: new Date().toISOString(),
-            }),
+          : orchestrationEngine
+              .dispatch({
+                type: "thread.context-handoff.mark-delivered",
+                commandId: serverCommandId("context-handoff-delivered"),
+                threadId: event.payload.threadId,
+                handoffId: pendingHandoff.id,
+                liveMessageId: message.id,
+                provider: targetProvider,
+                turnId: turn.turnId,
+                modelSelection: deliveredModelSelection,
+                renderStats: handoffRender.stats,
+                createdAt: new Date().toISOString(),
+              })
+              .pipe(Effect.asVoid),
       ),
       Effect.catchCause((cause) =>
         handoffRender === undefined

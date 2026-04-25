@@ -180,6 +180,10 @@ describe("buildTurnStartParams", () => {
         },
       },
     });
+    const developerInstructions = params.collaborationMode?.settings.developer_instructions ?? "";
+    assert.match(developerInstructions, /Use Codex-native subagents/);
+    assert.match(developerInstructions, /generic same-provider requests/);
+    assert.match(developerInstructions, /Use Dynamo's team coordinator MCP tools only/);
   });
 });
 

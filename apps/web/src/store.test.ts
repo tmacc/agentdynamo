@@ -106,6 +106,9 @@ function makeTeamTask(overrides: Partial<OrchestrationTeamTask> = {}): Orchestra
     resolvedWorkspaceMode: "shared",
     setupMode: "auto",
     resolvedSetupMode: "skip",
+    source: "dynamo",
+    childThreadMaterialized: true,
+    nativeProviderRef: null,
     status: "running",
     latestSummary: null,
     errorText: null,
@@ -395,6 +398,150 @@ describe("thread selection memoization", () => {
     const selected = selectThreadByRef(state, ref);
 
     expect(selected?.teamTasks).toEqual([teamTask]);
+  });
+
+  it("links live-created child threads back to existing team tasks", () => {
+    const parentThread = makeThread();
+    const teamTask = makeTeamTask();
+    const stateWithTask = applyOrchestrationEvent(
+      makeState(parentThread),
+      makeEvent(
+        "thread.team-task-created",
+        {
+          parentThreadId: parentThread.id,
+          teamTask,
+        },
+        {
+          aggregateId: parentThread.id,
+        },
+      ),
+      localEnvironmentId,
+    );
+
+    const stateWithChild = applyOrchestrationEvent(
+      stateWithTask,
+      makeEvent("thread.created", {
+        threadId: teamTask.childThreadId,
+        projectId: parentThread.projectId,
+        title: "Research child",
+        modelSelection: teamTask.modelSelection,
+        runtimeMode: parentThread.runtimeMode,
+        interactionMode: parentThread.interactionMode,
+        branch: null,
+        worktreePath: null,
+        createdAt: "2026-02-13T00:05:10.000Z",
+        updatedAt: "2026-02-13T00:05:10.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    const selectedParent = selectThreadByRef(
+      stateWithChild,
+      scopeThreadRef(localEnvironmentId, parentThread.id),
+    );
+    const selectedChild = selectThreadByRef(
+      stateWithChild,
+      scopeThreadRef(localEnvironmentId, teamTask.childThreadId),
+    );
+
+    expect(selectedParent?.teamTasks).toEqual([teamTask]);
+    expect(selectedChild?.teamParent).toEqual({
+      parentThreadId: parentThread.id,
+      taskId: teamTask.id,
+      roleLabel: teamTask.roleLabel,
+    });
+  });
+
+  it("keeps native provider team tasks on the parent without linking synthetic children", () => {
+    const parentThread = makeThread();
+    const nativeTask = makeTeamTask({
+      id: TeamTaskId.make("team-task:native:codex:abc123"),
+      childThreadId: ThreadId.make("native-child:codex:abc123"),
+      source: "native-provider",
+      childThreadMaterialized: false,
+      nativeProviderRef: {
+        provider: "codex",
+        providerItemId: "item-1",
+      },
+    });
+
+    const stateWithTask = applyOrchestrationEvent(
+      makeState(parentThread),
+      makeEvent(
+        "thread.team-task-created",
+        {
+          parentThreadId: parentThread.id,
+          teamTask: nativeTask,
+        },
+        {
+          aggregateId: parentThread.id,
+        },
+      ),
+      localEnvironmentId,
+    );
+
+    const selectedParent = selectThreadByRef(
+      stateWithTask,
+      scopeThreadRef(localEnvironmentId, parentThread.id),
+    );
+    expect(selectedParent?.teamTasks).toEqual([nativeTask]);
+    expect(
+      selectThreadByRef(
+        stateWithTask,
+        scopeThreadRef(localEnvironmentId, nativeTask.childThreadId),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("does not infer teamParent for native synthetic child ids on thread creation", () => {
+    const parentThread = makeThread();
+    const nativeTask = makeTeamTask({
+      id: TeamTaskId.make("team-task:native:codex:abc123"),
+      childThreadId: ThreadId.make("native-child:codex:abc123"),
+      source: "native-provider",
+      childThreadMaterialized: false,
+      nativeProviderRef: {
+        provider: "codex",
+        providerItemId: "item-1",
+      },
+    });
+    const stateWithTask = applyOrchestrationEvent(
+      makeState(parentThread),
+      makeEvent(
+        "thread.team-task-created",
+        {
+          parentThreadId: parentThread.id,
+          teamTask: nativeTask,
+        },
+        {
+          aggregateId: parentThread.id,
+        },
+      ),
+      localEnvironmentId,
+    );
+
+    const stateWithSyntheticThread = applyOrchestrationEvent(
+      stateWithTask,
+      makeEvent("thread.created", {
+        threadId: nativeTask.childThreadId,
+        projectId: parentThread.projectId,
+        title: "Synthetic native child",
+        modelSelection: nativeTask.modelSelection,
+        runtimeMode: parentThread.runtimeMode,
+        interactionMode: parentThread.interactionMode,
+        branch: null,
+        worktreePath: null,
+        createdAt: "2026-02-13T00:05:10.000Z",
+        updatedAt: "2026-02-13T00:05:10.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    const selectedSynthetic = selectThreadByRef(
+      stateWithSyntheticThread,
+      scopeThreadRef(localEnvironmentId, nativeTask.childThreadId),
+    );
+    expect(selectedSynthetic?.teamParent).toBeNull();
   });
 
   it("checks thread existence without materializing the full thread", () => {

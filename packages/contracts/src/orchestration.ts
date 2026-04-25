@@ -46,9 +46,11 @@ export const ORCHESTRATION_WS_METHODS = {
   forkThread: "orchestration.forkThread",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
+  getTeamTaskTrace: "orchestration.getTeamTaskTrace",
   replayEvents: "orchestration.replayEvents",
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
+  subscribeTeamTaskTrace: "orchestration.subscribeTeamTaskTrace",
 } as const;
 
 export const ProviderKind = Schema.Literals(["codex", "claudeAgent", "cursor", "opencode"]);
@@ -431,6 +433,72 @@ export const TeamTaskModelSelectionMode = Schema.Literals([
 ]);
 export type TeamTaskModelSelectionMode = typeof TeamTaskModelSelectionMode.Type;
 
+export const TeamTaskSource = Schema.Literals(["dynamo", "native-provider"]);
+export type TeamTaskSource = typeof TeamTaskSource.Type;
+
+export const NativeProviderTeamTaskRef = Schema.Struct({
+  provider: ProviderKind,
+  providerTaskId: Schema.optionalKey(TrimmedNonEmptyString),
+  providerItemId: Schema.optionalKey(TrimmedNonEmptyString),
+  providerTurnId: Schema.optionalKey(TrimmedNonEmptyString),
+  providerThreadIds: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+  toolName: Schema.optionalKey(TrimmedNonEmptyString),
+  providerSessionId: Schema.optionalKey(TrimmedNonEmptyString),
+  providerAgentId: Schema.optionalKey(TrimmedNonEmptyString),
+  providerTranscriptPath: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type NativeProviderTeamTaskRef = typeof NativeProviderTeamTaskRef.Type;
+
+export const NativeSubagentTraceItemId = TrimmedNonEmptyString.pipe(
+  Schema.brand("NativeSubagentTraceItemId"),
+);
+export type NativeSubagentTraceItemId = typeof NativeSubagentTraceItemId.Type;
+
+export const NativeSubagentTraceItemKind = Schema.Literals([
+  "lifecycle",
+  "user_message",
+  "assistant_message",
+  "reasoning_summary",
+  "tool_call",
+  "tool_output",
+  "command_output",
+  "file_change",
+  "error",
+]);
+export type NativeSubagentTraceItemKind = typeof NativeSubagentTraceItemKind.Type;
+
+export const NativeSubagentTraceItemStatus = Schema.Literals([
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+export type NativeSubagentTraceItemStatus = typeof NativeSubagentTraceItemStatus.Type;
+
+export const OrchestrationNativeSubagentTraceItem = Schema.Struct({
+  id: NativeSubagentTraceItemId,
+  parentThreadId: ThreadId,
+  taskId: TeamTaskId,
+  provider: ProviderKind,
+  providerThreadId: Schema.NullOr(TrimmedNonEmptyString),
+  providerTurnId: Schema.NullOr(TrimmedNonEmptyString),
+  providerItemId: Schema.NullOr(TrimmedNonEmptyString),
+  providerToolUseId: Schema.NullOr(TrimmedNonEmptyString),
+  kind: NativeSubagentTraceItemKind,
+  status: NativeSubagentTraceItemStatus,
+  title: Schema.NullOr(Schema.String),
+  detail: Schema.NullOr(Schema.String),
+  text: Schema.NullOr(Schema.String),
+  toolName: Schema.NullOr(Schema.String),
+  inputSummary: Schema.NullOr(Schema.String),
+  outputSummary: Schema.NullOr(Schema.String),
+  sequence: NonNegativeInt,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  completedAt: Schema.NullOr(IsoDateTime),
+});
+export type OrchestrationNativeSubagentTraceItem = typeof OrchestrationNativeSubagentTraceItem.Type;
+
 export const OrchestrationTeamTask = Schema.Struct({
   id: TeamTaskId,
   parentThreadId: ThreadId,
@@ -446,6 +514,15 @@ export const OrchestrationTeamTask = Schema.Struct({
   resolvedWorkspaceMode: TeamTaskResolvedWorkspaceMode,
   setupMode: TeamTaskSetupMode,
   resolvedSetupMode: TeamTaskResolvedSetupMode,
+  source: Schema.optionalKey(TeamTaskSource).pipe(
+    Schema.withDecodingDefault(Effect.succeed("dynamo" as const)),
+    Schema.withConstructorDefault(Effect.succeed("dynamo" as const)),
+  ),
+  childThreadMaterialized: Schema.optional(Schema.Boolean).pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+    Schema.withConstructorDefault(Effect.succeed(true)),
+  ),
+  nativeProviderRef: Schema.optionalKey(Schema.NullOr(NativeProviderTeamTaskRef)),
   status: TeamTaskStatus,
   latestSummary: Schema.NullOr(Schema.String).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -918,6 +995,14 @@ const ThreadTeamTaskSpawnCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadTeamTaskUpsertNativeCommand = Schema.Struct({
+  type: Schema.Literal("thread.team-task.upsert-native"),
+  commandId: CommandId,
+  parentThreadId: ThreadId,
+  teamTask: OrchestrationTeamTask,
+  createdAt: IsoDateTime,
+});
+
 const ThreadTeamTaskMarkStartingCommand = Schema.Struct({
   type: Schema.Literal("thread.team-task.mark-starting"),
   ...TeamTaskStatusCommandBase,
@@ -967,6 +1052,40 @@ const ThreadTeamTaskCloseCommand = Schema.Struct({
   type: Schema.Literal("thread.team-task.close"),
   ...TeamTaskStatusCommandBase,
   reason: Schema.optional(TrimmedNonEmptyString),
+});
+
+const ThreadTeamTaskNativeTraceUpsertItemCommand = Schema.Struct({
+  type: Schema.Literal("thread.team-task.native-trace.upsert-item"),
+  commandId: CommandId,
+  parentThreadId: ThreadId,
+  taskId: TeamTaskId,
+  item: OrchestrationNativeSubagentTraceItem,
+  createdAt: IsoDateTime,
+});
+
+const ThreadTeamTaskNativeTraceAppendContentCommand = Schema.Struct({
+  type: Schema.Literal("thread.team-task.native-trace.append-content"),
+  commandId: CommandId,
+  parentThreadId: ThreadId,
+  taskId: TeamTaskId,
+  traceItemId: NativeSubagentTraceItemId,
+  delta: Schema.String,
+  updatedAt: IsoDateTime,
+  createdAt: IsoDateTime,
+});
+
+const ThreadTeamTaskNativeTraceMarkCompletedCommand = Schema.Struct({
+  type: Schema.Literal("thread.team-task.native-trace.mark-completed"),
+  commandId: CommandId,
+  parentThreadId: ThreadId,
+  taskId: TeamTaskId,
+  traceItemId: NativeSubagentTraceItemId,
+  status: NativeSubagentTraceItemStatus,
+  detail: Schema.optional(Schema.NullOr(Schema.String)),
+  outputSummary: Schema.optional(Schema.NullOr(Schema.String)),
+  completedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  createdAt: IsoDateTime,
 });
 
 const DispatchableClientOrchestrationCommand = Schema.Union([
@@ -1110,6 +1229,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
   ThreadTeamTaskSpawnCommand,
+  ThreadTeamTaskUpsertNativeCommand,
   ThreadTeamTaskMarkStartingCommand,
   ThreadTeamTaskMarkRunningCommand,
   ThreadTeamTaskMarkWaitingCommand,
@@ -1118,6 +1238,9 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTeamTaskMarkCancelledCommand,
   ThreadTeamTaskUpdateSummaryCommand,
   ThreadTeamTaskSendMessageCommand,
+  ThreadTeamTaskNativeTraceUpsertItemCommand,
+  ThreadTeamTaskNativeTraceAppendContentCommand,
+  ThreadTeamTaskNativeTraceMarkCompletedCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1159,6 +1282,9 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.team-task-summary-updated",
   "thread.team-task-message-requested",
   "thread.team-task-close-requested",
+  "thread.team-task-native-trace-item-upserted",
+  "thread.team-task-native-trace-content-appended",
+  "thread.team-task-native-trace-item-completed",
   "board.card-created",
   "board.card-updated",
   "board.card-moved",
@@ -1362,6 +1488,7 @@ export const ThreadTeamTaskStatusChangedPayload = Schema.Struct({
   status: TeamTaskStatus,
   errorText: Schema.optional(Schema.NullOr(Schema.String)),
   latestSummary: Schema.optional(Schema.NullOr(Schema.String)),
+  nativeProviderRef: Schema.optional(Schema.NullOr(NativeProviderTeamTaskRef)),
   updatedAt: IsoDateTime,
   completedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
 });
@@ -1385,6 +1512,31 @@ export const ThreadTeamTaskCloseRequestedPayload = Schema.Struct({
   taskId: TeamTaskId,
   reason: Schema.optional(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
+});
+
+export const ThreadTeamTaskNativeTraceItemUpsertedPayload = Schema.Struct({
+  parentThreadId: ThreadId,
+  taskId: TeamTaskId,
+  item: OrchestrationNativeSubagentTraceItem,
+});
+
+export const ThreadTeamTaskNativeTraceContentAppendedPayload = Schema.Struct({
+  parentThreadId: ThreadId,
+  taskId: TeamTaskId,
+  traceItemId: NativeSubagentTraceItemId,
+  delta: Schema.String,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadTeamTaskNativeTraceItemCompletedPayload = Schema.Struct({
+  parentThreadId: ThreadId,
+  taskId: TeamTaskId,
+  traceItemId: NativeSubagentTraceItemId,
+  status: NativeSubagentTraceItemStatus,
+  detail: Schema.optional(Schema.NullOr(Schema.String)),
+  outputSummary: Schema.optional(Schema.NullOr(Schema.String)),
+  completedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
 });
 
 export const ThreadContextHandoffPreparedPayload = Schema.Struct({
@@ -1599,6 +1751,21 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
+    type: Schema.Literal("thread.team-task-native-trace-item-upserted"),
+    payload: ThreadTeamTaskNativeTraceItemUpsertedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.team-task-native-trace-content-appended"),
+    payload: ThreadTeamTaskNativeTraceContentAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.team-task-native-trace-item-completed"),
+    payload: ThreadTeamTaskNativeTraceItemCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
     type: Schema.Literal("board.card-created"),
     payload: BoardCardCreatedPayload,
   }),
@@ -1760,6 +1927,40 @@ export type OrchestrationReplayEventsInput = typeof OrchestrationReplayEventsInp
 const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
 export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
 
+export const OrchestrationGetTeamTaskTraceInput = Schema.Struct({
+  parentThreadId: ThreadId,
+  taskId: TeamTaskId,
+  limit: Schema.optional(NonNegativeInt),
+});
+export type OrchestrationGetTeamTaskTraceInput = typeof OrchestrationGetTeamTaskTraceInput.Type;
+
+export const OrchestrationSubscribeTeamTaskTraceInput = Schema.Struct({
+  parentThreadId: ThreadId,
+  taskId: TeamTaskId,
+});
+export type OrchestrationSubscribeTeamTaskTraceInput =
+  typeof OrchestrationSubscribeTeamTaskTraceInput.Type;
+
+export const OrchestrationTeamTaskTraceSnapshot = Schema.Struct({
+  snapshotSequence: NonNegativeInt,
+  parentThreadId: ThreadId,
+  taskId: TeamTaskId,
+  items: Schema.Array(OrchestrationNativeSubagentTraceItem),
+});
+export type OrchestrationTeamTaskTraceSnapshot = typeof OrchestrationTeamTaskTraceSnapshot.Type;
+
+export const OrchestrationTeamTaskTraceStreamItem = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    snapshot: OrchestrationTeamTaskTraceSnapshot,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("event"),
+    event: OrchestrationEvent,
+  }),
+]);
+export type OrchestrationTeamTaskTraceStreamItem = typeof OrchestrationTeamTaskTraceStreamItem.Type;
+
 export const OrchestrationRpcSchemas = {
   dispatchCommand: {
     input: ClientOrchestrationCommand,
@@ -1777,9 +1978,17 @@ export const OrchestrationRpcSchemas = {
     input: OrchestrationGetFullThreadDiffInput,
     output: OrchestrationGetFullThreadDiffResult,
   },
+  getTeamTaskTrace: {
+    input: OrchestrationGetTeamTaskTraceInput,
+    output: OrchestrationTeamTaskTraceSnapshot,
+  },
   replayEvents: {
     input: OrchestrationReplayEventsInput,
     output: OrchestrationReplayEventsResult,
+  },
+  subscribeTeamTaskTrace: {
+    input: OrchestrationSubscribeTeamTaskTraceInput,
+    output: OrchestrationTeamTaskTraceStreamItem,
   },
   subscribeThread: {
     input: OrchestrationSubscribeThreadInput,

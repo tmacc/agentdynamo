@@ -676,7 +676,7 @@ export function projectEvent(
           ),
           updatedAt: event.occurredAt,
         }).map((thread) =>
-          thread.id === teamTask.childThreadId
+          teamTask.childThreadMaterialized && thread.id === teamTask.childThreadId
             ? {
                 ...thread,
                 teamParent: {
@@ -750,6 +750,9 @@ export function projectEvent(
                       ...(payload.errorText !== undefined ? { errorText: payload.errorText } : {}),
                       ...(payload.latestSummary !== undefined
                         ? { latestSummary: payload.latestSummary }
+                        : {}),
+                      ...(payload.nativeProviderRef !== undefined
+                        ? { nativeProviderRef: payload.nativeProviderRef }
                         : {}),
                       ...(payload.completedAt !== undefined
                         ? { completedAt: payload.completedAt }

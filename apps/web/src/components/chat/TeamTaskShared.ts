@@ -7,6 +7,18 @@ export function isActiveTeamTask(task: OrchestrationTeamTask): boolean {
   return TEAM_TASK_ACTIVE_STATUSES.has(task.status);
 }
 
+export function isDynamoManagedTeamTask(task: OrchestrationTeamTask): boolean {
+  return (task.source ?? "dynamo") === "dynamo" && task.childThreadMaterialized === true;
+}
+
+export function isNativeProviderTeamTask(task: OrchestrationTeamTask): boolean {
+  return task.source === "native-provider";
+}
+
+export function teamTaskSourceLabel(task: OrchestrationTeamTask): string {
+  return isNativeProviderTeamTask(task) ? "Native" : "Dynamo";
+}
+
 export function teamTaskStatusLabel(status: OrchestrationTeamTask["status"]): string {
   switch (status) {
     case "queued":
@@ -47,5 +59,6 @@ export function teamTaskStatusClassName(status: OrchestrationTeamTask["status"])
 export function teamTaskModelLabel(task: OrchestrationTeamTask): string {
   const provider = task.modelSelection.provider as ProviderKind;
   const providerLabel = PROVIDER_DISPLAY_NAMES[provider] ?? provider;
-  return `${providerLabel} ${task.modelSelection.model}`;
+  const sourceLabel = isNativeProviderTeamTask(task) ? " · native" : "";
+  return `${providerLabel} ${task.modelSelection.model}${sourceLabel}`;
 }

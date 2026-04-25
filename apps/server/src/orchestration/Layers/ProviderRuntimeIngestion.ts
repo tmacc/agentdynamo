@@ -1,12 +1,24 @@
+import { createHash } from "node:crypto";
+
 import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
   CommandId,
+  DEFAULT_MODEL_BY_PROVIDER,
   MessageId,
+  NativeSubagentTraceItemId,
+  type ModelSelection,
+  type NativeSubagentTraceItemKind,
+  type NativeSubagentTraceItemStatus,
+  type OrchestrationCommand,
   type OrchestrationEvent,
+  type OrchestrationNativeSubagentTraceItem,
   type OrchestrationProposedPlanId,
+  type OrchestrationTeamTask,
   CheckpointRef,
   isToolLifecycleItemType,
+  ProviderKind,
+  TeamTaskId,
   ThreadId,
   type ThreadTokenUsageSnapshot,
   TurnId,
@@ -79,6 +91,702 @@ function sameId(left: string | null | undefined, right: string | null | undefine
 
 function truncateDetail(value: string, limit = 180): string {
   return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
+}
+
+function trimNonEmpty(value: string | undefined | null): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+function nativeTaskHash(input: string): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, 12);
+}
+
+function deriveNativeTeamTaskId(input: {
+  readonly provider: ProviderKind;
+  readonly parentThreadId: ThreadId;
+  readonly providerTaskId: string;
+}): TeamTaskId {
+  const hash = nativeTaskHash(`${input.provider}:${input.parentThreadId}:${input.providerTaskId}`);
+  return TeamTaskId.make(`team-task:native:${input.provider}:${hash}`);
+}
+
+function deriveNativeChildThreadId(input: {
+  readonly provider: ProviderKind;
+  readonly parentThreadId: ThreadId;
+  readonly providerTaskId: string;
+}): ThreadId {
+  const hash = nativeTaskHash(`${input.provider}:${input.parentThreadId}:${input.providerTaskId}`);
+  return ThreadId.make(`native-child:${input.provider}:${hash}`);
+}
+
+function nativeTaskModelSelection(input: {
+  readonly provider: ProviderKind;
+  readonly parentModelSelection: ModelSelection;
+}): ModelSelection {
+  return input.parentModelSelection.provider === input.provider
+    ? input.parentModelSelection
+    : {
+        provider: input.provider,
+        model: DEFAULT_MODEL_BY_PROVIDER[input.provider],
+      };
+}
+
+interface CodexCollabAgentState {
+  readonly message?: string | null;
+  readonly status?: string | null;
+}
+
+interface CodexCollabAgentItem {
+  readonly agentsStates?: Record<string, CodexCollabAgentState>;
+  readonly model?: string | null;
+  readonly prompt?: string | null;
+  readonly receiverThreadIds?: ReadonlyArray<string>;
+  readonly tool?: string | null;
+}
+
+function codexCollabAgentItem(data: unknown): CodexCollabAgentItem | null {
+  if (typeof data !== "object" || data === null) return null;
+  const payload = data as { readonly item?: unknown };
+  if (typeof payload.item !== "object" || payload.item === null) return null;
+  const item = payload.item as {
+    readonly agentsStates?: unknown;
+    readonly model?: unknown;
+    readonly prompt?: unknown;
+    readonly receiverThreadIds?: unknown;
+    readonly tool?: unknown;
+  };
+  const receiverThreadIds = Array.isArray(item.receiverThreadIds)
+    ? item.receiverThreadIds.filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0,
+      )
+    : undefined;
+  const agentsStates =
+    typeof item.agentsStates === "object" && item.agentsStates !== null
+      ? Object.fromEntries(
+          Object.entries(item.agentsStates as Record<string, unknown>)
+            .filter(([key]) => key.trim().length > 0)
+            .map(([key, value]) => {
+              const state =
+                typeof value === "object" && value !== null
+                  ? (value as { readonly message?: unknown; readonly status?: unknown })
+                  : {};
+              return [
+                key,
+                {
+                  message: typeof state.message === "string" ? state.message : null,
+                  status: typeof state.status === "string" ? state.status : null,
+                },
+              ];
+            }),
+        )
+      : undefined;
+
+  return {
+    ...(agentsStates ? { agentsStates } : {}),
+    ...(typeof item.model === "string" ? { model: item.model } : {}),
+    ...(typeof item.prompt === "string" ? { prompt: item.prompt } : {}),
+    ...(receiverThreadIds && receiverThreadIds.length > 0 ? { receiverThreadIds } : {}),
+    ...(typeof item.tool === "string" ? { tool: item.tool } : {}),
+  };
+}
+
+function codexReceiverThreadIds(item: CodexCollabAgentItem): ReadonlyArray<string> {
+  const ids = new Set<string>();
+  for (const receiverThreadId of item.receiverThreadIds ?? []) {
+    ids.add(receiverThreadId);
+  }
+  for (const receiverThreadId of Object.keys(item.agentsStates ?? {})) {
+    if (receiverThreadId.trim().length > 0) {
+      ids.add(receiverThreadId);
+    }
+  }
+  return [...ids];
+}
+
+function codexNativeTaskStatus(input: {
+  readonly eventType: "item.started" | "item.completed";
+  readonly itemStatus?: string | undefined;
+  readonly tool?: string | null | undefined;
+  readonly agentState?: CodexCollabAgentState | undefined;
+}): OrchestrationTeamTask["status"] {
+  const agentStatus = input.agentState?.status;
+  switch (agentStatus) {
+    case "completed":
+      return "completed";
+    case "failed":
+    case "error":
+      return "failed";
+    case "stopped":
+    case "cancelled":
+    case "declined":
+      return "cancelled";
+    default:
+      break;
+  }
+
+  if (input.itemStatus === "failed") return "failed";
+  if (input.itemStatus === "declined") return "cancelled";
+
+  // Codex marks the spawnAgent tool call completed as soon as the child
+  // thread is created. The child itself is still pending/running and later
+  // reports completion through wait-agent collab events.
+  if (input.tool === "spawnAgent") return "running";
+  if (input.eventType === "item.started") return "running";
+  return input.tool === "wait" && input.itemStatus === "completed" ? "completed" : "running";
+}
+
+function nativeTeamTasksFromRuntimeEvent(input: {
+  readonly event: ProviderRuntimeEvent;
+  readonly thread: { readonly id: ThreadId; readonly modelSelection: ModelSelection };
+}): ReadonlyArray<OrchestrationTeamTask> {
+  const { event, thread } = input;
+  const provider = event.provider;
+  const providerTurnId = event.turnId ? String(event.turnId) : undefined;
+
+  if (
+    provider === "claudeAgent" &&
+    (event.type === "task.started" ||
+      event.type === "task.progress" ||
+      event.type === "task.completed")
+  ) {
+    let providerTaskId: string;
+    let description: string | undefined;
+    let title: string;
+    let status: OrchestrationTeamTask["status"];
+    let latestSummary: string | null;
+    let toolName: string | undefined;
+    const rawPayload = rawRecord(event.raw?.payload);
+    const providerSessionId =
+      typeof rawPayload?.session_id === "string" ? rawPayload.session_id : undefined;
+
+    if (event.type === "task.started") {
+      providerTaskId = String(event.payload.taskId);
+      description = trimNonEmpty(event.payload.description);
+      title = description ?? trimNonEmpty(event.payload.taskType) ?? "Native subagent";
+      status = "running";
+      latestSummary = null;
+    } else if (event.type === "task.progress") {
+      providerTaskId = String(event.payload.taskId);
+      description = trimNonEmpty(event.payload.description);
+      title = trimNonEmpty(event.payload.summary) ?? description ?? "Native subagent";
+      status = "running";
+      latestSummary = trimNonEmpty(event.payload.summary) ?? description ?? null;
+      toolName = event.payload.lastToolName;
+    } else {
+      providerTaskId = String(event.payload.taskId);
+      description = trimNonEmpty(event.payload.summary);
+      title = description ?? "Native subagent";
+      status =
+        event.payload.status === "failed"
+          ? "failed"
+          : event.payload.status === "stopped"
+            ? "cancelled"
+            : "completed";
+      latestSummary = description ?? null;
+    }
+
+    return [
+      {
+        id: deriveNativeTeamTaskId({
+          provider,
+          parentThreadId: thread.id,
+          providerTaskId,
+        }),
+        parentThreadId: thread.id,
+        childThreadId: deriveNativeChildThreadId({
+          provider,
+          parentThreadId: thread.id,
+          providerTaskId,
+        }),
+        title,
+        task: description ?? "Provider-native Claude subagent",
+        roleLabel: null,
+        kind: "general",
+        modelSelection: nativeTaskModelSelection({
+          provider,
+          parentModelSelection: thread.modelSelection,
+        }),
+        modelSelectionMode: "coordinator-selected",
+        modelSelectionReason:
+          "Provider-native subagent; exact worker runtime is managed by the provider.",
+        workspaceMode: "shared",
+        resolvedWorkspaceMode: "shared",
+        setupMode: "skip",
+        resolvedSetupMode: "skip",
+        source: "native-provider",
+        childThreadMaterialized: false,
+        nativeProviderRef: {
+          provider,
+          providerTaskId,
+          ...(providerTurnId ? { providerTurnId } : {}),
+          ...(toolName ? { toolName } : {}),
+          ...(providerSessionId ? { providerSessionId } : {}),
+        },
+        status,
+        latestSummary,
+        errorText: status === "failed" ? latestSummary : null,
+        createdAt: event.createdAt,
+        startedAt: status === "running" ? event.createdAt : null,
+        completedAt:
+          status === "completed" || status === "failed" || status === "cancelled"
+            ? event.createdAt
+            : null,
+        updatedAt: event.createdAt,
+      },
+    ];
+  }
+
+  if (
+    provider === "codex" &&
+    (event.type === "item.started" || event.type === "item.completed") &&
+    event.payload.itemType === "collab_agent_tool_call"
+  ) {
+    const item = codexCollabAgentItem(event.payload.data);
+    if (!item) return [];
+    const receiverThreadIds = codexReceiverThreadIds(item);
+    if (receiverThreadIds.length === 0) return [];
+
+    const providerItemId = String(event.itemId ?? event.eventId);
+    const detail = trimNonEmpty(event.payload.detail);
+    const prompt = trimNonEmpty(item.prompt);
+
+    return receiverThreadIds.map((receiverThreadId) => {
+      const agentState = item.agentsStates?.[receiverThreadId];
+      const status = codexNativeTaskStatus({
+        eventType: event.type,
+        itemStatus: event.payload.status,
+        tool: item.tool,
+        agentState,
+      });
+      const latestSummary =
+        status === "completed" || status === "failed" || status === "cancelled"
+          ? (trimNonEmpty(agentState?.message) ?? detail ?? null)
+          : (trimNonEmpty(agentState?.message) ?? null);
+      const providerTaskId = `receiver:${receiverThreadId}`;
+      return {
+        id: deriveNativeTeamTaskId({
+          provider,
+          parentThreadId: thread.id,
+          providerTaskId,
+        }),
+        parentThreadId: thread.id,
+        childThreadId: deriveNativeChildThreadId({
+          provider,
+          parentThreadId: thread.id,
+          providerTaskId,
+        }),
+        title: detail ?? prompt ?? "Native subagent",
+        task: prompt ?? detail ?? "Provider-native Codex subagent",
+        roleLabel: null,
+        kind: "general",
+        modelSelection: nativeTaskModelSelection({
+          provider,
+          parentModelSelection: thread.modelSelection,
+        }),
+        modelSelectionMode: "coordinator-selected",
+        modelSelectionReason:
+          "Provider-native subagent; exact worker runtime is managed by the provider.",
+        workspaceMode: "shared",
+        resolvedWorkspaceMode: "shared",
+        setupMode: "skip",
+        resolvedSetupMode: "skip",
+        source: "native-provider",
+        childThreadMaterialized: false,
+        nativeProviderRef: {
+          provider,
+          providerItemId,
+          ...(providerTurnId ? { providerTurnId } : {}),
+          providerThreadIds: [receiverThreadId],
+          ...(item.tool ? { toolName: item.tool } : {}),
+        },
+        status,
+        latestSummary,
+        errorText: status === "failed" ? latestSummary : null,
+        createdAt: event.createdAt,
+        startedAt: status === "running" ? event.createdAt : null,
+        completedAt:
+          status === "completed" || status === "failed" || status === "cancelled"
+            ? event.createdAt
+            : null,
+        updatedAt: event.createdAt,
+      };
+    });
+  }
+
+  return [];
+}
+
+function safeJsonSummary(value: unknown, limit = 400): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string") return truncateDetail(value, limit);
+  try {
+    return truncateDetail(JSON.stringify(value), limit);
+  } catch {
+    return null;
+  }
+}
+
+function rawRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function providerThreadIdFromRawEvent(event: ProviderRuntimeEvent): string | null {
+  const payload = rawRecord(event.raw?.payload);
+  const threadId = payload?.threadId;
+  if (typeof threadId === "string" && threadId.trim().length > 0) return threadId;
+  const thread = rawRecord(payload?.thread);
+  const nestedThreadId = thread?.id;
+  return typeof nestedThreadId === "string" && nestedThreadId.trim().length > 0
+    ? nestedThreadId
+    : null;
+}
+
+function rawItemRecord(event: ProviderRuntimeEvent): Record<string, unknown> | null {
+  return rawRecord(rawRecord(event.raw?.payload)?.item);
+}
+
+function textFromRawItem(event: ProviderRuntimeEvent): string | null {
+  const item = rawItemRecord(event);
+  const text = item?.text ?? item?.message;
+  if (typeof text === "string" && text.trim().length > 0) return text;
+  const content = item?.content;
+  if (typeof content === "string" && content.trim().length > 0) return content;
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((entry) => {
+        const record = rawRecord(entry);
+        const entryText = record?.text ?? record?.content;
+        return typeof entryText === "string" ? entryText : "";
+      })
+      .filter((entry) => entry.trim().length > 0);
+    if (parts.length > 0) return parts.join("\n");
+  }
+  return null;
+}
+
+function nativeTraceItemId(input: {
+  readonly taskId: string;
+  readonly providerThreadId: string | null;
+  readonly providerItemId: string | null;
+  readonly suffix?: string;
+}): NativeSubagentTraceItemId {
+  const raw = [
+    "native-trace",
+    input.taskId,
+    input.providerThreadId ?? "thread",
+    input.providerItemId ?? "item",
+    input.suffix ?? "main",
+  ].join(":");
+  return NativeSubagentTraceItemId.make(raw);
+}
+
+function traceStatusFromRuntimeStatus(status: string | undefined): NativeSubagentTraceItemStatus {
+  switch (status) {
+    case "failed":
+    case "declined":
+      return "failed";
+    case "cancelled":
+    case "stopped":
+      return "cancelled";
+    case "completed":
+      return "completed";
+    default:
+      return "running";
+  }
+}
+
+function traceKindForItemType(
+  itemType: string,
+  streamKind?: string,
+): NativeSubagentTraceItemKind | null {
+  switch (itemType) {
+    case "user_message":
+      return "user_message";
+    case "assistant_message":
+      return "assistant_message";
+    case "reasoning":
+      return streamKind === "reasoning_summary_text" ? "reasoning_summary" : null;
+    case "command_execution":
+      return "command_output";
+    case "file_change":
+      return "file_change";
+    case "mcp_tool_call":
+    case "dynamic_tool_call":
+    case "collab_agent_tool_call":
+    case "web_search":
+    case "image_view":
+      return "tool_call";
+    case "error":
+      return "error";
+    default:
+      return streamKind === "reasoning_summary_text" ? "reasoning_summary" : null;
+  }
+}
+
+function findNativeTaskForProviderEvent(input: {
+  readonly event: ProviderRuntimeEvent;
+  readonly thread: { readonly teamTasks?: ReadonlyArray<OrchestrationTeamTask> };
+  readonly nativeTeamTasks: ReadonlyArray<OrchestrationTeamTask>;
+}): OrchestrationTeamTask | null {
+  const nativeTasks = [...(input.thread.teamTasks ?? []), ...input.nativeTeamTasks].filter(
+    (task) => task.source === "native-provider" && task.childThreadMaterialized === false,
+  );
+
+  if (input.event.provider === "codex") {
+    const providerThreadId = providerThreadIdFromRawEvent(input.event);
+    if (!providerThreadId) return null;
+    return (
+      nativeTasks.find((task) =>
+        task.nativeProviderRef?.providerThreadIds?.includes(providerThreadId),
+      ) ?? null
+    );
+  }
+
+  if (
+    input.event.provider === "claudeAgent" &&
+    (input.event.type === "task.started" ||
+      input.event.type === "task.progress" ||
+      input.event.type === "task.completed")
+  ) {
+    const taskId = String(input.event.payload.taskId);
+    return nativeTasks.find((task) => task.nativeProviderRef?.providerTaskId === taskId) ?? null;
+  }
+
+  return null;
+}
+
+function nativeTraceCommandsFromRuntimeEvent(input: {
+  readonly event: ProviderRuntimeEvent;
+  readonly task: OrchestrationTeamTask;
+}): ReadonlyArray<OrchestrationCommand> {
+  const { event, task } = input;
+  const providerThreadId = providerThreadIdFromRawEvent(event);
+  const providerItemId = event.itemId ? String(event.itemId) : null;
+  const providerTurnId = event.turnId ? String(event.turnId) : null;
+  const sequence = Math.max(0, Date.parse(event.createdAt) || 0);
+  const baseItem = (params: {
+    readonly id: NativeSubagentTraceItemId;
+    readonly kind: NativeSubagentTraceItemKind;
+    readonly status?: NativeSubagentTraceItemStatus;
+    readonly title?: string | null;
+    readonly detail?: string | null;
+    readonly text?: string | null;
+    readonly toolName?: string | null;
+    readonly inputSummary?: string | null;
+    readonly outputSummary?: string | null;
+  }): OrchestrationNativeSubagentTraceItem => ({
+    id: params.id,
+    parentThreadId: task.parentThreadId,
+    taskId: task.id,
+    provider: event.provider,
+    providerThreadId,
+    providerTurnId,
+    providerItemId,
+    providerToolUseId: null,
+    kind: params.kind,
+    status: params.status ?? "running",
+    title: params.title ?? null,
+    detail: params.detail ?? null,
+    text: params.text ?? null,
+    toolName: params.toolName ?? null,
+    inputSummary: params.inputSummary ?? null,
+    outputSummary: params.outputSummary ?? null,
+    sequence,
+    createdAt: event.createdAt,
+    updatedAt: event.createdAt,
+    completedAt: params.status && params.status !== "running" ? event.createdAt : null,
+  });
+  const upsert = (item: OrchestrationNativeSubagentTraceItem): OrchestrationCommand => ({
+    type: "thread.team-task.native-trace.upsert-item",
+    commandId: CommandId.make(`provider-native-trace:${event.eventId}:${item.id}:upsert`),
+    parentThreadId: task.parentThreadId,
+    taskId: task.id,
+    item,
+    createdAt: event.createdAt,
+  });
+  const append = (
+    traceItemId: NativeSubagentTraceItemId,
+    delta: string,
+    suffix: string,
+  ): OrchestrationCommand => ({
+    type: "thread.team-task.native-trace.append-content",
+    commandId: CommandId.make(`provider-native-trace:${event.eventId}:${traceItemId}:${suffix}`),
+    parentThreadId: task.parentThreadId,
+    taskId: task.id,
+    traceItemId,
+    delta,
+    updatedAt: event.createdAt,
+    createdAt: event.createdAt,
+  });
+  const complete = (
+    traceItemId: NativeSubagentTraceItemId,
+    status: NativeSubagentTraceItemStatus,
+    detail: string | null,
+  ): OrchestrationCommand => ({
+    type: "thread.team-task.native-trace.mark-completed",
+    commandId: CommandId.make(`provider-native-trace:${event.eventId}:${traceItemId}:complete`),
+    parentThreadId: task.parentThreadId,
+    taskId: task.id,
+    traceItemId,
+    status,
+    detail,
+    completedAt: event.createdAt,
+    updatedAt: event.createdAt,
+    createdAt: event.createdAt,
+  });
+
+  if (
+    event.provider === "claudeAgent" &&
+    (event.type === "task.started" ||
+      event.type === "task.progress" ||
+      event.type === "task.completed")
+  ) {
+    const providerTaskId = String(event.payload.taskId);
+    const id = nativeTraceItemId({
+      taskId: task.id,
+      providerThreadId,
+      providerItemId: providerTaskId,
+      suffix: event.type,
+    });
+    const status =
+      event.type === "task.completed"
+        ? event.payload.status === "failed"
+          ? "failed"
+          : event.payload.status === "stopped"
+            ? "cancelled"
+            : "completed"
+        : "running";
+    return [
+      upsert(
+        baseItem({
+          id,
+          kind: "lifecycle",
+          status,
+          title:
+            event.type === "task.started"
+              ? "Task started"
+              : event.type === "task.progress"
+                ? "Task progress"
+                : "Task completed",
+          detail:
+            event.type === "task.started"
+              ? (event.payload.description ?? null)
+              : event.type === "task.progress"
+                ? (event.payload.summary ?? event.payload.description ?? null)
+                : (event.payload.summary ?? null),
+          outputSummary: event.type === "task.completed" ? (event.payload.summary ?? null) : null,
+        }),
+      ),
+    ];
+  }
+
+  if (event.provider !== "codex") return [];
+
+  if (event.type === "item.started" || event.type === "item.completed") {
+    const kind = traceKindForItemType(event.payload.itemType);
+    if (!kind) return [];
+    const id = nativeTraceItemId({ taskId: task.id, providerThreadId, providerItemId });
+    const status =
+      event.type === "item.completed"
+        ? traceStatusFromRuntimeStatus(event.payload.status)
+        : "running";
+    return [
+      upsert(
+        baseItem({
+          id,
+          kind,
+          status,
+          title: event.payload.title ?? event.payload.itemType,
+          detail: event.payload.detail ?? null,
+          text: kind === "user_message" ? textFromRawItem(event) : null,
+          toolName: kind === "tool_call" ? (event.payload.title ?? null) : null,
+          inputSummary: safeJsonSummary(rawItemRecord(event)?.input),
+          outputSummary:
+            event.type === "item.completed"
+              ? (event.payload.detail ?? safeJsonSummary(rawItemRecord(event)?.output))
+              : null,
+        }),
+      ),
+      ...(event.type === "item.completed"
+        ? [complete(id, status, event.payload.detail ?? null)]
+        : []),
+    ];
+  }
+
+  if (event.type === "content.delta") {
+    if (event.payload.streamKind === "reasoning_text") return [];
+    const kind =
+      event.payload.streamKind === "assistant_text"
+        ? "assistant_message"
+        : event.payload.streamKind === "reasoning_summary_text"
+          ? "reasoning_summary"
+          : event.payload.streamKind === "command_output"
+            ? "command_output"
+            : event.payload.streamKind === "file_change_output"
+              ? "file_change"
+              : null;
+    if (!kind) return [];
+    const id = nativeTraceItemId({
+      taskId: task.id,
+      providerThreadId,
+      providerItemId,
+      ...(kind === "reasoning_summary" ? { suffix: "reasoning-summary" } : {}),
+    });
+    return [
+      upsert(
+        baseItem({
+          id,
+          kind,
+          title: kind === "reasoning_summary" ? "Reasoning summary" : null,
+        }),
+      ),
+      append(id, event.payload.delta, "delta"),
+    ];
+  }
+
+  if (event.type === "tool.progress" || event.type === "tool.summary") {
+    const id = nativeTraceItemId({
+      taskId: task.id,
+      providerThreadId,
+      providerItemId: providerItemId ?? String(event.eventId),
+      suffix: event.type,
+    });
+    return [
+      upsert(
+        baseItem({
+          id,
+          kind: "tool_output",
+          title: event.type === "tool.progress" ? "Tool progress" : "Tool summary",
+          detail: event.type === "tool.progress" ? (event.payload.summary ?? null) : null,
+          outputSummary: event.type === "tool.summary" ? event.payload.summary : null,
+          toolName: event.type === "tool.progress" ? (event.payload.toolName ?? null) : null,
+        }),
+      ),
+    ];
+  }
+
+  if (event.type === "runtime.error") {
+    const id = nativeTraceItemId({
+      taskId: task.id,
+      providerThreadId,
+      providerItemId: providerItemId ?? String(event.eventId),
+      suffix: "error",
+    });
+    return [
+      upsert(
+        baseItem({
+          id,
+          kind: "error",
+          status: "failed",
+          title: "Provider error",
+          detail: event.payload.message,
+        }),
+      ),
+    ];
+  }
+
+  return [];
 }
 
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
@@ -1507,6 +2215,32 @@ const make = Effect.gen(function* () {
             });
           }
         }
+      }
+
+      const nativeTeamTasks = nativeTeamTasksFromRuntimeEvent({ event, thread });
+      yield* Effect.forEach(nativeTeamTasks, (nativeTeamTask) =>
+        orchestrationEngine.dispatch({
+          type: "thread.team-task.upsert-native",
+          commandId: CommandId.make(
+            `provider-native-team-task:${event.eventId}:${nativeTeamTask.id}:upsert`,
+          ),
+          parentThreadId: thread.id,
+          teamTask: nativeTeamTask,
+          createdAt: now,
+        }),
+      ).pipe(Effect.asVoid);
+
+      const nativeTraceTask = findNativeTaskForProviderEvent({
+        event,
+        thread,
+        nativeTeamTasks,
+      });
+      if (nativeTraceTask) {
+        yield* Effect.forEach(
+          nativeTraceCommandsFromRuntimeEvent({ event, task: nativeTraceTask }),
+          (command) => orchestrationEngine.dispatch(command),
+          { concurrency: 1 },
+        ).pipe(Effect.asVoid);
       }
 
       const activities = runtimeEventToActivities(event);
