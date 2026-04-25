@@ -11,10 +11,11 @@ import {
   EventId,
   MessageId,
   ProjectId,
+  TeamCoordinatorGrantId,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
-import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
+import { Effect, Exit, Layer, ManagedRuntime, Option, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
@@ -42,6 +43,7 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { TeamCoordinatorAccess } from "../../team/Services/TeamCoordinatorAccess.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
@@ -291,6 +293,21 @@ describe("ProviderCommandReactor", () => {
           generateBranchName,
           generateThreadTitle,
         }),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(TeamCoordinatorAccess, {
+          issueGrant: (input) =>
+            Effect.succeed({
+              grantId: TeamCoordinatorGrantId.make("team-grant:test"),
+              parentThreadId: input.parentThreadId,
+              provider: input.provider,
+              accessToken: "dynamo_team_test_token",
+              createdAt: now,
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            }),
+          authenticate: () => Effect.succeed(Option.none()),
+          revokeForThread: () => Effect.void,
+        } as typeof TeamCoordinatorAccess.Service),
       ),
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
