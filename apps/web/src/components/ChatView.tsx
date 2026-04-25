@@ -153,6 +153,7 @@ import {
 import { TeamAgentsSidebar } from "./chat/TeamAgentsSidebar";
 import type { TeamTaskInlineView } from "./chat/TeamTaskInlineBlock";
 import {
+  isMaterializedDynamoTeamTask,
   teamTaskModelLabel,
   teamTaskStatusClassName,
   teamTaskStatusLabel,
@@ -956,7 +957,8 @@ export default function ChatView(props: ChatViewProps) {
   const activeChildTeamTask = useMemo(() => {
     const taskId = activeThread?.teamParent?.taskId;
     if (!taskId) return null;
-    return teamTaskViews.find(({ task }) => task.id === taskId)?.task ?? null;
+    const task = teamTaskViews.find((view) => view.task.id === taskId)?.task ?? null;
+    return task && isMaterializedDynamoTeamTask(task) ? task : null;
   }, [activeThread?.teamParent?.taskId, teamTaskViews]);
   const activeTeamTaskCount = useMemo(
     () =>
@@ -2871,7 +2873,7 @@ export default function ChatView(props: ChatViewProps) {
         ...(bootstrap ? { bootstrap } : {}),
         createdAt: messageCreatedAt,
       });
-      if (activeThread.teamParent) {
+      if (activeThread.teamParent && activeChildTeamTask) {
         await api.orchestration
           .dispatchCommand({
             type: "thread.team-task.send-message",
@@ -3483,6 +3485,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const reviewTeamTaskChanges = useCallback(
     async (task: OrchestrationTeamTask) => {
+      if (!isMaterializedDynamoTeamTask(task)) return;
       if (!teamRootThread) return;
       const api = readEnvironmentApi(teamRootThread.environmentId);
       if (!api) return;
@@ -3528,6 +3531,7 @@ export default function ChatView(props: ChatViewProps) {
   const applyReviewedTeamTaskChanges = useCallback(async () => {
     if (!teamRootThread || !teamPatchReview) return;
     const { task, preview } = teamPatchReview;
+    if (!isMaterializedDynamoTeamTask(task)) return;
     const api = readEnvironmentApi(teamRootThread.environmentId);
     if (!api) return;
 
@@ -3575,6 +3579,8 @@ export default function ChatView(props: ChatViewProps) {
   const cancelTeamTask = useCallback(
     (taskId: TeamTaskId) => {
       if (!teamRootThread) return;
+      const task = (teamRootThread.teamTasks ?? []).find((entry) => entry.id === taskId);
+      if (!task || !isMaterializedDynamoTeamTask(task)) return;
       const api = readEnvironmentApi(teamRootThread.environmentId);
       if (!api) return;
       void api.orchestration.dispatchCommand({

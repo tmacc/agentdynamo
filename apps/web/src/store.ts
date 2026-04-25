@@ -1749,8 +1749,12 @@ function applyEnvironmentOrchestrationEvent(
             ? {
                 ...task,
                 status: event.payload.status,
-                errorText: event.payload.errorText ?? task.errorText,
-                latestSummary: event.payload.latestSummary ?? task.latestSummary,
+                errorText:
+                  event.payload.errorText !== undefined ? event.payload.errorText : task.errorText,
+                latestSummary:
+                  event.payload.latestSummary !== undefined
+                    ? event.payload.latestSummary
+                    : task.latestSummary,
                 nativeProviderRef:
                   event.payload.nativeProviderRef !== undefined
                     ? event.payload.nativeProviderRef

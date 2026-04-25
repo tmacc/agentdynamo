@@ -26,6 +26,7 @@ import {
 import { projectEvent } from "./projector.ts";
 import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
 import type { ProjectionBoardCardRepositoryShape } from "../persistence/Services/ProjectionBoardCards.ts";
+import { isMaterializedDynamoTeamTask } from "../team/teamTaskGuards.ts";
 
 const nowIso = () => new Date().toISOString();
 const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
@@ -99,6 +100,21 @@ function teamTaskActivityPayload(task: {
     modelSelectionMode: task.modelSelectionMode,
     modelSelectionReason: task.modelSelectionReason,
   };
+}
+
+function requireMaterializedDynamoTeamTask(input: {
+  readonly command: OrchestrationCommand;
+  readonly task: OrchestrationTeamTask;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (isMaterializedDynamoTeamTask(input.task)) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    new OrchestrationCommandInvariantError({
+      commandType: input.command.type,
+      detail: "Team task child thread commands require a materialized Dynamo task.",
+    }),
+  );
 }
 
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
@@ -1059,6 +1075,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Team task '${command.taskId}' was not found.`,
         });
       }
+      yield* requireMaterializedDynamoTeamTask({ command, task });
+      yield* requireThread({ readModel, command, threadId: task.childThreadId });
       const events: PlannedOrchestrationEvent[] = [];
       if (FINAL_TEAM_TASK_STATUSES.has(task.status)) {
         events.push({
@@ -1126,6 +1144,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Team task '${command.taskId}' was not found.`,
         });
       }
+      yield* requireMaterializedDynamoTeamTask({ command, task });
+      yield* requireThread({ readModel, command, threadId: task.childThreadId });
       return {
         ...withEventBase({
           aggregateKind: "thread",

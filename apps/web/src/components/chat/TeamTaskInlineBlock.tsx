@@ -4,8 +4,8 @@ import { memo, useState, type MouseEvent } from "react";
 
 import { cn } from "~/lib/utils";
 import {
-  isDynamoManagedTeamTask,
   isActiveTeamTask,
+  isMaterializedDynamoTeamTask,
   teamTaskModelLabel,
   teamTaskStatusClassName,
   teamTaskStatusLabel,
@@ -74,7 +74,7 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
   const { task, diffSummary, elapsed } = view;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[task.modelSelection.provider];
   const active = isActiveTeamTask(task);
-  const isDynamoManaged = isDynamoManagedTeamTask(task);
+  const isMaterializedDynamo = isMaterializedDynamoTeamTask(task);
 
   return (
     <div className="border-border/50 border-b last:border-b-0">
@@ -123,7 +123,7 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
             <div className="line-clamp-4 text-destructive">{task.errorText}</div>
           ) : null}
           <div className="flex flex-wrap items-center gap-3 pt-0.5">
-            {isDynamoManaged ? (
+            {isMaterializedDynamo ? (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-primary/85 transition-colors hover:text-primary"
@@ -133,7 +133,7 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
                 <ExternalLinkIcon className="size-3" />
               </button>
             ) : null}
-            {view.childWorktreePath && !active && isDynamoManaged ? (
+            {view.childWorktreePath && !active && isMaterializedDynamo ? (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-success transition-colors hover:text-success/80"
@@ -143,7 +143,7 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
                 <CheckIcon className="size-3" />
               </button>
             ) : null}
-            {active && isDynamoManaged ? (
+            {active && isMaterializedDynamo ? (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-muted-foreground transition-colors hover:text-destructive"
@@ -153,7 +153,7 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
                 <XIcon className="size-3" />
               </button>
             ) : null}
-            {!isDynamoManaged ? (
+            {!isMaterializedDynamo ? (
               <span className="text-muted-foreground/70">Observed in parent thread</span>
             ) : null}
           </div>

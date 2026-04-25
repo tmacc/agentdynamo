@@ -15,6 +15,7 @@ import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScr
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { renderTeamChildPrompt } from "../teamContext.ts";
+import { isMaterializedDynamoTeamTask } from "../teamTaskGuards.ts";
 import { selectTeamWorkerModel } from "../teamModelSelection.ts";
 import {
   TeamOrchestrationService,
@@ -56,6 +57,10 @@ function hasActiveStatus(task: OrchestrationTeamTask): boolean {
   return ACTIVE_STATUSES.has(task.status);
 }
 
+function errorDetail(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
 const makeTeamOrchestrationService = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerRegistry = yield* ProviderRegistry;
@@ -88,6 +93,33 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
       );
     }
     return { readModel, settings, parentThread, project };
+  });
+
+  const resolveMaterializedChild = Effect.fn("team.resolveMaterializedChild")(function* (
+    parentThreadId: ThreadId,
+    taskId: TeamTaskId,
+  ) {
+    const { readModel, parentThread } = yield* resolveParent(parentThreadId);
+    const task = (parentThread.teamTasks ?? []).find((entry) => entry.id === taskId);
+    if (!task) {
+      return yield* Effect.fail(new TeamOrchestrationError(`Unknown team task '${taskId}'.`));
+    }
+    if (!isMaterializedDynamoTeamTask(task)) {
+      return yield* Effect.fail(
+        new TeamOrchestrationError(
+          `Team task '${taskId}' is provider-native and cannot receive direct child thread commands.`,
+        ),
+      );
+    }
+    const childThread = readModel.threads.find(
+      (thread) => thread.id === task.childThreadId && thread.deletedAt === null,
+    );
+    if (!childThread) {
+      return yield* Effect.fail(
+        new TeamOrchestrationError(`Child thread '${task.childThreadId}' was not found.`),
+      );
+    }
+    return { task, childThread };
   });
 
   const listChildren: TeamOrchestrationServiceShape["listChildren"] = (input) =>
@@ -197,71 +229,97 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
 
       let childBranch: string | null = null;
       let childWorktreePath: string | null = null;
-      if (rendered.policy.resolvedWorkspaceMode === "worktree" && isGitProject) {
-        const baseBranch =
-          parentThread.branch ??
-          (yield* git.status({ cwd }).pipe(Effect.map((status) => status.branch ?? "HEAD")));
-        const worktree = yield* git.createWorktree({
-          cwd,
-          branch: baseBranch,
-          newBranch: branch,
-          path: null,
+      let childThreadCreated = false;
+
+      yield* Effect.gen(function* () {
+        if (rendered.policy.resolvedWorkspaceMode === "worktree" && isGitProject) {
+          const baseBranch =
+            parentThread.branch ??
+            (yield* git.status({ cwd }).pipe(Effect.map((status) => status.branch ?? "HEAD")));
+          const worktree = yield* git.createWorktree({
+            cwd,
+            branch: baseBranch,
+            newBranch: branch,
+            path: null,
+          });
+          childBranch = worktree.worktree.branch;
+          childWorktreePath = worktree.worktree.path;
+          yield* gitStatusBroadcaster
+            .refreshStatus(childWorktreePath)
+            .pipe(Effect.ignoreCause({ log: true }));
+        }
+
+        yield* orchestrationEngine.dispatch({
+          type: "thread.create",
+          commandId: commandId("team-child-thread-create"),
+          threadId: childThreadId,
+          projectId: project.id,
+          title: input.title,
+          modelSelection: selected.modelSelection,
+          runtimeMode: parentThread.runtimeMode,
+          interactionMode: parentThread.interactionMode,
+          branch: childBranch,
+          worktreePath: childWorktreePath,
+          createdAt: now,
         });
-        childBranch = worktree.worktree.branch;
-        childWorktreePath = worktree.worktree.path;
-        yield* gitStatusBroadcaster
-          .refreshStatus(childWorktreePath)
-          .pipe(Effect.ignoreCause({ log: true }));
-      }
+        childThreadCreated = true;
 
-      yield* orchestrationEngine.dispatch({
-        type: "thread.create",
-        commandId: commandId("team-child-thread-create"),
-        threadId: childThreadId,
-        projectId: project.id,
-        title: input.title,
-        modelSelection: selected.modelSelection,
-        runtimeMode: parentThread.runtimeMode,
-        interactionMode: parentThread.interactionMode,
-        branch: childBranch,
-        worktreePath: childWorktreePath,
-        createdAt: now,
-      });
+        yield* orchestrationEngine.dispatch({
+          type: "thread.team-task.mark-starting",
+          commandId: commandId("team-task-starting"),
+          parentThreadId: input.parentThreadId,
+          taskId: nextTaskId,
+          createdAt: new Date().toISOString(),
+        });
 
-      yield* orchestrationEngine.dispatch({
-        type: "thread.team-task.mark-starting",
-        commandId: commandId("team-task-starting"),
-        parentThreadId: input.parentThreadId,
-        taskId: nextTaskId,
-        createdAt: new Date().toISOString(),
-      });
+        if (rendered.policy.resolvedSetupMode === "run" && childWorktreePath !== null) {
+          yield* projectSetupScriptRunner
+            .runForThread({
+              threadId: childThreadId,
+              projectId: project.id,
+              projectCwd: project.workspaceRoot,
+              worktreePath: childWorktreePath,
+            })
+            .pipe(Effect.ignoreCause({ log: true }));
+        }
 
-      if (rendered.policy.resolvedSetupMode === "run" && childWorktreePath !== null) {
-        yield* projectSetupScriptRunner
-          .runForThread({
-            threadId: childThreadId,
-            projectId: project.id,
-            projectCwd: project.workspaceRoot,
-            worktreePath: childWorktreePath,
-          })
-          .pipe(Effect.ignoreCause({ log: true }));
-      }
-
-      yield* orchestrationEngine.dispatch({
-        type: "thread.turn.start",
-        commandId: commandId("team-child-turn-start"),
-        threadId: childThreadId,
-        message: {
-          messageId: messageId(),
-          role: "user",
-          text: rendered.prompt,
-          attachments: [],
-        },
-        modelSelection: selected.modelSelection,
-        runtimeMode: parentThread.runtimeMode,
-        interactionMode: parentThread.interactionMode,
-        createdAt: new Date().toISOString(),
-      });
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.start",
+          commandId: commandId("team-child-turn-start"),
+          threadId: childThreadId,
+          message: {
+            messageId: messageId(),
+            role: "user",
+            text: rendered.prompt,
+            attachments: [],
+          },
+          modelSelection: selected.modelSelection,
+          runtimeMode: parentThread.runtimeMode,
+          interactionMode: parentThread.interactionMode,
+          createdAt: new Date().toISOString(),
+        });
+      }).pipe(
+        Effect.catch((cause) =>
+          Effect.gen(function* () {
+            if (childWorktreePath !== null && !childThreadCreated) {
+              yield* git
+                .removeWorktree({ cwd, path: childWorktreePath, force: true })
+                .pipe(Effect.ignoreCause({ log: true }));
+            }
+            yield* orchestrationEngine
+              .dispatch({
+                type: "thread.team-task.mark-failed",
+                commandId: commandId("team-task-spawn-failed"),
+                parentThreadId: input.parentThreadId,
+                taskId: nextTaskId,
+                detail: `Failed to spawn child task: ${errorDetail(cause)}`,
+                createdAt: new Date().toISOString(),
+              })
+              .pipe(Effect.ignoreCause({ log: true }));
+            return yield* Effect.fail(new TeamOrchestrationError(errorDetail(cause)));
+          }),
+        ),
+      );
 
       return {
         task: teamTask,
@@ -291,12 +349,10 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
     input: SendTeamChildMessageInput,
   ) =>
     Effect.gen(function* () {
-      const children = yield* listChildren({ parentThreadId: input.parentThreadId });
-      const task = children.find((entry) => entry.id === input.taskId);
-      if (!task)
-        return yield* Effect.fail(
-          new TeamOrchestrationError(`Unknown team task '${input.taskId}'.`),
-        );
+      const { task, childThread } = yield* resolveMaterializedChild(
+        input.parentThreadId,
+        input.taskId,
+      );
       const createdAt = new Date().toISOString();
       yield* orchestrationEngine.dispatch({
         type: "thread.team-task.send-message",
@@ -312,8 +368,8 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
         threadId: task.childThreadId,
         message: { messageId: messageId(), role: "user", text: input.message, attachments: [] },
         modelSelection: task.modelSelection,
-        runtimeMode: "full-access",
-        interactionMode: "default",
+        runtimeMode: childThread.runtimeMode,
+        interactionMode: childThread.interactionMode,
         createdAt,
       });
       return { task, modelSelection: task.modelSelection, childThreadId: task.childThreadId };
@@ -323,12 +379,7 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
 
   const closeChild: TeamOrchestrationServiceShape["closeChild"] = (input: CloseTeamChildInput) =>
     Effect.gen(function* () {
-      const children = yield* listChildren({ parentThreadId: input.parentThreadId });
-      const task = children.find((entry) => entry.id === input.taskId);
-      if (!task)
-        return yield* Effect.fail(
-          new TeamOrchestrationError(`Unknown team task '${input.taskId}'.`),
-        );
+      const { task } = yield* resolveMaterializedChild(input.parentThreadId, input.taskId);
       const createdAt = new Date().toISOString();
       yield* orchestrationEngine.dispatch({
         type: "thread.team-task.close",

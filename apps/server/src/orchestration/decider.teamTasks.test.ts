@@ -72,6 +72,39 @@ function nativeTask(overrides: Partial<OrchestrationTeamTask> = {}): Orchestrati
   };
 }
 
+function dynamoTask(overrides: Partial<OrchestrationTeamTask> = {}): OrchestrationTeamTask {
+  return {
+    id: TeamTaskId.make("team-task:dynamo:abc123"),
+    parentThreadId: ThreadId.make("thread-parent"),
+    childThreadId: ThreadId.make("thread-child"),
+    title: "Dynamo child",
+    task: "Implement a child task",
+    roleLabel: "Worker",
+    kind: "coding",
+    modelSelection: {
+      provider: "codex",
+      model: "gpt-5.5",
+    },
+    modelSelectionMode: "coordinator-selected",
+    modelSelectionReason: "Selected for test.",
+    workspaceMode: "shared",
+    resolvedWorkspaceMode: "shared",
+    setupMode: "skip",
+    resolvedSetupMode: "skip",
+    source: "dynamo",
+    childThreadMaterialized: true,
+    nativeProviderRef: null,
+    status: "running",
+    latestSummary: null,
+    errorText: null,
+    createdAt: now,
+    startedAt: now,
+    completedAt: null,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
 async function readModelWithParentThread() {
   const empty = createEmptyReadModel(now);
   return Effect.runPromise(
@@ -98,6 +131,47 @@ async function readModelWithParentThread() {
       }),
     ),
   );
+}
+
+async function readModelWithTeamTask(task: OrchestrationTeamTask) {
+  let readModel = await readModelWithParentThread();
+  readModel = await Effect.runPromise(
+    projectEvent(
+      readModel,
+      makeEvent({
+        sequence: 2,
+        type: "thread.team-task-created",
+        payload: {
+          parentThreadId: ThreadId.make("thread-parent"),
+          teamTask: task,
+        },
+      }),
+    ),
+  );
+  if (task.childThreadMaterialized) {
+    readModel = await Effect.runPromise(
+      projectEvent(
+        readModel,
+        makeEvent({
+          sequence: 3,
+          type: "thread.created",
+          payload: {
+            threadId: task.childThreadId,
+            projectId: ProjectId.make("project-1"),
+            title: "Child",
+            modelSelection: task.modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+  }
+  return readModel;
 }
 
 describe("decider team tasks", () => {
@@ -178,6 +252,79 @@ describe("decider team tasks", () => {
           teamTask: nativeTask({
             childThreadMaterialized: true,
           }),
+          createdAt: now,
+        },
+      }),
+    );
+
+    expect(Exit.isFailure(result)).toBe(true);
+  });
+
+  it("rejects follow-up messages for native provider tasks", async () => {
+    const readModel = await readModelWithTeamTask(nativeTask());
+    const result = await Effect.runPromiseExit(
+      decideOrchestrationCommand({
+        readModel,
+        command: {
+          type: "thread.team-task.send-message",
+          commandId: CommandId.make("cmd-native-message"),
+          parentThreadId: ThreadId.make("thread-parent"),
+          taskId: TeamTaskId.make("team-task:native:codex:abc123"),
+          message: "Please continue.",
+          createdAt: now,
+        },
+      }),
+    );
+
+    expect(Exit.isFailure(result)).toBe(true);
+  });
+
+  it("rejects close requests for non-materialized Dynamo tasks", async () => {
+    const task = dynamoTask({
+      childThreadMaterialized: false,
+    });
+    const readModel = await readModelWithTeamTask(task);
+    const result = await Effect.runPromiseExit(
+      decideOrchestrationCommand({
+        readModel,
+        command: {
+          type: "thread.team-task.close",
+          commandId: CommandId.make("cmd-close-non-materialized"),
+          parentThreadId: ThreadId.make("thread-parent"),
+          taskId: task.id,
+          reason: "Stop.",
+          createdAt: now,
+        },
+      }),
+    );
+
+    expect(Exit.isFailure(result)).toBe(true);
+  });
+
+  it("rejects follow-up messages when the materialized child thread is missing", async () => {
+    const readModel = await readModelWithTeamTask(
+      dynamoTask({
+        childThreadMaterialized: false,
+      }),
+    );
+    const task = dynamoTask();
+    const nextReadModel = {
+      ...readModel,
+      threads: readModel.threads.map((thread) =>
+        thread.id === ThreadId.make("thread-parent")
+          ? Object.assign({}, thread, { teamTasks: [task] })
+          : thread,
+      ),
+    };
+    const result = await Effect.runPromiseExit(
+      decideOrchestrationCommand({
+        readModel: nextReadModel,
+        command: {
+          type: "thread.team-task.send-message",
+          commandId: CommandId.make("cmd-message-missing-child"),
+          parentThreadId: ThreadId.make("thread-parent"),
+          taskId: task.id,
+          message: "Are you there?",
           createdAt: now,
         },
       }),

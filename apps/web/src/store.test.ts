@@ -400,6 +400,37 @@ describe("thread selection memoization", () => {
     expect(selected?.teamTasks).toEqual([teamTask]);
   });
 
+  it("clears team task summary and error text on explicit null status updates", () => {
+    const teamTask = makeTeamTask({
+      latestSummary: "Working summary",
+      errorText: "Previous error",
+    });
+    const parentThread = makeThread({
+      teamTasks: [teamTask],
+    });
+
+    const next = applyOrchestrationEvent(
+      makeState(parentThread),
+      makeEvent("thread.team-task-status-changed", {
+        parentThreadId: parentThread.id,
+        taskId: teamTask.id,
+        status: "completed",
+        errorText: null,
+        latestSummary: null,
+        updatedAt: "2026-02-13T00:06:00.000Z",
+        completedAt: "2026-02-13T00:06:00.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    const selectedParent = selectThreadByRef(
+      next,
+      scopeThreadRef(localEnvironmentId, parentThread.id),
+    );
+    expect(selectedParent?.teamTasks?.[0]?.errorText).toBeNull();
+    expect(selectedParent?.teamTasks?.[0]?.latestSummary).toBeNull();
+  });
+
   it("links live-created child threads back to existing team tasks", () => {
     const parentThread = makeThread();
     const teamTask = makeTeamTask();

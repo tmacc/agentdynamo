@@ -14,14 +14,28 @@ const currentColumns = [
   "runtime_payload_json",
 ] as const;
 
-const legacyConstraintColumns = ["provider_thread_id", "last_error", "updated_at"] as const;
+const legacyConstraintColumns = [
+  "provider_thread_id",
+  "last_error",
+  "updated_at",
+  "slot_state",
+] as const;
 
-const columnExists = (columns: ReadonlyArray<{ readonly name: string }>, name: string) =>
+type TableColumn = {
+  readonly name: string;
+  readonly pk?: number;
+};
+
+const columnExists = (columns: ReadonlyArray<TableColumn>, name: string) =>
   columns.some((column) => column.name === name);
 
-export default Effect.gen(function* () {
+const hasThreadIdPrimaryKey = (columns: ReadonlyArray<TableColumn>) =>
+  columns.some((column) => column.name === "thread_id" && column.pk === 1) &&
+  columns.every((column) => column.name === "thread_id" || column.pk === 0);
+
+export const ensureProviderSessionRuntimeSchema = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const columns = yield* sql<{ readonly name: string }>`
+  const columns = yield* sql<TableColumn>`
     PRAGMA table_info(provider_session_runtime)
   `;
 
@@ -35,7 +49,7 @@ export default Effect.gen(function* () {
     columnExists(columns, column),
   );
 
-  if (!hasCurrentColumns || hasLegacyConstraintColumns) {
+  if (!hasCurrentColumns || hasLegacyConstraintColumns || !hasThreadIdPrimaryKey(columns)) {
     const providerNameExpression = columnExists(columns, "provider_name")
       ? "COALESCE(NULLIF(provider_name, ''), 'codex')"
       : "'codex'";
@@ -63,6 +77,9 @@ export default Effect.gen(function* () {
     const runtimePayloadExpression = columnExists(columns, "runtime_payload_json")
       ? "runtime_payload_json"
       : "NULL";
+    const slotStateSortExpression = columnExists(columns, "slot_state")
+      ? "CASE WHEN slot_state = 'active' THEN 0 ELSE 1 END"
+      : "0";
 
     yield* sql`DROP TABLE IF EXISTS provider_session_runtime_current`;
     yield* sql`
@@ -92,15 +109,34 @@ export default Effect.gen(function* () {
         )
         SELECT
           thread_id,
-          ${sql.unsafe(providerNameExpression)},
-          ${sql.unsafe(adapterKeyExpression)},
-          ${sql.unsafe(runtimeModeExpression)},
-          ${sql.unsafe(statusExpression)},
-          ${sql.unsafe(lastSeenAtExpression)},
-          ${sql.unsafe(resumeCursorExpression)},
-          ${sql.unsafe(runtimePayloadExpression)}
-        FROM provider_session_runtime
-        WHERE thread_id IS NOT NULL AND thread_id != ''
+          provider_name,
+          adapter_key,
+          runtime_mode,
+          status,
+          last_seen_at,
+          resume_cursor_json,
+          runtime_payload_json
+        FROM (
+          SELECT
+            thread_id,
+            ${sql.unsafe(providerNameExpression)} AS provider_name,
+            ${sql.unsafe(adapterKeyExpression)} AS adapter_key,
+            ${sql.unsafe(runtimeModeExpression)} AS runtime_mode,
+            ${sql.unsafe(statusExpression)} AS status,
+            ${sql.unsafe(lastSeenAtExpression)} AS last_seen_at,
+            ${sql.unsafe(resumeCursorExpression)} AS resume_cursor_json,
+            ${sql.unsafe(runtimePayloadExpression)} AS runtime_payload_json,
+            ROW_NUMBER() OVER (
+              PARTITION BY thread_id
+              ORDER BY
+                ${sql.unsafe(slotStateSortExpression)} ASC,
+                ${sql.unsafe(lastSeenAtExpression)} DESC,
+                ${sql.unsafe(providerNameExpression)} ASC
+            ) AS row_rank
+          FROM provider_session_runtime
+          WHERE thread_id IS NOT NULL AND thread_id != ''
+        )
+        WHERE row_rank = 1
       `;
     }
 
@@ -121,3 +157,5 @@ export default Effect.gen(function* () {
     ON provider_session_runtime(provider_name)
   `;
 });
+
+export default ensureProviderSessionRuntimeSchema;
