@@ -2,7 +2,7 @@
 
 ## Task Completion Requirements
 
-- All of `bun fmt`, `bun lint`, and `bun typecheck` must pass before considering tasks completed.
+- All of `bun fmt`, `bun lint`, and `bun typecheck` must pass before considering tasks completed. Run these in parallel with subagents to speed up the process.
 - NEVER run `bun test`. Always use `bun run test` (runs Vitest).
 
 ## Project Snapshot

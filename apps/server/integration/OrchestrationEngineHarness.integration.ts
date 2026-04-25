@@ -4,6 +4,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ApprovalRequestId,
   ProviderKind,
+  TeamCoordinatorGrantId,
   type OrchestrationEvent,
   type OrchestrationThread,
 } from "@t3tools/contracts";
@@ -71,6 +72,8 @@ import {
   type TestProviderAdapterHarness,
 } from "./TestProviderAdapter.integration.ts";
 import { deriveServerPaths, ServerConfig } from "../src/config.ts";
+import { TeamCoordinatorAccess } from "../src/team/Services/TeamCoordinatorAccess.ts";
+import { TeamTaskReactor } from "../src/team/Services/TeamTaskReactor.ts";
 import { WorkspaceEntriesLive } from "../src/workspace/Layers/WorkspaceEntries.ts";
 import { WorkspacePathsLive } from "../src/workspace/Layers/WorkspacePaths.ts";
 
@@ -315,10 +318,24 @@ export const makeOrchestrationIntegrationHarness = (
       generateBranchName: () => Effect.succeed({ branch: "update" }),
       generateThreadTitle: () => Effect.succeed({ title: "New thread" }),
     } as unknown as TextGenerationShape);
+    const teamCoordinatorAccessLayer = Layer.succeed(TeamCoordinatorAccess, {
+      issueGrant: (input) =>
+        Effect.succeed({
+          grantId: TeamCoordinatorGrantId.make("team-grant:test"),
+          parentThreadId: input.parentThreadId,
+          provider: input.provider,
+          accessToken: "dynamo_team_test_token",
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      authenticate: () => Effect.succeed(Option.none()),
+      revokeForThread: () => Effect.void,
+    } as typeof TeamCoordinatorAccess.Service);
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(gitCoreLayer),
       Layer.provideMerge(textGenerationLayer),
+      Layer.provideMerge(teamCoordinatorAccessLayer),
       Layer.provideMerge(serverSettingsLayer),
     );
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
@@ -352,6 +369,11 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(runtimeIngestionLayer),
       Layer.provideMerge(providerCommandReactorLayer),
       Layer.provideMerge(checkpointReactorLayer),
+      Layer.provideMerge(
+        Layer.succeed(TeamTaskReactor, {
+          start: Effect.void,
+        }),
+      ),
       Layer.provideMerge(
         Layer.succeed(ThreadDeletionReactor, {
           start: () => Effect.void,
