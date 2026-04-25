@@ -144,6 +144,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Card-to-thread linking must stay unique and stable.
   - Ghost-card dismissals must persist across reloads.
   - Board route state must survive thread and draft navigation without leaking board params into normal thread opens.
+  - Fork-only migration ids that are moved or reused during upstream syncs require a later idempotent ensure migration; board table DDL is re-run at migration id `044` so databases whose receipts advanced past old ids `026`/`027` still get `projection_board_cards`, `projection_board_dismissed_ghosts`, and their indexes.
 - `Merge hotspots`:
   - Contracts for board commands/events
   - Persistence migrations and projection tables
@@ -251,6 +252,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/server/src/persistence/Migrations/029_ProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Migrations/034_EnsureProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Migrations/042_EnsureProviderSessionRuntimeSchema.ts`
+  - `apps/server/src/persistence/Migrations/043_EnsureProviderSessionRuntimePrimaryKey.ts`
   - `apps/server/src/persistence/Services/ProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Layers/ProjectionThreadContextHandoffs.ts`
   - `apps/web/src/components/ChatView.logic.ts`
@@ -264,7 +266,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Handoff projection DDL must also run at migration id `034` for existing Dynamo databases whose pre-merge fork-only migration history already advanced past id `029`.
   - Handoff state must stay aligned with branch and worktree metadata.
   - A provider switch should preserve resumability and avoid leaving the thread in an unroutable state.
-  - Existing installed databases with a stale `provider_session_runtime` table must be repaired in place so provider session startup can write `adapter_key`, `last_seen_at`, and `runtime_payload_json` without forcing users to delete local app data.
+  - Existing installed databases with a stale `provider_session_runtime` table must be repaired in place so provider session startup can write `adapter_key`, `last_seen_at`, and `runtime_payload_json` and rely on `thread_id` as the single primary key without forcing users to delete local app data.
   - Current restored behavior uses a full visible-context handoff. The old incremental provider-slot marker system and migration `033_ProviderSessionRuntimeSlots.ts` are not restored; if provider-native sync markers return later, they should extend the shared handoff state rather than replace it.
 - `Merge hotspots`:
   - Orchestration turn-start and provider command flows

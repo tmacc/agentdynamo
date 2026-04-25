@@ -7,9 +7,11 @@ export function isActiveTeamTask(task: OrchestrationTeamTask): boolean {
   return TEAM_TASK_ACTIVE_STATUSES.has(task.status);
 }
 
-export function isDynamoManagedTeamTask(task: OrchestrationTeamTask): boolean {
+export function isMaterializedDynamoTeamTask(task: OrchestrationTeamTask): boolean {
   return (task.source ?? "dynamo") === "dynamo" && task.childThreadMaterialized === true;
 }
+
+export const isDynamoManagedTeamTask = isMaterializedDynamoTeamTask;
 
 export function isNativeProviderTeamTask(task: OrchestrationTeamTask): boolean {
   return task.source === "native-provider";

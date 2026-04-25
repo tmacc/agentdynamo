@@ -3,7 +3,12 @@ import { ExternalLinkIcon, XIcon } from "lucide-react";
 import { memo } from "react";
 
 import { cn } from "~/lib/utils";
-import { isActiveTeamTask, teamTaskModelLabel, teamTaskStatusLabel } from "./TeamTaskShared";
+import {
+  isActiveTeamTask,
+  isMaterializedDynamoTeamTask,
+  teamTaskModelLabel,
+  teamTaskStatusLabel,
+} from "./TeamTaskShared";
 
 export const TeamAgentPills = memo(function TeamAgentPills({
   tasks,
@@ -23,6 +28,16 @@ export const TeamAgentPills = memo(function TeamAgentPills({
     <div className="flex flex-wrap items-center gap-1.5 border-t border-border/50 bg-background/95 px-3 py-2 sm:px-5">
       {visibleTasks.map((task) => {
         const active = isActiveTeamTask(task);
+        const canOpenChildThread = isMaterializedDynamoTeamTask(task);
+        const label = (
+          <>
+            <span className="font-medium text-foreground">{task.roleLabel || task.title}</span>
+            <span className="mx-1 text-muted-foreground/60">/</span>
+            <span>{teamTaskModelLabel(task)}</span>
+            <span className="mx-1 text-muted-foreground/60">/</span>
+            <span>{teamTaskStatusLabel(task.status)}</span>
+          </>
+        );
         return (
           <div
             key={task.id}
@@ -33,27 +48,34 @@ export const TeamAgentPills = memo(function TeamAgentPills({
                 : "border-border/60 bg-card/60 text-muted-foreground",
             )}
           >
-            <button
-              type="button"
-              className="min-w-0 text-left hover:text-foreground"
-              onClick={() => onOpenTask(task.childThreadId)}
-              title={`${task.title} - ${teamTaskModelLabel(task)}`}
-            >
-              <span className="font-medium text-foreground">{task.roleLabel || task.title}</span>
-              <span className="mx-1 text-muted-foreground/60">/</span>
-              <span>{teamTaskModelLabel(task)}</span>
-              <span className="mx-1 text-muted-foreground/60">/</span>
-              <span>{teamTaskStatusLabel(task.status)}</span>
-            </button>
-            <button
-              type="button"
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              onClick={() => onOpenTask(task.childThreadId)}
-              title="Open child thread"
-            >
-              <ExternalLinkIcon className="size-3.5" />
-            </button>
-            {active && (
+            {canOpenChildThread ? (
+              <button
+                type="button"
+                className="min-w-0 text-left hover:text-foreground"
+                onClick={() => onOpenTask(task.childThreadId)}
+                title={`${task.title} - ${teamTaskModelLabel(task)}`}
+              >
+                {label}
+              </button>
+            ) : (
+              <span
+                className="min-w-0 text-left"
+                title={`${task.title} - ${teamTaskModelLabel(task)}`}
+              >
+                {label}
+              </span>
+            )}
+            {canOpenChildThread && (
+              <button
+                type="button"
+                className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                onClick={() => onOpenTask(task.childThreadId)}
+                title="Open child thread"
+              >
+                <ExternalLinkIcon className="size-3.5" />
+              </button>
+            )}
+            {canOpenChildThread && active && (
               <button
                 type="button"
                 className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

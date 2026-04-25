@@ -21,8 +21,8 @@ import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "~/lib/utils";
 import {
-  isDynamoManagedTeamTask,
   isActiveTeamTask,
+  isMaterializedDynamoTeamTask,
   isNativeProviderTeamTask,
   teamTaskModelLabel,
   teamTaskSourceLabel,
@@ -188,9 +188,9 @@ const AgentCard = memo(function AgentCard({
 }) {
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[task.modelSelection.provider];
   const isActive = isActiveTeamTask(task);
-  const isDynamoManaged = isDynamoManagedTeamTask(task);
+  const isMaterializedDynamo = isMaterializedDynamoTeamTask(task);
   const isNativeProvider = isNativeProviderTeamTask(task);
-  const hasActions = isDynamoManaged || Boolean(childWorktreePath && !isActive);
+  const hasActions = isMaterializedDynamo;
 
   return (
     <div
@@ -240,7 +240,7 @@ const AgentCard = memo(function AgentCard({
         </span>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        {isDynamoManaged ? (
+        {isMaterializedDynamo ? (
           <Button size="xs" variant="outline" onClick={() => onOpenThread(task.childThreadId)}>
             <ExternalLinkIcon className="size-3" />
             Open chat
@@ -252,13 +252,13 @@ const AgentCard = memo(function AgentCard({
             Inspect activity
           </Button>
         ) : null}
-        {childWorktreePath && !isActive && isDynamoManaged ? (
+        {childWorktreePath && !isActive && isMaterializedDynamo ? (
           <Button size="xs" variant="ghost" onClick={() => onReviewTaskChanges(task)}>
             <CheckIcon className="size-3" />
             Review & apply
           </Button>
         ) : null}
-        {isActive && isDynamoManaged ? (
+        {isActive && isMaterializedDynamo ? (
           <Button size="xs" variant="ghost" onClick={() => onCancelTask(task.id)}>
             <XIcon className="size-3" />
             Cancel

@@ -150,4 +150,113 @@ layer("042_EnsureProviderSessionRuntimeSchema", (it) => {
       yield* assertProviderRuntimeUpsertPrepares;
     }),
   );
+
+  it.effect("043 repairs slot-era tables after 42 was already recorded", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* runMigrations({ toMigrationInclusive: 42 });
+      yield* sql`DROP TABLE provider_session_runtime`;
+      yield* sql`
+        CREATE TABLE provider_session_runtime (
+          thread_id TEXT NOT NULL,
+          provider_name TEXT NOT NULL,
+          adapter_key TEXT NOT NULL,
+          runtime_mode TEXT NOT NULL DEFAULT 'full-access',
+          status TEXT NOT NULL,
+          slot_state TEXT NOT NULL DEFAULT 'stopped',
+          last_seen_at TEXT NOT NULL,
+          resume_cursor_json TEXT,
+          runtime_payload_json TEXT,
+          PRIMARY KEY (thread_id, provider_name)
+        )
+      `;
+      yield* sql`
+        CREATE UNIQUE INDEX idx_provider_session_runtime_active_thread
+        ON provider_session_runtime(thread_id)
+        WHERE slot_state = 'active'
+      `;
+      yield* sql`
+        INSERT INTO provider_session_runtime (
+          thread_id,
+          provider_name,
+          adapter_key,
+          runtime_mode,
+          status,
+          slot_state,
+          last_seen_at,
+          resume_cursor_json,
+          runtime_payload_json
+        )
+        VALUES
+          (
+            'thread-slot',
+            'codex',
+            'codex',
+            'full-access',
+            'stopped',
+            'expired',
+            '2026-04-24T12:00:00.000Z',
+            NULL,
+            '{"cwd":"/tmp/codex"}'
+          ),
+          (
+            'thread-slot',
+            'claudeAgent',
+            'claudeAgent',
+            'read-only',
+            'running',
+            'active',
+            '2026-04-24T12:05:00.000Z',
+            '{"cursor":"claude"}',
+            '{"cwd":"/tmp/claude"}'
+          )
+      `;
+
+      yield* runMigrations({ toMigrationInclusive: 43 });
+
+      const columns = yield* sql<{ readonly name: string; readonly pk: number }>`
+        PRAGMA table_info(provider_session_runtime)
+      `;
+      assertHasCurrentColumns(new Set(columns.map((column) => column.name)));
+      assert.deepStrictEqual(
+        columns
+          .filter((column) => column.pk > 0)
+          .map((column) => [column.name, column.pk] as const),
+        [["thread_id", 1]],
+      );
+      assert.equal(
+        columns.some((column) => column.name === "slot_state"),
+        false,
+      );
+
+      const rows = yield* sql<{
+        readonly providerName: string;
+        readonly adapterKey: string;
+        readonly runtimeMode: string;
+        readonly resumeCursor: string | null;
+        readonly runtimePayload: string | null;
+      }>`
+        SELECT
+          provider_name AS "providerName",
+          adapter_key AS "adapterKey",
+          runtime_mode AS "runtimeMode",
+          resume_cursor_json AS "resumeCursor",
+          runtime_payload_json AS "runtimePayload"
+        FROM provider_session_runtime
+        WHERE thread_id = 'thread-slot'
+      `;
+      assert.deepStrictEqual(rows, [
+        {
+          providerName: "claudeAgent",
+          adapterKey: "claudeAgent",
+          runtimeMode: "read-only",
+          resumeCursor: '{"cursor":"claude"}',
+          runtimePayload: '{"cwd":"/tmp/claude"}',
+        },
+      ]);
+
+      yield* assertProviderRuntimeUpsertPrepares;
+    }),
+  );
 });

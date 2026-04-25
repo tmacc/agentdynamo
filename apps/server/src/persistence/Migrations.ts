@@ -51,6 +51,8 @@ import Migration0039 from "./Migrations/039_ProjectionThreadTeamTaskNativeSource
 import Migration0040 from "./Migrations/040_EnsureProjectionThreadTeamTaskNativeSource.ts";
 import Migration0041 from "./Migrations/041_ProjectionNativeSubagentTrace.ts";
 import Migration0042 from "./Migrations/042_EnsureProviderSessionRuntimeSchema.ts";
+import Migration0043 from "./Migrations/043_EnsureProviderSessionRuntimePrimaryKey.ts";
+import Migration0044 from "./Migrations/044_EnsureProjectionBoardTables.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -101,6 +103,8 @@ export const migrationEntries = [
   [40, "EnsureProjectionThreadTeamTaskNativeSource", Migration0040],
   [41, "ProjectionNativeSubagentTrace", Migration0041],
   [42, "EnsureProviderSessionRuntimeSchema", Migration0042],
+  [43, "EnsureProviderSessionRuntimePrimaryKey", Migration0043],
+  [44, "EnsureProjectionBoardTables", Migration0044],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
