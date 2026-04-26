@@ -48,6 +48,7 @@ import { ThreadForkMaterializerLive } from "./orchestration/Layers/ThreadForkMat
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
 import { ServerSettingsLive } from "./serverSettings.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
+import { ProjectIntelligenceResolverLive } from "./project/Layers/ProjectIntelligenceResolver.ts";
 import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdentityResolver.ts";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
@@ -274,9 +275,18 @@ const RuntimeDependenciesCoreLive = ReactorLayerLive.pipe(
   Layer.provideMerge(WorktreeSetupLayerLive),
 );
 
+const ProjectIntelligenceResolverLayerLive = ProjectIntelligenceResolverLive.pipe(
+  Layer.provideMerge(WorkspaceLayerLive),
+  Layer.provideMerge(GitLayerLive),
+  Layer.provideMerge(ProviderRegistryLive),
+  Layer.provideMerge(ServerSettingsLive),
+  Layer.provideMerge(OrchestrationLayerLive),
+);
+
 const RuntimeDependenciesLive = RuntimeDependenciesCoreLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
+  Layer.provideMerge(ProjectIntelligenceResolverLayerLive),
   Layer.provideMerge(RepositoryIdentityResolverLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),

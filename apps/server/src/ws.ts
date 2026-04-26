@@ -21,7 +21,9 @@ import {
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
   ProjectApplyWorktreeSetupError,
+  ProjectGetIntelligenceError,
   ProjectScanWorktreeSetupError,
+  ProjectReadIntelligenceSurfaceError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
@@ -63,6 +65,7 @@ import { TerminalManager } from "./terminal/Services/Manager.ts";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem.ts";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths.ts";
+import { ProjectIntelligenceResolver } from "./project/Services/ProjectIntelligenceResolver.ts";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner.ts";
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver.ts";
 import { WorktreeSetupApplicator } from "./project/Services/WorktreeSetupApplicator.ts";
@@ -202,6 +205,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const startup = yield* ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
+      const projectIntelligenceResolver = yield* ProjectIntelligenceResolver;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
       const worktreeSetupScanner = yield* WorktreeSetupScanner;
       const worktreeSetupApplicator = yield* WorktreeSetupApplicator;
@@ -1088,6 +1092,34 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 (cause) =>
                   new ProjectApplyWorktreeSetupError({
                     message: cause.message,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "project" },
+          ),
+        [WS_METHODS.projectsGetIntelligence]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsGetIntelligence,
+            projectIntelligenceResolver.getIntelligence(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectGetIntelligenceError({
+                    message: cause.detail,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "project" },
+          ),
+        [WS_METHODS.projectsReadIntelligenceSurface]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsReadIntelligenceSurface,
+            projectIntelligenceResolver.readSurface(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectReadIntelligenceSurfaceError({
+                    message: cause.detail,
                     cause,
                   }),
               ),

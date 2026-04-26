@@ -19,6 +19,7 @@ import {
   LayoutGridIcon,
   MessageSquareIcon,
   PlusIcon,
+  ScanSearchIcon,
   SettingsIcon,
   SquarePenIcon,
 } from "lucide-react";
@@ -500,6 +501,61 @@ function OpenCommandPaletteDialog() {
     ],
   );
 
+  const projectIntelligenceItems = useMemo(
+    () =>
+      buildProjectActionItems({
+        projects,
+        valuePrefix: "intelligence",
+        icon: (project) => (
+          <ProjectFavicon
+            environmentId={project.environmentId}
+            cwd={project.cwd}
+            className={ITEM_ICON_CLASS}
+          />
+        ),
+        runProject: async (project) => {
+          await navigate({
+            to: ".",
+            search: (previous) => ({
+              ...(previous as Record<string, unknown>),
+              intel: "project",
+              intelEnvironmentId: project.environmentId,
+              intelProjectCwd: project.cwd,
+              intelEffectiveCwd: undefined,
+              intelSection: "overview",
+              intelSurfaceId: undefined,
+            }),
+          });
+        },
+      }),
+    [navigate, projects],
+  );
+
+  const projectIntelligenceSearchItems = useMemo(
+    () =>
+      projectIntelligenceItems.map((item) => ({
+        ...item,
+        value: `search:${item.value}`,
+        searchTerms: [
+          ...item.searchTerms,
+          "agent",
+          "context",
+          "intelligence",
+          "inspect",
+          "tools",
+          "skills",
+          "providers",
+          "memory",
+        ],
+        title: (
+          <>
+            Inspect agent context for <span className="font-semibold">{item.title}</span>
+          </>
+        ),
+      })),
+    [projectIntelligenceItems],
+  );
+
   const allThreadItems = useMemo(
     () =>
       buildThreadActionItems({
@@ -674,6 +730,25 @@ function OpenCommandPaletteDialog() {
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
     });
+
+    actionItems.push({
+      kind: "submenu",
+      value: "action:intelligence-pick-project",
+      searchTerms: [
+        "agent",
+        "context",
+        "intelligence",
+        "inspect",
+        "tools",
+        "skills",
+        "providers",
+        "memory",
+      ],
+      title: "Inspect agent context for...",
+      icon: <ScanSearchIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <ScanSearchIcon className={ADDON_ICON_CLASS} />,
+      groups: [{ value: "projects", label: "Projects", items: projectIntelligenceItems }],
+    });
   }
 
   if (addProjectEnvironmentOptions.length > 1) {
@@ -702,6 +777,8 @@ function OpenCommandPaletteDialog() {
 
   if (currentProjectEnvironmentId && currentProjectId) {
     const resolvedProjectTitle = projectTitleById.get(currentProjectId) ?? "this project";
+    const currentResolvedProjectCwd = currentProjectCwd;
+    const currentThreadWorktreePath = activeThread?.worktreePath ?? null;
     const openBoard = async () => {
       await navigate({
         to: ".",
@@ -726,6 +803,66 @@ function OpenCommandPaletteDialog() {
       icon: <LayoutGridIcon className={ITEM_ICON_CLASS} />,
       run: openBoard,
     });
+
+    if (currentResolvedProjectCwd) {
+      const openIntelligence = async (mode: "project" | "thread") => {
+        const effectiveCwd =
+          mode === "thread" && currentThreadWorktreePath ? currentThreadWorktreePath : null;
+        await navigate({
+          to: ".",
+          search: (previous) => ({
+            ...(previous as Record<string, unknown>),
+            intel: mode,
+            intelEnvironmentId: currentProjectEnvironmentId,
+            intelProjectCwd: currentResolvedProjectCwd,
+            intelEffectiveCwd: effectiveCwd ?? undefined,
+            intelSection: "overview",
+            intelSurfaceId: undefined,
+          }),
+        });
+      };
+
+      actionItems.push({
+        kind: "action",
+        value: "action:intelligence-open-project",
+        searchTerms: [
+          "agent",
+          "context",
+          "intelligence",
+          "inspect",
+          "tools",
+          "skills",
+          "providers",
+          "memory",
+        ],
+        title: (
+          <>
+            Inspect agent context for <span className="font-semibold">{resolvedProjectTitle}</span>
+          </>
+        ),
+        icon: <ScanSearchIcon className={ITEM_ICON_CLASS} />,
+        run: () => openIntelligence("project"),
+      });
+
+      if (currentThreadWorktreePath) {
+        actionItems.push({
+          kind: "action",
+          value: "action:intelligence-open-thread",
+          searchTerms: [
+            "agent",
+            "context",
+            "intelligence",
+            "thread",
+            "worktree",
+            "inspect",
+            "tools",
+          ],
+          title: "Inspect agent context for current thread workspace",
+          icon: <ScanSearchIcon className={ITEM_ICON_CLASS} />,
+          run: () => openIntelligence("thread"),
+        });
+      }
+    }
     actionItems.push({
       kind: "action",
       value: "action:board-add-idea",
@@ -772,7 +909,7 @@ function OpenCommandPaletteDialog() {
     activeGroups,
     query: deferredQuery,
     isInSubmenu: currentView !== null,
-    projectSearchItems: projectSearchItems,
+    projectSearchItems: [...projectSearchItems, ...projectIntelligenceSearchItems],
     threadSearchItems: allThreadItems,
   });
 

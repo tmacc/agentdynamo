@@ -74,9 +74,15 @@ import {
   ProjectApplyWorktreeSetupError,
   ProjectApplyWorktreeSetupInput,
   ProjectApplyWorktreeSetupResult,
+  ProjectGetIntelligenceError,
+  ProjectGetIntelligenceInput,
+  ProjectGetIntelligenceResult,
   ProjectScanWorktreeSetupError,
   ProjectScanWorktreeSetupInput,
   ProjectScanWorktreeSetupResult,
+  ProjectReadIntelligenceSurfaceError,
+  ProjectReadIntelligenceSurfaceInput,
+  ProjectReadIntelligenceSurfaceResult,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -114,6 +120,8 @@ export const WS_METHODS = {
   projectsWriteFile: "projects.writeFile",
   projectsScanWorktreeSetup: "projects.scanWorktreeSetup",
   projectsApplyWorktreeSetup: "projects.applyWorktreeSetup",
+  projectsGetIntelligence: "projects.getIntelligence",
+  projectsReadIntelligenceSurface: "projects.readIntelligenceSurface",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -213,6 +221,21 @@ export const WsProjectsApplyWorktreeSetupRpc = Rpc.make(WS_METHODS.projectsApply
   success: ProjectApplyWorktreeSetupResult,
   error: ProjectApplyWorktreeSetupError,
 });
+
+export const WsProjectsGetIntelligenceRpc = Rpc.make(WS_METHODS.projectsGetIntelligence, {
+  payload: ProjectGetIntelligenceInput,
+  success: ProjectGetIntelligenceResult,
+  error: ProjectGetIntelligenceError,
+});
+
+export const WsProjectsReadIntelligenceSurfaceRpc = Rpc.make(
+  WS_METHODS.projectsReadIntelligenceSurface,
+  {
+    payload: ProjectReadIntelligenceSurfaceInput,
+    success: ProjectReadIntelligenceSurfaceResult,
+    error: ProjectReadIntelligenceSurfaceError,
+  },
+);
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: OpenInEditorInput,
@@ -482,6 +505,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsProjectsScanWorktreeSetupRpc,
   WsProjectsApplyWorktreeSetupRpc,
+  WsProjectsGetIntelligenceRpc,
+  WsProjectsReadIntelligenceSurfaceRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsSubscribeGitStatusRpc,
