@@ -278,6 +278,7 @@ jobs:
           name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
           path: release-publish/*
           if-no-files-found: error
+          retention-days: 1
 
   publish_cli:
     if: vars.ENABLE_CLI_PUBLISH == 'true'
