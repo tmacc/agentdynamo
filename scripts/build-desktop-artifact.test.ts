@@ -3,6 +3,7 @@ import { assert, it } from "@effect/vitest";
 import { ConfigProvider, Effect, Option } from "effect";
 
 import {
+  createBuildConfig,
   resolveBuildOptions,
   resolveDesktopBuildIconAssets,
   resolveDesktopProductName,
@@ -36,6 +37,42 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       windowsIconIco: BRAND_ASSET_PATHS.nightlyWindowsIconIco,
     });
   });
+
+  it.effect("enables hardened runtime and notarization only for signed macOS builds", () =>
+    Effect.gen(function* () {
+      const unsignedBuildConfig = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.17",
+        false,
+        false,
+        undefined,
+      );
+      assert.deepStrictEqual(unsignedBuildConfig.mac, {
+        target: ["dmg", "zip"],
+        icon: "icon.icns",
+        category: "public.app-category.developer-tools",
+      });
+
+      const signedBuildConfig = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.17",
+        true,
+        false,
+        undefined,
+      );
+      assert.deepStrictEqual(signedBuildConfig.mac, {
+        target: ["dmg", "zip"],
+        icon: "icon.icns",
+        category: "public.app-category.developer-tools",
+        hardenedRuntime: true,
+        entitlements: "apps/desktop/resources/entitlements.mac.plist",
+        entitlementsInherit: "apps/desktop/resources/entitlements.mac.inherit.plist",
+        notarize: true,
+      });
+    }),
+  );
 
   it("falls back to the default mock update port when the configured port is blank", () => {
     assert.equal(resolveMockUpdateServerUrl(undefined), "http://localhost:3000");

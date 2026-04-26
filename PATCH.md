@@ -532,6 +532,29 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/appBranding.test.ts` in `apps/desktop`.
   - Run `bun run test src/branding.test.ts src/components/desktopUpdate.logic.test.ts src/savedPromptStore.test.ts src/clientPersistenceStorage.test.ts src/uiStateStore.test.ts` in `apps/web`.
   - Run `bun run test scripts/build-desktop-artifact.test.ts scripts/resolve-nightly-release.test.ts scripts/dev-runner.test.ts`.
+
+## 2026-04-26 - macOS Developer ID signing and notarization
+
+- User-visible behavior:
+  - Signed macOS desktop artifacts are built with hardened runtime, Electron entitlements, and electron-builder notarization enabled when `--signed` or `T3CODE_DESKTOP_SIGNED=true` is used.
+  - Unsigned macOS builds remain unchanged and continue to disable signing discovery.
+- Key files/modules:
+  - `scripts/build-desktop-artifact.ts`
+  - `apps/desktop/resources/entitlements.mac.plist`
+  - `apps/desktop/resources/entitlements.mac.inherit.plist`
+  - `docs/release.md`
+- Invariants:
+  - Apple signing credentials must stay out of the repository.
+  - `APPLE_API_KEY` must resolve to an `AuthKey_<key-id>.p8` file path at build time, not raw key text, before invoking electron-builder.
+  - Electron 40+ builds require `com.apple.security.cs.allow-jit`; do not add `com.apple.security.cs.allow-unsigned-executable-memory` unless Electron is downgraded to 11 or earlier.
+- Merge hotspots:
+  - Upstream changes to the desktop artifact staging script or electron-builder mac config.
+  - Release workflow changes around `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`.
+- Verification:
+  - `bun run test scripts/build-desktop-artifact.test.ts`
+  - `bun fmt`
+  - `bun lint`
+  - `bun typecheck`
   - Run `bun run test src/cli-config.test.ts` in `apps/server`.
   - Run `bun run build:desktop` and inspect staged builder metadata/artifact names for Dynamo.
   - Launch `bun run dev:desktop` and confirm the window title, splash, dock/app display name, and update prompts use Dynamo.

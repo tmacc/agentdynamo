@@ -71,6 +71,9 @@ const PLATFORM_CONFIG: Record<typeof BuildPlatform.Type, PlatformConfig> = {
   },
 };
 
+const MAC_SIGNING_ENTITLEMENTS = "apps/desktop/resources/entitlements.mac.plist";
+const MAC_INHERITED_SIGNING_ENTITLEMENTS = "apps/desktop/resources/entitlements.mac.inherit.plist";
+
 interface BuildCliInput {
   readonly platform: Option.Option<typeof BuildPlatform.Type>;
   readonly target: Option.Option<string>;
@@ -572,7 +575,7 @@ export function resolveDesktopProductName(version: string): string {
     : (desktopPackageJson.productName ?? `${baseName} (Alpha)`);
 }
 
-const createBuildConfig = Effect.fn("createBuildConfig")(function* (
+export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   platform: typeof BuildPlatform.Type,
   target: string,
   version: string,
@@ -602,11 +605,20 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   }
 
   if (platform === "mac") {
-    buildConfig.mac = {
+    const macConfig: Record<string, unknown> = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
       category: "public.app-category.developer-tools",
     };
+
+    if (signed) {
+      macConfig.hardenedRuntime = true;
+      macConfig.entitlements = MAC_SIGNING_ENTITLEMENTS;
+      macConfig.entitlementsInherit = MAC_INHERITED_SIGNING_ENTITLEMENTS;
+      macConfig.notarize = true;
+    }
+
+    buildConfig.mac = macConfig;
   }
 
   if (platform === "linux") {

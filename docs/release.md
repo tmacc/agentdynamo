@@ -140,6 +140,8 @@ git push origin v0.1.0
 
 Add this when you want a normal macOS install experience and reliable macOS auto-updates.
 
+The desktop artifact builder enables hardened runtime, Electron entitlements, and electron-builder's notarization integration when `--signed` or `T3CODE_DESKTOP_SIGNED=true` is set. Unsigned builds keep signing discovery disabled.
+
 Required secrets used by the workflow:
 
 - `CSC_LINK`
@@ -167,6 +169,17 @@ Notes:
 
 - `APPLE_API_KEY` is stored as raw key text in secrets.
 - The workflow writes it to a temporary `AuthKey_<id>.p8` file at runtime.
+- For a local signed macOS build, keep the `Developer ID Application` certificate in the login keychain and run with:
+
+  ```sh
+  CSC_NAME="Launch Forge LLC (624AFNF493)" \
+    APPLE_API_KEY="$HOME/Downloads/AuthKey_<KEY_ID>.p8" \
+    APPLE_API_KEY_ID="<KEY_ID>" \
+    APPLE_API_ISSUER="<ISSUER_ID>" \
+    bun run dist:desktop:dmg:arm64 -- --signed
+  ```
+
+- Never commit the `.p8` file, `.p12` export, or key contents to the repository.
 
 ## 4) Azure Trusted Signing setup (Windows)
 
