@@ -29,7 +29,7 @@ jobs:
   preflight:
     name: Preflight
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     outputs:
       release_channel: ${{ steps.release_meta.outputs.release_channel }}
       version: ${{ steps.release_meta.outputs.version }}
@@ -58,7 +58,7 @@ jobs:
           node-version-file: package.json
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - id: release_meta
         name: Resolve release version
@@ -135,7 +135,7 @@ jobs:
     name: Build ${{ matrix.label }}
     needs: preflight
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
