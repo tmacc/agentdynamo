@@ -547,11 +547,8 @@ function OpenCommandPaletteDialog() {
           "providers",
           "memory",
         ],
-        title: (
-          <>
-            Inspect agent context for <span className="font-semibold">{item.title}</span>
-          </>
-        ),
+        title: `Inspect agent context for ${String(item.title)}`,
+        description: "Agent context, provider health, and runtime surfaces",
       })),
     [projectIntelligenceItems],
   );
@@ -835,11 +832,7 @@ function OpenCommandPaletteDialog() {
           "providers",
           "memory",
         ],
-        title: (
-          <>
-            Inspect agent context for <span className="font-semibold">{resolvedProjectTitle}</span>
-          </>
-        ),
+        title: `Inspect agent context for ${resolvedProjectTitle}`,
         icon: <ScanSearchIcon className={ITEM_ICON_CLASS} />,
         run: () => openIntelligence("project"),
       });
