@@ -1418,7 +1418,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
         const actionHandlers = new Map<string, () => Promise<void> | void>();
         const makeLeaf = (
-          action: "open-board" | "rename" | "grouping" | "copy-path" | "delete",
+          action:
+            | "open-board"
+            | "inspect-intelligence"
+            | "rename"
+            | "grouping"
+            | "copy-path"
+            | "delete",
           member: SidebarProjectGroupMember,
           options?: {
             destructive?: boolean;
@@ -1437,6 +1443,22 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                       view: "board",
                       boardEnvironmentId: member.environmentId,
                       boardProjectId: member.id,
+                    }),
+                  })
+                  .catch(() => undefined);
+                return;
+              case "inspect-intelligence":
+                void router
+                  .navigate({
+                    to: ".",
+                    search: (previous) => ({
+                      ...(previous as Record<string, unknown>),
+                      intel: "project",
+                      intelEnvironmentId: member.environmentId,
+                      intelProjectCwd: member.cwd,
+                      intelEffectiveCwd: undefined,
+                      intelSection: "overview",
+                      intelSurfaceId: undefined,
                     }),
                   })
                   .catch(() => undefined);
@@ -1464,7 +1486,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         };
 
         const buildTargetedItem = (
-          action: "open-board" | "rename" | "grouping" | "copy-path" | "delete",
+          action:
+            | "open-board"
+            | "inspect-intelligence"
+            | "rename"
+            | "grouping"
+            | "copy-path"
+            | "delete",
           label: string,
           options?: {
             destructive?: boolean;
@@ -1497,6 +1525,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         const clicked = await api.contextMenu.show(
           [
             buildTargetedItem("open-board", "Open board"),
+            buildTargetedItem("inspect-intelligence", "Inspect agent context"),
             buildTargetedItem("rename", "Rename project"),
             buildTargetedItem("grouping", "Project grouping…"),
             buildTargetedItem("copy-path", "Copy Project Path"),

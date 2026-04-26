@@ -106,6 +106,11 @@ import {
 } from "./observability/Services/BrowserTraceCollector.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
 import {
+  ProjectIntelligenceResolver,
+  ProjectIntelligenceResolverError,
+  type ProjectIntelligenceResolverShape,
+} from "./project/Services/ProjectIntelligenceResolver.ts";
+import {
   ProjectSetupScriptRunner,
   type ProjectSetupScriptRunnerShape,
 } from "./project/Services/ProjectSetupScriptRunner.ts";
@@ -366,6 +371,7 @@ const buildAppUnderTest = (options?: {
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     serverEnvironment?: Partial<ServerEnvironmentShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
+    projectIntelligenceResolver?: Partial<ProjectIntelligenceResolverShape>;
     teamCoordinatorAccess?: Partial<TeamCoordinatorAccessShape>;
     teamOrchestrationService?: Partial<TeamOrchestrationServiceShape>;
   };
@@ -428,6 +434,11 @@ const buildAppUnderTest = (options?: {
         Layer.provide(workspaceEntriesLayer),
       ),
       ProjectFaviconResolverLive,
+      Layer.mock(ProjectIntelligenceResolver)({
+        getIntelligence: () => Effect.die(new Error("unused")),
+        readSurface: () => Effect.die(new Error("unused")),
+        ...options?.layers?.projectIntelligenceResolver,
+      }),
     );
     const gitStatusBroadcasterLayer = options?.layers?.gitStatusBroadcaster
       ? Layer.mock(GitStatusBroadcaster)({
@@ -2313,6 +2324,104 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         result.failure.message,
         "Workspace file path must stay within the project root.",
       );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc projects.getIntelligence", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          projectIntelligenceResolver: {
+            getIntelligence: () =>
+              Effect.succeed({
+                resolvedAt: "2026-04-25T00:00:00.000Z",
+                viewMode: "project" as const,
+                projectCwd: "/tmp/repo",
+                surfaces: [],
+                providers: [],
+                warnings: [],
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.projectsGetIntelligence]({
+            projectCwd: "/tmp/repo",
+            viewMode: "project",
+          }),
+        ),
+      );
+
+      assert.equal(response.projectCwd, "/tmp/repo");
+      assert.equal(response.viewMode, "project");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc projects.readIntelligenceSurface", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          projectIntelligenceResolver: {
+            readSurface: () =>
+              Effect.succeed({
+                surfaceId: "intel:surface" as never,
+                contentType: "markdown" as const,
+                content: "# Surface",
+                truncated: false,
+                maxBytes: 65536,
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.projectsReadIntelligenceSurface]({
+            projectCwd: "/tmp/repo",
+            viewMode: "project",
+            surfaceId: "intel:surface" as never,
+          }),
+        ),
+      );
+
+      assert.equal(response.content, "# Surface");
+      assert.equal(response.contentType, "markdown");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("maps websocket project intelligence resolver errors", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          projectIntelligenceResolver: {
+            getIntelligence: () =>
+              Effect.fail(
+                new ProjectIntelligenceResolverError({
+                  operation: "projectIntelligence.getIntelligence",
+                  detail: "Unable to inspect",
+                }),
+              ),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.projectsGetIntelligence]({
+            projectCwd: "/tmp/repo",
+            viewMode: "project",
+          }),
+        ).pipe(Effect.result),
+      );
+
+      assertTrue(result._tag === "Failure");
+      assertTrue(result.failure._tag === "ProjectGetIntelligenceError");
+      assert.equal(result.failure.message, "Unable to inspect");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

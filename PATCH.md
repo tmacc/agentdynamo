@@ -337,35 +337,43 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ### Project intelligence
 
-- `Status`: Present on the pre-merge fork at `365ae6d9`. Missing on merged baseline `ed85e9ce`.
-- `User-visible behavior`: A project intelligence surface summarized important project artifacts and agent surfaces, including runtime config, memory, provider layers, warnings, and code stats. It exposed a navigable UI with sectioned summaries and surface previews.
+- `Status`: Restored as Project Intelligence v2.
+- `User-visible behavior`: A provider-neutral agent context and health dashboard exposes the instructions, skills, commands, custom agents, hooks, MCP/tool surfaces, memory, project scripts, worktree setup, provider health, model/team capabilities, warnings, and code stats visible to the current project or thread workspace.
 - `Why it exists`: Gives users a structured operational overview of how a project is configured for agent work, reducing guesswork and making hidden repo/runtime surfaces discoverable.
 - `Key fork files`:
+  - `packages/contracts/src/project.ts`
+  - `packages/contracts/src/rpc.ts`
+  - `packages/contracts/src/ipc.ts`
   - `apps/server/src/project/Layers/ProjectIntelligenceResolver.ts`
   - `apps/server/src/project/Services/ProjectIntelligenceResolver.ts`
-  - `apps/web/src/components/project-intelligence/ProjectIntelligenceLayout.tsx`
-  - `apps/web/src/components/project-intelligence/ProjectIntelligenceNav.tsx`
-  - `apps/web/src/components/project-intelligence/ProjectIntelligenceOverviewSection.tsx`
-  - `apps/web/src/components/project-intelligence/ProjectIntelligenceProviderLayerSection.tsx`
-  - `apps/web/src/components/project-intelligence/ProjectIntelligenceWarningsSection.tsx`
+  - `apps/server/src/project/intelligence/*`
+  - `apps/web/src/components/project-intelligence/*`
+  - `apps/web/src/lib/projectIntelligenceReactQuery.ts`
   - `apps/web/src/projectIntelligencePresentation.ts`
   - `apps/web/src/projectIntelligenceRouteSearch.ts`
   - `packages/shared/src/codeStatsPolicy.ts`
 - `Important invariants`:
-  - Surface discovery must be deterministic enough to be useful across reloads.
-  - Summaries must avoid leaking secrets while still surfacing relevant configuration.
-  - Project intelligence navigation must stay aligned with the resolver’s section and surface IDs.
-  - Code stats and warnings must be understandable as operational guidance, not raw internal state.
+  - All providers appear in health/runtime summaries even when only Codex and Claude expose deeper file-backed context initially.
+  - Surface preview reads are authorized by rediscovering allowed surfaces for the requested project/thread before reading content.
+  - Secrets are redacted before excerpts and full previews.
+  - Thread mode distinguishes the project root from the effective worktree.
+  - The UI is read-only except for opening real source files in the editor.
+  - Frontend/design ownership can be delegated to an Opus 4.7 agent, but final integration must preserve the agreed contract and API shapes.
 - `Merge hotspots`:
   - Project contracts and resolver output shape
   - Shared code-stats and filtering utilities
   - Route search/navigation integration in the web app
   - Provider registry and server settings summaries
 - `Verification`:
-  - Open the project intelligence view for a populated project.
-  - Confirm the main sections render with non-empty summaries.
-  - Open an individual surface preview and verify the content is relevant and sanitized.
-  - Reload and confirm navigation/section state still matches the resolver output.
+  - `bun fmt`
+  - `bun lint`
+  - `bun typecheck`
+  - Targeted `bun run test` suites for Project Intelligence contracts, shared code stats, server redaction/discovery/readback/code stats/ws wiring, and web presentation/route/component behavior.
+  - Open Project Intelligence from a project sidebar action and from the command palette.
+  - Open from an active thread with a worktree and confirm thread-workspace context is shown separately from project context.
+  - Confirm Codex and Claude surfaces are discovered in a project with `.codex`, `.agents`, `.claude`, `AGENTS.md`, and `CLAUDE.md`.
+  - Confirm Cursor/OpenCode appear with provider health/models even if they expose no file-backed surfaces.
+  - Confirm settings previews redact secrets, crafted/stale surface IDs fail clearly, large files truncate with a warning, and the UI remains usable at mobile and desktop widths.
 
 ### Repository/release personalization
 

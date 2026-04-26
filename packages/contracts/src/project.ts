@@ -1,12 +1,20 @@
 import { Effect, Schema } from "effect";
-import { NonNegativeInt, PositiveInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
+  IsoDateTime,
+  NonNegativeInt,
+  PositiveInt,
+  ProjectId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
+import {
+  ProviderKind,
   ProjectWorktreeSetupEnvStrategy,
   ProjectWorktreeSetupFramework,
   ProjectWorktreeSetupPackageManager,
   ProjectWorktreeSetupProfile,
   ProjectWorktreeSetupStorageMode,
 } from "./orchestration.ts";
+import { ServerProviderAuth, ServerProviderState } from "./server.ts";
 
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
@@ -146,6 +154,202 @@ export type ProjectApplyWorktreeSetupResult = typeof ProjectApplyWorktreeSetupRe
 
 export class ProjectApplyWorktreeSetupError extends Schema.TaggedErrorClass<ProjectApplyWorktreeSetupError>()(
   "ProjectApplyWorktreeSetupError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export const ProjectIntelligenceViewMode = Schema.Literals(["project", "thread"]);
+export type ProjectIntelligenceViewMode = typeof ProjectIntelligenceViewMode.Type;
+
+export const ProjectIntelligenceSectionId = Schema.Literals([
+  "overview",
+  "loaded-context",
+  "tools",
+  "providers",
+  "memory",
+  "runtime",
+  "code-stats",
+  "warnings",
+]);
+export type ProjectIntelligenceSectionId = typeof ProjectIntelligenceSectionId.Type;
+
+export const ProjectIntelligenceSurfaceKind = Schema.Literals([
+  "instruction",
+  "skill",
+  "slash-command",
+  "custom-agent",
+  "hook",
+  "mcp-server",
+  "memory",
+  "plugin",
+  "settings",
+  "project-script",
+  "worktree-setup",
+  "model",
+  "team-capability",
+  "runtime-config",
+]);
+export type ProjectIntelligenceSurfaceKind = typeof ProjectIntelligenceSurfaceKind.Type;
+
+export const ProjectIntelligenceActivation = Schema.Literals([
+  "always-loaded",
+  "on-command",
+  "on-skill-match",
+  "on-agent-invoke",
+  "on-hook-event",
+  "on-mcp-tool",
+  "manual",
+  "runtime-config",
+  "separate-memory",
+]);
+export type ProjectIntelligenceActivation = typeof ProjectIntelligenceActivation.Type;
+
+export const ProjectIntelligenceScope = Schema.Literals([
+  "thread-workspace",
+  "project",
+  "user",
+  "system",
+  "provider-runtime",
+]);
+export type ProjectIntelligenceScope = typeof ProjectIntelligenceScope.Type;
+
+export const ProjectIntelligenceOwner = Schema.Union([
+  ProviderKind,
+  Schema.Literals(["shared", "dynamo"]),
+]);
+export type ProjectIntelligenceOwner = typeof ProjectIntelligenceOwner.Type;
+
+export const ProjectIntelligenceHealth = Schema.Literals(["ok", "info", "warning", "error"]);
+export type ProjectIntelligenceHealth = typeof ProjectIntelligenceHealth.Type;
+
+export const ProjectIntelligenceSurfaceId = TrimmedNonEmptyString.pipe(
+  Schema.brand("ProjectIntelligenceSurfaceId"),
+);
+export type ProjectIntelligenceSurfaceId = typeof ProjectIntelligenceSurfaceId.Type;
+
+export const ProjectIntelligenceMetadataEntry = Schema.Struct({
+  label: TrimmedNonEmptyString,
+  value: TrimmedNonEmptyString,
+});
+export type ProjectIntelligenceMetadataEntry = typeof ProjectIntelligenceMetadataEntry.Type;
+
+export const ProjectIntelligenceSurfaceSummary = Schema.Struct({
+  id: ProjectIntelligenceSurfaceId,
+  owner: ProjectIntelligenceOwner,
+  provider: Schema.optional(ProviderKind),
+  kind: ProjectIntelligenceSurfaceKind,
+  label: TrimmedNonEmptyString,
+  path: TrimmedNonEmptyString,
+  openPath: Schema.optional(TrimmedNonEmptyString),
+  scope: ProjectIntelligenceScope,
+  activation: ProjectIntelligenceActivation,
+  enabled: Schema.Boolean,
+  health: ProjectIntelligenceHealth,
+  description: Schema.optional(TrimmedNonEmptyString),
+  triggerLabel: Schema.optional(TrimmedNonEmptyString),
+  sourceLabel: Schema.optional(TrimmedNonEmptyString),
+  excerpt: Schema.optional(Schema.String),
+  lineCount: Schema.optional(NonNegativeInt),
+  approxTokenCount: Schema.optional(NonNegativeInt),
+  metadata: Schema.Array(ProjectIntelligenceMetadataEntry).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  derivedFrom: Schema.optional(ProjectIntelligenceSurfaceId),
+});
+export type ProjectIntelligenceSurfaceSummary = typeof ProjectIntelligenceSurfaceSummary.Type;
+
+export const ProjectIntelligenceProviderSummary = Schema.Struct({
+  provider: ProviderKind,
+  enabled: Schema.Boolean,
+  installed: Schema.Boolean,
+  status: ServerProviderState,
+  auth: ServerProviderAuth,
+  version: Schema.NullOr(TrimmedNonEmptyString),
+  message: Schema.optional(TrimmedNonEmptyString),
+  modelCount: NonNegativeInt,
+  skillCount: NonNegativeInt,
+  slashCommandCount: NonNegativeInt,
+  supportsCoordinatorTools: Schema.Boolean,
+  supportsWorker: Schema.Boolean,
+  health: ProjectIntelligenceHealth,
+});
+export type ProjectIntelligenceProviderSummary = typeof ProjectIntelligenceProviderSummary.Type;
+
+export const ProjectIntelligenceWarning = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  severity: Schema.Literals(["info", "warning", "error"]),
+  message: TrimmedNonEmptyString,
+  surfaceId: Schema.optional(ProjectIntelligenceSurfaceId),
+  provider: Schema.optional(ProviderKind),
+  path: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProjectIntelligenceWarning = typeof ProjectIntelligenceWarning.Type;
+
+export const ProjectIntelligenceCodeStats = Schema.Struct({
+  basis: TrimmedNonEmptyString,
+  fileCount: NonNegativeInt,
+  loc: NonNegativeInt,
+  approxTokenCount: NonNegativeInt,
+  partial: Schema.Boolean,
+});
+export type ProjectIntelligenceCodeStats = typeof ProjectIntelligenceCodeStats.Type;
+
+export const ProjectGetIntelligenceInput = Schema.Struct({
+  projectId: Schema.optional(ProjectId),
+  projectCwd: TrimmedNonEmptyString,
+  effectiveCwd: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  viewMode: ProjectIntelligenceViewMode,
+  refresh: Schema.optional(Schema.Boolean),
+});
+export type ProjectGetIntelligenceInput = typeof ProjectGetIntelligenceInput.Type;
+
+export const ProjectGetIntelligenceResult = Schema.Struct({
+  resolvedAt: IsoDateTime,
+  viewMode: ProjectIntelligenceViewMode,
+  projectCwd: TrimmedNonEmptyString,
+  effectiveCwd: Schema.optional(TrimmedNonEmptyString),
+  surfaces: Schema.Array(ProjectIntelligenceSurfaceSummary),
+  providers: Schema.Array(ProjectIntelligenceProviderSummary),
+  codeStats: Schema.optional(ProjectIntelligenceCodeStats),
+  warnings: Schema.Array(ProjectIntelligenceWarning).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+});
+export type ProjectGetIntelligenceResult = typeof ProjectGetIntelligenceResult.Type;
+
+export class ProjectGetIntelligenceError extends Schema.TaggedErrorClass<ProjectGetIntelligenceError>()(
+  "ProjectGetIntelligenceError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export const ProjectReadIntelligenceSurfaceInput = Schema.Struct({
+  projectCwd: TrimmedNonEmptyString,
+  effectiveCwd: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  viewMode: ProjectIntelligenceViewMode,
+  surfaceId: ProjectIntelligenceSurfaceId,
+});
+export type ProjectReadIntelligenceSurfaceInput = typeof ProjectReadIntelligenceSurfaceInput.Type;
+
+export const ProjectIntelligenceContentType = Schema.Literals(["markdown", "text", "json"]);
+export type ProjectIntelligenceContentType = typeof ProjectIntelligenceContentType.Type;
+
+export const ProjectReadIntelligenceSurfaceResult = Schema.Struct({
+  surfaceId: ProjectIntelligenceSurfaceId,
+  contentType: ProjectIntelligenceContentType,
+  content: Schema.String,
+  truncated: Schema.Boolean,
+  maxBytes: NonNegativeInt,
+  warning: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProjectReadIntelligenceSurfaceResult = typeof ProjectReadIntelligenceSurfaceResult.Type;
+
+export class ProjectReadIntelligenceSurfaceError extends Schema.TaggedErrorClass<ProjectReadIntelligenceSurfaceError>()(
+  "ProjectReadIntelligenceSurfaceError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),

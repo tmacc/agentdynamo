@@ -56,6 +56,10 @@
       "types": "./src/projectScripts.ts",
       "import": "./src/projectScripts.ts"
     },
+    "./codeStatsPolicy": {
+      "types": "./src/codeStatsPolicy.ts",
+      "import": "./src/codeStatsPolicy.ts"
+    },
     "./searchRanking": {
       "types": "./src/searchRanking.ts",
       "import": "./src/searchRanking.ts"

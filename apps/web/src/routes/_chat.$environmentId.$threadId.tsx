@@ -17,6 +17,10 @@ import {
   parseDiffRouteSearch,
   stripDiffSearchParams,
 } from "../diffRouteSearch";
+import {
+  type ProjectIntelligenceRouteSearch,
+  parseProjectIntelligenceRouteSearch,
+} from "../projectIntelligenceRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { selectEnvironmentState, selectThreadExistsByRef, useStore } from "../store";
@@ -279,14 +283,21 @@ export const Route = createFileRoute("/_chat/$environmentId/$threadId")({
   validateSearch: (search) => ({
     ...parseDiffRouteSearch(search),
     ...parseBoardRouteSearch(search),
+    ...parseProjectIntelligenceRouteSearch(search),
   }),
   search: {
     middlewares: [
-      retainSearchParams<DiffRouteSearch & BoardRouteSearch>([
+      retainSearchParams<DiffRouteSearch & BoardRouteSearch & ProjectIntelligenceRouteSearch>([
         "diff",
         "view",
         "boardEnvironmentId",
         "boardProjectId",
+        "intel",
+        "intelEnvironmentId",
+        "intelProjectCwd",
+        "intelEffectiveCwd",
+        "intelSection",
+        "intelSurfaceId",
       ]),
     ],
   },

@@ -39,8 +39,12 @@ import type {
 import type {
   ProjectApplyWorktreeSetupInput,
   ProjectApplyWorktreeSetupResult,
+  ProjectGetIntelligenceInput,
+  ProjectGetIntelligenceResult,
   ProjectScanWorktreeSetupInput,
   ProjectScanWorktreeSetupResult,
+  ProjectReadIntelligenceSurfaceInput,
+  ProjectReadIntelligenceSurfaceResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -277,6 +281,10 @@ export interface EnvironmentApi {
     applyWorktreeSetup: (
       input: ProjectApplyWorktreeSetupInput,
     ) => Promise<ProjectApplyWorktreeSetupResult>;
+    getIntelligence: (input: ProjectGetIntelligenceInput) => Promise<ProjectGetIntelligenceResult>;
+    readIntelligenceSurface: (
+      input: ProjectReadIntelligenceSurfaceInput,
+    ) => Promise<ProjectReadIntelligenceSurfaceResult>;
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;

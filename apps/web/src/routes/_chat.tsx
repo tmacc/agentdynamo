@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo } from "react";
 import type { FeatureCard } from "@t3tools/contracts";
 
 import { clearBoardRouteSearchParams, parseBoardRouteSearch } from "../boardRouteSearch";
+import { parseProjectIntelligenceRouteSearch } from "../projectIntelligenceRouteSearch";
 import { BoardView } from "../components/board/BoardView";
+import { ProjectIntelligenceMount } from "../components/project-intelligence/ProjectIntelligenceMount";
 import { SidebarInset } from "../components/ui/sidebar";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -110,6 +112,7 @@ function ChatRouteLayout() {
     <>
       <ChatRouteGlobalShortcuts />
       {boardActive ? <BoardRouteView /> : <Outlet />}
+      <ProjectIntelligenceMount />
     </>
   );
 }
@@ -214,7 +217,10 @@ function BoardRouteView() {
 }
 
 export const Route = createFileRoute("/_chat")({
-  validateSearch: (search) => parseBoardRouteSearch(search),
+  validateSearch: (search) => ({
+    ...parseBoardRouteSearch(search),
+    ...parseProjectIntelligenceRouteSearch(search),
+  }),
   beforeLoad: async ({ context }) => {
     if (context.authGateState.status !== "authenticated") {
       throw redirect({ to: "/pair", replace: true });
