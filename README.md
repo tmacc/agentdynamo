@@ -13,12 +13,6 @@ Install the latest desktop build from [GitHub Releases](https://github.com/tmacc
 
 Unsigned builds may require extra approval from your operating system. Code signing and notarization are still being finalized.
 
-### Run with npx
-
-```bash
-npx t3
-```
-
 ## Provider setup
 
 Dynamo launches provider CLIs locally, so you need at least one supported provider installed and authenticated before starting:
