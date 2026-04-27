@@ -7,7 +7,6 @@ import {
   isTemporaryWorktreeBranch,
   normalizeGitRemoteUrl,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
-  resolveForkWorktreeBaseBranch,
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
 
@@ -69,38 +68,6 @@ describe("isTemporaryWorktreeBranch", () => {
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/feature/demo`)).toBe(false);
     expect(isTemporaryWorktreeBranch("main")).toBe(false);
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/deadbeef-extra`)).toBe(false);
-  });
-});
-
-describe("resolveForkWorktreeBaseBranch", () => {
-  it("prefers the branch currently checked out in the source workspace", () => {
-    expect(
-      resolveForkWorktreeBaseBranch({
-        currentWorkspaceBranch: "feature/source-workspace",
-        requestedBaseBranch: "main",
-        sourceThreadBranch: "feature/thread-metadata",
-      }),
-    ).toBe("feature/source-workspace");
-  });
-
-  it("uses the requested base branch when the source workspace branch is unavailable", () => {
-    expect(
-      resolveForkWorktreeBaseBranch({
-        currentWorkspaceBranch: null,
-        requestedBaseBranch: "feature/dialog-selection",
-        sourceThreadBranch: "main",
-      }),
-    ).toBe("feature/dialog-selection");
-  });
-
-  it("falls back to thread metadata when no live branch or request branch exists", () => {
-    expect(
-      resolveForkWorktreeBaseBranch({
-        currentWorkspaceBranch: null,
-        requestedBaseBranch: null,
-        sourceThreadBranch: "feature/thread-metadata",
-      }),
-    ).toBe("feature/thread-metadata");
   });
 });
 

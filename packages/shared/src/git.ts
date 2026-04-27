@@ -94,14 +94,6 @@ export function isTemporaryWorktreeBranch(branch: string): boolean {
   return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
 }
 
-export function resolveForkWorktreeBaseBranch(input: {
-  readonly currentWorkspaceBranch: string | null;
-  readonly requestedBaseBranch?: string | null | undefined;
-  readonly sourceThreadBranch: string | null;
-}): string | null {
-  return input.currentWorkspaceBranch ?? input.requestedBaseBranch ?? input.sourceThreadBranch;
-}
-
 /**
  * Normalize a git remote URL into a stable comparison key.
  */

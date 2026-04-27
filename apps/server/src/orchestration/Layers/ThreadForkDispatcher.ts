@@ -19,10 +19,7 @@ import {
   type ThreadForkDispatcherShape,
 } from "../Services/ThreadForkDispatcher.ts";
 import { ThreadForkMaterializer } from "../Services/ThreadForkMaterializer.ts";
-import {
-  buildTemporaryWorktreeBranchName,
-  resolveForkWorktreeBaseBranch,
-} from "@t3tools/shared/git";
+import { buildTemporaryWorktreeBranchName, isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import {
   CommandId,
   ContextHandoffId,
@@ -174,6 +171,7 @@ const removeTemporaryIndexDir = (dir: string) =>
 function buildSourceWorkspaceDirtyPatch(input: {
   readonly git: GitCoreShape;
   readonly sourceWorkspaceCwd: string;
+  readonly baseSha: string;
 }): Effect.Effect<string, OrchestrationForkThreadError> {
   return Effect.gen(function* () {
     const tempDir = yield* Effect.try({
@@ -191,7 +189,7 @@ function buildSourceWorkspaceDirtyPatch(input: {
       yield* input.git.execute({
         operation: "ThreadForkDispatcher.dirtyPatch.readTree",
         cwd: input.sourceWorkspaceCwd,
-        args: ["read-tree", "HEAD"],
+        args: ["read-tree", input.baseSha],
         env,
       });
       yield* input.git.execute({
@@ -203,7 +201,7 @@ function buildSourceWorkspaceDirtyPatch(input: {
       const patch = yield* input.git.execute({
         operation: "ThreadForkDispatcher.dirtyPatch.diff",
         cwd: input.sourceWorkspaceCwd,
-        args: ["diff", "--cached", "--binary", "--full-index", "HEAD"],
+        args: ["diff", "--cached", "--binary", "--full-index", input.baseSha],
         env,
         maxOutputBytes: FORK_WORKTREE_PATCH_MAX_OUTPUT_BYTES,
         truncateOutputAtMaxBytes: false,
@@ -220,6 +218,93 @@ function buildSourceWorkspaceDirtyPatch(input: {
     );
 
     return yield* generatePatch.pipe(Effect.ensuring(removeTemporaryIndexDir(tempDir)));
+  });
+}
+
+function resolveSourceWorkspaceHeadSha(input: {
+  readonly git: GitCoreShape;
+  readonly sourceWorkspaceCwd: string;
+}): Effect.Effect<string, OrchestrationForkThreadError> {
+  return input.git
+    .execute({
+      operation: "ThreadForkDispatcher.sourceHead",
+      cwd: input.sourceWorkspaceCwd,
+      args: ["rev-parse", "--verify", "HEAD"],
+      maxOutputBytes: 4_096,
+      truncateOutputAtMaxBytes: false,
+    })
+    .pipe(
+      Effect.map((result) => result.stdout.trim()),
+      Effect.flatMap((headSha) =>
+        headSha.length > 0
+          ? Effect.succeed(headSha)
+          : Effect.fail(
+              new OrchestrationForkThreadError({
+                message: "Worktree forks require the source workspace to have a HEAD commit.",
+              }),
+            ),
+      ),
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationForkThreadError({
+            message: "Worktree forks require the source workspace to have a HEAD commit.",
+            cause,
+          }),
+      ),
+    );
+}
+
+interface SourceForkSnapshot {
+  readonly headSha: string;
+  readonly displayBranch: string | null;
+  readonly dirtyPatch: string;
+}
+
+function resolveSourceForkSnapshot(input: {
+  readonly git: GitCoreShape;
+  readonly sourceWorkspaceCwd: string;
+  readonly requestedBaseBranch?: string | null | undefined;
+  readonly sourceThreadBranch: string | null;
+}): Effect.Effect<SourceForkSnapshot, OrchestrationForkThreadError> {
+  const readSnapshotAttempt = Effect.gen(function* () {
+    const sourceWorkspaceStatus = yield* input.git
+      .statusDetailsLocal(input.sourceWorkspaceCwd)
+      .pipe(
+        Effect.mapError((cause) =>
+          toForkThreadError(cause, "Failed to read the source workspace branch."),
+        ),
+      );
+    const headSha = yield* resolveSourceWorkspaceHeadSha(input);
+    const dirtyPatch = yield* buildSourceWorkspaceDirtyPatch({
+      git: input.git,
+      sourceWorkspaceCwd: input.sourceWorkspaceCwd,
+      baseSha: headSha,
+    });
+    const verifiedHeadSha = yield* resolveSourceWorkspaceHeadSha(input);
+
+    return {
+      headSha,
+      verifiedHeadSha,
+      displayBranch: sourceWorkspaceStatus.branch,
+      dirtyPatch,
+    };
+  });
+
+  return Effect.gen(function* () {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const snapshot = yield* readSnapshotAttempt;
+      if (snapshot.headSha === snapshot.verifiedHeadSha) {
+        return {
+          headSha: snapshot.headSha,
+          displayBranch: snapshot.displayBranch,
+          dirtyPatch: snapshot.dirtyPatch,
+        };
+      }
+    }
+
+    return yield* new OrchestrationForkThreadError({
+      message: "The source workspace changed while preparing the fork. Try again.",
+    });
   });
 }
 
@@ -259,6 +344,35 @@ function applySourceWorkspaceDirtyPatch(input: {
     ),
   );
 }
+
+const cleanupForkWorktree = (input: {
+  readonly git: GitCoreShape;
+  readonly cwd: string;
+  readonly worktreePath: string;
+  readonly branch: string;
+}) => {
+  const removeWorktree = input.git
+    .removeWorktree({
+      cwd: input.cwd,
+      path: input.worktreePath,
+      force: true,
+    })
+    .pipe(Effect.ignoreCause({ log: true }), Effect.asVoid);
+
+  const deleteTemporaryBranch = isTemporaryWorktreeBranch(input.branch)
+    ? input.git
+        .execute({
+          operation: "ThreadForkDispatcher.cleanupBranch",
+          cwd: input.cwd,
+          args: ["branch", "-D", input.branch],
+          maxOutputBytes: 64 * 1024,
+          truncateOutputAtMaxBytes: true,
+        })
+        .pipe(Effect.ignoreCause({ log: true }), Effect.asVoid)
+    : Effect.void;
+
+  return removeWorktree.pipe(Effect.andThen(deleteTemporaryBranch));
+};
 
 const makeThreadForkDispatcher = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
@@ -338,31 +452,16 @@ const makeThreadForkDispatcher = Effect.gen(function* () {
         if (input.mode === "worktree") {
           const sourceWorkspaceCwd =
             sourceThread.value.worktreePath ?? sourceProject.value.workspaceRoot;
-          const sourceWorkspaceStatus = yield* git
-            .statusDetailsLocal(sourceWorkspaceCwd)
-            .pipe(
-              Effect.mapError((cause) =>
-                toForkThreadError(cause, "Failed to read the source workspace branch."),
-              ),
-            );
-          const baseBranch = resolveForkWorktreeBaseBranch({
-            currentWorkspaceBranch: sourceWorkspaceStatus.branch,
-            requestedBaseBranch: input.baseBranch,
-            sourceThreadBranch: sourceThread.value.branch,
-          });
-          if (!baseBranch) {
-            return yield* new OrchestrationForkThreadError({
-              message: "Worktree forks require a source workspace branch.",
-            });
-          }
-          const sourceDirtyPatch = yield* buildSourceWorkspaceDirtyPatch({
+          const sourceSnapshot = yield* resolveSourceForkSnapshot({
             git,
             sourceWorkspaceCwd,
+            requestedBaseBranch: input.baseBranch,
+            sourceThreadBranch: sourceThread.value.branch,
           });
           const worktree = yield* git
             .createWorktree({
               cwd: sourceProject.value.workspaceRoot,
-              branch: baseBranch,
+              branch: sourceSnapshot.headSha,
               newBranch: buildTemporaryWorktreeBranchName(),
               path: null,
             })
@@ -373,17 +472,16 @@ const makeThreadForkDispatcher = Effect.gen(function* () {
             );
           branch = worktree.worktree.branch;
           worktreePath = worktree.worktree.path;
-          cleanupWorkspace = git
-            .removeWorktree({
-              cwd: sourceProject.value.workspaceRoot,
-              path: worktreePath,
-              force: true,
-            })
-            .pipe(Effect.ignoreCause({ log: true }), Effect.asVoid);
+          cleanupWorkspace = cleanupForkWorktree({
+            git,
+            cwd: sourceProject.value.workspaceRoot,
+            worktreePath,
+            branch,
+          });
           yield* applySourceWorkspaceDirtyPatch({
             git,
             worktreePath,
-            patch: sourceDirtyPatch,
+            patch: sourceSnapshot.dirtyPatch,
           });
           yield* gitStatusBroadcaster
             .refreshStatus(worktreePath)
