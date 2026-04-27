@@ -2355,6 +2355,7 @@ export default function ChatView(props: ChatViewProps) {
     canOverrideServerThreadEnvMode && pendingServerThreadBranch !== undefined
       ? pendingServerThreadBranch
       : (activeThread?.branch ?? null);
+  const forkThreadSourceBranchLabel = gitStatusQuery.data?.branch ?? activeThreadBranch;
   const sendEnvMode = resolveSendEnvMode({
     requestedEnvMode: envMode,
     isGitRepo,
@@ -3886,7 +3887,7 @@ export default function ChatView(props: ChatViewProps) {
               sourceUserMessageId={forkThreadDialogState.sourceUserMessageId}
               sourceThreadTitle={activeThread.title}
               defaultMode={envMode}
-              baseBranch={activeThread.branch ?? null}
+              baseBranch={forkThreadSourceBranchLabel}
               onOpenChange={(open) => {
                 if (!open) {
                   closeForkThreadDialog();

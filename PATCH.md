@@ -187,6 +187,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Fork origin metadata must survive projection and reload.
   - Timeline UI must show where imported history stops and new fork-local history begins.
   - Fork creation must not break branch/worktree metadata.
+  - Worktree forks must branch from the exact source conversation workspace `HEAD` SHA captured at fork time, not from a mutable branch ref or stale/default thread metadata. Detached-HEAD source workspaces are valid when `HEAD` resolves. The dialog label should show the live source branch when available, but absence of a branch label must not disable worktree fork. Fork worktrees must also receive the source workspace's dirty tracked changes, deletions, and untracked non-ignored files as unstaged changes; ignored files stay excluded. If fork preparation fails after worktree creation, cleanup must remove both the worktree path and the temporary `t3code/<hex>` branch.
   - Fork materialization must reconstruct source history by filtering source-thread aggregate events, so unrelated or legacy orchestration events elsewhere in the event log cannot make fork creation fail with `Failed to read the source thread history`.
   - Fork creation cleanup must only dispatch child-thread deletion after the child thread was actually created.
   - Fork creation prepares a durable `thread.context-handoff-prepared` record; successful provider acceptance marks it delivered, failed sends leave it pending for retry.
@@ -208,6 +209,10 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Confirm the timeline shows a `Forked from ...` separator at the imported-history boundary.
   - Confirm new messages only affect the forked thread.
   - Confirm the first live turn in the fork sees the imported transcript/proposed plans/attachment metadata in provider input and the second live turn does not repeat the handoff import.
+  - From a thread whose workspace is checked out on a non-default branch, create a worktree fork and confirm the new worktree is based on the exact source `HEAD` rather than `main`.
+  - From a detached-HEAD workspace, create a worktree fork and confirm the detached commit content is preserved.
+  - Add dirty tracked edits, deletions, and an untracked non-ignored file before forking; confirm the fork worktree contains those changes while ignored files are not copied.
+  - Force fork setup failure after worktree creation and confirm no temporary worktree path or branch remains.
   - Force a first-send failure and verify retry still includes the pending handoff.
   - Confirm the first live turn can replace the default `Fork of X` title with an auto-generated title.
   - Reload and verify provenance is still present.
