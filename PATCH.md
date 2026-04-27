@@ -533,6 +533,23 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/branding.test.ts src/components/desktopUpdate.logic.test.ts src/savedPromptStore.test.ts src/clientPersistenceStorage.test.ts src/uiStateStore.test.ts` in `apps/web`.
   - Run `bun run test scripts/build-desktop-artifact.test.ts scripts/resolve-nightly-release.test.ts scripts/dev-runner.test.ts`.
 
+## 2026-04-27 - Terminal dimension clamping
+
+- User-visible behavior:
+  - The embedded thread terminal opens and resizes reliably on ultrawide displays instead of rendering a schema validation error when xterm reports more columns than the terminal RPC contract allows.
+- Key files/modules:
+  - `packages/contracts/src/terminal.ts`
+  - `apps/web/src/components/ThreadTerminalDrawer.tsx`
+  - `apps/web/src/components/ThreadTerminalDrawer.browser.tsx`
+- Invariants:
+  - Terminal open/resize requests sent by the web client must clamp fitted xterm dimensions to the shared contract bounds before crossing the WebSocket RPC boundary.
+  - The server-side contract remains strict so malformed terminal dimensions from any client are still rejected.
+- Merge hotspots:
+  - Terminal RPC schemas and browser terminal sizing/open/resize flows.
+- Verification:
+  - Run `bun run test:browser src/components/ThreadTerminalDrawer.browser.tsx` in `apps/web`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+
 ## 2026-04-26 - macOS Developer ID signing and notarization
 
 - User-visible behavior:
