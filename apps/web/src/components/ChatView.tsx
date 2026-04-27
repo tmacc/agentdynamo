@@ -34,6 +34,7 @@ import { applyClaudePromptEffortPrefix, createModelSelection } from "@t3tools/sh
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { truncate } from "@t3tools/shared/String";
 import { Debouncer } from "@tanstack/react-pacer";
+import { Schema } from "effect";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
@@ -99,7 +100,22 @@ import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
+import {
+  clampRightPanelWidth,
+  closeRightPanel,
+  EMPTY_CHAT_RIGHT_PANEL_STATE,
+  normalizeRightPanels,
+  openRightPanel,
+  RIGHT_PANEL_AGENTS_DEFAULT_WIDTH,
+  RIGHT_PANEL_AGENTS_WIDTH_STORAGE_KEY,
+  RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY,
+  RIGHT_PANEL_MIN_CHAT_WIDTH,
+  RIGHT_PANEL_PLAN_DEFAULT_WIDTH,
+  RIGHT_PANEL_PLAN_WIDTH_STORAGE_KEY,
+  toggleRightPanel,
+  type ChatRightPanelContext,
+  type ChatRightPanelId,
+} from "../rightPanelLayout";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
@@ -200,6 +216,7 @@ import {
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
 import { RightPanelSheet } from "./RightPanelSheet";
+import { RightPanelDock, type RightPanelDockPanel } from "./RightPanelDock";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -687,6 +704,27 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   );
 });
 
+function useObservedElementWidth<TElement extends HTMLElement>() {
+  const ref = useRef<TElement | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    const updateWidth = () => setWidth(element.clientWidth);
+    updateWidth();
+
+    const resizeObserver = new ResizeObserver(updateWidth);
+    resizeObserver.observe(element);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  return [ref, width] as const;
+}
+
 export default function ChatView(props: ChatViewProps) {
   const {
     environmentId,
@@ -785,14 +823,32 @@ export default function ChatView(props: ChatViewProps) {
   >({});
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
-  const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
-  const [agentsSidebarOpen, setAgentsSidebarOpen] = useState(false);
+  const [rightPanelState, setRightPanelState] = useState(EMPTY_CHAT_RIGHT_PANEL_STATE);
+  const [storedPlanPanelWidth, setStoredPlanPanelWidth] = useLocalStorage(
+    RIGHT_PANEL_PLAN_WIDTH_STORAGE_KEY,
+    RIGHT_PANEL_PLAN_DEFAULT_WIDTH,
+    Schema.Finite,
+  );
+  const [storedAgentsPanelWidth, setStoredAgentsPanelWidth] = useLocalStorage(
+    RIGHT_PANEL_AGENTS_WIDTH_STORAGE_KEY,
+    RIGHT_PANEL_AGENTS_DEFAULT_WIDTH,
+    Schema.Finite,
+  );
+  const planPanelWidth = clampRightPanelWidth(storedPlanPanelWidth, {
+    defaultWidth: RIGHT_PANEL_PLAN_DEFAULT_WIDTH,
+  });
+  const agentsPanelWidth = clampRightPanelWidth(storedAgentsPanelWidth, {
+    defaultWidth: RIGHT_PANEL_AGENTS_DEFAULT_WIDTH,
+  });
+  const planSidebarOpen = rightPanelState.openPanels.includes("plan");
+  const agentsSidebarOpen = rightPanelState.openPanels.includes("agents");
   const [teamPatchReview, setTeamPatchReview] = useState<{
     task: OrchestrationTeamTask;
     preview: GitPreviewWorktreePatchResult;
     applying: boolean;
   } | null>(null);
   const shouldUseRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const [rightPanelLayoutRef, rightPanelLayoutWidth] = useObservedElementWidth<HTMLDivElement>();
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
@@ -976,6 +1032,19 @@ export default function ChatView(props: ChatViewProps) {
     activeThread !== undefined &&
     teamRootThread !== undefined &&
     settings.teamAgents.enabled;
+  const canShowAgentsPanel = showAgentsToggle && teamRootThread !== undefined;
+  const canDockRightPanels =
+    rightPanelLayoutWidth >= RIGHT_PANEL_MIN_CHAT_WIDTH + planPanelWidth + agentsPanelWidth;
+  const rightPanelContext = useMemo<ChatRightPanelContext>(
+    () => ({
+      compact: shouldUseRightPanelSheet,
+      canDockPanels: canDockRightPanels,
+      canShowAgents: canShowAgentsPanel,
+    }),
+    [canDockRightPanels, canShowAgentsPanel, shouldUseRightPanelSheet],
+  );
+  const rightPanelContextRef = useRef(rightPanelContext);
+  rightPanelContextRef.current = rightPanelContext;
   const existingOpenTerminalThreadKeys = useMemo(() => {
     const existingThreadKeys = new Set<string>([...serverThreadKeys, ...draftThreadKeys]);
     return openTerminalThreadKeys.filter((nextThreadKey) => existingThreadKeys.has(nextThreadKey));
@@ -2140,33 +2209,31 @@ export default function ChatView(props: ChatViewProps) {
   const toggleInteractionMode = useCallback(() => {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
+  const openChatRightPanel = useCallback(
+    (panel: ChatRightPanelId) => {
+      setRightPanelState((state) => openRightPanel(state, panel, rightPanelContext));
+    },
+    [rightPanelContext],
+  );
   const togglePlanSidebar = useCallback(() => {
-    setPlanSidebarOpen((open) => {
-      if (open) {
-        planSidebarDismissedForTurnRef.current =
-          activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
-      } else {
-        planSidebarDismissedForTurnRef.current = null;
-        setAgentsSidebarOpen(false);
-      }
-      return !open;
-    });
-  }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
+    if (planSidebarOpen) {
+      planSidebarDismissedForTurnRef.current =
+        activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
+    } else {
+      planSidebarDismissedForTurnRef.current = null;
+    }
+    setRightPanelState((state) => toggleRightPanel(state, "plan", rightPanelContext));
+  }, [activePlan?.turnId, planSidebarOpen, rightPanelContext, sidebarProposedPlan?.turnId]);
   const closePlanSidebar = useCallback(() => {
-    setPlanSidebarOpen(false);
+    setRightPanelState((state) => closeRightPanel(state, "plan"));
     planSidebarDismissedForTurnRef.current =
       activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
   }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
   const toggleAgentsSidebar = useCallback(() => {
-    setAgentsSidebarOpen((open) => {
-      if (!open) {
-        setPlanSidebarOpen(false);
-      }
-      return !open;
-    });
-  }, []);
+    setRightPanelState((state) => toggleRightPanel(state, "agents", rightPanelContext));
+  }, [rightPanelContext]);
   const closeAgentsSidebar = useCallback(() => {
-    setAgentsSidebarOpen(false);
+    setRightPanelState((state) => closeRightPanel(state, "agents"));
   }, []);
 
   const persistThreadSettingsForNextTurn = useCallback(
@@ -2252,18 +2319,16 @@ export default function ChatView(props: ChatViewProps) {
     setShowScrollToBottom(false);
     if (planSidebarOpenOnNextThreadRef.current) {
       planSidebarOpenOnNextThreadRef.current = false;
-      setPlanSidebarOpen(true);
+      setRightPanelState((state) => openRightPanel(state, "plan", rightPanelContextRef.current));
     } else {
-      setPlanSidebarOpen(false);
+      setRightPanelState(EMPTY_CHAT_RIGHT_PANEL_STATE);
     }
     planSidebarDismissedForTurnRef.current = null;
   }, [activeThread?.id]);
 
   useEffect(() => {
-    if (!showAgentsToggle) {
-      setAgentsSidebarOpen(false);
-    }
-  }, [showAgentsToggle]);
+    setRightPanelState((state) => normalizeRightPanels(state, rightPanelContext));
+  }, [rightPanelContext]);
 
   // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
   // Don't auto-open for plans carried over from a previous turn (the user can open manually).
@@ -2274,9 +2339,14 @@ export default function ChatView(props: ChatViewProps) {
     if (latestTurnId && activePlan.turnId !== latestTurnId) return;
     const turnKey = activePlan.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
     if (planSidebarDismissedForTurnRef.current === turnKey) return;
-    setAgentsSidebarOpen(false);
-    setPlanSidebarOpen(true);
-  }, [activePlan, activeLatestTurn?.turnId, planSidebarOpen, sidebarProposedPlan?.turnId]);
+    openChatRightPanel("plan");
+  }, [
+    activePlan,
+    activeLatestTurn?.turnId,
+    openChatRightPanel,
+    planSidebarOpen,
+    sidebarProposedPlan?.turnId,
+  ]);
 
   useEffect(() => {
     setIsRevertingCheckpoint(false);
@@ -3227,7 +3297,7 @@ export default function ChatView(props: ChatViewProps) {
         // step-tracking activities that the sidebar will display.
         if (nextInteractionMode === "default") {
           planSidebarDismissedForTurnRef.current = null;
-          setPlanSidebarOpen(true);
+          openChatRightPanel("plan");
         }
         sendInFlightRef.current = false;
       } catch (err) {
@@ -3249,6 +3319,7 @@ export default function ChatView(props: ChatViewProps) {
       isConnecting,
       isSendBusy,
       isServerThread,
+      openChatRightPanel,
       persistThreadSettingsForNextTurn,
       resetLocalDispatch,
       runtimeMode,
@@ -3613,6 +3684,57 @@ export default function ChatView(props: ChatViewProps) {
     return <NoActiveThreadState />;
   }
 
+  const dockPanels: RightPanelDockPanel[] = [];
+  if (planSidebarOpen) {
+    dockPanels.push({
+      id: "plan",
+      label: planSidebarLabel,
+      width: planPanelWidth,
+      defaultWidth: RIGHT_PANEL_PLAN_DEFAULT_WIDTH,
+      onWidthChange: setStoredPlanPanelWidth,
+      children: (
+        <PlanSidebar
+          activePlan={activePlan}
+          activeProposedPlan={sidebarProposedPlan}
+          label={planSidebarLabel}
+          environmentId={environmentId}
+          markdownCwd={gitCwd ?? undefined}
+          workspaceRoot={activeWorkspaceRoot}
+          timestampFormat={timestampFormat}
+          mode="dock"
+          onClose={closePlanSidebar}
+        />
+      ),
+    });
+  }
+  if (agentsSidebarOpen && canShowAgentsPanel && teamRootThread) {
+    dockPanels.push({
+      id: "agents",
+      label: "Agents",
+      width: agentsPanelWidth,
+      defaultWidth: RIGHT_PANEL_AGENTS_DEFAULT_WIDTH,
+      onWidthChange: setStoredAgentsPanelWidth,
+      children: (
+        <TeamAgentsSidebar
+          environmentId={environmentId}
+          coordinatorTitle={teamRootThread.title}
+          coordinatorThreadId={teamRootThread.id}
+          activeThreadId={activeThread.id}
+          tasks={teamTaskViews}
+          timestampFormat={timestampFormat}
+          mode="dock"
+          onOpenThread={openTeamTaskThread}
+          onCancelTask={cancelTeamTask}
+          onReviewTaskChanges={reviewTeamTaskChanges}
+          onClose={closeAgentsSidebar}
+        />
+      ),
+    });
+  }
+  const compactRightPanelId = shouldUseRightPanelSheet
+    ? (rightPanelState.openPanels[0] ?? null)
+    : null;
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
       {/* Top bar */}
@@ -3693,7 +3815,7 @@ export default function ChatView(props: ChatViewProps) {
         />
       ) : null}
       {/* Main content area with optional plan sidebar */}
-      <div className="flex min-h-0 min-w-0 flex-1">
+      <div ref={rightPanelLayoutRef} className="flex min-h-0 min-w-0 flex-1">
         {/* Chat column */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Messages Wrapper */}
@@ -3899,34 +4021,8 @@ export default function ChatView(props: ChatViewProps) {
         </div>
         {/* end chat column */}
 
-        {/* Plan sidebar */}
-        {planSidebarOpen && !shouldUseRightPanelSheet ? (
-          <PlanSidebar
-            activePlan={activePlan}
-            activeProposedPlan={sidebarProposedPlan}
-            label={planSidebarLabel}
-            environmentId={environmentId}
-            markdownCwd={gitCwd ?? undefined}
-            workspaceRoot={activeWorkspaceRoot}
-            timestampFormat={timestampFormat}
-            mode="sidebar"
-            onClose={closePlanSidebar}
-          />
-        ) : null}
-        {agentsSidebarOpen && showAgentsToggle && teamRootThread && !shouldUseRightPanelSheet ? (
-          <TeamAgentsSidebar
-            environmentId={environmentId}
-            coordinatorTitle={teamRootThread.title}
-            coordinatorThreadId={teamRootThread.id}
-            activeThreadId={activeThread.id}
-            tasks={teamTaskViews}
-            timestampFormat={timestampFormat}
-            mode="sidebar"
-            onOpenThread={openTeamTaskThread}
-            onCancelTask={cancelTeamTask}
-            onReviewTaskChanges={reviewTeamTaskChanges}
-            onClose={closeAgentsSidebar}
-          />
+        {!shouldUseRightPanelSheet ? (
+          <RightPanelDock containerWidth={rightPanelLayoutWidth} panels={dockPanels} />
         ) : null}
       </div>
       {/* end horizontal flex container */}
@@ -3949,23 +4045,30 @@ export default function ChatView(props: ChatViewProps) {
         />
       ))}
       {shouldUseRightPanelSheet ? (
-        <RightPanelSheet open={planSidebarOpen} onClose={closePlanSidebar}>
-          <PlanSidebar
-            activePlan={activePlan}
-            activeProposedPlan={sidebarProposedPlan}
-            label={planSidebarLabel}
-            environmentId={environmentId}
-            markdownCwd={gitCwd ?? undefined}
-            workspaceRoot={activeWorkspaceRoot}
-            timestampFormat={timestampFormat}
-            mode="sheet"
-            onClose={closePlanSidebar}
-          />
-        </RightPanelSheet>
-      ) : null}
-      {shouldUseRightPanelSheet ? (
-        <RightPanelSheet open={agentsSidebarOpen && showAgentsToggle} onClose={closeAgentsSidebar}>
-          {teamRootThread ? (
+        <RightPanelSheet
+          open={compactRightPanelId !== null}
+          onClose={() => {
+            if (compactRightPanelId === "agents") {
+              closeAgentsSidebar();
+              return;
+            }
+            closePlanSidebar();
+          }}
+        >
+          {compactRightPanelId === "plan" ? (
+            <PlanSidebar
+              activePlan={activePlan}
+              activeProposedPlan={sidebarProposedPlan}
+              label={planSidebarLabel}
+              environmentId={environmentId}
+              markdownCwd={gitCwd ?? undefined}
+              workspaceRoot={activeWorkspaceRoot}
+              timestampFormat={timestampFormat}
+              mode="sheet"
+              onClose={closePlanSidebar}
+            />
+          ) : null}
+          {compactRightPanelId === "agents" && teamRootThread ? (
             <TeamAgentsSidebar
               environmentId={environmentId}
               coordinatorTitle={teamRootThread.title}

@@ -59,7 +59,7 @@ interface PlanSidebarProps {
   markdownCwd: string | undefined;
   workspaceRoot: string | undefined;
   timestampFormat: TimestampFormat;
-  mode?: "sheet" | "sidebar";
+  mode?: "dock" | "sheet" | "sidebar";
   onClose: () => void;
 }
 
@@ -133,6 +133,7 @@ const PlanSidebar = memo(function PlanSidebar({
         mode === "sidebar"
           ? "h-full w-[340px] shrink-0 border-l border-border/70"
           : "h-full w-full",
+        mode === "dock" && "bg-transparent",
       )}
     >
       {/* Header */}
