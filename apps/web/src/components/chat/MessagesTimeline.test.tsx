@@ -118,7 +118,7 @@ describe("MessagesTimeline", () => {
                 "",
                 "<terminal_context>",
                 "- Terminal 1 lines 1-5:",
-                "  1 | julius@mac effect-http-ws-cli % bun i",
+                "  1 | user@mac effect-http-ws-cli % bun i",
                 "  2 | bun install v1.3.9 (cf6cdbbb)",
                 "</terminal_context>",
               ].join("\n"),

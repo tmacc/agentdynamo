@@ -195,7 +195,7 @@ describe("resolvePathLinkTarget", () => {
     expect(
       resolvePathLinkTarget(
         "C:/Users/example/project/src/main.ts:12",
-        "C:\\Users\\julius\\project",
+        "C:\\Users\\example\\project",
       ),
     ).toBe("C:/Users/example/project/src/main.ts:12");
   });

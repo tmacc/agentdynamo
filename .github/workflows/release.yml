@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - "v*.*.*"
-  schedule:
-    - cron: "0 9 * * *"
   workflow_dispatch:
     inputs:
       channel:
