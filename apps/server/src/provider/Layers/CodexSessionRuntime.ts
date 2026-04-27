@@ -27,6 +27,7 @@ import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
 import { buildCodexInitializeParams } from "./CodexProvider.ts";
 import {
+  CODEX_BROWSER_AUTOMATION_DEVELOPER_INSTRUCTIONS,
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS,
@@ -87,6 +88,7 @@ export interface CodexSessionRuntimeOptions {
   readonly configOverrides?: ReadonlyArray<string>;
   readonly env?: Readonly<Record<string, string>>;
   readonly teamCoordinatorTools?: boolean;
+  readonly browserAutomationTools?: boolean;
 }
 
 export interface CodexSessionRuntimeSendTurnInput {
@@ -304,8 +306,13 @@ function buildCodexCollaborationMode(input: {
   readonly model?: string;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
   readonly teamCoordinatorTools?: boolean;
+  readonly browserAutomationTools?: boolean;
 }): EffectCodexSchema.V2TurnStartParams__CollaborationMode | undefined {
-  if (input.interactionMode === undefined && input.teamCoordinatorTools !== true) {
+  if (
+    input.interactionMode === undefined &&
+    input.teamCoordinatorTools !== true &&
+    input.browserAutomationTools !== true
+  ) {
     return undefined;
   }
   const model = normalizeCodexModelSlug(input.model) ?? DEFAULT_MODEL_BY_PROVIDER.codex;
@@ -313,9 +320,13 @@ function buildCodexCollaborationMode(input: {
     input.interactionMode === "plan"
       ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
       : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
+  const additionalInstructions = [
+    input.teamCoordinatorTools === true ? CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS : null,
+    input.browserAutomationTools === true ? CODEX_BROWSER_AUTOMATION_DEVELOPER_INSTRUCTIONS : null,
+  ].filter((value): value is string => value !== null);
   const developerInstructions =
-    input.teamCoordinatorTools === true
-      ? `${baseDeveloperInstructions}\n\n${CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS}`
+    additionalInstructions.length > 0
+      ? `${baseDeveloperInstructions}\n\n${additionalInstructions.join("\n\n")}`
       : baseDeveloperInstructions;
   return {
     mode: input.interactionMode ?? "default",
@@ -337,6 +348,7 @@ export function buildTurnStartParams(input: {
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
   readonly interactionMode?: ProviderInteractionMode;
   readonly teamCoordinatorTools?: boolean;
+  readonly browserAutomationTools?: boolean;
 }): Effect.Effect<
   CodexTurnStartParamsWithCollaborationMode,
   CodexErrors.CodexAppServerProtocolParseError
@@ -358,6 +370,7 @@ export function buildTurnStartParams(input: {
     ...(input.model ? { model: input.model } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
     ...(input.teamCoordinatorTools === true ? { teamCoordinatorTools: true } : {}),
+    ...(input.browserAutomationTools === true ? { browserAutomationTools: true } : {}),
   });
 
   return Schema.decodeUnknownEffect(CodexTurnStartParamsWithCollaborationMode)({
@@ -1231,6 +1244,7 @@ export const makeCodexSessionRuntime = (
             ...(input.effort ? { effort: input.effort } : {}),
             ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
             ...(options.teamCoordinatorTools === true ? { teamCoordinatorTools: true } : {}),
+            ...(options.browserAutomationTools === true ? { browserAutomationTools: true } : {}),
           });
           const rawResponse = yield* client.raw.request("turn/start", params);
           const response = yield* Schema.decodeUnknownEffect(EffectCodexSchema.V2TurnStartResponse)(

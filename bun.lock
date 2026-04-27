@@ -60,6 +60,7 @@
         "effect": "catalog:",
         "node-pty": "^1.1.0",
         "open": "^10.1.0",
+        "playwright": "^1.58.2",
       },
       "devDependencies": {
         "@effect/language-service": "catalog:",

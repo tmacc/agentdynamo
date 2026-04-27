@@ -132,6 +132,29 @@ export const TeamAgentsSettings = Schema.Struct({
 });
 export type TeamAgentsSettings = typeof TeamAgentsSettings.Type;
 
+export const BrowserAutomationSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  visibility: Schema.Literals(["auto", "headed", "headless"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("auto" as const)),
+  ),
+  sessionScope: Schema.Literal("thread").pipe(
+    Schema.withDecodingDefault(Effect.succeed("thread" as const)),
+  ),
+  defaultViewport: Schema.Struct({
+    width: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(1440))),
+    height: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(900))),
+  }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  maxActiveSessions: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(4))),
+  allowPublicInternet: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  allowedOrigins: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed(["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"]),
+    ),
+  ),
+  blockedOrigins: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type BrowserAutomationSettings = typeof BrowserAutomationSettings.Type;
+
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
@@ -156,6 +179,7 @@ export const ServerSettings = Schema.Struct({
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   teamAgents: TeamAgentsSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  browserAutomation: BrowserAutomationSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -277,6 +301,23 @@ export const ServerSettingsPatch = Schema.Struct({
       enabled: Schema.optionalKey(Schema.Boolean),
       maxActiveChildren: Schema.optionalKey(NonNegativeInt),
       coordinatorToolsOnTopLevelThreads: Schema.optionalKey(Schema.Boolean),
+    }),
+  ),
+  browserAutomation: Schema.optionalKey(
+    Schema.Struct({
+      enabled: Schema.optionalKey(Schema.Boolean),
+      visibility: Schema.optionalKey(Schema.Literals(["auto", "headed", "headless"])),
+      sessionScope: Schema.optionalKey(Schema.Literal("thread")),
+      defaultViewport: Schema.optionalKey(
+        Schema.Struct({
+          width: Schema.optionalKey(NonNegativeInt),
+          height: Schema.optionalKey(NonNegativeInt),
+        }),
+      ),
+      maxActiveSessions: Schema.optionalKey(NonNegativeInt),
+      allowPublicInternet: Schema.optionalKey(Schema.Boolean),
+      allowedOrigins: Schema.optionalKey(Schema.Array(Schema.String)),
+      blockedOrigins: Schema.optionalKey(Schema.Array(Schema.String)),
     }),
   ),
   providers: Schema.optionalKey(

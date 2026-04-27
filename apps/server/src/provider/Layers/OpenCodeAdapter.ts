@@ -1366,6 +1366,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         capabilities: {
           sessionModelSwitch: "in-session",
           teamCoordinatorTools: "unsupported",
+          browserAutomationTools: "unsupported",
         },
         startSession,
         sendTurn,

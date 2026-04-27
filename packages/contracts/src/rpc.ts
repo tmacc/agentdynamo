@@ -110,6 +110,13 @@ import {
   ServerUpsertKeybindingResult,
 } from "./server.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
+import {
+  ProviderToolchainCheckInput,
+  ProviderToolchainError,
+  ProviderToolchainSnapshot,
+  ProviderToolchainUpdateInput,
+  ProviderToolchainStatus,
+} from "./providerToolchain.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -157,6 +164,9 @@ export const WS_METHODS = {
   // Server meta
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
+  serverGetProviderToolchains: "server.getProviderToolchains",
+  serverCheckProviderToolchains: "server.checkProviderToolchains",
+  serverUpdateProviderToolchain: "server.updateProviderToolchain",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
@@ -185,6 +195,28 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   payload: Schema.Struct({}),
   success: ServerProviderUpdatedPayload,
 });
+
+export const WsServerGetProviderToolchainsRpc = Rpc.make(WS_METHODS.serverGetProviderToolchains, {
+  payload: Schema.Struct({}),
+  success: ProviderToolchainSnapshot,
+});
+
+export const WsServerCheckProviderToolchainsRpc = Rpc.make(
+  WS_METHODS.serverCheckProviderToolchains,
+  {
+    payload: ProviderToolchainCheckInput,
+    success: ProviderToolchainSnapshot,
+  },
+);
+
+export const WsServerUpdateProviderToolchainRpc = Rpc.make(
+  WS_METHODS.serverUpdateProviderToolchain,
+  {
+    payload: ProviderToolchainUpdateInput,
+    success: ProviderToolchainStatus,
+    error: ProviderToolchainError,
+  },
+);
 
 export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   payload: Schema.Struct({}),
@@ -498,6 +530,9 @@ export const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess,
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
+  WsServerGetProviderToolchainsRpc,
+  WsServerCheckProviderToolchainsRpc,
+  WsServerUpdateProviderToolchainRpc,
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,

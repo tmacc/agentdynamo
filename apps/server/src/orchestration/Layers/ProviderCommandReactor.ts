@@ -36,6 +36,7 @@ import { renderContextHandoff, type ContextHandoffRenderResult } from "../contex
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ServerConfig } from "../../config.ts";
 import { TeamCoordinatorAccess } from "../../team/Services/TeamCoordinatorAccess.ts";
+import { BrowserMcpAccess } from "../../browser/Services/BrowserMcpAccess.ts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -275,6 +276,7 @@ const make = Effect.gen(function* () {
   const serverSettingsService = yield* ServerSettingsService;
   const serverConfig = yield* ServerConfig;
   const teamCoordinatorAccess = yield* TeamCoordinatorAccess;
+  const browserMcpAccess = yield* BrowserMcpAccess;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
     timeToLive: HANDLED_TURN_START_KEY_TTL,
@@ -434,6 +436,33 @@ const make = Effect.gen(function* () {
       };
     });
 
+    const resolveBrowserAutomation = Effect.fnUntraced(function* (provider: ProviderKind) {
+      if (thread.teamParent != null) {
+        return undefined;
+      }
+      const settings = yield* serverSettingsService.getSettings;
+      if (!settings.browserAutomation.enabled) {
+        return undefined;
+      }
+      const capabilities = yield* providerService.getCapabilities(provider);
+      if (capabilities.browserAutomationTools !== "mcp-http") {
+        return undefined;
+      }
+      const grant = yield* browserMcpAccess.issueGrant({
+        threadId: thread.id,
+        provider,
+      });
+      const host =
+        serverConfig.host && serverConfig.host.length > 0 ? serverConfig.host : "127.0.0.1";
+      return {
+        threadId: thread.id,
+        grantId: grant.grantId,
+        mcpServerName: "dynamo_browser",
+        mcpServerUrl: `http://${host}:${serverConfig.port}/api/browser-mcp`,
+        accessToken: grant.accessToken,
+      };
+    });
+
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
@@ -441,6 +470,7 @@ const make = Effect.gen(function* () {
       const provider = input?.provider ?? desiredProvider;
       return Effect.gen(function* () {
         const teamCoordinator = yield* resolveTeamCoordinator(provider);
+        const browserAutomation = yield* resolveBrowserAutomation(provider);
         const started = yield* Effect.exit(
           providerService.startSession(threadId, {
             threadId,
@@ -456,6 +486,16 @@ const make = Effect.gen(function* () {
                     mcpServerName: teamCoordinator.mcpServerName,
                     mcpServerUrl: teamCoordinator.mcpServerUrl,
                     accessToken: teamCoordinator.accessToken,
+                  },
+                }
+              : {}),
+            ...(browserAutomation !== undefined
+              ? {
+                  browserAutomation: {
+                    threadId: browserAutomation.threadId,
+                    mcpServerName: browserAutomation.mcpServerName,
+                    mcpServerUrl: browserAutomation.mcpServerUrl,
+                    accessToken: browserAutomation.accessToken,
                   },
                 }
               : {}),
@@ -480,6 +520,32 @@ const make = Effect.gen(function* () {
             yield* teamCoordinatorAccess.revokeGrant({ grantId: teamCoordinator.grantId }).pipe(
               Effect.catchCause((cause) =>
                 Effect.logWarning("failed to revoke unused team coordinator grant", {
+                  threadId,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            );
+          }
+        }
+        if (browserAutomation !== undefined) {
+          if (Exit.isSuccess(started)) {
+            yield* browserMcpAccess
+              .revokeOtherGrantsForThread({
+                threadId: browserAutomation.threadId,
+                keepGrantId: browserAutomation.grantId,
+              })
+              .pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("failed to revoke stale browser MCP grants", {
+                    threadId,
+                    cause: Cause.pretty(cause),
+                  }),
+                ),
+              );
+          } else {
+            yield* browserMcpAccess.revokeGrant({ grantId: browserAutomation.grantId }).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("failed to revoke unused browser MCP grant", {
                   threadId,
                   cause: Cause.pretty(cause),
                 }),

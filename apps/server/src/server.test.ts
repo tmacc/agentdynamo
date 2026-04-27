@@ -96,6 +96,10 @@ import {
   ProviderRegistry,
   type ProviderRegistryShape,
 } from "./provider/Services/ProviderRegistry.ts";
+import {
+  ProviderToolchain,
+  type ProviderToolchainShape,
+} from "./provider/Services/ProviderToolchain.ts";
 import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./serverLifecycleEvents.ts";
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings.ts";
@@ -350,6 +354,7 @@ const buildAppUnderTest = (options?: {
   layers?: {
     keybindings?: Partial<KeybindingsShape>;
     providerRegistry?: Partial<ProviderRegistryShape>;
+    providerToolchain?: Partial<ProviderToolchainShape>;
     serverSettings?: Partial<ServerSettingsShape>;
     open?: Partial<OpenShape>;
     gitCore?: Partial<GitCoreShape>;
@@ -446,7 +451,7 @@ const buildAppUnderTest = (options?: {
         })
       : GitStatusBroadcasterLive.pipe(Layer.provide(gitManagerLayer));
 
-    const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
+    const servedRoutesBaseLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
       disableLogger: true,
     }).pipe(
@@ -469,6 +474,15 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
+        Layer.mock(ProviderToolchain)({
+          getStatuses: Effect.succeed([]),
+          check: () => Effect.succeed({ statuses: [] }),
+          update: () => Effect.die(new Error("unused")),
+          streamChanges: Stream.empty,
+          ...options?.layers?.providerToolchain,
+        }),
+      ),
+      Layer.provide(
         Layer.mock(ServerSettingsService)({
           start: Effect.void,
           ready: Effect.void,
@@ -478,6 +492,9 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.serverSettings,
         }),
       ),
+    );
+
+    const servedRoutesLayer = servedRoutesBaseLayer.pipe(
       Layer.provide(
         Layer.mock(Open)({
           ...options?.layers?.open,
@@ -2017,6 +2034,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.deepEqual(first.config.keybindings, []);
         assert.deepEqual(first.config.issues, []);
         assert.deepEqual(first.config.providers, providers);
+        assert.deepEqual(first.config.providerToolchains, []);
         assert.equal(first.config.observability.logsDirectoryPath.endsWith("/logs"), true);
         assert.equal(first.config.observability.localTracingEnabled, true);
         assert.equal(first.config.observability.otlpTracesUrl, "http://localhost:4318/v1/traces");
@@ -2077,6 +2095,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(first?.type, "snapshot");
       if (first?.type === "snapshot") {
         assert.deepEqual(first.config.providers, []);
+        assert.deepEqual(first.config.providerToolchains, []);
       }
       assert.deepEqual(second, {
         version: 1,

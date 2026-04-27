@@ -189,6 +189,7 @@ function createBaseServerConfig(): ServerConfig {
     keybindings: [],
     issues: [],
     providers: [],
+    providerToolchains: [],
     availableEditors: ["cursor"],
     observability: {
       logsDirectoryPath: "/repo/project/.t3/logs",
@@ -451,6 +452,96 @@ describe("GeneralSettingsPanel observability", () => {
         ),
       )
       .toBeInTheDocument();
+  });
+
+  it("shows provider update status and confirms backend updates", async () => {
+    const checkProviderToolchains = vi
+      .fn<LocalApi["server"]["checkProviderToolchains"]>()
+      .mockResolvedValue({ statuses: [] });
+    const updateProviderToolchain = vi
+      .fn<LocalApi["server"]["updateProviderToolchain"]>()
+      .mockResolvedValue({
+        provider: "codex",
+        currentVersion: "0.2.0",
+        latestVersion: "0.2.0",
+        updateAvailable: false,
+        checkState: "up-to-date",
+        updateState: "updated",
+        method: {
+          kind: "self-updater",
+          label: "Codex self-updater",
+          displayCommand: "codex --upgrade",
+          canRunInDynamo: true,
+        },
+        checkedAt: "2026-04-27T00:00:00.000Z",
+        updatedAt: "2026-04-27T00:00:00.000Z",
+        message: "Codex updated.",
+      });
+    const confirm = vi.fn<LocalApi["dialogs"]["confirm"]>().mockResolvedValue(true);
+    window.nativeApi = {
+      dialogs: { confirm },
+      persistence: {
+        getClientSettings: vi.fn().mockResolvedValue(null),
+        setClientSettings: vi.fn().mockResolvedValue(undefined),
+      },
+      server: {
+        checkProviderToolchains,
+        updateProviderToolchain,
+      },
+    } as unknown as LocalApi;
+
+    setServerConfigSnapshot({
+      ...createBaseServerConfig(),
+      providers: [
+        {
+          provider: "codex",
+          enabled: true,
+          installed: true,
+          version: "0.1.0",
+          status: "ready",
+          auth: { status: "authenticated" },
+          checkedAt: "2026-04-27T00:00:00.000Z",
+          models: [],
+          slashCommands: [],
+          skills: [],
+        },
+      ],
+      providerToolchains: [
+        {
+          provider: "codex",
+          currentVersion: "0.1.0",
+          latestVersion: "0.2.0",
+          updateAvailable: true,
+          checkState: "update-available",
+          updateState: "idle",
+          method: {
+            kind: "self-updater",
+            label: "Codex self-updater",
+            displayCommand: "codex --upgrade",
+            canRunInDynamo: true,
+          },
+          checkedAt: "2026-04-27T00:00:00.000Z",
+          updatedAt: null,
+          message: "Codex 0.2.0 is available.",
+        },
+      ],
+    });
+
+    mounted = await render(
+      <AppAtomRegistryProvider>
+        <GeneralSettingsPanel />
+      </AppAtomRegistryProvider>,
+    );
+
+    await expect.element(page.getByText("v0.1.0", { exact: true })).toBeInTheDocument();
+    await expect.element(page.getByText(/Latest v0\.2\.0/)).toBeInTheDocument();
+    await page.getByRole("button", { name: "Update", exact: true }).click();
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("connected backend environment"));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("codex --upgrade"));
+    await vi.waitFor(() => {
+      expect(updateProviderToolchain).toHaveBeenCalledWith({ provider: "codex" });
+    });
   });
 
   it("creates and shows a pairing link when network access is enabled", async () => {

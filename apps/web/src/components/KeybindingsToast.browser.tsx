@@ -85,6 +85,7 @@ function createBaseServerConfig(): ServerConfig {
         skills: [],
       },
     ],
+    providerToolchains: [],
     availableEditors: [],
     observability: {
       logsDirectoryPath: "/repo/project/.t3/logs",

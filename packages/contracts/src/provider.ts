@@ -63,6 +63,14 @@ export const ProviderSessionStartInput = Schema.Struct({
       accessToken: TrimmedNonEmptyString,
     }),
   ),
+  browserAutomation: Schema.optional(
+    Schema.Struct({
+      threadId: ThreadId,
+      mcpServerName: TrimmedNonEmptyString,
+      mcpServerUrl: TrimmedNonEmptyString,
+      accessToken: TrimmedNonEmptyString,
+    }),
+  ),
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 

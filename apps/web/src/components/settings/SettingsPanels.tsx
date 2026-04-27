@@ -9,7 +9,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   PROVIDER_DISPLAY_NAMES,
   type DesktopUpdateChannel,
@@ -77,6 +77,7 @@ import {
   useServerAvailableEditors,
   useServerKeybindingsConfigPath,
   useServerObservability,
+  useServerProviderToolchains,
   useServerProviders,
 } from "../../rpc/serverState";
 
@@ -479,6 +480,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(!Equal.equals(settings.teamAgents, DEFAULT_UNIFIED_SETTINGS.teamAgents)
         ? ["Team agents"]
         : []),
+      ...(!Equal.equals(settings.browserAutomation, DEFAULT_UNIFIED_SETTINGS.browserAutomation)
+        ? ["Browser automation"]
+        : []),
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
@@ -503,6 +507,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
+      settings.browserAutomation,
       settings.teamAgents,
       settings.timestampFormat,
       theme,
@@ -580,14 +585,19 @@ export function GeneralSettingsPanel() {
     Partial<Record<ProviderKind, string | null>>
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
+  const [updatingToolchainByProvider, setUpdatingToolchainByProvider] = useState<
+    Partial<Record<ProviderKind, boolean>>
+  >({});
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
   const refreshProviders = useCallback(() => {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
     setIsRefreshingProviders(true);
-    void ensureLocalApi()
-      .server.refreshProviders()
+    const api = ensureLocalApi();
+    void api.server
+      .refreshProviders()
+      .then(() => api.server.checkProviderToolchains?.({ force: true }))
       .catch((error: unknown) => {
         console.warn("Failed to refresh providers", error);
       })
@@ -597,10 +607,69 @@ export function GeneralSettingsPanel() {
       });
   }, []);
 
+  const checkProviderToolchain = useCallback((provider: ProviderKind) => {
+    if (provider !== "codex" && provider !== "claudeAgent") return;
+    void ensureLocalApi()
+      .server.checkProviderToolchains({ provider, force: true })
+      .catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not check provider update",
+            description: error instanceof Error ? error.message : "Update check failed.",
+          }),
+        );
+      });
+  }, []);
+
+  const updateProviderToolchain = useCallback(
+    async (provider: ProviderKind, providerDisplayName: string, displayCommand: string) => {
+      if (provider !== "codex" && provider !== "claudeAgent") return;
+      const api = ensureLocalApi();
+      const confirmed = await api.dialogs.confirm(
+        [
+          `Update ${providerDisplayName}?`,
+          `This runs on the connected backend environment: ${displayCommand}`,
+          "Existing sessions keep using their current process. New sessions use the refreshed provider after update.",
+        ].join("\n"),
+      );
+      if (!confirmed) return;
+
+      setUpdatingToolchainByProvider((existing) => ({ ...existing, [provider]: true }));
+      try {
+        const status = await api.server.updateProviderToolchain({ provider });
+        toastManager.add({
+          type: "success",
+          title: `${providerDisplayName} updated`,
+          description: status.message ?? "Provider update completed.",
+        });
+      } catch (error) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: `Could not update ${providerDisplayName}`,
+            description: error instanceof Error ? error.message : "Provider update failed.",
+          }),
+        );
+      } finally {
+        setUpdatingToolchainByProvider((existing) => ({ ...existing, [provider]: false }));
+      }
+    },
+    [],
+  );
+
   const keybindingsConfigPath = useServerKeybindingsConfigPath();
   const availableEditors = useServerAvailableEditors();
   const observability = useServerObservability();
   const serverProviders = useServerProviders();
+  const providerToolchains = useServerProviderToolchains();
+  useEffect(() => {
+    const api = readLocalApi();
+    if (!api?.server?.checkProviderToolchains) return;
+    void api.server.checkProviderToolchains({ force: false }).catch((error: unknown) => {
+      console.warn("Failed to check provider updates", error);
+    });
+  }, []);
   const visibleProviderSettings = PROVIDER_SETTINGS.filter(
     (providerSettings) =>
       providerSettings.provider !== "cursor" ||
@@ -774,6 +843,9 @@ export function GeneralSettingsPanel() {
     const liveProvider = serverProviders.find(
       (candidate) => candidate.provider === providerSettings.provider,
     );
+    const toolchainStatus = providerToolchains.find(
+      (candidate) => candidate.provider === providerSettings.provider,
+    );
     const providerConfig = settings.providers[providerSettings.provider];
     const defaultProviderConfig = DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
     const statusKey = liveProvider?.status ?? (providerConfig.enabled ? "warning" : "disabled");
@@ -809,6 +881,7 @@ export function GeneralSettingsPanel() {
       providerConfig,
       statusStyle: PROVIDER_STATUS_STYLES[statusKey],
       summary,
+      toolchainStatus,
       versionLabel: getProviderVersionLabel(liveProvider?.version),
     };
   });
@@ -977,6 +1050,37 @@ export function GeneralSettingsPanel() {
                 })
               }
               aria-label="Enable team agents"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Browser automation"
+          description="Allow agents to use Dynamo's fast browser experience runtime for local app flows."
+          resetAction={
+            !Equal.equals(settings.browserAutomation, DEFAULT_UNIFIED_SETTINGS.browserAutomation) ? (
+              <SettingResetButton
+                label="browser automation"
+                onClick={() =>
+                  updateSettings({
+                    browserAutomation: DEFAULT_UNIFIED_SETTINGS.browserAutomation,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.browserAutomation.enabled}
+              onCheckedChange={(checked) =>
+                updateSettings({
+                  browserAutomation: {
+                    ...settings.browserAutomation,
+                    enabled: Boolean(checked),
+                  },
+                })
+              }
+              aria-label="Enable browser automation"
             />
           }
         />
@@ -1208,6 +1312,18 @@ export function GeneralSettingsPanel() {
           const customModelError = customModelErrorByProvider[providerCard.provider] ?? null;
           const providerDisplayName =
             PROVIDER_DISPLAY_NAMES[providerCard.provider] ?? providerCard.title;
+          const toolchain = providerCard.toolchainStatus;
+          const latestVersionLabel = getProviderVersionLabel(toolchain?.latestVersion);
+          const canCheckToolchain =
+            providerCard.provider === "codex" || providerCard.provider === "claudeAgent";
+          const isCheckingToolchain = toolchain?.checkState === "checking";
+          const isUpdatingToolchain =
+            toolchain?.updateState === "updating" ||
+            updatingToolchainByProvider[providerCard.provider] === true;
+          const canUpdateToolchain =
+            canCheckToolchain &&
+            toolchain?.updateAvailable === true &&
+            toolchain.method?.canRunInDynamo === true;
 
           return (
             <div key={providerCard.provider} className="border-t border-border first:border-t-0">
@@ -1254,8 +1370,60 @@ export function GeneralSettingsPanel() {
                       {providerCard.summary.headline}
                       {providerCard.summary.detail ? ` - ${providerCard.summary.detail}` : null}
                     </p>
+                    {canCheckToolchain && toolchain ? (
+                      <p className="text-xs text-muted-foreground">
+                        {latestVersionLabel ? <>Latest {latestVersionLabel}. </> : null}
+                        {toolchain.message}
+                      </p>
+                    ) : null}
+                    {canCheckToolchain &&
+                    toolchain?.updateAvailable === true &&
+                    toolchain.method?.canRunInDynamo === false &&
+                    toolchain.method.displayCommand ? (
+                      <p className="text-xs text-muted-foreground">
+                        Update manually:{" "}
+                        <code className="text-[11px]">{toolchain.method.displayCommand}</code>
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
+                    {canCheckToolchain ? (
+                      <>
+                        {canUpdateToolchain ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-7 px-2 text-xs"
+                            disabled={isUpdatingToolchain || isCheckingToolchain}
+                            onClick={() =>
+                              void updateProviderToolchain(
+                                providerCard.provider,
+                                providerDisplayName,
+                                toolchain.method!.displayCommand,
+                              )
+                            }
+                          >
+                            {isUpdatingToolchain ? (
+                              <LoaderIcon className="mr-1 size-3 animate-spin" />
+                            ) : null}
+                            Update
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                            disabled={isCheckingToolchain || isUpdatingToolchain}
+                            onClick={() => checkProviderToolchain(providerCard.provider)}
+                          >
+                            {isCheckingToolchain ? (
+                              <LoaderIcon className="mr-1 size-3 animate-spin" />
+                            ) : null}
+                            Check update
+                          </Button>
+                        )}
+                      </>
+                    ) : null}
                     <Button
                       size="sm"
                       variant="ghost"

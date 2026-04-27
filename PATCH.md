@@ -26,6 +26,45 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ## Fork Feature Inventory
 
+### Provider harness updates
+
+- `Status`: Present as a fork-only Settings/provider toolchain feature.
+- `User-visible behavior`: Settings shows Codex and Claude Code provider versions, checks npm registry latest versions on Settings load or explicit refresh, marks when a provider update is available, and offers a one-click backend-environment update when the provider has a safe self-updater command. Codex uses `codex --upgrade`; Claude uses `claude update`. If the installed provider is missing or the latest version cannot be determined, provider health remains unchanged and Settings shows a clear update-status message.
+- `Why it exists`: Users need to know when their local or remote provider harness is out of date and how to update it without confusing app updates with provider CLI updates.
+- `Key fork files`:
+  - `packages/contracts/src/providerToolchain.ts`
+  - `packages/contracts/src/server.ts`
+  - `packages/contracts/src/rpc.ts`
+  - `packages/contracts/src/ipc.ts`
+  - `apps/server/src/provider/Services/ProviderToolchain.ts`
+  - `apps/server/src/provider/Layers/ProviderToolchain.ts`
+  - `apps/server/src/ws.ts`
+  - `apps/server/src/server.ts`
+  - `apps/web/src/rpc/serverState.ts`
+  - `apps/web/src/rpc/wsRpcClient.ts`
+  - `apps/web/src/localApi.ts`
+  - `apps/web/src/components/settings/SettingsPanels.tsx`
+- `Important invariants`:
+  - Provider health checks remain independent from network latest-version checks.
+  - The client never sends updater commands. The server maps provider kind to fixed updater args.
+  - Dynamo never runs `sudo`, Homebrew, apt, dnf, apk, or arbitrary package-manager commands for provider updates in v1.
+  - Updates run on the connected backend environment because provider versions are backend state.
+  - Existing provider sessions are not killed by updater actions; new sessions use the refreshed binary after provider refresh.
+  - Registry/update failures must not make an otherwise usable provider unavailable.
+- `Merge hotspots`:
+  - Server config/provider snapshot contracts and stream events
+  - WebSocket RPC method list and local API bridge
+  - Settings provider row layout and provider refresh behavior
+  - Server runtime dependency wiring around provider registry/settings services
+- `Verification`:
+  - Confirm Settings shows latest/current update status for Codex and Claude when registry checks succeed.
+  - Confirm provider refresh also refreshes toolchain update state.
+  - Confirm update confirmation copy says the command runs on the connected backend environment.
+  - Confirm one-click Codex runs `codex --upgrade` and Claude runs `claude update` from server-owned command construction.
+  - Confirm update failure leaves provider health intact and displays a clear error.
+  - Run `bun run test` for provider toolchain contract/server tests.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+
 ### Multi-provider subagents
 
 - `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce` as autonomous coordinator-led team agents.

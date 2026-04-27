@@ -31,6 +31,7 @@ export interface ProviderAdapterCapabilities {
    */
   readonly sessionModelSwitch: ProviderSessionModelSwitchMode;
   readonly teamCoordinatorTools?: "mcp-http" | "unsupported";
+  readonly browserAutomationTools?: "mcp-http" | "unsupported";
 }
 
 export interface ProviderThreadTurnSnapshot {

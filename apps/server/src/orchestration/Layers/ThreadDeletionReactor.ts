@@ -3,6 +3,7 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { Cause, Effect, Layer, Stream } from "effect";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { BrowserMcpAccess } from "../../browser/Services/BrowserMcpAccess.ts";
 import { TeamCoordinatorAccess } from "../../team/Services/TeamCoordinatorAccess.ts";
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -47,6 +48,7 @@ export const logCleanupCauseUnlessInterrupted = <R, E>({
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
+  const browserMcpAccess = yield* BrowserMcpAccess;
   const teamCoordinatorAccess = yield* TeamCoordinatorAccess;
   const terminalManager = yield* TerminalManager;
 
@@ -71,11 +73,19 @@ const make = Effect.gen(function* () {
       threadId,
     });
 
+  const revokeBrowserMcpGrants = (threadId: ThreadDeletedEvent["payload"]["threadId"]) =>
+    logCleanupCauseUnlessInterrupted({
+      effect: browserMcpAccess.revokeForThread({ threadId }),
+      message: "thread cleanup skipped browser MCP grant revocation",
+      threadId,
+    });
+
   const processThreadLifecycleEvent = Effect.fn("processThreadLifecycleEvent")(function* (
     event: TeamCoordinatorGrantRevocationEvent,
   ) {
     const threadId = event.payload.threadId;
     yield* revokeTeamCoordinatorGrants(threadId);
+    yield* revokeBrowserMcpGrants(threadId);
     if (event.type === "thread.deleted") {
       yield* stopProviderSession(threadId);
       yield* closeThreadTerminals(threadId);

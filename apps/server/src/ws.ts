@@ -58,6 +58,7 @@ import {
   observeRpcStreamEffect,
 } from "./observability/RpcInstrumentation.ts";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry.ts";
+import { ProviderToolchain } from "./provider/Services/ProviderToolchain.ts";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents.ts";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService } from "./serverSettings.ts";
@@ -199,6 +200,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const gitStatusBroadcaster = yield* GitStatusBroadcaster;
       const terminalManager = yield* TerminalManager;
       const providerRegistry = yield* ProviderRegistry;
+      const providerToolchain = yield* ProviderToolchain;
       const config = yield* ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents;
       const serverSettings = yield* ServerSettingsService;
@@ -574,6 +576,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const loadServerConfig = Effect.gen(function* () {
         const keybindingsConfig = yield* keybindings.loadConfigState;
         const providers = yield* providerRegistry.getProviders;
+        const providerToolchains = yield* providerToolchain.getStatuses;
         const settings = yield* serverSettings.getSettings;
         const environment = yield* serverEnvironment.getDescriptor;
         const auth = yield* serverAuth.getDescriptor();
@@ -586,6 +589,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
           providers,
+          providerToolchains,
           availableEditors: resolveAvailableEditors(),
           observability: {
             logsDirectoryPath: config.logsDir,
@@ -1023,6 +1027,26 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
             { "rpc.aggregate": "server" },
           ),
+        [WS_METHODS.serverGetProviderToolchains]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetProviderToolchains,
+            providerToolchain.getStatuses.pipe(Effect.map((statuses) => ({ statuses }))),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverCheckProviderToolchains]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverCheckProviderToolchains,
+            providerToolchain.check(input),
+            {
+              "rpc.aggregate": "server",
+            },
+          ),
+        [WS_METHODS.serverUpdateProviderToolchain]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverUpdateProviderToolchain,
+            providerToolchain.update(input),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.serverUpsertKeybinding]: (rule) =>
           observeRpcEffect(
             WS_METHODS.serverUpsertKeybinding,
@@ -1327,6 +1351,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 })),
                 Stream.debounce(Duration.millis(PROVIDER_STATUS_DEBOUNCE_MS)),
               );
+              const providerToolchains = providerToolchain.streamChanges.pipe(
+                Stream.map((statuses) => ({
+                  version: 1 as const,
+                  type: "providerToolchains" as const,
+                  payload: { statuses },
+                })),
+              );
               const settingsUpdates = serverSettings.streamChanges.pipe(
                 Stream.map((settings) => ({
                   version: 1 as const,
@@ -1345,7 +1376,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
 
               const liveUpdates = Stream.merge(
                 keybindingsUpdates,
-                Stream.merge(providerStatuses, settingsUpdates),
+                Stream.merge(providerStatuses, Stream.merge(providerToolchains, settingsUpdates)),
               );
 
               return Stream.concat(

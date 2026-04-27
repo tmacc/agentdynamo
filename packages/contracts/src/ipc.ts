@@ -56,6 +56,12 @@ import type {
   ServerUpsertKeybindingResult,
 } from "./server.ts";
 import type {
+  ProviderToolchainCheckInput,
+  ProviderToolchainSnapshot,
+  ProviderToolchainStatus,
+  ProviderToolchainUpdateInput,
+} from "./providerToolchain.ts";
+import type {
   TerminalClearInput,
   TerminalCloseInput,
   TerminalEvent,
@@ -247,6 +253,13 @@ export interface LocalApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
+    getProviderToolchains: () => Promise<ProviderToolchainSnapshot>;
+    checkProviderToolchains: (
+      input?: ProviderToolchainCheckInput,
+    ) => Promise<ProviderToolchainSnapshot>;
+    updateProviderToolchain: (
+      input: ProviderToolchainUpdateInput,
+    ) => Promise<ProviderToolchainStatus>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;

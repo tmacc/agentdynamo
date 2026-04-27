@@ -11,7 +11,9 @@ import {
   type GitStatusResult,
   type GitStatusStreamEvent,
   type LocalApi,
+  type ProviderToolchainCheckInput,
   ORCHESTRATION_WS_METHODS,
+  type ProviderToolchainUpdateInput,
   type ServerSettingsPatch,
   WS_METHODS,
 } from "@t3tools/contracts";
@@ -121,6 +123,15 @@ export interface WsRpcClient {
   readonly server: {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
     readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
+    readonly getProviderToolchains: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.serverGetProviderToolchains
+    >;
+    readonly checkProviderToolchains: (
+      input?: ProviderToolchainCheckInput,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverCheckProviderToolchains>>;
+    readonly updateProviderToolchain: (
+      input: ProviderToolchainUpdateInput,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverUpdateProviderToolchain>>;
     readonly upsertKeybinding: RpcUnaryMethod<typeof WS_METHODS.serverUpsertKeybinding>;
     readonly getSettings: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetSettings>;
     readonly updateSettings: (
@@ -258,6 +269,12 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
       refreshProviders: () =>
         transport.request((client) => client[WS_METHODS.serverRefreshProviders]({})),
+      getProviderToolchains: () =>
+        transport.request((client) => client[WS_METHODS.serverGetProviderToolchains]({})),
+      checkProviderToolchains: (input = {}) =>
+        transport.request((client) => client[WS_METHODS.serverCheckProviderToolchains](input)),
+      updateProviderToolchain: (input) =>
+        transport.request((client) => client[WS_METHODS.serverUpdateProviderToolchain](input)),
       upsertKeybinding: (input) =>
         transport.request((client) => client[WS_METHODS.serverUpsertKeybinding](input)),
       getSettings: () => transport.request((client) => client[WS_METHODS.serverGetSettings]({})),

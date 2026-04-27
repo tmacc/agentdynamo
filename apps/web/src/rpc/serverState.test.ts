@@ -79,6 +79,7 @@ const baseServerConfig: ServerConfig = {
   keybindings: [],
   issues: [],
   providers: defaultProviders,
+  providerToolchains: [],
   availableEditors: ["cursor"],
   observability: {
     logsDirectoryPath: "/tmp/workspace/.config/logs",
@@ -156,6 +157,7 @@ describe("serverState", () => {
       {
         issues: [],
         providers: defaultProviders,
+        providerToolchains: [],
         settings: DEFAULT_SERVER_SETTINGS,
       },
       "snapshot",
@@ -167,6 +169,7 @@ describe("serverState", () => {
       {
         issues: [],
         providers: defaultProviders,
+        providerToolchains: [],
         settings: DEFAULT_SERVER_SETTINGS,
       },
       "snapshot",
@@ -298,6 +301,7 @@ describe("serverState", () => {
         ...baseServerConfig,
         issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
         providers: nextProviders,
+        providerToolchains: [],
         settings: {
           ...DEFAULT_SERVER_SETTINGS,
           enableAssistantStreaming: true,
@@ -311,6 +315,7 @@ describe("serverState", () => {
       {
         issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
         providers: defaultProviders,
+        providerToolchains: [],
         settings: DEFAULT_SERVER_SETTINGS,
       },
       "keybindingsUpdated",
@@ -320,6 +325,7 @@ describe("serverState", () => {
       {
         issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
         providers: nextProviders,
+        providerToolchains: [],
         settings: DEFAULT_SERVER_SETTINGS,
       },
       "providerStatuses",
@@ -328,6 +334,7 @@ describe("serverState", () => {
       {
         issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
         providers: nextProviders,
+        providerToolchains: [],
         settings: {
           ...DEFAULT_SERVER_SETTINGS,
           enableAssistantStreaming: true,

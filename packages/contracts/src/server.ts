@@ -12,6 +12,7 @@ import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings.ts";
 import { EditorId } from "./editor.ts";
 import { ModelCapabilities } from "./model.ts";
 import { ProviderKind, TeamTaskKind } from "./orchestration.ts";
+import { ProviderToolchainStatuses } from "./providerToolchain.ts";
 import { ServerSettings } from "./settings.ts";
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
@@ -137,6 +138,9 @@ export const ServerConfig = Schema.Struct({
   keybindings: ResolvedKeybindingsConfig,
   issues: ServerConfigIssues,
   providers: ServerProviders,
+  providerToolchains: ProviderToolchainStatuses.pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   availableEditors: Schema.Array(EditorId),
   observability: ServerObservability,
   settings: ServerSettings,
@@ -155,6 +159,9 @@ export type ServerUpsertKeybindingResult = typeof ServerUpsertKeybindingResult.T
 export const ServerConfigUpdatedPayload = Schema.Struct({
   issues: ServerConfigIssues,
   providers: ServerProviders,
+  providerToolchains: ProviderToolchainStatuses.pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   settings: Schema.optional(ServerSettings),
 });
 export type ServerConfigUpdatedPayload = typeof ServerConfigUpdatedPayload.Type;
@@ -169,6 +176,12 @@ export const ServerConfigProviderStatusesPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerConfigProviderStatusesPayload = typeof ServerConfigProviderStatusesPayload.Type;
+
+export const ServerConfigProviderToolchainsPayload = Schema.Struct({
+  statuses: ProviderToolchainStatuses,
+});
+export type ServerConfigProviderToolchainsPayload =
+  typeof ServerConfigProviderToolchainsPayload.Type;
 
 export const ServerConfigSettingsUpdatedPayload = Schema.Struct({
   settings: ServerSettings,
@@ -198,6 +211,14 @@ export const ServerConfigStreamProviderStatusesEvent = Schema.Struct({
 export type ServerConfigStreamProviderStatusesEvent =
   typeof ServerConfigStreamProviderStatusesEvent.Type;
 
+export const ServerConfigStreamProviderToolchainsEvent = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("providerToolchains"),
+  payload: ServerConfigProviderToolchainsPayload,
+});
+export type ServerConfigStreamProviderToolchainsEvent =
+  typeof ServerConfigStreamProviderToolchainsEvent.Type;
+
 export const ServerConfigStreamSettingsUpdatedEvent = Schema.Struct({
   version: Schema.Literal(1),
   type: Schema.Literal("settingsUpdated"),
@@ -210,6 +231,7 @@ export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamSnapshotEvent,
   ServerConfigStreamKeybindingsUpdatedEvent,
   ServerConfigStreamProviderStatusesEvent,
+  ServerConfigStreamProviderToolchainsEvent,
   ServerConfigStreamSettingsUpdatedEvent,
 ]);
 export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;

@@ -46,6 +46,7 @@ import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletion
 import { ThreadForkDispatcherLive } from "./orchestration/Layers/ThreadForkDispatcher.ts";
 import { ThreadForkMaterializerLive } from "./orchestration/Layers/ThreadForkMaterializer.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
+import { ProviderToolchainLive } from "./provider/Layers/ProviderToolchain.ts";
 import { ServerSettingsLive } from "./serverSettings.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
 import { ProjectIntelligenceResolverLive } from "./project/Layers/ProjectIntelligenceResolver.ts";
@@ -61,6 +62,9 @@ import { TeamCoordinatorAccessLive } from "./team/Layers/TeamCoordinatorAccess.t
 import { TeamOrchestrationServiceLive } from "./team/Layers/TeamOrchestrationService.ts";
 import { TeamTaskReactorLive } from "./team/Layers/TeamTaskReactor.ts";
 import { teamMcpRoutesLayer } from "./team/http.ts";
+import { BrowserMcpAccessLive } from "./browser/Layers/BrowserMcpAccess.ts";
+import { BrowserServiceLive } from "./browser/Layers/PlaywrightBrowserService.ts";
+import { browserMcpRoutesLayer } from "./browser/http.ts";
 import { ObservabilityLive } from "./observability/Layers/Observability.ts";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment.ts";
 import {
@@ -258,10 +262,12 @@ const ThreadForkLayerLive = ThreadForkDispatcherLive.pipe(
 );
 
 const TeamLayerLive = Layer.mergeAll(TeamCoordinatorAccessLive, TeamOrchestrationServiceLive);
+const BrowserLayerLive = Layer.mergeAll(BrowserMcpAccessLive, BrowserServiceLive);
 
 const RuntimeDependenciesCoreLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ThreadForkLayerLive),
   Layer.provideMerge(TeamLayerLive),
+  Layer.provideMerge(BrowserLayerLive),
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(GitLayerLive),
@@ -271,6 +277,7 @@ const RuntimeDependenciesCoreLive = ReactorLayerLive.pipe(
   Layer.provideMerge(KeybindingsLive),
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(ServerSettingsLive),
+  Layer.provideMerge(ProviderToolchainLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(WorktreeSetupLayerLive),
 );
@@ -323,6 +330,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   otlpTracesProxyRouteLayer,
   projectFaviconRouteLayer,
   serverEnvironmentRouteLayer,
+  browserMcpRoutesLayer,
   staticAndDevRouteLayer,
   teamMcpRoutesLayer,
   websocketRpcRouteLayer,

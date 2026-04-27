@@ -1033,7 +1033,11 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "in-session", teamCoordinatorTools: "unsupported" },
+      capabilities: {
+        sessionModelSwitch: "in-session",
+        teamCoordinatorTools: "unsupported",
+        browserAutomationTools: "unsupported",
+      },
       startSession,
       sendTurn,
       interruptTurn,

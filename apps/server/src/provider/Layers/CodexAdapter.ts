@@ -50,10 +50,16 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 
 const PROVIDER = "codex" as const;
 const DYNAMO_TEAM_MCP_TOKEN_ENV = "DYNAMO_TEAM_MCP_TOKEN";
+const DYNAMO_BROWSER_MCP_TOKEN_ENV = "DYNAMO_BROWSER_MCP_TOKEN";
+
+type CodexRuntimeAddOnOptions = Pick<
+  CodexSessionRuntimeOptions,
+  "configOverrides" | "env" | "teamCoordinatorTools" | "browserAutomationTools"
+>;
 
 function buildCodexTeamCoordinatorRuntimeOptions(
   teamCoordinator: NonNullable<Parameters<CodexAdapterShape["startSession"]>[0]["teamCoordinator"]>,
-): Pick<CodexSessionRuntimeOptions, "configOverrides" | "env" | "teamCoordinatorTools"> {
+): CodexRuntimeAddOnOptions {
   return {
     configOverrides: [
       `mcp_servers.${teamCoordinator.mcpServerName}.url=${JSON.stringify(teamCoordinator.mcpServerUrl)}`,
@@ -63,6 +69,40 @@ function buildCodexTeamCoordinatorRuntimeOptions(
       [DYNAMO_TEAM_MCP_TOKEN_ENV]: teamCoordinator.accessToken,
     },
     teamCoordinatorTools: true,
+  };
+}
+
+function buildCodexBrowserAutomationRuntimeOptions(
+  browserAutomation: NonNullable<
+    Parameters<CodexAdapterShape["startSession"]>[0]["browserAutomation"]
+  >,
+): CodexRuntimeAddOnOptions {
+  return {
+    configOverrides: [
+      `mcp_servers.${browserAutomation.mcpServerName}.url=${JSON.stringify(browserAutomation.mcpServerUrl)}`,
+      `mcp_servers.${browserAutomation.mcpServerName}.bearer_token_env_var=${JSON.stringify(DYNAMO_BROWSER_MCP_TOKEN_ENV)}`,
+    ],
+    env: {
+      [DYNAMO_BROWSER_MCP_TOKEN_ENV]: browserAutomation.accessToken,
+    },
+    browserAutomationTools: true,
+  };
+}
+
+function mergeCodexRuntimeAddOns(
+  addOns: ReadonlyArray<CodexRuntimeAddOnOptions | undefined>,
+): CodexRuntimeAddOnOptions {
+  const configOverrides = addOns.flatMap((addOn) => addOn?.configOverrides ?? []);
+  const env = Object.assign({}, ...addOns.map((addOn) => addOn?.env ?? {}));
+  return {
+    ...(configOverrides.length > 0 ? { configOverrides } : {}),
+    ...(Object.keys(env).length > 0 ? { env } : {}),
+    ...(addOns.some((addOn) => addOn?.teamCoordinatorTools === true)
+      ? { teamCoordinatorTools: true }
+      : {}),
+    ...(addOns.some((addOn) => addOn?.browserAutomationTools === true)
+      ? { browserAutomationTools: true }
+      : {}),
   };
 }
 
@@ -1376,6 +1416,14 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               }),
           ),
         );
+        const runtimeAddOns = mergeCodexRuntimeAddOns([
+          input.teamCoordinator !== undefined
+            ? buildCodexTeamCoordinatorRuntimeOptions(input.teamCoordinator)
+            : undefined,
+          input.browserAutomation !== undefined
+            ? buildCodexBrowserAutomationRuntimeOptions(input.browserAutomation)
+            : undefined,
+        ]);
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
           cwd: input.cwd ?? process.cwd(),
@@ -1391,9 +1439,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
             ? { serviceTier: "fast" }
             : {}),
-          ...(input.teamCoordinator !== undefined
-            ? buildCodexTeamCoordinatorRuntimeOptions(input.teamCoordinator)
-            : {}),
+          ...runtimeAddOns,
         };
         const sessionScope = yield* Scope.make("sequential");
         let sessionScopeTransferred = false;
@@ -1665,6 +1711,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     capabilities: {
       sessionModelSwitch: "in-session",
       teamCoordinatorTools: "mcp-http",
+      browserAutomationTools: "mcp-http",
     },
     startSession,
     sendTurn,

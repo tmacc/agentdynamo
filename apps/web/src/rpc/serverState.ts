@@ -7,6 +7,7 @@ import {
   type ServerConfigUpdatedPayload,
   type ServerLifecycleWelcomePayload,
   type ServerProvider,
+  type ProviderToolchainStatus,
   type ServerProviderUpdatedPayload,
   type ServerSettings,
 } from "@t3tools/contracts";
@@ -37,6 +38,7 @@ function toServerConfigUpdatedPayload(config: ServerConfig): ServerConfigUpdated
   return {
     issues: config.issues,
     providers: config.providers,
+    providerToolchains: config.providerToolchains,
     settings: config.settings,
   };
 }
@@ -44,6 +46,7 @@ function toServerConfigUpdatedPayload(config: ServerConfig): ServerConfigUpdated
 const EMPTY_AVAILABLE_EDITORS: ReadonlyArray<EditorId> = [];
 const EMPTY_KEYBINDINGS: ServerConfig["keybindings"] = [];
 const EMPTY_SERVER_PROVIDERS: ReadonlyArray<ServerProvider> = [];
+const EMPTY_PROVIDER_TOOLCHAINS: ReadonlyArray<ProviderToolchainStatus> = [];
 
 const selectAvailableEditors = (config: ServerConfig | null): ReadonlyArray<EditorId> =>
   config?.availableEditors ?? EMPTY_AVAILABLE_EDITORS;
@@ -53,6 +56,8 @@ const selectKeybindingsConfigPath = (config: ServerConfig | null) =>
 const selectObservability = (config: ServerConfig | null) => config?.observability ?? null;
 const selectProviders = (config: ServerConfig | null) =>
   config?.providers ?? EMPTY_SERVER_PROVIDERS;
+const selectProviderToolchains = (config: ServerConfig | null) =>
+  config?.providerToolchains ?? EMPTY_PROVIDER_TOOLCHAINS;
 const selectSettings = (config: ServerConfig | null): ServerSettings =>
   config?.settings ?? DEFAULT_SERVER_SETTINGS;
 
@@ -107,11 +112,31 @@ export function applyServerConfigEvent(event: ServerConfigStreamEvent): void {
       applyProvidersUpdated(event.payload);
       return;
     }
+    case "providerToolchains": {
+      applyProviderToolchainsUpdated(event.payload.statuses);
+      return;
+    }
     case "settingsUpdated": {
       applySettingsUpdated(event.payload.settings);
       return;
     }
   }
+}
+
+export function applyProviderToolchainsUpdated(
+  providerToolchains: ReadonlyArray<ProviderToolchainStatus>,
+): void {
+  const latestServerConfig = getServerConfig();
+  if (!latestServerConfig) {
+    return;
+  }
+
+  const nextConfig = {
+    ...latestServerConfig,
+    providerToolchains,
+  } satisfies ServerConfig;
+  resolveServerConfig(nextConfig);
+  emitServerConfigUpdated(toServerConfigUpdatedPayload(nextConfig), "providerToolchains");
 }
 
 export function applyProvidersUpdated(payload: ServerProviderUpdatedPayload): void {
@@ -268,6 +293,10 @@ export function useServerSettings(): ServerSettings {
 
 export function useServerProviders(): ReadonlyArray<ServerProvider> {
   return useAtomValue(serverConfigAtom, selectProviders);
+}
+
+export function useServerProviderToolchains(): ReadonlyArray<ProviderToolchainStatus> {
+  return useAtomValue(serverConfigAtom, selectProviderToolchains);
 }
 
 export function useServerKeybindings(): ServerConfig["keybindings"] {
