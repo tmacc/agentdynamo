@@ -1,7 +1,7 @@
 import "../index.css";
 
 import { scopeThreadRef } from "@t3tools/client-runtime";
-import { ThreadId } from "@t3tools/contracts";
+import { TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS, ThreadId } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -11,6 +11,7 @@ const {
   fitAddonFitSpy,
   fitAddonLoadSpy,
   environmentApiById,
+  mockTerminalSize,
   readEnvironmentApiMock,
   readLocalApiMock,
 } = vi.hoisted(() => ({
@@ -18,7 +19,17 @@ const {
   terminalDisposeSpy: vi.fn(),
   fitAddonFitSpy: vi.fn(),
   fitAddonLoadSpy: vi.fn(),
-  environmentApiById: new Map<string, { terminal: { open: ReturnType<typeof vi.fn> } }>(),
+  environmentApiById: new Map<
+    string,
+    {
+      terminal: {
+        open: ReturnType<typeof vi.fn>;
+        write: ReturnType<typeof vi.fn>;
+        resize: ReturnType<typeof vi.fn>;
+      };
+    }
+  >(),
+  mockTerminalSize: { cols: 80, rows: 24 },
   readEnvironmentApiMock: vi.fn((environmentId: string) => environmentApiById.get(environmentId)),
   readLocalApiMock: vi.fn<
     () =>
@@ -41,8 +52,8 @@ vi.mock("@xterm/addon-fit", () => ({
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: class MockTerminal {
-    cols = 80;
-    rows = 24;
+    cols = mockTerminalSize.cols;
+    rows = mockTerminalSize.rows;
     options: { theme?: unknown } = {};
     buffer = {
       active: {
@@ -211,6 +222,8 @@ async function mountTerminalViewport(props: {
 describe("TerminalViewport", () => {
   afterEach(() => {
     environmentApiById.clear();
+    mockTerminalSize.cols = 80;
+    mockTerminalSize.rows = 24;
     readEnvironmentApiMock.mockClear();
     readLocalApiMock.mockClear();
     terminalConstructorSpy.mockClear();
@@ -313,6 +326,39 @@ describe("TerminalViewport", () => {
           }),
         }),
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("clamps fitted dimensions before opening and resizing the terminal", async () => {
+    mockTerminalSize.cols = TERMINAL_MAX_COLS + 24;
+    mockTerminalSize.rows = TERMINAL_MAX_ROWS + 12;
+    const environment = createEnvironmentApi();
+    environmentApiById.set("environment-a", environment);
+
+    const mounted = await mountTerminalViewport({
+      threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(environment.terminal.open).toHaveBeenCalledWith(
+          expect.objectContaining({
+            cols: TERMINAL_MAX_COLS,
+            rows: TERMINAL_MAX_ROWS,
+          }),
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(environment.terminal.resize).toHaveBeenCalledWith(
+          expect.objectContaining({
+            cols: TERMINAL_MAX_COLS,
+            rows: TERMINAL_MAX_ROWS,
+          }),
+        );
+      });
     } finally {
       await mounted.cleanup();
     }

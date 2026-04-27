@@ -3,6 +3,10 @@ import { Plus, SquareSplitHorizontal, TerminalSquare, Trash2, XIcon } from "luci
 import {
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  TERMINAL_MAX_COLS,
+  TERMINAL_MAX_ROWS,
+  TERMINAL_MIN_COLS,
+  TERMINAL_MIN_ROWS,
   type TerminalEvent,
   type TerminalSessionSnapshot,
   type ThreadId,
@@ -62,6 +66,18 @@ function clampDrawerHeight(height: number): number {
   const safeHeight = Number.isFinite(height) ? height : DEFAULT_THREAD_TERMINAL_HEIGHT;
   const maxHeight = maxDrawerHeight();
   return Math.min(Math.max(Math.round(safeHeight), MIN_DRAWER_HEIGHT), maxHeight);
+}
+
+function clampTerminalDimension(value: number, min: number, max: number): number {
+  const rounded = Number.isFinite(value) ? Math.round(value) : min;
+  return Math.min(Math.max(rounded, min), max);
+}
+
+function readTerminalDimensions(terminal: Terminal): { cols: number; rows: number } {
+  return {
+    cols: clampTerminalDimension(terminal.cols, TERMINAL_MIN_COLS, TERMINAL_MAX_COLS),
+    rows: clampTerminalDimension(terminal.rows, TERMINAL_MIN_ROWS, TERMINAL_MAX_ROWS),
+  };
 }
 
 function writeSystemMessage(terminal: Terminal, message: string): void {
@@ -670,13 +686,14 @@ export function TerminalViewport({
         const activeFitAddon = fitAddonRef.current;
         if (!activeTerminal || !activeFitAddon) return;
         activeFitAddon.fit();
+        const dimensions = readTerminalDimensions(activeTerminal);
         const snapshot = await api.terminal.open({
           threadId,
           terminalId,
           cwd,
           ...(worktreePath !== undefined ? { worktreePath } : {}),
-          cols: activeTerminal.cols,
-          rows: activeTerminal.rows,
+          cols: dimensions.cols,
+          rows: dimensions.rows,
           ...(runtimeEnv ? { env: runtimeEnv } : {}),
         });
         if (disposed) return;
@@ -719,12 +736,13 @@ export function TerminalViewport({
       if (wasAtBottom) {
         activeTerminal.scrollToBottom();
       }
+      const dimensions = readTerminalDimensions(activeTerminal);
       void api.terminal
         .resize({
           threadId,
           terminalId,
-          cols: activeTerminal.cols,
-          rows: activeTerminal.rows,
+          cols: dimensions.cols,
+          rows: dimensions.rows,
         })
         .catch(() => undefined);
     }, 30);
@@ -777,12 +795,13 @@ export function TerminalViewport({
       if (wasAtBottom) {
         terminal.scrollToBottom();
       }
+      const dimensions = readTerminalDimensions(terminal);
       void api.terminal
         .resize({
           threadId,
           terminalId,
-          cols: terminal.cols,
-          rows: terminal.rows,
+          cols: dimensions.cols,
+          rows: dimensions.rows,
         })
         .catch(() => undefined);
     });
