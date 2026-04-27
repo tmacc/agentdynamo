@@ -4747,7 +4747,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("picks a local project from the native file manager", async () => {
-    const pickFolder = vi.fn().mockResolvedValue("/Users/julius/Projects/finder-picked");
+    const pickFolder = vi.fn().mockResolvedValue("/Users/example/Projects/finder-picked");
 
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -4826,7 +4826,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(dispatchRequest).toMatchObject({
             _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
             type: "project.create",
-            workspaceRoot: "/Users/julius/Projects/finder-picked",
+            workspaceRoot: "/Users/example/Projects/finder-picked",
             title: "finder-picked",
           });
         },

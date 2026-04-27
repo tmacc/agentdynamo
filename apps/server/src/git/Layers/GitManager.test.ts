@@ -403,8 +403,7 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
         return Effect.fail(scenario.createPullRequestError);
       }
       return Effect.succeed({
-        stdout:
-          (scenario.createdPrUrl ?? "https://github.com/pingdotgg/codething-mvp/pull/101") + "\n",
+        stdout: (scenario.createdPrUrl ?? "https://github.com/example/project/pull/101") + "\n",
         stderr: "",
         code: 0,
         signal: null,
@@ -416,7 +415,7 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
       const pullRequest: FakePullRequest = scenario.pullRequest ?? {
         number: 101,
         title: "Pull request",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/101",
+        url: "https://github.com/example/project/pull/101",
         baseRefName: "main",
         headRefName: "feature/pull-request",
         state: "open",
@@ -852,7 +851,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 13,
                 title: "Existing PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/13",
+                url: "https://github.com/example/project/pull/13",
                 baseRefName: "main",
                 headRefName: "feature/status-open-pr",
               },
@@ -869,7 +868,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 13,
         title: "Existing PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/13",
+        url: "https://github.com/example/project/pull/13",
         baseBranch: "main",
         headBranch: "feature/status-open-pr",
         state: "open",
@@ -893,7 +892,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 14,
                 title: "  Existing PR title  \n",
-                url: " https://github.com/pingdotgg/codething-mvp/pull/14 ",
+                url: " https://github.com/example/project/pull/14 ",
                 baseRefName: " main ",
                 headRefName: "\tfeature/status-trimmed-pr\t",
               },
@@ -907,7 +906,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 14,
         title: "Existing PR title",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/14",
+        url: "https://github.com/example/project/pull/14",
         baseBranch: "main",
         headBranch: "feature/status-trimmed-pr",
         state: "open",
@@ -931,14 +930,14 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 0,
                 title: "invalid",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/0",
+                url: "https://github.com/example/project/pull/0",
                 baseRefName: "main",
                 headRefName: "feature/invalid",
               },
               {
                 number: 15,
                 title: "  Valid PR title  ",
-                url: " https://github.com/pingdotgg/codething-mvp/pull/15 ",
+                url: " https://github.com/example/project/pull/15 ",
                 baseRefName: " main ",
                 headRefName: "\tfeature/status-valid-pr-entry\t",
                 headRepository: {
@@ -958,7 +957,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 15,
         title: "Valid PR title",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/15",
+        url: "https://github.com/example/project/pull/15",
         baseBranch: "main",
         headBranch: "feature/status-valid-pr-entry",
         state: "open",
@@ -982,7 +981,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 16,
                 title: "Closed PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/16",
+                url: "https://github.com/example/project/pull/16",
                 baseRefName: "main",
                 headRefName: "feature/status-lowercase-state",
                 state: "closed",
@@ -991,7 +990,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 17,
                 title: "Merged PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/17",
+                url: "https://github.com/example/project/pull/17",
                 baseRefName: "main",
                 headRefName: "feature/status-lowercase-state",
                 state: "merged",
@@ -1007,7 +1006,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 17,
         title: "Merged PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/17",
+        url: "https://github.com/example/project/pull/17",
         baseBranch: "main",
         headBranch: "feature/status-lowercase-state",
         state: "merged",
@@ -1082,7 +1081,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       const existingPr = {
         number: 113,
         title: "Cached PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/113",
+        url: "https://github.com/example/project/pull/113",
         baseRefName: "main",
         headRefName: "feature/status-cache",
       };
@@ -1160,7 +1159,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, [
           "config",
           "remote.fork-seed.url",
-          "git@github.com:jasonLaster/codething-mvp.git",
+          "git@github.com:contributor/project.git",
         ]);
 
         const { manager, ghCalls } = yield* makeManager({
@@ -1172,17 +1171,17 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 {
                   number: 488,
                   title: "Rebase this PR on latest main",
-                  url: "https://github.com/pingdotgg/codething-mvp/pull/488",
+                  url: "https://github.com/example/project/pull/488",
                   baseRefName: "main",
                   headRefName: "statemachine",
                   state: "OPEN",
                   updatedAt: "2026-03-10T07:00:00Z",
                   isCrossRepository: true,
                   headRepository: {
-                    nameWithOwner: "jasonLaster/codething-mvp",
+                    nameWithOwner: "contributor/project",
                   },
                   headRepositoryOwner: {
-                    login: "jasonLaster",
+                    login: "contributor",
                   },
                 },
               ]),
@@ -1195,13 +1194,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect(status.pr).toEqual({
           number: 488,
           title: "Rebase this PR on latest main",
-          url: "https://github.com/pingdotgg/codething-mvp/pull/488",
+          url: "https://github.com/example/project/pull/488",
           baseBranch: "main",
           headBranch: "statemachine",
           state: "open",
         });
         expect(ghCalls).toContain(
-          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "pr list --head contributor:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         );
       }),
     20_000,
@@ -1224,13 +1223,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, [
           "config",
           "remote.origin.url",
-          "git@github.com:pingdotgg/codething-mvp.git",
+          "git@github.com:example/project.git",
         ]);
         yield* runGit(repoDir, ["config", "remote.origin.pushurl", originDir]);
         yield* runGit(repoDir, [
           "config",
           "remote.my-org/upstream.url",
-          "git@github.com:pingdotgg/codething-mvp.git",
+          "git@github.com:example/project.git",
         ]);
         yield* runGit(repoDir, ["config", "remote.my-org/upstream.pushurl", upstreamDir]);
         yield* runGit(repoDir, ["checkout", "main"]);
@@ -1328,7 +1327,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 22,
                 title: "Merged PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/22",
+                url: "https://github.com/example/project/pull/22",
                 baseRefName: "main",
                 headRefName: "feature/status-merged-pr",
                 state: "MERGED",
@@ -1345,7 +1344,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 22,
         title: "Merged PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/22",
+        url: "https://github.com/example/project/pull/22",
         baseBranch: "main",
         headBranch: "feature/status-merged-pr",
         state: "merged",
@@ -1366,7 +1365,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 45,
                 title: "Merged PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/45",
+                url: "https://github.com/example/project/pull/45",
                 baseRefName: "main",
                 headRefName: "feature/status-open-over-merged",
                 state: "MERGED",
@@ -1376,7 +1375,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 46,
                 title: "Open PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/46",
+                url: "https://github.com/example/project/pull/46",
                 baseRefName: "main",
                 headRefName: "feature/status-open-over-merged",
                 state: "OPEN",
@@ -1392,7 +1391,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 46,
         title: "Open PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/46",
+        url: "https://github.com/example/project/pull/46",
         baseBranch: "main",
         headBranch: "feature/status-open-over-merged",
         state: "open",
@@ -1716,7 +1715,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 {
                   number: 77,
                   title: "Add no-upstream PR flow",
-                  url: "https://github.com/pingdotgg/codething-mvp/pull/77",
+                  url: "https://github.com/example/project/pull/77",
                   baseRefName: "main",
                   headRefName: "feature/no-upstream-pr",
                 },
@@ -1816,7 +1815,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 303,
                 title: "Create PR only branch",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/303",
+                url: "https://github.com/example/project/pull/303",
                 baseRefName: "main",
                 headRefName: "feature/create-pr-only",
               },
@@ -1859,7 +1858,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 42,
                 title: "Existing PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+                url: "https://github.com/example/project/pull/42",
                 baseRefName: "main",
                 headRefName: "feature/existing-pr",
               },
@@ -1881,7 +1880,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         cta: {
           kind: "open_pr",
           label: "View PR",
-          url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+          url: "https://github.com/example/project/pull/42",
         },
       });
       expect(ghCalls.some((call) => call.startsWith("pr view "))).toBe(false);
@@ -1901,7 +1900,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, [
           "config",
           "remote.fork-seed.url",
-          "git@github.com:octocat/codething-mvp.git",
+          "git@github.com:octocat/project.git",
         ]);
 
         const { manager, ghCalls } = yield* makeManager({
@@ -1912,13 +1911,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 {
                   number: 142,
                   title: "Existing fork PR",
-                  url: "https://github.com/pingdotgg/codething-mvp/pull/142",
+                  url: "https://github.com/example/project/pull/142",
                   baseRefName: "main",
                   headRefName: "statemachine",
                   state: "OPEN",
                   isCrossRepository: true,
                   headRepository: {
-                    nameWithOwner: "octocat/codething-mvp",
+                    nameWithOwner: "octocat/project",
                   },
                   headRepositoryOwner: {
                     login: "octocat",
@@ -1963,13 +1962,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, [
           "config",
           "remote.origin.url",
-          "git@github.com:pingdotgg/codething-mvp.git",
+          "git@github.com:example/project.git",
         ]);
         yield* runGit(repoDir, ["config", "remote.origin.pushurl", originDir]);
         yield* runGit(repoDir, [
           "config",
           "remote.my-org/upstream.url",
-          "git@github.com:pingdotgg/codething-mvp.git",
+          "git@github.com:example/project.git",
         ]);
         yield* runGit(repoDir, ["config", "remote.my-org/upstream.pushurl", upstreamDir]);
         yield* runGit(repoDir, ["checkout", "main"]);
@@ -2053,7 +2052,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, [
           "config",
           "remote.fork-seed.url",
-          "git@github.com:octocat/codething-mvp.git",
+          "git@github.com:octocat/project.git",
         ]);
 
         const { manager, ghCalls } = yield* makeManager({
@@ -2064,7 +2063,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 {
                   number: 41,
                   title: "Unrelated same-repo PR",
-                  url: "https://github.com/pingdotgg/codething-mvp/pull/41",
+                  url: "https://github.com/example/project/pull/41",
                   baseRefName: "main",
                   headRefName: "statemachine",
                 },
@@ -2073,13 +2072,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 {
                   number: 142,
                   title: "Existing fork PR",
-                  url: "https://github.com/pingdotgg/codething-mvp/pull/142",
+                  url: "https://github.com/example/project/pull/142",
                   baseRefName: "main",
                   headRefName: "statemachine",
                   state: "OPEN",
                   isCrossRepository: true,
                   headRepository: {
-                    nameWithOwner: "octocat/codething-mvp",
+                    nameWithOwner: "octocat/project",
                   },
                   headRepositoryOwner: {
                     login: "octocat",
@@ -2123,7 +2122,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, [
           "config",
           "remote.fork-seed.url",
-          "git@github.com:octocat/codething-mvp.git",
+          "git@github.com:octocat/project.git",
         ]);
 
         const { manager, ghCalls } = yield* makeManager({
@@ -2133,13 +2132,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 {
                   number: 142,
                   title: "Existing fork PR",
-                  url: "https://github.com/pingdotgg/codething-mvp/pull/142",
+                  url: "https://github.com/example/project/pull/142",
                   baseRefName: "main",
                   headRefName: "statemachine",
                   state: "OPEN",
                   isCrossRepository: true,
                   headRepository: {
-                    nameWithOwner: "octocat/codething-mvp",
+                    nameWithOwner: "octocat/project",
                   },
                   headRepositoryOwner: {
                     login: "octocat",
@@ -2191,7 +2190,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 88,
                 title: "Add stacked git actions",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/88",
+                url: "https://github.com/example/project/pull/88",
                 baseRefName: "main",
                 headRefName: "feature-create-pr",
               },
@@ -2236,13 +2235,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         {
           number: 18,
           title: "Restore fork features",
-          url: "https://github.com/tmacc/agentdynamo2/pull/18",
+          url: "https://github.com/tmacc/agentdynamo/pull/18",
           baseRefName: "main",
           headRefName: "t3code/apply-requested-patch",
           state: "OPEN",
           isCrossRepository: false,
           headRepository: {
-            name: "agentdynamo2",
+            name: "agentdynamo",
           },
           headRepositoryOwner: {
             login: "tmacc",
@@ -2267,7 +2266,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       expect(result.pr.status).toBe("opened_existing");
       expect(result.pr.number).toBe(18);
-      expect(result.pr.url).toBe("https://github.com/tmacc/agentdynamo2/pull/18");
+      expect(result.pr.url).toBe("https://github.com/tmacc/agentdynamo/pull/18");
       expect(ghCalls.filter((call) => call.startsWith("pr create "))).toHaveLength(1);
       expect(ghCalls.filter((call) => call.startsWith("pr list "))).toHaveLength(2);
     }),
@@ -2311,7 +2310,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 {
                   number: 188,
                   title: "Add stacked git actions",
-                  url: "https://github.com/pingdotgg/codething-mvp/pull/188",
+                  url: "https://github.com/example/project/pull/188",
                   baseRefName: "main",
                   headRefName: "feature/no-fork-match",
                   state: "OPEN",
@@ -2334,7 +2333,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           cta: {
             kind: "open_pr",
             label: "View PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/188",
+            url: "https://github.com/example/project/pull/188",
           },
         });
         expect(
@@ -2361,7 +2360,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, [
         "config",
         "remote.fork-seed.url",
-        "git@github.com:octocat/codething-mvp.git",
+        "git@github.com:octocat/project.git",
       ]);
 
       const { manager, ghCalls } = yield* makeManager({
@@ -2373,13 +2372,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 {
                   number: 188,
                   title: "Add stacked git actions",
-                  url: "https://github.com/pingdotgg/codething-mvp/pull/188",
+                  url: "https://github.com/example/project/pull/188",
                   baseRefName: "main",
                   headRefName: "statemachine",
                   state: "OPEN",
                   isCrossRepository: true,
                   headRepository: {
-                    nameWithOwner: "octocat/codething-mvp",
+                    nameWithOwner: "octocat/project",
                   },
                   headRepositoryOwner: {
                     login: "octocat",
@@ -2415,7 +2414,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
-      yield* runGit(repoDir, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo2.git"]);
+      yield* runGit(repoDir, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo.git"]);
       yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
 
       const { manager } = yield* makeManager();
@@ -2428,7 +2427,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         "upstream",
       ]);
       expect(options.candidates.map((candidate) => candidate.repositoryNameWithOwner)).toEqual([
-        "tmacc/agentdynamo2",
+        "tmacc/agentdynamo",
         "pingdotgg/t3code",
       ]);
     }),
@@ -2438,7 +2437,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
-      yield* runGit(repoDir, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo2.git"]);
+      yield* runGit(repoDir, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo.git"]);
       yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
 
       const { manager } = yield* makeManager();
@@ -2457,7 +2456,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
-      yield* runGit(repoDir, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo2.git"]);
+      yield* runGit(repoDir, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo.git"]);
       yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
       yield* runGit(repoDir, ["config", "--local", "t3.pullRequestRemote", "origin"]);
 
@@ -2484,7 +2483,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, [
         "config",
         "remote.origin.url",
-        "git@github.com:tmacc/agentdynamo2.git",
+        "git@github.com:tmacc/agentdynamo.git",
       ]);
       yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
 
@@ -2518,7 +2517,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, [
         "config",
         "remote.origin.url",
-        "git@github.com:tmacc/agentdynamo2.git",
+        "git@github.com:tmacc/agentdynamo.git",
       ]);
       yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
       yield* runGit(repoDir, ["config", "--local", "dynamo.pullRequestRemote", "upstream"]);
@@ -2538,7 +2537,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   state: "OPEN",
                   isCrossRepository: true,
                   headRepository: {
-                    nameWithOwner: "tmacc/agentdynamo2",
+                    nameWithOwner: "tmacc/agentdynamo",
                   },
                   headRepositoryOwner: {
                     login: "tmacc",
@@ -2654,7 +2653,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           pullRequest: {
             number: 42,
             title: "Resolve PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+            url: "https://github.com/example/project/pull/42",
             baseRefName: "main",
             headRefName: "feature/resolve-pr",
             state: "open",
@@ -2670,7 +2669,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.pullRequest).toEqual({
         number: 42,
         title: "Resolve PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+        url: "https://github.com/example/project/pull/42",
         baseBranch: "main",
         headBranch: "feature/resolve-pr",
         state: "open",
@@ -2693,7 +2692,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           pullRequest: {
             number: 64,
             title: "Local PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/64",
+            url: "https://github.com/example/project/pull/64",
             baseRefName: "main",
             headRefName: "feature/pr-local",
             state: "open",
@@ -2735,7 +2734,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           pullRequest: {
             number: 77,
             title: "Worktree PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/77",
+            url: "https://github.com/example/project/pull/77",
             baseRefName: "main",
             headRefName: "feature/pr-worktree",
             state: "open",
@@ -2781,7 +2780,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           pullRequest: {
             number: 177,
             title: "Worktree setup PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/177",
+            url: "https://github.com/example/project/pull/177",
             baseRefName: "main",
             headRefName: "feature/pr-worktree-setup",
             state: "open",
@@ -2834,16 +2833,16 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           pullRequest: {
             number: 81,
             title: "Fork PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/81",
+            url: "https://github.com/example/project/pull/81",
             baseRefName: "main",
             headRefName: "feature/pr-fork",
             state: "open",
             isCrossRepository: true,
-            headRepositoryNameWithOwner: "octocat/codething-mvp",
+            headRepositoryNameWithOwner: "octocat/project",
             headRepositoryOwnerLogin: "octocat",
           },
           repositoryCloneUrls: {
-            "octocat/codething-mvp": {
+            "octocat/project": {
               url: forkDir,
               sshUrl: forkDir,
             },
@@ -2897,16 +2896,16 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           pullRequest: {
             number: 82,
             title: "Local Fork PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/82",
+            url: "https://github.com/example/project/pull/82",
             baseRefName: "main",
             headRefName: "feature/pr-local-fork",
             state: "open",
             isCrossRepository: true,
-            headRepositoryNameWithOwner: "octocat/codething-mvp",
+            headRepositoryNameWithOwner: "octocat/project",
             headRepositoryOwnerLogin: "octocat",
           },
           repositoryCloneUrls: {
-            "octocat/codething-mvp": {
+            "octocat/project": {
               url: forkDir,
               sshUrl: forkDir,
             },
@@ -3003,7 +3002,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           pullRequest: {
             number: 78,
             title: "Existing worktree PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/78",
+            url: "https://github.com/example/project/pull/78",
             baseRefName: "main",
             headRefName: "feature/pr-existing-worktree",
             state: "open",
@@ -3057,16 +3056,16 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             pullRequest: {
               number: 91,
               title: "Fork main PR",
-              url: "https://github.com/pingdotgg/codething-mvp/pull/91",
+              url: "https://github.com/example/project/pull/91",
               baseRefName: "main",
               headRefName: "main",
               state: "open",
               isCrossRepository: true,
-              headRepositoryNameWithOwner: "octocat/codething-mvp",
+              headRepositoryNameWithOwner: "octocat/project",
               headRepositoryOwnerLogin: "octocat",
             },
             repositoryCloneUrls: {
-              "octocat/codething-mvp": {
+              "octocat/project": {
                 url: forkDir,
                 sshUrl: forkDir,
               },
@@ -3118,16 +3117,16 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             pullRequest: {
               number: 92,
               title: "Fork main overwrite PR",
-              url: "https://github.com/pingdotgg/codething-mvp/pull/92",
+              url: "https://github.com/example/project/pull/92",
               baseRefName: "main",
               headRefName: "main",
               state: "open",
               isCrossRepository: true,
-              headRepositoryNameWithOwner: "octocat/codething-mvp",
+              headRepositoryNameWithOwner: "octocat/project",
               headRepositoryOwnerLogin: "octocat",
             },
             repositoryCloneUrls: {
-              "octocat/codething-mvp": {
+              "octocat/project": {
                 url: forkDir,
                 sshUrl: forkDir,
               },
@@ -3177,16 +3176,16 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           pullRequest: {
             number: 83,
             title: "Reused Fork PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/83",
+            url: "https://github.com/example/project/pull/83",
             baseRefName: "main",
             headRefName: "feature/pr-reused-fork",
             state: "open",
             isCrossRepository: true,
-            headRepositoryNameWithOwner: "octocat/codething-mvp",
+            headRepositoryNameWithOwner: "octocat/project",
             headRepositoryOwnerLogin: "octocat",
           },
           repositoryCloneUrls: {
-            "octocat/codething-mvp": {
+            "octocat/project": {
               url: forkDir,
               sshUrl: forkDir,
             },
@@ -3229,7 +3228,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           pullRequest: {
             number: 184,
             title: "Setup failure PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/184",
+            url: "https://github.com/example/project/pull/184",
             baseRefName: "main",
             headRefName: "feature/pr-setup-failure",
             state: "open",
@@ -3264,7 +3263,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           pullRequest: {
             number: 79,
             title: "Root-only PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/79",
+            url: "https://github.com/example/project/pull/79",
             baseRefName: "main",
             headRefName: "feature/pr-root-only",
             state: "open",
@@ -3418,7 +3417,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 201,
                 title: "PR only branch",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/201",
+                url: "https://github.com/example/project/pull/201",
                 baseRefName: "main",
                 headRefName: "feature/pr-only-follow-up",
                 state: "OPEN",

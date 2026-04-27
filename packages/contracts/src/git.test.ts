@@ -59,7 +59,7 @@ describe("GitResolvePullRequestResult", () => {
       pullRequest: {
         number: 42,
         title: "PR threads",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+        url: "https://github.com/example/project/pull/42",
         baseBranch: "main",
         headBranch: "feature/pr-threads",
         state: "open",
@@ -84,7 +84,7 @@ describe("Git pull request remote selection", () => {
       candidates: [
         {
           remoteName: "origin",
-          repositoryNameWithOwner: "tmacc/agentdynamo2",
+          repositoryNameWithOwner: "tmacc/agentdynamo",
           ownerLogin: "tmacc",
           pushRepositoryNameWithOwner: null,
         },
@@ -92,14 +92,14 @@ describe("Git pull request remote selection", () => {
           remoteName: "upstream",
           repositoryNameWithOwner: "pingdotgg/t3code",
           ownerLogin: "pingdotgg",
-          pushRepositoryNameWithOwner: "tmacc/agentdynamo2",
+          pushRepositoryNameWithOwner: "tmacc/agentdynamo",
         },
       ],
     });
 
     expect(input.remoteName).toBe("upstream");
     expect(options.requiresSelection).toBe(true);
-    expect(options.candidates[1]?.pushRepositoryNameWithOwner).toBe("tmacc/agentdynamo2");
+    expect(options.candidates[1]?.pushRepositoryNameWithOwner).toBe("tmacc/agentdynamo");
   });
 
   it("decodes typed selection-required errors with candidates", () => {
@@ -112,7 +112,7 @@ describe("Git pull request remote selection", () => {
       candidates: [
         {
           remoteName: "origin",
-          repositoryNameWithOwner: "tmacc/agentdynamo2",
+          repositoryNameWithOwner: "tmacc/agentdynamo",
           ownerLogin: "tmacc",
           pushRepositoryNameWithOwner: null,
         },

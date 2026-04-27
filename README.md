@@ -19,7 +19,7 @@ npx t3
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/tmacc/agentdynamo2/releases).
+Install the latest version of the desktop app from [GitHub Releases](https://github.com/tmacc/agentdynamo/releases).
 
 ## Some notes
 

@@ -24,14 +24,14 @@ layer("GitHubCliLive", (it) => {
         stdout: JSON.stringify({
           number: 42,
           title: "Add PR thread creation",
-          url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+          url: "https://github.com/example/project/pull/42",
           baseRefName: "main",
           headRefName: "feature/pr-threads",
           state: "OPEN",
           mergedAt: null,
           isCrossRepository: true,
           headRepository: {
-            nameWithOwner: "octocat/codething-mvp",
+            nameWithOwner: "octocat/project",
           },
           headRepositoryOwner: {
             login: "octocat",
@@ -54,12 +54,12 @@ layer("GitHubCliLive", (it) => {
       assert.deepStrictEqual(result, {
         number: 42,
         title: "Add PR thread creation",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+        url: "https://github.com/example/project/pull/42",
         baseRefName: "main",
         headRefName: "feature/pr-threads",
         state: "open",
         isCrossRepository: true,
-        headRepositoryNameWithOwner: "octocat/codething-mvp",
+        headRepositoryNameWithOwner: "octocat/project",
         headRepositoryOwnerLogin: "octocat",
       });
       expect(mockedRunProcess).toHaveBeenCalledWith(
@@ -82,14 +82,14 @@ layer("GitHubCliLive", (it) => {
         stdout: JSON.stringify({
           number: 42,
           title: "  Add PR thread creation  \n",
-          url: " https://github.com/pingdotgg/codething-mvp/pull/42 ",
+          url: " https://github.com/example/project/pull/42 ",
           baseRefName: " main ",
           headRefName: "\tfeature/pr-threads\t",
           state: "OPEN",
           mergedAt: null,
           isCrossRepository: true,
           headRepository: {
-            nameWithOwner: " octocat/codething-mvp ",
+            nameWithOwner: " octocat/project ",
           },
           headRepositoryOwner: {
             login: " octocat ",
@@ -112,12 +112,12 @@ layer("GitHubCliLive", (it) => {
       assert.deepStrictEqual(result, {
         number: 42,
         title: "Add PR thread creation",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+        url: "https://github.com/example/project/pull/42",
         baseRefName: "main",
         headRefName: "feature/pr-threads",
         state: "open",
         isCrossRepository: true,
-        headRepositoryNameWithOwner: "octocat/codething-mvp",
+        headRepositoryNameWithOwner: "octocat/project",
         headRepositoryOwnerLogin: "octocat",
       });
     }),
@@ -130,14 +130,14 @@ layer("GitHubCliLive", (it) => {
           {
             number: 0,
             title: "invalid",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/0",
+            url: "https://github.com/example/project/pull/0",
             baseRefName: "main",
             headRefName: "feature/invalid",
           },
           {
             number: 43,
             title: "  Valid PR  ",
-            url: " https://github.com/pingdotgg/codething-mvp/pull/43 ",
+            url: " https://github.com/example/project/pull/43 ",
             baseRefName: " main ",
             headRefName: " feature/pr-list ",
             headRepository: {
@@ -166,7 +166,7 @@ layer("GitHubCliLive", (it) => {
         {
           number: 43,
           title: "Valid PR",
-          url: "https://github.com/pingdotgg/codething-mvp/pull/43",
+          url: "https://github.com/example/project/pull/43",
           baseRefName: "main",
           headRefName: "feature/pr-list",
           state: "open",
@@ -184,14 +184,14 @@ layer("GitHubCliLive", (it) => {
             {
               number: 18,
               title: "Restore fork features",
-              url: "https://github.com/tmacc/agentdynamo2/pull/18",
+              url: "https://github.com/tmacc/agentdynamo/pull/18",
               baseRefName: "main",
               headRefName: "t3code/apply-requested-patch",
               state: "OPEN",
               isCrossRepository: false,
               headRepository: {
                 id: "R_kgDOSDwZ9A",
-                name: "agentdynamo2",
+                name: "agentdynamo",
               },
               headRepositoryOwner: {
                 login: "tmacc",
@@ -209,7 +209,7 @@ layer("GitHubCliLive", (it) => {
           return yield* gh.listOpenPullRequests({
             cwd: "/repo",
             headSelector: "t3code/apply-requested-patch",
-            repository: "tmacc/agentdynamo2",
+            repository: "tmacc/agentdynamo",
           });
         });
 
@@ -217,7 +217,7 @@ layer("GitHubCliLive", (it) => {
           {
             number: 18,
             title: "Restore fork features",
-            url: "https://github.com/tmacc/agentdynamo2/pull/18",
+            url: "https://github.com/tmacc/agentdynamo/pull/18",
             baseRefName: "main",
             headRefName: "t3code/apply-requested-patch",
             state: "open",
@@ -232,9 +232,9 @@ layer("GitHubCliLive", (it) => {
     Effect.gen(function* () {
       mockedRunProcess.mockResolvedValueOnce({
         stdout: JSON.stringify({
-          nameWithOwner: "octocat/codething-mvp",
-          url: "https://github.com/octocat/codething-mvp",
-          sshUrl: "git@github.com:octocat/codething-mvp.git",
+          nameWithOwner: "octocat/project",
+          url: "https://github.com/octocat/project",
+          sshUrl: "git@github.com:octocat/project.git",
         }),
         stderr: "",
         code: 0,
@@ -246,14 +246,14 @@ layer("GitHubCliLive", (it) => {
         const gh = yield* GitHubCli;
         return yield* gh.getRepositoryCloneUrls({
           cwd: "/repo",
-          repository: "octocat/codething-mvp",
+          repository: "octocat/project",
         });
       });
 
       assert.deepStrictEqual(result, {
-        nameWithOwner: "octocat/codething-mvp",
-        url: "https://github.com/octocat/codething-mvp",
-        sshUrl: "git@github.com:octocat/codething-mvp.git",
+        nameWithOwner: "octocat/project",
+        url: "https://github.com/octocat/project",
+        sshUrl: "git@github.com:octocat/project.git",
       });
     }),
   );

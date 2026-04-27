@@ -378,7 +378,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 ### Repository/release personalization
 
 - `Status`: Present on the pre-merge fork at `365ae6d9`. Preserved on merged baseline `ed85e9ce`; `.github` files were not lost in the merge. Follow-up workflow repairs keep this branch aligned with the current build output and release scripts.
-- `User-visible behavior`: Repository links, marketing download links, release API calls, GitHub Actions, and release publishing target `tmacc/agentdynamo2` and this fork's available CI/release infrastructure rather than upstream `pingdotgg/t3code` assumptions.
+- `User-visible behavior`: Repository links, marketing download links, release API calls, GitHub Actions, and release publishing target `tmacc/agentdynamo` and this fork's available CI/release infrastructure rather than upstream `pingdotgg/t3code` assumptions.
 - `Why it exists`: This fork publishes, tests, and presents itself from the fork repository. Losing these values sends users to the wrong GitHub releases page or breaks CI/release automation.
 - `Key fork files`:
   - `.github/workflows/ci.yml`
@@ -398,7 +398,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `scripts/lib/update-manifest.ts`
   - `AGENTS.md`
 - `Important invariants`:
-  - Marketing and release API links must point to `https://github.com/tmacc/agentdynamo2`.
+  - Marketing and release API links must point to `https://github.com/tmacc/agentdynamo`.
   - CI must run on infrastructure available to the fork, not upstream-only runner labels.
   - CI install steps that run in pull requests should avoid lifecycle scripts unless the workflow explicitly needs them.
   - Desktop preload verification must match the actual desktop build output (`apps/desktop/dist-electron/preload.cjs`).
@@ -415,7 +415,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run build:desktop` and confirm `apps/desktop/dist-electron/preload.cjs` exists.
   - Run `node scripts/release-smoke.ts`.
   - Run `bun run test scripts/merge-update-manifests.test.ts`.
-  - Review marketing links and release API constants for `tmacc/agentdynamo2`.
+  - Review marketing links and release API constants for `tmacc/agentdynamo`.
   - Dry-run or inspect the release workflow when GitHub runner labels, signing, or artifact names change upstream.
 
 ### GitHub PR target remote selection

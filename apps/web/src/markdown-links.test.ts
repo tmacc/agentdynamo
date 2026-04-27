@@ -8,46 +8,46 @@ import {
 
 describe("rewriteMarkdownFileUriHref", () => {
   it("rewrites file uri hrefs into direct path hrefs", () => {
-    expect(rewriteMarkdownFileUriHref("file:///Users/julius/project/src/main.ts#L42")).toBe(
-      "/Users/julius/project/src/main.ts#L42",
+    expect(rewriteMarkdownFileUriHref("file:///Users/example/project/src/main.ts#L42")).toBe(
+      "/Users/example/project/src/main.ts#L42",
     );
   });
 
   it("preserves encoded octets so file paths are decoded only once later", () => {
-    expect(rewriteMarkdownFileUriHref("file:///Users/julius/project/file%2520name.md")).toBe(
-      "/Users/julius/project/file%2520name.md",
+    expect(rewriteMarkdownFileUriHref("file:///Users/example/project/file%2520name.md")).toBe(
+      "/Users/example/project/file%2520name.md",
     );
   });
 });
 
 describe("resolveMarkdownFileLinkTarget", () => {
   it("resolves absolute posix file paths", () => {
-    expect(resolveMarkdownFileLinkTarget("/Users/julius/project/AGENTS.md")).toBe(
-      "/Users/julius/project/AGENTS.md",
+    expect(resolveMarkdownFileLinkTarget("/Users/example/project/AGENTS.md")).toBe(
+      "/Users/example/project/AGENTS.md",
     );
   });
 
   it("resolves relative file paths against cwd", () => {
-    expect(resolveMarkdownFileLinkTarget("src/processRunner.ts:71", "/Users/julius/project")).toBe(
-      "/Users/julius/project/src/processRunner.ts:71",
+    expect(resolveMarkdownFileLinkTarget("src/processRunner.ts:71", "/Users/example/project")).toBe(
+      "/Users/example/project/src/processRunner.ts:71",
     );
   });
 
   it("does not treat filename line references as external schemes", () => {
-    expect(resolveMarkdownFileLinkTarget("script.ts:10", "/Users/julius/project")).toBe(
-      "/Users/julius/project/script.ts:10",
+    expect(resolveMarkdownFileLinkTarget("script.ts:10", "/Users/example/project")).toBe(
+      "/Users/example/project/script.ts:10",
     );
   });
 
   it("resolves bare file names against cwd", () => {
-    expect(resolveMarkdownFileLinkTarget("AGENTS.md", "/Users/julius/project")).toBe(
-      "/Users/julius/project/AGENTS.md",
+    expect(resolveMarkdownFileLinkTarget("AGENTS.md", "/Users/example/project")).toBe(
+      "/Users/example/project/AGENTS.md",
     );
   });
 
   it("maps #L line anchors to editor line suffixes", () => {
-    expect(resolveMarkdownFileLinkTarget("/Users/julius/project/src/main.ts#L42C7")).toBe(
-      "/Users/julius/project/src/main.ts:42:7",
+    expect(resolveMarkdownFileLinkTarget("/Users/example/project/src/main.ts#L42C7")).toBe(
+      "/Users/example/project/src/main.ts:42:7",
     );
   });
 
@@ -56,8 +56,8 @@ describe("resolveMarkdownFileLinkTarget", () => {
   });
 
   it("does not double-decode file URLs", () => {
-    expect(resolveMarkdownFileLinkTarget("file:///Users/julius/project/file%2520name.md")).toBe(
-      "/Users/julius/project/file%20name.md",
+    expect(resolveMarkdownFileLinkTarget("file:///Users/example/project/file%2520name.md")).toBe(
+      "/Users/example/project/file%20name.md",
     );
   });
 

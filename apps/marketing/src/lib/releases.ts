@@ -1,4 +1,4 @@
-const REPO = "tmacc/agentdynamo2";
+const REPO = "tmacc/agentdynamo";
 
 export const RELEASES_URL = `https://github.com/${REPO}/releases`;
 

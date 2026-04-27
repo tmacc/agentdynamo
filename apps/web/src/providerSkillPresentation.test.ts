@@ -28,7 +28,7 @@ describe("formatProviderSkillInstallSource", () => {
   it("marks plugin-backed skills as app installs", () => {
     expect(
       formatProviderSkillInstallSource({
-        path: "/Users/julius/.codex/plugins/cache/openai-curated/github/skills/gh-fix-ci/SKILL.md",
+        path: "/Users/example/.codex/plugins/cache/openai-curated/github/skills/gh-fix-ci/SKILL.md",
         scope: "user",
       }),
     ).toBe("App");
@@ -37,7 +37,7 @@ describe("formatProviderSkillInstallSource", () => {
   it("maps standard scopes to user-facing labels", () => {
     expect(
       formatProviderSkillInstallSource({
-        path: "/Users/julius/.agents/skills/agent-browser/SKILL.md",
+        path: "/Users/example/.agents/skills/agent-browser/SKILL.md",
         scope: "user",
       }),
     ).toBe("Personal");

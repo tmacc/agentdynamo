@@ -52,7 +52,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         providers: {
           codex: {
             binaryPath: "/usr/local/bin/codex",
-            homePath: "/Users/julius/.codex",
+            homePath: "/Users/example/.codex",
           },
           claudeAgent: {
             binaryPath: "/usr/local/bin/claude",
@@ -85,7 +85,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(next.providers.codex, {
         enabled: true,
         binaryPath: "/opt/homebrew/bin/codex",
-        homePath: "/Users/julius/.codex",
+        homePath: "/Users/example/.codex",
         customModels: [],
       });
       assert.deepEqual(next.providers.claudeAgent, {

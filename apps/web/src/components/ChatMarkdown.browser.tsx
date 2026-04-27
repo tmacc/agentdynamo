@@ -34,8 +34,7 @@ describe("ChatMarkdown", () => {
   });
 
   it("rewrites file uri hrefs into direct paths before rendering", async () => {
-    const filePath =
-      "/Users/yashsingh/p/sco/claude-code-extract/src/utils/permissions/PermissionRule.ts";
+    const filePath = "/repo/project/src/utils/permissions/PermissionRule.ts";
     const screen = await render(
       <ChatMarkdown text={`[PermissionRule.ts](file://${filePath})`} cwd="/repo/project" />,
     );
@@ -56,8 +55,7 @@ describe("ChatMarkdown", () => {
   });
 
   it("keeps line anchors working after rewriting file uri hrefs", async () => {
-    const filePath =
-      "/Users/yashsingh/p/sco/claude-code-extract/src/utils/permissions/PermissionRule.ts";
+    const filePath = "/repo/project/src/utils/permissions/PermissionRule.ts";
     const screen = await render(
       <ChatMarkdown text={`[PermissionRule.ts:1](file://${filePath}#L1)`} cwd="/repo/project" />,
     );
@@ -78,8 +76,7 @@ describe("ChatMarkdown", () => {
   });
 
   it("shows column information inline when present", async () => {
-    const filePath =
-      "/Users/yashsingh/p/sco/claude-code-extract/src/utils/permissions/PermissionRule.ts";
+    const filePath = "/repo/project/src/utils/permissions/PermissionRule.ts";
     const screen = await render(
       <ChatMarkdown text={`[PermissionRule.ts](file://${filePath}#L1C7)`} cwd="/repo/project" />,
     );
@@ -103,8 +100,8 @@ describe("ChatMarkdown", () => {
   });
 
   it("disambiguates duplicate file basenames inline", async () => {
-    const firstPath = "/Users/yashsingh/p/t3code/apps/web/src/components/chat/MessagesTimeline.tsx";
-    const secondPath = "/Users/yashsingh/p/t3code/apps/web/src/components/MessagesTimeline.tsx";
+    const firstPath = "/repo/project/apps/web/src/components/chat/MessagesTimeline.tsx";
+    const secondPath = "/repo/project/apps/web/src/components/MessagesTimeline.tsx";
     const screen = await render(
       <ChatMarkdown
         text={`See [MessagesTimeline.tsx](file://${firstPath}) and [MessagesTimeline.tsx](file://${secondPath}).`}
