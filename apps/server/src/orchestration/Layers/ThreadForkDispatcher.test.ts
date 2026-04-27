@@ -326,7 +326,6 @@ it.layer(TestLayer)("ThreadForkDispatcher", (it) => {
           contents: "detached content\n",
           message: "detached-only commit",
         });
-        yield* runGit(git, repoDir, ["checkout", "main"]);
         yield* runGit(git, repoDir, ["checkout", "--detach", detachedSha]);
 
         const { result } = yield* runFork({
