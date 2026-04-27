@@ -18,6 +18,7 @@ import { ServerProviderAuth, ServerProviderState } from "./server.ts";
 
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
+const PROJECT_FILE_PATH_MAX_LENGTH = 2_048;
 
 export const ProjectSearchEntriesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
@@ -63,6 +64,106 @@ export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
 
 export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteFileError>()(
   "ProjectWriteFileError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export const ProjectFilePreviewKind = Schema.Literals([
+  "markdown",
+  "code",
+  "text",
+  "image",
+  "svg",
+  "pdf",
+  "audio",
+  "video",
+  "unsupported",
+]);
+export type ProjectFilePreviewKind = typeof ProjectFilePreviewKind.Type;
+
+export const ProjectFileEntryKind = Schema.Literals(["file", "directory"]);
+export type ProjectFileEntryKind = typeof ProjectFileEntryKind.Type;
+
+export const ProjectFileEntry = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_FILE_PATH_MAX_LENGTH)),
+  kind: ProjectFileEntryKind,
+  openPath: TrimmedNonEmptyString,
+  sizeBytes: Schema.optional(NonNegativeInt),
+  modifiedAt: Schema.optional(IsoDateTime),
+  mimeType: Schema.optional(TrimmedNonEmptyString),
+  previewKind: Schema.optional(ProjectFilePreviewKind),
+});
+export type ProjectFileEntry = typeof ProjectFileEntry.Type;
+
+export const ProjectListDirectoryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: Schema.optional(
+    Schema.String.check(Schema.isMaxLength(PROJECT_FILE_PATH_MAX_LENGTH)),
+  ),
+});
+export type ProjectListDirectoryInput = typeof ProjectListDirectoryInput.Type;
+
+export const ProjectListDirectoryResult = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: Schema.String,
+  entries: Schema.Array(ProjectFileEntry),
+  truncated: Schema.Boolean,
+});
+export type ProjectListDirectoryResult = typeof ProjectListDirectoryResult.Type;
+
+export class ProjectListDirectoryError extends Schema.TaggedErrorClass<ProjectListDirectoryError>()(
+  "ProjectListDirectoryError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export const ProjectReadFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_FILE_PATH_MAX_LENGTH)),
+});
+export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
+
+export const ProjectReadFileResult = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString,
+  openPath: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  sizeBytes: NonNegativeInt,
+  modifiedAt: Schema.optional(IsoDateTime),
+  mimeType: TrimmedNonEmptyString,
+  previewKind: ProjectFilePreviewKind,
+  content: Schema.String,
+  truncated: Schema.Boolean,
+  maxBytes: NonNegativeInt,
+});
+export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
+
+export class ProjectReadFileError extends Schema.TaggedErrorClass<ProjectReadFileError>()(
+  "ProjectReadFileError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export const ProjectCreateFilePreviewUrlInput = ProjectReadFileInput;
+export type ProjectCreateFilePreviewUrlInput = typeof ProjectCreateFilePreviewUrlInput.Type;
+
+export const ProjectCreateFilePreviewUrlResult = Schema.Struct({
+  url: TrimmedNonEmptyString,
+  expiresAt: IsoDateTime,
+  mimeType: TrimmedNonEmptyString,
+  previewKind: ProjectFilePreviewKind,
+});
+export type ProjectCreateFilePreviewUrlResult = typeof ProjectCreateFilePreviewUrlResult.Type;
+
+export class ProjectCreateFilePreviewUrlError extends Schema.TaggedErrorClass<ProjectCreateFilePreviewUrlError>()(
+  "ProjectCreateFilePreviewUrlError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),

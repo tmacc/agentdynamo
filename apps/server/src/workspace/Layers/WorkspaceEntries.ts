@@ -21,22 +21,19 @@ import {
   type WorkspaceEntriesShape,
 } from "../Services/WorkspaceEntries.ts";
 import { WorkspacePaths } from "../Services/WorkspacePaths.ts";
+import {
+  basenameOf,
+  directoryAncestorsOf,
+  IGNORED_WORKSPACE_DIRECTORY_NAMES,
+  isPathInIgnoredWorkspaceDirectory,
+  parentPathOf,
+  toPosixPath,
+} from "../workspacePathPolicy.ts";
 
 const WORKSPACE_CACHE_TTL_MS = 15_000;
 const WORKSPACE_CACHE_MAX_KEYS = 4;
 const WORKSPACE_INDEX_MAX_ENTRIES = 25_000;
 const WORKSPACE_SCAN_READDIR_CONCURRENCY = 32;
-const IGNORED_DIRECTORY_NAMES = new Set([
-  ".git",
-  ".convex",
-  "node_modules",
-  ".next",
-  ".turbo",
-  "dist",
-  "build",
-  "out",
-  ".cache",
-]);
 
 interface WorkspaceIndex {
   scannedAt: number;
@@ -51,10 +48,6 @@ interface SearchableWorkspaceEntry extends ProjectEntry {
 
 type RankedWorkspaceEntry = RankedSearchResult<SearchableWorkspaceEntry>;
 
-function toPosixPath(input: string): string {
-  return input.replaceAll("\\", "/");
-}
-
 function expandHomePath(input: string, path: Path.Path): string {
   if (input === "~") {
     return OS.homedir();
@@ -63,22 +56,6 @@ function expandHomePath(input: string, path: Path.Path): string {
     return path.join(OS.homedir(), input.slice(2));
   }
   return input;
-}
-
-function parentPathOf(input: string): string | undefined {
-  const separatorIndex = input.lastIndexOf("/");
-  if (separatorIndex === -1) {
-    return undefined;
-  }
-  return input.slice(0, separatorIndex);
-}
-
-function basenameOf(input: string): string {
-  const separatorIndex = input.lastIndexOf("/");
-  if (separatorIndex === -1) {
-    return input;
-  }
-  return input.slice(separatorIndex + 1);
 }
 
 function toSearchableWorkspaceEntry(entry: ProjectEntry): SearchableWorkspaceEntry {
@@ -123,23 +100,6 @@ function scoreEntry(entry: SearchableWorkspaceEntry, query: string): number | nu
   }
 
   return Math.min(...scores);
-}
-
-function isPathInIgnoredDirectory(relativePath: string): boolean {
-  const firstSegment = relativePath.split("/")[0];
-  if (!firstSegment) return false;
-  return IGNORED_DIRECTORY_NAMES.has(firstSegment);
-}
-
-function directoryAncestorsOf(relativePath: string): string[] {
-  const segments = relativePath.split("/").filter((segment) => segment.length > 0);
-  if (segments.length <= 1) return [];
-
-  const directories: string[] = [];
-  for (let index = 1; index < segments.length; index += 1) {
-    directories.push(segments.slice(0, index).join("/"));
-  }
-  return directories;
 }
 
 const resolveBrowseTarget = (
@@ -215,13 +175,13 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
 
       const listedPaths = [...listedFiles.paths]
         .map((entry) => toPosixPath(entry))
-        .filter((entry) => entry.length > 0 && !isPathInIgnoredDirectory(entry));
+        .filter((entry) => entry.length > 0 && !isPathInIgnoredWorkspaceDirectory(entry));
       const filePaths = yield* filterGitIgnoredPaths(cwd, listedPaths);
 
       const directorySet = new Set<string>();
       for (const filePath of filePaths) {
         for (const directoryPath of directoryAncestorsOf(filePath)) {
-          if (!isPathInIgnoredDirectory(directoryPath)) {
+          if (!isPathInIgnoredWorkspaceDirectory(directoryPath)) {
             directorySet.add(directoryPath);
           }
         }
@@ -314,7 +274,7 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
           if (!dirent.name || dirent.name === "." || dirent.name === "..") {
             continue;
           }
-          if (dirent.isDirectory() && IGNORED_DIRECTORY_NAMES.has(dirent.name)) {
+          if (dirent.isDirectory() && IGNORED_WORKSPACE_DIRECTORY_NAMES.has(dirent.name)) {
             continue;
           }
           if (!dirent.isDirectory() && !dirent.isFile()) {
@@ -324,7 +284,7 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
           const relativePath = toPosixPath(
             relativeDir ? path.join(relativeDir, dirent.name) : dirent.name,
           );
-          if (isPathInIgnoredDirectory(relativePath)) {
+          if (isPathInIgnoredWorkspaceDirectory(relativePath)) {
             continue;
           }
           candidates.push({ dirent, relativePath });

@@ -11,7 +11,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { DiffIcon, LayoutGridIcon, TerminalSquareIcon } from "lucide-react";
+import { DiffIcon, FilesIcon, LayoutGridIcon, TerminalSquareIcon } from "lucide-react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { clearBoardRouteSearchParams } from "~/boardRouteSearch";
 import { Badge } from "../ui/badge";
@@ -41,6 +41,8 @@ interface ChatHeaderProps {
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
   diffOpen: boolean;
+  filesOpen: boolean;
+  filesAvailable: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
@@ -49,6 +51,7 @@ interface ChatHeaderProps {
   onDisableWorktreeSetup: () => void;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
+  onToggleFiles: () => void;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -71,6 +74,8 @@ export const ChatHeader = memo(function ChatHeader({
   diffToggleShortcutLabel,
   gitCwd,
   diffOpen,
+  filesOpen,
+  filesAvailable,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
@@ -79,6 +84,7 @@ export const ChatHeader = memo(function ChatHeader({
   onDisableWorktreeSetup,
   onToggleTerminal,
   onToggleDiff,
+  onToggleFiles,
 }: ChatHeaderProps) {
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as {
@@ -193,6 +199,28 @@ export const ChatHeader = memo(function ChatHeader({
               : terminalToggleShortcutLabel
                 ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
                 : "Toggle terminal drawer"}
+          </TooltipPopup>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                className="shrink-0"
+                pressed={filesOpen}
+                onPressedChange={onToggleFiles}
+                aria-label="Toggle project files"
+                variant="outline"
+                size="xs"
+                disabled={!filesAvailable}
+              >
+                <FilesIcon className="size-3" />
+              </Toggle>
+            }
+          />
+          <TooltipPopup side="bottom">
+            {!filesAvailable
+              ? "Project files are unavailable until this thread has an active project."
+              : "Toggle project files"}
           </TooltipPopup>
         </Tooltip>
         <Tooltip>

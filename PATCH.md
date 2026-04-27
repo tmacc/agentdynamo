@@ -26,6 +26,46 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ## Fork Feature Inventory
 
+### Project file browser
+
+- `Status`: Present as a read-only project file viewer tied to active chat workspaces.
+- `User-visible behavior`: Users can open a right-side Project Files panel from chat, browse the active project tree, and preview Markdown, code/text, images, SVG, PDF, audio, and video. The browser defaults to the active thread worktree when one exists and falls back to the base project root. Code and text previews are read-only and provide an Open action for the user's preferred external editor. Unsupported files show metadata/actions instead of attempting arbitrary binary rendering.
+- `Why it exists`: Lets users inspect files the agent is discussing or modifying without turning Dynamo into an IDE or adding write-capable file management UI.
+- `Key fork files`:
+  - `packages/contracts/src/project.ts`
+  - `packages/contracts/src/rpc.ts`
+  - `packages/contracts/src/ipc.ts`
+  - `apps/server/src/workspace/Services/WorkspaceFileBrowser.ts`
+  - `apps/server/src/workspace/Layers/WorkspaceFileBrowser.ts`
+  - `apps/server/src/workspace/workspacePathPolicy.ts`
+  - `apps/server/src/http.ts`
+  - `apps/server/src/ws.ts`
+  - `apps/server/src/server.ts`
+  - `apps/web/src/fileBrowserRouteSearch.ts`
+  - `apps/web/src/components/project-files/ProjectFilesPanel.tsx`
+  - `apps/web/src/components/chat/ChatHeader.tsx`
+  - `apps/web/src/components/ChatView.tsx`
+  - `apps/web/src/routes/_chat.$environmentId.$threadId.tsx`
+  - `apps/web/src/routes/_chat.draft.$draftId.tsx`
+- `Important invariants`:
+  - The panel is read-only: no edit, create, delete, rename, move, tabbed editor, diagnostics, or language-server features.
+  - Workspace roots and relative paths must be re-normalized server-side on every list/read/raw-preview operation.
+  - Symlinks must not allow file listing or raw preview reads outside the normalized workspace root.
+  - Raw previews use short-lived stateless signed URLs scoped to one workspace file; route handlers must revalidate signature, expiry, path containment, symlink containment, preview kind, and file stat hints before serving bytes.
+  - HTML files are displayed as source text only, never rendered in an iframe.
+  - SVG previews are loaded as browser image resources, never injected into the DOM as markup.
+  - Browser-native binary previews are limited to common image/SVG/PDF/audio/video formats; arbitrary binaries remain unsupported.
+- `Merge hotspots`:
+  - Shared project/RPC contracts and websocket method registration.
+  - HTTP route ordering and auth/CORS behavior.
+  - Workspace path/ignore policy shared with project entry search.
+  - Chat right-panel layout and header action controls.
+- `Verification`:
+  - Open a thread with a worktree and confirm the tree shows the worktree, not the base project.
+  - Open Markdown, source, image/SVG, PDF, and unsupported files from the tree.
+  - Confirm traversal, escaped symlink, tampered token, and expired token requests fail.
+  - Run `bun fmt`, `bun lint`, `bun typecheck`, and targeted tests through `bun run test`.
+
 ### Multi-provider subagents
 
 - `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce` as autonomous coordinator-led team agents.

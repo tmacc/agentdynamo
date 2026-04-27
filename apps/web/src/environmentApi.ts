@@ -23,6 +23,9 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
     },
     projects: {
       searchEntries: rpcClient.projects.searchEntries,
+      listDirectory: rpcClient.projects.listDirectory,
+      readFile: rpcClient.projects.readFile,
+      createFilePreviewUrl: rpcClient.projects.createFilePreviewUrl,
       writeFile: rpcClient.projects.writeFile,
       scanWorktreeSetup: rpcClient.projects.scanWorktreeSetup,
       applyWorktreeSetup: rpcClient.projects.applyWorktreeSetup,

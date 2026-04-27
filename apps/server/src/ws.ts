@@ -21,8 +21,11 @@ import {
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
   ProjectApplyWorktreeSetupError,
+  ProjectCreateFilePreviewUrlError,
   ProjectGetIntelligenceError,
+  ProjectListDirectoryError,
   ProjectScanWorktreeSetupError,
+  ProjectReadFileError,
   ProjectReadIntelligenceSurfaceError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
@@ -63,6 +66,7 @@ import { ServerRuntimeStartup } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService } from "./serverSettings.ts";
 import { TerminalManager } from "./terminal/Services/Manager.ts";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries.ts";
+import { WorkspaceFileBrowser } from "./workspace/Services/WorkspaceFileBrowser.ts";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem.ts";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths.ts";
 import { ProjectIntelligenceResolver } from "./project/Services/ProjectIntelligenceResolver.ts";
@@ -204,6 +208,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const serverSettings = yield* ServerSettingsService;
       const startup = yield* ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries;
+      const workspaceFileBrowser = yield* WorkspaceFileBrowser;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const projectIntelligenceResolver = yield* ProjectIntelligenceResolver;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
@@ -1048,6 +1053,48 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 (cause) =>
                   new ProjectSearchEntriesError({
                     message: `Failed to search workspace entries: ${cause.detail}`,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsListDirectory]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListDirectory,
+            workspaceFileBrowser.listDirectory(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectListDirectoryError({
+                    message: cause.detail,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsReadFile]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsReadFile,
+            workspaceFileBrowser.readFile(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectReadFileError({
+                    message: cause.detail,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsCreateFilePreviewUrl]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsCreateFilePreviewUrl,
+            workspaceFileBrowser.createFilePreviewUrl(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectCreateFilePreviewUrlError({
+                    message: cause.detail,
                     cause,
                   }),
               ),

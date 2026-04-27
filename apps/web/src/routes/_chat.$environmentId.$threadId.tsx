@@ -18,21 +18,32 @@ import {
   stripDiffSearchParams,
 } from "../diffRouteSearch";
 import {
+  type FileBrowserRouteSearch,
+  parseFileBrowserRouteSearch,
+  stripFileBrowserRouteSearchParams,
+} from "../fileBrowserRouteSearch";
+import {
   type ProjectIntelligenceRouteSearch,
   parseProjectIntelligenceRouteSearch,
 } from "../projectIntelligenceRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { useTheme } from "../hooks/useTheme";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { selectEnvironmentState, selectThreadExistsByRef, useStore } from "../store";
 import { createThreadSelectorByRef } from "../storeSelectors";
 import { resolveThreadRouteRef, buildThreadRouteParams } from "../threadRoutes";
 import { RightPanelSheet } from "../components/RightPanelSheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
+import { ProjectFilesPanel } from "../components/project-files/ProjectFilesPanel";
+import type { EnvironmentId } from "@t3tools/contracts";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
 const DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
 const DIFF_INLINE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
 const DIFF_INLINE_SIDEBAR_MIN_WIDTH = 26 * 16;
+const FILES_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_files_sidebar_width";
+const FILES_INLINE_DEFAULT_WIDTH = "clamp(30rem,46vw,48rem)";
+const FILES_INLINE_SIDEBAR_MIN_WIDTH = 28 * 16;
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 208;
 
 const DiffLoadingFallback = (props: { mode: DiffPanelMode }) => {
@@ -40,6 +51,60 @@ const DiffLoadingFallback = (props: { mode: DiffPanelMode }) => {
     <DiffPanelShell mode={props.mode} header={<DiffPanelHeaderSkeleton />}>
       <DiffPanelLoadingState label="Loading diff viewer..." />
     </DiffPanelShell>
+  );
+};
+
+const ProjectFilesInlineSidebar = (props: {
+  filesOpen: boolean;
+  onCloseFiles: () => void;
+  onOpenFiles: () => void;
+  environmentId: EnvironmentId;
+  workspaceRoot: string;
+  projectName: string | undefined;
+  selectedPath: string | null;
+  resolvedTheme: "light" | "dark";
+  onSelectPath: (relativePath: string | null) => void;
+}) => {
+  const { onCloseFiles, onOpenFiles } = props;
+  const onOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) {
+        onOpenFiles();
+        return;
+      }
+      onCloseFiles();
+    },
+    [onCloseFiles, onOpenFiles],
+  );
+  return (
+    <SidebarProvider
+      defaultOpen={false}
+      open={props.filesOpen}
+      onOpenChange={onOpenChange}
+      className="w-auto min-h-0 flex-none bg-transparent"
+      style={{ "--sidebar-width": FILES_INLINE_DEFAULT_WIDTH } as React.CSSProperties}
+    >
+      <Sidebar
+        side="right"
+        collapsible="offcanvas"
+        className="border-l border-border bg-background text-foreground"
+        resizable={{
+          minWidth: FILES_INLINE_SIDEBAR_MIN_WIDTH,
+          storageKey: FILES_INLINE_SIDEBAR_WIDTH_STORAGE_KEY,
+        }}
+      >
+        <ProjectFilesPanel
+          environmentId={props.environmentId}
+          workspaceRoot={props.workspaceRoot}
+          projectName={props.projectName}
+          selectedPath={props.selectedPath}
+          resolvedTheme={props.resolvedTheme}
+          onSelectPath={props.onSelectPath}
+          onClose={props.onCloseFiles}
+        />
+        <SidebarRail />
+      </Sidebar>
+    </SidebarProvider>
   );
 };
 
@@ -147,10 +212,18 @@ function ChatThreadRouteView() {
     select: (params) => resolveThreadRouteRef(params),
   });
   const search = Route.useSearch();
+  const { resolvedTheme } = useTheme();
   const bootstrapComplete = useStore(
     (store) => selectEnvironmentState(store, threadRef?.environmentId ?? null).bootstrapComplete,
   );
   const serverThread = useStore(useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]));
+  const project = useStore((store) =>
+    serverThread
+      ? selectEnvironmentState(store, serverThread.environmentId).projectById[
+          serverThread.projectId
+        ]
+      : undefined,
+  );
   const threadExists = useStore((store) => selectThreadExistsByRef(store, threadRef));
   const environmentHasServerThreads = useStore(
     (store) => selectEnvironmentState(store, threadRef?.environmentId ?? null).threadIds.length > 0,
@@ -171,6 +244,7 @@ function ChatThreadRouteView() {
   const serverThreadStarted = threadHasStarted(serverThread);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
   const diffOpen = search.diff === "1";
+  const filesOpen = search.files === "1";
   const shouldUseDiffSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const currentThreadKey = threadRef ? `${threadRef.environmentId}:${threadRef.threadId}` : null;
   const [diffPanelMountState, setDiffPanelMountState] = useState(() => ({
@@ -211,11 +285,56 @@ function ChatThreadRouteView() {
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(threadRef),
       search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
+        const rest = stripFileBrowserRouteSearchParams(stripDiffSearchParams(previous));
         return { ...rest, diff: "1" };
       },
     });
   }, [markDiffOpened, navigate, threadRef]);
+  const closeFiles = useCallback(() => {
+    if (!threadRef) return;
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(threadRef),
+      search: (previous) => stripFileBrowserRouteSearchParams(previous as Record<string, unknown>),
+    });
+  }, [navigate, threadRef]);
+  const openFiles = useCallback(() => {
+    if (!threadRef) return;
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(threadRef),
+      search: (previous) => {
+        const rest = stripDiffSearchParams(previous as Record<string, unknown>);
+        return { ...rest, files: "1" };
+      },
+    });
+  }, [navigate, threadRef]);
+  const toggleFiles = useCallback(() => {
+    if (filesOpen) {
+      closeFiles();
+      return;
+    }
+    openFiles();
+  }, [closeFiles, filesOpen, openFiles]);
+  const selectFilePath = useCallback(
+    (relativePath: string | null) => {
+      if (!threadRef) return;
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(threadRef),
+        search: (previous) => {
+          const base = { ...(previous as Record<string, unknown>), files: "1" as const };
+          if (relativePath) {
+            return { ...base, filePath: relativePath };
+          }
+          const { filePath: _filePath, ...rest } = previous as Record<string, unknown>;
+          void _filePath;
+          return { ...rest, files: "1" as const };
+        },
+      });
+    },
+    [navigate, threadRef],
+  );
 
   useEffect(() => {
     if (!threadRef || !bootstrapComplete) {
@@ -239,6 +358,8 @@ function ChatThreadRouteView() {
   }
 
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;
+  const filesWorkspaceRoot = serverThread?.worktreePath ?? project?.cwd ?? null;
+  const selectedFilePath = typeof search.filePath === "string" ? search.filePath : null;
 
   if (!shouldUseDiffSheet) {
     return (
@@ -248,6 +369,8 @@ function ChatThreadRouteView() {
             environmentId={threadRef.environmentId}
             threadId={threadRef.threadId}
             onDiffPanelOpen={markDiffOpened}
+            filesOpen={filesOpen}
+            onToggleFiles={toggleFiles}
             reserveTitleBarControlInset={!diffOpen}
             routeKind="server"
           />
@@ -258,6 +381,19 @@ function ChatThreadRouteView() {
           onOpenDiff={openDiff}
           renderDiffContent={shouldRenderDiffContent}
         />
+        {filesWorkspaceRoot ? (
+          <ProjectFilesInlineSidebar
+            filesOpen={filesOpen}
+            onCloseFiles={closeFiles}
+            onOpenFiles={openFiles}
+            environmentId={threadRef.environmentId}
+            workspaceRoot={filesWorkspaceRoot}
+            projectName={project?.name}
+            selectedPath={selectedFilePath}
+            resolvedTheme={resolvedTheme}
+            onSelectPath={selectFilePath}
+          />
+        ) : null}
       </>
     );
   }
@@ -269,11 +405,26 @@ function ChatThreadRouteView() {
           environmentId={threadRef.environmentId}
           threadId={threadRef.threadId}
           onDiffPanelOpen={markDiffOpened}
+          filesOpen={filesOpen}
+          onToggleFiles={toggleFiles}
           routeKind="server"
         />
       </SidebarInset>
       <RightPanelSheet open={diffOpen} onClose={closeDiff}>
         {shouldRenderDiffContent ? <LazyDiffPanel mode="sheet" /> : null}
+      </RightPanelSheet>
+      <RightPanelSheet open={filesOpen && Boolean(filesWorkspaceRoot)} onClose={closeFiles}>
+        {filesWorkspaceRoot ? (
+          <ProjectFilesPanel
+            environmentId={threadRef.environmentId}
+            workspaceRoot={filesWorkspaceRoot}
+            projectName={project?.name}
+            selectedPath={selectedFilePath}
+            resolvedTheme={resolvedTheme}
+            onSelectPath={selectFilePath}
+            onClose={closeFiles}
+          />
+        ) : null}
       </RightPanelSheet>
     </>
   );
@@ -283,12 +434,17 @@ export const Route = createFileRoute("/_chat/$environmentId/$threadId")({
   validateSearch: (search) => ({
     ...parseDiffRouteSearch(search),
     ...parseBoardRouteSearch(search),
+    ...parseFileBrowserRouteSearch(search),
     ...parseProjectIntelligenceRouteSearch(search),
   }),
   search: {
     middlewares: [
-      retainSearchParams<DiffRouteSearch & BoardRouteSearch & ProjectIntelligenceRouteSearch>([
+      retainSearchParams<
+        DiffRouteSearch & BoardRouteSearch & ProjectIntelligenceRouteSearch & FileBrowserRouteSearch
+      >([
         "diff",
+        "files",
+        "filePath",
         "view",
         "boardEnvironmentId",
         "boardProjectId",

@@ -141,6 +141,11 @@ import {
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import {
+  WorkspaceFileBrowser,
+  WorkspaceFileBrowserError,
+  type WorkspaceFileBrowserShape,
+} from "./workspace/Services/WorkspaceFileBrowser.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 
@@ -372,6 +377,7 @@ const buildAppUnderTest = (options?: {
     serverEnvironment?: Partial<ServerEnvironmentShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
     projectIntelligenceResolver?: Partial<ProjectIntelligenceResolverShape>;
+    workspaceFileBrowser?: Partial<WorkspaceFileBrowserShape>;
     teamCoordinatorAccess?: Partial<TeamCoordinatorAccessShape>;
     teamOrchestrationService?: Partial<TeamOrchestrationServiceShape>;
   };
@@ -433,6 +439,13 @@ const buildAppUnderTest = (options?: {
         Layer.provide(WorkspacePathsLive),
         Layer.provide(workspaceEntriesLayer),
       ),
+      Layer.mock(WorkspaceFileBrowser)({
+        listDirectory: () => Effect.die(new Error("unused")),
+        readFile: () => Effect.die(new Error("unused")),
+        createFilePreviewUrl: () => Effect.die(new Error("unused")),
+        resolveRawPreviewToken: () => Effect.die(new Error("unused")),
+        ...options?.layers?.workspaceFileBrowser,
+      }),
       ProjectFaviconResolverLive,
       Layer.mock(ProjectIntelligenceResolver)({
         getIntelligence: () => Effect.die(new Error("unused")),
@@ -938,6 +951,87 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(response.status, 200);
       assert.include(yield* response.text, 'data-fallback="project-favicon"');
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects project file raw preview requests without a token", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const response = yield* HttpClient.get("/api/project-files/raw");
+
+      assert.equal(response.status, 400);
+      assert.equal(yield* response.text, "Missing preview token");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves project file raw previews inline with no-store cache headers and ranges", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const projectDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-router-project-file-raw-",
+      });
+      const previewPath = path.join(projectDir, "preview.pdf");
+      yield* fileSystem.writeFileString(previewPath, "abcdef");
+
+      yield* buildAppUnderTest({
+        layers: {
+          workspaceFileBrowser: {
+            resolveRawPreviewToken: (token) =>
+              token === "valid"
+                ? Effect.succeed({
+                    absolutePath: previewPath,
+                    mimeType: "application/pdf",
+                    sizeBytes: 6,
+                    previewKind: "pdf",
+                  })
+                : Effect.fail(
+                    new WorkspaceFileBrowserError({
+                      operation: "workspaceFileBrowser.resolveRawPreviewToken",
+                      detail:
+                        token === "expired" ? "Preview token expired." : "Invalid preview token.",
+                    }),
+                  ),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.get("/api/project-files/raw?token=valid", {
+        headers: {
+          range: "bytes=1-3",
+        },
+      });
+
+      assert.equal(response.status, 206);
+      assert.equal(response.headers["cache-control"], "no-store");
+      assert.equal(response.headers["content-disposition"], "inline");
+      assert.equal(response.headers["content-type"], "application/pdf");
+      assert.equal(response.headers["content-range"], "bytes 1-3/6");
+      assert.equal(yield* response.text, "bcd");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("maps expired project file raw preview tokens to gone", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          workspaceFileBrowser: {
+            resolveRawPreviewToken: () =>
+              Effect.fail(
+                new WorkspaceFileBrowserError({
+                  operation: "workspaceFileBrowser.resolveRawPreviewToken",
+                  detail: "Preview token expired.",
+                }),
+              ),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.get("/api/project-files/raw?token=expired");
+
+      assert.equal(response.status, 410);
+      assert.equal(yield* response.text, "Preview token expired.");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

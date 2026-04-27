@@ -6,6 +6,7 @@ import {
   attachmentsRouteLayer,
   otlpTracesProxyRouteLayer,
   projectFaviconRouteLayer,
+  projectFilesRawRouteLayer,
   serverEnvironmentRouteLayer,
   staticAndDevRouteLayer,
   browserApiCorsLayer,
@@ -51,6 +52,7 @@ import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResol
 import { ProjectIntelligenceResolverLive } from "./project/Layers/ProjectIntelligenceResolver.ts";
 import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdentityResolver.ts";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
+import { WorkspaceFileBrowserLive } from "./workspace/Layers/WorkspaceFileBrowser.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner.ts";
@@ -237,9 +239,16 @@ const WorkspaceFileSystemLayerLive = WorkspaceFileSystemLive.pipe(
   Layer.provide(WorkspaceEntriesLayerLive),
 );
 
+const WorkspaceFileBrowserLayerLive = WorkspaceFileBrowserLive.pipe(
+  Layer.provide(WorkspacePathsLive),
+  Layer.provideMerge(GitCoreLive),
+  Layer.provide(ServerSecretStoreLive),
+);
+
 const WorkspaceLayerLive = Layer.mergeAll(
   WorkspacePathsLive,
   WorkspaceEntriesLayerLive,
+  WorkspaceFileBrowserLayerLive,
   WorkspaceFileSystemLayerLive,
 );
 
@@ -321,6 +330,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   orchestrationDispatchRouteLayer,
   orchestrationSnapshotRouteLayer,
   otlpTracesProxyRouteLayer,
+  projectFilesRawRouteLayer,
   projectFaviconRouteLayer,
   serverEnvironmentRouteLayer,
   staticAndDevRouteLayer,

@@ -1,4 +1,5 @@
 import Mime from "@effect/platform-node/Mime";
+import fsPromises from "node:fs/promises";
 import { Data, Effect, FileSystem, Option, Path } from "effect";
 import { cast } from "effect/Function";
 import {
@@ -21,6 +22,7 @@ import { resolveStaticDir, ServerConfig } from "./config.ts";
 import { decodeOtlpTraceRecords } from "./observability/TraceRecord.ts";
 import { BrowserTraceCollector } from "./observability/Services/BrowserTraceCollector.ts";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver.ts";
+import { WorkspaceFileBrowser } from "./workspace/Services/WorkspaceFileBrowser.ts";
 import { ServerAuth } from "./auth/Services/ServerAuth.ts";
 import { respondToAuthError } from "./auth/http.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
@@ -28,6 +30,7 @@ import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
+const PROJECT_FILE_RAW_PATH = "/api/project-files/raw";
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
 
 export const browserApiCorsLayer = HttpRouter.cors({
@@ -218,6 +221,112 @@ export const projectFaviconRouteLayer = HttpRouter.add(
       ),
     );
   }).pipe(Effect.catchTag("AuthError", respondToAuthError)),
+);
+
+function parseRangeHeader(
+  rangeHeader: string | null,
+  sizeBytes: number,
+): { start: number; end: number } | null {
+  if (!rangeHeader) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+  if (!match) return null;
+  const [, rawStart, rawEnd] = match;
+  if (!rawStart && !rawEnd) return null;
+  if (!rawStart && rawEnd) {
+    const suffixLength = Number.parseInt(rawEnd, 10);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return null;
+    return {
+      start: Math.max(0, sizeBytes - suffixLength),
+      end: sizeBytes - 1,
+    };
+  }
+  const start = Number.parseInt(rawStart ?? "", 10);
+  const end = rawEnd ? Number.parseInt(rawEnd, 10) : sizeBytes - 1;
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    start < 0 ||
+    end < start ||
+    start >= sizeBytes
+  ) {
+    return null;
+  }
+  return { start, end: Math.min(end, sizeBytes - 1) };
+}
+
+export const projectFilesRawRouteLayer = HttpRouter.add(
+  "GET",
+  PROJECT_FILE_RAW_PATH,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const token = url.value.searchParams.get("token");
+    if (!token) {
+      return HttpServerResponse.text("Missing preview token", { status: 400 });
+    }
+
+    const fileBrowser = yield* WorkspaceFileBrowser;
+    const rawFileResult = yield* fileBrowser.resolveRawPreviewToken(token).pipe(Effect.result);
+    if (rawFileResult._tag === "Failure") {
+      return HttpServerResponse.text(rawFileResult.failure.detail, {
+        status: rawFileResult.failure.detail.includes("expired") ? 410 : 403,
+      });
+    }
+    const rawFile = rawFileResult.success;
+
+    const headers: Record<string, string> = {
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "no-store",
+      "Content-Disposition": "inline",
+    };
+    const rangeHeader = request.headers.range ?? null;
+    const range = parseRangeHeader(rangeHeader, rawFile.sizeBytes);
+    const data = yield* Effect.tryPromise({
+      try: async () => {
+        const file = await fsPromises.open(rawFile.absolutePath, "r");
+        try {
+          if (!range) {
+            return await file.readFile();
+          }
+          const length = range.end - range.start + 1;
+          const bytes = Buffer.alloc(length);
+          const result = await file.read(bytes, 0, length, range.start);
+          return bytes.subarray(0, result.bytesRead);
+        } finally {
+          await file.close();
+        }
+      },
+      catch: () => null,
+    });
+    if (!data) {
+      return HttpServerResponse.text("Internal Server Error", { status: 500 });
+    }
+
+    if (range) {
+      return HttpServerResponse.uint8Array(data, {
+        status: 206,
+        contentType: rawFile.mimeType,
+        headers: {
+          ...headers,
+          "Content-Length": String(data.byteLength),
+          "Content-Range": `bytes ${range.start}-${range.start + data.byteLength - 1}/${rawFile.sizeBytes}`,
+        },
+      });
+    }
+
+    return HttpServerResponse.uint8Array(data, {
+      status: 200,
+      contentType: rawFile.mimeType,
+      headers: {
+        ...headers,
+        "Content-Length": String(data.byteLength),
+      },
+    });
+  }),
 );
 
 export const staticAndDevRouteLayer = HttpRouter.add(

@@ -39,10 +39,16 @@ import type {
 import type {
   ProjectApplyWorktreeSetupInput,
   ProjectApplyWorktreeSetupResult,
+  ProjectCreateFilePreviewUrlInput,
+  ProjectCreateFilePreviewUrlResult,
   ProjectGetIntelligenceInput,
   ProjectGetIntelligenceResult,
+  ProjectListDirectoryInput,
+  ProjectListDirectoryResult,
   ProjectScanWorktreeSetupInput,
   ProjectScanWorktreeSetupResult,
+  ProjectReadFileInput,
+  ProjectReadFileResult,
   ProjectReadIntelligenceSurfaceInput,
   ProjectReadIntelligenceSurfaceResult,
   ProjectSearchEntriesInput,
@@ -274,6 +280,11 @@ export interface EnvironmentApi {
   };
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
+    listDirectory: (input: ProjectListDirectoryInput) => Promise<ProjectListDirectoryResult>;
+    readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
+    createFilePreviewUrl: (
+      input: ProjectCreateFilePreviewUrlInput,
+    ) => Promise<ProjectCreateFilePreviewUrlResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
     scanWorktreeSetup: (
       input: ProjectScanWorktreeSetupInput,

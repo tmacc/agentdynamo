@@ -74,12 +74,21 @@ import {
   ProjectApplyWorktreeSetupError,
   ProjectApplyWorktreeSetupInput,
   ProjectApplyWorktreeSetupResult,
+  ProjectCreateFilePreviewUrlError,
+  ProjectCreateFilePreviewUrlInput,
+  ProjectCreateFilePreviewUrlResult,
   ProjectGetIntelligenceError,
   ProjectGetIntelligenceInput,
   ProjectGetIntelligenceResult,
+  ProjectListDirectoryError,
+  ProjectListDirectoryInput,
+  ProjectListDirectoryResult,
   ProjectScanWorktreeSetupError,
   ProjectScanWorktreeSetupInput,
   ProjectScanWorktreeSetupResult,
+  ProjectReadFileError,
+  ProjectReadFileInput,
+  ProjectReadFileResult,
   ProjectReadIntelligenceSurfaceError,
   ProjectReadIntelligenceSurfaceInput,
   ProjectReadIntelligenceSurfaceResult,
@@ -117,6 +126,9 @@ export const WS_METHODS = {
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
   projectsSearchEntries: "projects.searchEntries",
+  projectsListDirectory: "projects.listDirectory",
+  projectsReadFile: "projects.readFile",
+  projectsCreateFilePreviewUrl: "projects.createFilePreviewUrl",
   projectsWriteFile: "projects.writeFile",
   projectsScanWorktreeSetup: "projects.scanWorktreeSetup",
   projectsApplyWorktreeSetup: "projects.applyWorktreeSetup",
@@ -208,6 +220,24 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
   success: ProjectWriteFileResult,
   error: ProjectWriteFileError,
+});
+
+export const WsProjectsListDirectoryRpc = Rpc.make(WS_METHODS.projectsListDirectory, {
+  payload: ProjectListDirectoryInput,
+  success: ProjectListDirectoryResult,
+  error: ProjectListDirectoryError,
+});
+
+export const WsProjectsReadFileRpc = Rpc.make(WS_METHODS.projectsReadFile, {
+  payload: ProjectReadFileInput,
+  success: ProjectReadFileResult,
+  error: ProjectReadFileError,
+});
+
+export const WsProjectsCreateFilePreviewUrlRpc = Rpc.make(WS_METHODS.projectsCreateFilePreviewUrl, {
+  payload: ProjectCreateFilePreviewUrlInput,
+  success: ProjectCreateFilePreviewUrlResult,
+  error: ProjectCreateFilePreviewUrlError,
 });
 
 export const WsProjectsScanWorktreeSetupRpc = Rpc.make(WS_METHODS.projectsScanWorktreeSetup, {
@@ -502,6 +532,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
   WsProjectsSearchEntriesRpc,
+  WsProjectsListDirectoryRpc,
+  WsProjectsReadFileRpc,
+  WsProjectsCreateFilePreviewUrlRpc,
   WsProjectsWriteFileRpc,
   WsProjectsScanWorktreeSetupRpc,
   WsProjectsApplyWorktreeSetupRpc,
