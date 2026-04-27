@@ -83,8 +83,8 @@ function isLoopbackUrl(rawUrl: string): boolean {
 }
 
 async function evaluateGraph(page: Page): Promise<GraphSnapshot> {
-  return await page.evaluate(() => {
-    const isVisible = (element: Element, rect: DOMRect) => {
+  const script = String.raw`(() => {
+    const isVisible = (element, rect) => {
       const style = window.getComputedStyle(element);
       return (
         rect.width > 0 &&
@@ -94,7 +94,7 @@ async function evaluateGraph(page: Page): Promise<GraphSnapshot> {
         Number(style.opacity || "1") > 0.01
       );
     };
-    const isInteractable = (element: Element) => {
+    const isInteractable = (element) => {
       const tagName = element.tagName.toLowerCase();
       const role = element.getAttribute("role") ?? "";
       return (
@@ -103,14 +103,14 @@ async function evaluateGraph(page: Page): Promise<GraphSnapshot> {
         element.hasAttribute("onclick")
       );
     };
-    const viewportForRect = (rect: DOMRect): "in" | "above" | "below" | "left" | "right" => {
+    const viewportForRect = (rect) => {
       if (rect.bottom < 0) return "above";
       if (rect.top > window.innerHeight) return "below";
       if (rect.right < 0) return "left";
       if (rect.left > window.innerWidth) return "right";
       return "in";
     };
-    const labelFor = (element: Element) =>
+    const labelFor = (element) =>
       (
         element.getAttribute("aria-label") ??
         element.getAttribute("title") ??
@@ -154,7 +154,7 @@ async function evaluateGraph(page: Page): Promise<GraphSnapshot> {
           visible: true,
           interactable,
           disabled:
-            (element as HTMLButtonElement | HTMLInputElement).disabled === true ||
+            element.disabled === true ||
             element.getAttribute("aria-disabled") === "true",
           viewport: viewportForRect(rect),
           owner: {
@@ -177,7 +177,7 @@ async function evaluateGraph(page: Page): Promise<GraphSnapshot> {
         action: node.tagName === "input" || node.tagName === "textarea" ? "type" : "click",
         confidence: node.viewport === "in" ? 0.8 : 0.35,
         observed: false,
-      })) as Array<BrowserGraphEdge>;
+      }));
     const horizontalOverflow = document.documentElement.scrollWidth > window.innerWidth + 2 ? 1 : 0;
     const title = document.title ? `Title: ${document.title}. ` : "";
     const visibleActions = graphNodes
@@ -192,7 +192,8 @@ async function evaluateGraph(page: Page): Promise<GraphSnapshot> {
       horizontalOverflow,
       summary: `${title}${graphNodes.length} visible semantic nodes. Primary actions: ${visibleActions || "none"}.`,
     };
-  });
+  })()`;
+  return (await page.evaluate(script)) as GraphSnapshot;
 }
 
 const makeBrowserService = Effect.gen(function* () {
@@ -200,6 +201,9 @@ const makeBrowserService = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
   const path = yield* Path.Path;
   const sessionsRef = yield* Ref.make(new Map<ThreadId, RuntimeSession>());
+  const readSettings = settingsService.getSettings.pipe(
+    Effect.mapError((cause) => new Error(cause.message)),
+  );
 
   const loadPlaywright = Effect.tryPromise({
     try: () => import("playwright"),
@@ -208,7 +212,7 @@ const makeBrowserService = Effect.gen(function* () {
 
   const ensureSession = (threadId: ThreadId) =>
     Effect.gen(function* () {
-      const settings = yield* settingsService.getSettings;
+      const settings = yield* readSettings;
       const sessions = yield* Ref.get(sessionsRef);
       const existing = sessions.get(threadId);
       if (existing?.page && !existing.page.isClosed()) {
@@ -248,20 +252,26 @@ const makeBrowserService = Effect.gen(function* () {
       const headless =
         settings.browserAutomation.visibility === "headless" ||
         (settings.browserAutomation.visibility === "auto" && !displayAvailable);
-      try {
-        const playwright: Playwright = yield* loadPlaywright;
-        const browser = yield* Effect.tryPromise({
-          try: () => playwright.chromium.launch({ headless }),
-          catch: (cause) => new Error(`Failed to launch Chromium: ${String(cause)}`),
-        });
-        const context = yield* Effect.tryPromise({
-          try: () => browser.newContext({ viewport }),
-          catch: (cause) => new Error(`Failed to create browser context: ${String(cause)}`),
-        });
-        const page = yield* Effect.tryPromise({
-          try: () => context.newPage(),
-          catch: (cause) => new Error(`Failed to create browser page: ${String(cause)}`),
-        });
+      const launched = yield* Effect.exit(
+        Effect.gen(function* () {
+          const playwright: Playwright = yield* loadPlaywright;
+          const browser: PlaywrightBrowser = yield* Effect.tryPromise({
+            try: () => playwright.chromium.launch({ headless }),
+            catch: (cause) => new Error(`Failed to launch Chromium: ${String(cause)}`),
+          });
+          const context: BrowserContext = yield* Effect.tryPromise({
+            try: () => browser.newContext({ viewport }),
+            catch: (cause) => new Error(`Failed to create browser context: ${String(cause)}`),
+          });
+          const page: Page = yield* Effect.tryPromise({
+            try: () => context.newPage(),
+            catch: (cause) => new Error(`Failed to create browser page: ${String(cause)}`),
+          });
+          return { browser, context, page };
+        }),
+      );
+      if (launched._tag === "Success") {
+        const { browser, context, page } = launched.value;
         page.on("console", (message) => {
           if (message.type() === "error") {
             session.consoleErrors.push(message.text().slice(0, 1_000));
@@ -279,11 +289,13 @@ const makeBrowserService = Effect.gen(function* () {
         session.lastError = undefined;
         yield* Ref.update(sessionsRef, (next) => new Map(next).set(threadId, session));
         return session;
-      } catch (cause) {
+      }
+      {
+        const cause = launched.cause;
         session.status = "unavailable";
-        session.lastError = cause instanceof Error ? cause.message : String(cause);
+        session.lastError = "Failed to launch browser automation.";
         yield* Ref.update(sessionsRef, (next) => new Map(next).set(threadId, session));
-        throw cause;
+        return yield* Effect.fail(new Error(session.lastError));
       }
     });
 
@@ -299,8 +311,8 @@ const makeBrowserService = Effect.gen(function* () {
       session.currentUrl = session.page.url();
       session.title = yield* Effect.tryPromise({
         try: () => (session.page as Page).title(),
-        catch: () => Promise.resolve(undefined),
-      });
+        catch: (cause) => new Error(`Failed to read browser title: ${String(cause)}`),
+      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
       session.status = "idle";
       return {
         session: toBrowserSession(session),
@@ -314,7 +326,7 @@ const makeBrowserService = Effect.gen(function* () {
 
   const open: BrowserServiceShape["open"] = (input) =>
     Effect.gen(function* () {
-      const settings = yield* settingsService.getSettings;
+      const settings = yield* readSettings;
       if (!settings.browserAutomation.allowPublicInternet && !isLoopbackUrl(input.url)) {
         throw new Error("Browser automation is limited to localhost targets by default.");
       }
@@ -329,8 +341,8 @@ const makeBrowserService = Effect.gen(function* () {
       });
       yield* Effect.tryPromise({
         try: () => (session.page as Page).waitForLoadState("networkidle", { timeout: 2_000 }),
-        catch: () => Promise.resolve(),
-      });
+        catch: (cause) => new Error(`Browser network idle wait failed: ${String(cause)}`),
+      }).pipe(Effect.catchAll(() => Effect.void));
       return yield* snapshotFor(session);
     });
 
@@ -361,7 +373,7 @@ const makeBrowserService = Effect.gen(function* () {
       const primaryOptions = opened.nodes
         .filter((node) => node.interactable && node.viewport === "in")
         .slice(0, 5);
-      const observations: BrowserExperienceResult["observations"] = [
+      const observations: Array<BrowserExperienceResult["observations"][number]> = [
         {
           id: "obs_1" as never,
           type: "semantic_snapshot",

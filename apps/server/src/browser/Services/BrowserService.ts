@@ -54,7 +54,7 @@ export interface BrowserServiceShape {
   ) => Effect.Effect<BrowserExperienceResult, Error>;
   readonly reset: (input: { readonly threadId: ThreadId }) => Effect.Effect<BrowserSession, Error>;
   readonly close: (input: { readonly threadId: ThreadId }) => Effect.Effect<void, Error>;
-  readonly closeAll: Effect.Effect<void>;
+  readonly closeAll: Effect.Effect<void, Error>;
 }
 
 export class BrowserService extends Context.Service<BrowserService, BrowserServiceShape>()(
