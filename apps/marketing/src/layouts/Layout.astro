@@ -1,12 +1,14 @@
 ---
+import "../styles/tokens.css";
+
 interface Props {
   title?: string;
   description?: string;
 }
 
 const {
-  title = "Dynamo",
-  description = "Dynamo — The best way to code with AI.",
+  title = "Dynamo — A desktop home for your coding agents",
+  description = "Dynamo is a desktop GUI for coding agents. Run Codex, Claude, Cursor, and OpenCode side by side, with team agents, a board, isolated worktrees, and an explicit review-and-apply flow.",
 } = Astro.props;
 ---
 
@@ -31,17 +33,23 @@ const {
     <div class="page">
       <nav class="nav">
         <a href="/" class="nav-brand">
-          <img src="/icon.png" alt="T3" class="nav-icon" />
+          <img src="/icon.png" alt="Dynamo" class="nav-icon" />
+          <span class="nav-wordmark">Dynamo</span>
         </a>
-        <a
-          href="https://github.com/tmacc/agentdynamo"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="nav-github"
-        >
-          GitHub
-          <span class="nav-github-arrow" aria-hidden="true">&#8599;</span>
-        </a>
+        <div class="nav-links">
+          <a href="/#features" class="nav-link">Features</a>
+          <a href="/#beliefs" class="nav-link">Why Dynamo</a>
+          <a href="/download" class="nav-link">Download</a>
+          <a
+            href="https://github.com/tmacc/agentdynamo"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="nav-github"
+          >
+            GitHub
+            <span class="nav-github-arrow" aria-hidden="true">&#8599;</span>
+          </a>
+        </div>
       </nav>
 
       <main class="main">
@@ -60,14 +68,6 @@ const {
 </html>
 
 <style is:global>
-  :root {
-    --bg: #09090b;
-    --fg: #fafafa;
-    --fg-muted: #a1a1aa;
-    --fg-dim: #71717a;
-    --border: rgba(255, 255, 255, 0.08);
-  }
-
   * {
     box-sizing: border-box;
     margin: 0;
@@ -76,6 +76,17 @@ const {
 
   html {
     color-scheme: dark;
+    scroll-behavior: smooth;
+  }
+
+  h1, h2, h3, h4 {
+    font-weight: 500;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+  }
+
+  p {
+    line-height: 1.6;
   }
 
   body {
@@ -135,27 +146,55 @@ const {
   /* ── Navbar ── */
 
   .nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1.5rem 2.5rem;
-    opacity: 0.5;
-    transition: opacity 0.4s ease;
+    padding: 1rem 2.5rem;
+    backdrop-filter: blur(12px);
+    background: color-mix(in srgb, var(--bg) 70%, transparent);
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.3s ease;
   }
 
   .nav:hover {
-    opacity: 1;
+    border-bottom-color: var(--border);
   }
 
   .nav-brand {
     display: flex;
     align-items: center;
+    gap: 0.55rem;
   }
 
   .nav-icon {
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     border-radius: 6px;
+  }
+
+  .nav-wordmark {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    font-size: 0.95rem;
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 1.6rem;
+  }
+
+  .nav-link {
+    color: var(--fg-muted);
+    font-size: 0.875rem;
+    transition: color 0.2s ease;
+  }
+
+  .nav-link:hover {
+    color: var(--fg);
   }
 
   .nav-github {
@@ -164,7 +203,7 @@ const {
     gap: 0.35rem;
     color: var(--fg-muted);
     font-size: 0.875rem;
-    transition: color 0.3s ease;
+    transition: color 0.2s ease;
   }
 
   .nav-github:hover {
@@ -173,7 +212,7 @@ const {
 
   .nav-github-arrow {
     display: inline-block;
-    transition: transform 0.3s ease;
+    transition: transform 0.2s ease;
   }
 
   .nav-github:hover .nav-github-arrow {
@@ -216,9 +255,18 @@ const {
 
   /* ── Mobile ── */
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .nav {
-      padding: 1.25rem;
+      padding: 0.85rem 1.25rem;
+    }
+
+    .nav-links {
+      gap: 1rem;
+    }
+
+    .nav-link[href="/#features"],
+    .nav-link[href="/#beliefs"] {
+      display: none;
     }
 
     .footer {

@@ -1,0 +1,152 @@
+---
+const steps = [
+  {
+    n: "01",
+    title: "Install a provider CLI",
+    body: "Dynamo launches provider CLIs locally — install at least one and authenticate.",
+    code: "# Codex (OpenAI)\ncodex login\n\n# Claude\nclaude auth login",
+  },
+  {
+    n: "02",
+    title: "Download Dynamo",
+    body: "Universal builds for macOS (arm64 + x64), Windows, and Linux are on GitHub Releases.",
+    code: "→ Download the latest release",
+    href: "/download",
+  },
+  {
+    n: "03",
+    title: "Open a project",
+    body: "Point Dynamo at any folder. Git projects get auto-worktrees for child agents; everything else uses a shared workspace.",
+    code: "Open · Pick provider · Start a thread",
+  },
+];
+---
+
+<section id="quickstart" class="section">
+  <div class="section-inner">
+    <header class="header">
+      <p class="eyebrow">Quickstart</p>
+      <h2 class="headline">From zero to your first agent in three steps.</h2>
+    </header>
+
+    <ol class="steps">
+      {steps.map((step) => (
+        <li class="step">
+          <div class="step-num">{step.n}</div>
+          <div class="step-body">
+            <h3 class="step-title">{step.title}</h3>
+            <p class="step-text">{step.body}</p>
+            {step.href ? (
+              <a href={step.href} class="step-code step-code--link">{step.code}</a>
+            ) : (
+              <pre class="step-code"><code>{step.code}</code></pre>
+            )}
+          </div>
+        </li>
+      ))}
+    </ol>
+  </div>
+</section>
+
+<style>
+  .section {
+    padding: var(--section-pad-y) var(--gutter);
+    border-top: 1px solid var(--border);
+  }
+
+  .section-inner {
+    max-width: var(--section-max-w);
+    margin: 0 auto;
+  }
+
+  .header {
+    max-width: 720px;
+    margin: 0 auto clamp(2.5rem, 5vw, 4rem);
+    text-align: center;
+  }
+
+  .eyebrow {
+    font-size: var(--eyebrow-size);
+    letter-spacing: var(--eyebrow-tracking);
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    font-weight: 500;
+  }
+
+  .headline {
+    font-size: clamp(1.75rem, 3.5vw, 2.6rem);
+    letter-spacing: -0.03em;
+    color: var(--fg);
+  }
+
+  .steps {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+  }
+
+  .step {
+    padding: 1.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-raised);
+  }
+
+  .step-num {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.78rem;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    margin-bottom: 1rem;
+  }
+
+  .step-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.015em;
+  }
+
+  .step-text {
+    color: var(--fg-muted);
+    font-size: 0.93rem;
+    line-height: 1.55;
+    margin-bottom: 1.1rem;
+  }
+
+  .step-code {
+    display: block;
+    padding: 0.75rem 0.85rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    line-height: 1.55;
+    overflow-x: auto;
+    white-space: pre;
+    margin: 0;
+  }
+
+  .step-code--link {
+    text-decoration: none;
+    transition: color 0.2s ease, border-color 0.2s ease;
+    cursor: pointer;
+  }
+
+  .step-code--link:hover {
+    color: var(--fg);
+    border-color: var(--border-strong);
+  }
+
+  @media (max-width: 880px) {
+    .steps {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

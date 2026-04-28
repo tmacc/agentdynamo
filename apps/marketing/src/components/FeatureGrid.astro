@@ -1,0 +1,113 @@
+---
+import FeatureCard from "./FeatureCard.astro";
+---
+
+<section id="features" class="section">
+  <div class="section-inner">
+    <header class="header">
+      <p class="eyebrow">Features</p>
+      <h2 class="headline">Built for how agents actually ship code.</h2>
+      <p class="lede">
+        Every piece of Dynamo exists because something agentic broke in
+        practice — context lost across providers, child agents trampling each
+        other, diffs auto&#8209;merged before review, plans buried in a chat scroll.
+      </p>
+    </header>
+
+    <div class="grid">
+      <FeatureCard title="Team agents over MCP" glyph="◆">
+        A coordinator session you talk to, with bounded child threads it
+        spawns through Dynamo&apos;s built&#8209;in MCP server. Pick the
+        provider and model per task — the coordinator routes, the children do
+        the work.
+      </FeatureCard>
+
+      <FeatureCard title="Board view for real plans" glyph="▤">
+        Stored columns for ideas and planned work, derived columns for
+        in&#8209;progress, review, and done. Cards link directly to the agent
+        thread doing the work, not a Jira mirror updated by hand.
+      </FeatureCard>
+
+      <FeatureCard title="Worktree isolation" glyph="⌥">
+        Every child agent gets its own Git worktree and branch, auto&#8209;created
+        from your repo. Parallel work stops fighting over the same
+        files; non&#8209;Git projects fall back to a shared workspace.
+      </FeatureCard>
+
+      <FeatureCard title="Fork-able threads" glyph="⑂">
+        Branch a conversation when you want to try a different approach
+        without losing the working one. Both forks stay live, with their own
+        history, worktree, and provider state.
+      </FeatureCard>
+
+      <FeatureCard title="Sandbox modes" glyph="◇">
+        Run sessions in read&#8209;only, workspace&#8209;write, or full&#8209;access mode.
+        Set the leash before the agent runs — not after it has touched the
+        wrong directory.
+      </FeatureCard>
+
+      <FeatureCard title="Review &amp; apply diffs" glyph="±">
+        Child agents propose diffs; nothing merges automatically. You review
+        them in Dynamo and apply when they&apos;re right. No surprise commits,
+        no mystery rewrites of files you didn&apos;t open.
+      </FeatureCard>
+    </div>
+  </div>
+</section>
+
+<style>
+  .section {
+    padding: var(--section-pad-y) var(--gutter);
+    border-top: 1px solid var(--border);
+  }
+
+  .section-inner {
+    max-width: var(--section-max-w);
+    margin: 0 auto;
+  }
+
+  .header {
+    max-width: 720px;
+    margin: 0 auto clamp(2.5rem, 5vw, 4rem);
+    text-align: center;
+  }
+
+  .eyebrow {
+    font-size: var(--eyebrow-size);
+    letter-spacing: var(--eyebrow-tracking);
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    font-weight: 500;
+  }
+
+  .headline {
+    font-size: clamp(1.75rem, 3.5vw, 2.6rem);
+    letter-spacing: -0.03em;
+    margin-bottom: 1.1rem;
+    color: var(--fg);
+  }
+
+  .lede {
+    color: var(--fg-muted);
+    font-size: 1.05rem;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+  }
+
+  @media (max-width: 960px) {
+    .grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 600px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

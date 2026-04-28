@@ -1,0 +1,111 @@
+---
+interface Props {
+  id?: string;
+  eyebrow: string;
+  headline: string;
+  reverse?: boolean;
+}
+
+const { id, eyebrow, headline, reverse = false } = Astro.props;
+---
+
+<section id={id} class:list={["belief", { reverse }]}>
+  <div class="belief-inner">
+    <div class="copy">
+      <p class="eyebrow">{eyebrow}</p>
+      <h2 class="headline">{headline}</h2>
+      <div class="body">
+        <slot />
+      </div>
+    </div>
+    <div class="media">
+      <slot name="media" />
+    </div>
+  </div>
+</section>
+
+<style>
+  .belief {
+    padding: var(--section-pad-y) var(--gutter);
+    border-top: 1px solid var(--border);
+  }
+
+  .belief-inner {
+    max-width: var(--section-max-w);
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: clamp(2rem, 5vw, 4.5rem);
+    align-items: center;
+  }
+
+  .belief.reverse .belief-inner {
+    direction: rtl;
+  }
+
+  .belief.reverse .copy,
+  .belief.reverse .media {
+    direction: ltr;
+  }
+
+  .copy {
+    max-width: 520px;
+  }
+
+  .eyebrow {
+    font-size: var(--eyebrow-size);
+    letter-spacing: var(--eyebrow-tracking);
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    font-weight: 500;
+  }
+
+  .headline {
+    font-size: clamp(1.75rem, 3.5vw, 2.6rem);
+    letter-spacing: -0.03em;
+    margin-bottom: 1.4rem;
+    color: var(--fg);
+  }
+
+  .body {
+    color: var(--fg-muted);
+    font-size: 1.025rem;
+  }
+
+  .body :global(p) {
+    margin-bottom: 1rem;
+  }
+
+  .body :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .body :global(strong) {
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .media {
+    min-height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  @media (max-width: 880px) {
+    .belief-inner {
+      grid-template-columns: 1fr;
+      gap: 2.5rem;
+    }
+
+    .belief.reverse .belief-inner {
+      direction: ltr;
+    }
+
+    .media {
+      order: 2;
+      min-height: 0;
+    }
+  }
+</style>

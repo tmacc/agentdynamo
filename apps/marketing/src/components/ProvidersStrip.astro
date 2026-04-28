@@ -1,0 +1,66 @@
+---
+const providers = ["Codex", "Claude", "Cursor", "OpenCode"];
+---
+
+<section class="strip" aria-label="Supported providers">
+  <p class="strip-label">One interface for every coding agent</p>
+  <ul class="providers">
+    {providers.map((p, i) => (
+      <>
+        {i > 0 && <li class="dot" aria-hidden="true">·</li>}
+        <li class="provider">{p}</li>
+      </>
+    ))}
+  </ul>
+</section>
+
+<style>
+  .strip {
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 1.75rem var(--gutter);
+    text-align: center;
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      var(--bg-raised) 50%,
+      transparent 100%
+    );
+  }
+
+  .strip-label {
+    font-size: var(--eyebrow-size);
+    letter-spacing: var(--eyebrow-tracking);
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    margin-bottom: 0.85rem;
+  }
+
+  .providers {
+    list-style: none;
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.85rem;
+    align-items: center;
+    padding: 0;
+  }
+
+  .provider {
+    font-weight: 500;
+    font-size: 1.05rem;
+    color: var(--fg-muted);
+    letter-spacing: -0.01em;
+    transition: color 0.2s ease;
+  }
+
+  .provider:hover {
+    color: var(--fg);
+  }
+
+  .dot {
+    color: var(--fg-faint);
+    font-size: 1rem;
+    line-height: 1;
+  }
+</style>
