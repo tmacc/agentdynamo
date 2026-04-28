@@ -482,6 +482,10 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Restored: browser persistence keys use the `dynamo:*` namespace; Dynamo should not import or remove upstream `t3code:*` browser state.
   - Restored: release/nightly names in `scripts/resolve-nightly-release.ts` and `scripts/release-smoke.ts` use `Dynamo`.
   - Restored: `scripts/build-desktop-artifact.ts` derives product name, artifact name, bundle id, executable name, staged package name, commit hash field, author, and description from shared Dynamo branding.
+  - Restored: marketing homepage positions Dynamo as the agent orchestrator for building apps, centered on parallel agent teams, isolated worktrees, reviewable patches, cross-provider work, and inspectable project context rather than inherited T3 Code copy.
+  - Restored: marketing icon/favicons are generated from `assets/prod/black-universal-1024.png`, with `dynamo-mark.webp` used for the nav logo.
+  - Restored: marketing product imagery is Dynamo-specific (`hero-agents.webp`, `feature-board.webp`, `feature-project-intelligence.webp`, and `screenshot.jpeg`) and must not regress to T3 Code screenshots or stale fork names.
+  - Restored: marketing release lookup stores latest-release data under the Dynamo cache key `dynamo-latest-release`.
   - Icon files under `apps/desktop/resources`, `apps/web/public`, and `apps/marketing/public` currently match both the pre-merge fork and upstream; if there were newer custom icon edits, they were not present as tracked differences in `365ae6d9`.
   - Ignored dev runtime assets under `apps/desktop/.electron-runtime` currently contain Dynamo dev icon/name data, but those are generated/ignored and must not be treated as merge-preserved source of truth.
 - `Key fork files`:
@@ -520,6 +524,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - User-facing update, splash, connection, and release text should say Dynamo.
   - Repository-facing context that agents read first, especially `README.md` and `AGENTS.md`, should identify the product as Dynamo so local AI does not infer the project is named T3 Code.
   - Marketing page titles, release names, and generated checkpoint commit author/committer names should say Dynamo.
+  - Marketing homepage and download page copy should stay Dynamo-specific: no visible T3 Code branding, no `t3code` release/cache naming, and no product screenshots containing old T3 UI.
   - Default runtime state should live under `~/.dynamo`, including `userdata/state.sqlite`, logs, settings, keybindings, and worktrees.
   - `DYNAMO_HOME` is the primary home override. `T3CODE_HOME` remains a fallback alias and is set to the same path for child processes that still expect it.
   - Desktop Chromium profile/userData should use Dynamo-specific folders so upstream T3 Code and Dynamo do not share local profile state.
@@ -538,6 +543,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/appBranding.test.ts` in `apps/desktop`.
   - Run `bun run test src/branding.test.ts src/components/desktopUpdate.logic.test.ts src/savedPromptStore.test.ts src/clientPersistenceStorage.test.ts src/uiStateStore.test.ts` in `apps/web`.
   - Run `bun run test scripts/build-desktop-artifact.test.ts scripts/resolve-nightly-release.test.ts scripts/dev-runner.test.ts`.
+  - Run `bun run build:marketing` and review `/` plus `/download` for Dynamo-specific positioning, product imagery, and links to `https://github.com/tmacc/agentdynamo`.
 
 ## 2026-04-27 - Terminal dimension clamping
 

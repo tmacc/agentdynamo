@@ -2,12 +2,16 @@
 interface Props {
   title?: string;
   description?: string;
+  image?: string;
 }
 
 const {
   title = "Dynamo",
-  description = "Dynamo — The best way to code with AI.",
+  description = "Dynamo is a desktop and web workspace for coordinating coding agents across providers.",
+  image = "/hero-agents.webp",
 } = Astro.props;
+const siteUrl = Astro.url.origin;
+const absoluteImage = new URL(image, siteUrl).toString();
 ---
 
 <html lang="en">
@@ -15,10 +19,18 @@ const {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={absoluteImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={absoluteImage} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
@@ -29,19 +41,22 @@ const {
   </head>
   <body>
     <div class="page">
-      <nav class="nav">
-        <a href="/" class="nav-brand">
-          <img src="/icon.png" alt="T3" class="nav-icon" />
+      <nav class="nav" aria-label="Primary">
+        <a href="/" class="nav-brand" aria-label="Dynamo home">
+          <img src="/dynamo-mark.webp" alt="Dynamo" class="nav-icon" />
+          <span>Dynamo</span>
         </a>
-        <a
-          href="https://github.com/tmacc/agentdynamo"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="nav-github"
-        >
-          GitHub
-          <span class="nav-github-arrow" aria-hidden="true">&#8599;</span>
-        </a>
+        <div class="nav-links">
+          <a href="/download">Download</a>
+          <a
+            href="https://github.com/tmacc/agentdynamo"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub
+            <span class="nav-arrow" aria-hidden="true">&#8599;</span>
+          </a>
+        </div>
       </nav>
 
       <main class="main">
@@ -51,8 +66,21 @@ const {
       <footer class="footer">
         <span class="footer-copy">&copy; {new Date().getFullYear()} Dynamo</span>
         <div class="footer-links">
-          <a href="https://github.com/tmacc/agentdynamo" target="_blank" rel="noopener noreferrer">GitHub</a>
-          <a href="https://discord.gg/jn4EGJjrvv" target="_blank" rel="noopener noreferrer">Discord</a>
+          <a href="/download">Download</a>
+          <a
+            href="https://github.com/tmacc/agentdynamo"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub
+          </a>
+          <a
+            href="https://discord.gg/jn4EGJjrvv"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Discord
+          </a>
         </div>
       </footer>
     </div>
@@ -62,10 +90,19 @@ const {
 <style is:global>
   :root {
     --bg: #09090b;
+    --bg-soft: #111114;
+    --bg-panel: rgba(255, 255, 255, 0.045);
+    --bg-panel-strong: rgba(255, 255, 255, 0.075);
     --fg: #fafafa;
-    --fg-muted: #a1a1aa;
-    --fg-dim: #71717a;
-    --border: rgba(255, 255, 255, 0.08);
+    --fg-muted: #b7b8c0;
+    --fg-dim: #7d808a;
+    --border: rgba(255, 255, 255, 0.1);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --pink: #f21d72;
+    --green: #42d392;
+    --blue: #5ab8ff;
+    --yellow: #f6c85f;
+    --max: 1240px;
   }
 
   * {
@@ -76,10 +113,14 @@ const {
 
   html {
     color-scheme: dark;
+    scroll-behavior: smooth;
   }
 
   body {
-    background: var(--bg);
+    background:
+      radial-gradient(circle at 18% 0%, rgba(242, 29, 114, 0.16), transparent 30rem),
+      radial-gradient(circle at 82% 8%, rgba(90, 184, 255, 0.18), transparent 32rem),
+      linear-gradient(180deg, #0b0b10 0%, #09090b 45%, #0d0d10 100%);
     color: var(--fg);
     font-family: "DM Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -93,7 +134,7 @@ const {
     position: fixed;
     inset: 0;
     pointer-events: none;
-    opacity: 0.035;
+    opacity: 0.03;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     background-repeat: repeat;
     background-size: 256px 256px;
@@ -110,21 +151,13 @@ const {
     max-width: 100%;
   }
 
-  @keyframes fade-in {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+  :focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 3px;
   }
 </style>
 
 <style>
-  /* ── Page ── */
-
   .page {
     min-height: 100vh;
     display: flex;
@@ -132,55 +165,51 @@ const {
     overflow-x: hidden;
   }
 
-  /* ── Navbar ── */
-
   .nav {
+    width: min(100%, calc(var(--max) + 64px));
+    margin: 0 auto;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1.5rem 2.5rem;
-    opacity: 0.5;
-    transition: opacity 0.4s ease;
-  }
-
-  .nav:hover {
-    opacity: 1;
+    padding: 1.1rem 2rem;
   }
 
   .nav-brand {
-    display: flex;
+    display: inline-flex;
     align-items: center;
+    gap: 0.7rem;
+    font-weight: 700;
+    font-size: 0.95rem;
   }
 
   .nav-icon {
-    width: 28px;
-    height: 28px;
+    width: 30px;
+    height: 30px;
     border-radius: 6px;
   }
 
-  .nav-github {
+  .nav-links {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 1.4rem;
     color: var(--fg-muted);
-    font-size: 0.875rem;
-    transition: color 0.3s ease;
+    font-size: 0.9rem;
   }
 
-  .nav-github:hover {
+  .nav-links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    transition: color 0.2s ease;
+  }
+
+  .nav-links a:hover {
     color: var(--fg);
   }
 
-  .nav-github-arrow {
-    display: inline-block;
-    transition: transform 0.3s ease;
+  .nav-arrow {
+    font-size: 0.82rem;
   }
-
-  .nav-github:hover .nav-github-arrow {
-    transform: translateX(2px) translateY(-1px);
-  }
-
-  /* ── Main content ── */
 
   .main {
     flex: 1;
@@ -189,40 +218,51 @@ const {
     align-items: center;
   }
 
-  /* ── Footer ── */
-
   .footer {
+    width: min(100%, calc(var(--max) + 64px));
+    margin: 0 auto;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1.5rem 2.5rem;
-    font-size: 0.8rem;
+    gap: 1rem;
+    padding: 2rem;
+    font-size: 0.82rem;
     color: var(--fg-dim);
   }
 
   .footer-links {
     display: flex;
     gap: 1.25rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   .footer-links a {
-    color: var(--fg-dim);
-    transition: color 0.3s ease;
+    transition: color 0.2s ease;
   }
 
   .footer-links a:hover {
     color: var(--fg);
   }
 
-  /* ── Mobile ── */
-
   @media (max-width: 640px) {
     .nav {
-      padding: 1.25rem;
+      padding: 1rem 1.25rem;
+    }
+
+    .nav-links {
+      gap: 0.9rem;
+      font-size: 0.84rem;
     }
 
     .footer {
-      padding: 1.25rem;
+      padding: 1.5rem 1.25rem;
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .footer-links {
+      justify-content: flex-start;
     }
   }
 </style>
