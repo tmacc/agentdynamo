@@ -177,12 +177,20 @@ export interface PickFolderOptions {
   initialPath?: string | null;
 }
 
+export type DesktopStorageReadResult =
+  | { status: "ok"; value: string }
+  | { status: "missing" }
+  | { status: "corrupt"; message: string; backupPath?: string }
+  | { status: "error"; message: string };
+
+export type DesktopStorageMutationResult = { status: "ok" } | { status: "error"; message: string };
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   getLocalEnvironmentBootstrap: () => DesktopEnvironmentBootstrap | null;
-  getSavedPromptStorage: () => string | null;
-  setSavedPromptStorage: (value: string) => void;
-  removeSavedPromptStorage: () => void;
+  getSavedPromptStorage: () => DesktopStorageReadResult;
+  setSavedPromptStorage: (value: string) => DesktopStorageMutationResult;
+  removeSavedPromptStorage: () => DesktopStorageMutationResult;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
   getSavedEnvironmentRegistry: () => Promise<readonly PersistedSavedEnvironmentRecord[]>;

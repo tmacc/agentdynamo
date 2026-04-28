@@ -225,6 +225,9 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/components/ChatView.tsx`
 - `Important invariants`:
   - Storage is local-first and survives reloads. Desktop builds persist saved prompts through the desktop bridge at `userdata/saved-prompts.json` instead of origin-scoped `localStorage`, because the backend HTTP port can change between app launches.
+  - Desktop reads must distinguish missing, corrupt, and errored storage. Current-origin `localStorage` migration only runs when desktop storage is explicitly missing, never when the desktop file is corrupt or temporarily unreadable.
+  - Corrupt desktop prompt files must be preserved as `saved-prompts.corrupt-*.json` backups before a fresh file can be written.
+  - Desktop writes are debounced and flushed on `beforeunload` and `pagehide`.
   - Project-scoped snippets must stay isolated by project key.
   - Duplicate snippets within the same scope should be deduped.
   - Composer insertion and "save prompt" actions must operate on the same store shape.

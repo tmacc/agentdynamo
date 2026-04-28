@@ -1,5 +1,9 @@
 import { scopedProjectKey } from "@t3tools/client-runtime";
-import type { ScopedProjectRef } from "@t3tools/contracts";
+import type {
+  DesktopStorageMutationResult,
+  DesktopStorageReadResult,
+  ScopedProjectRef,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -15,39 +19,129 @@ const SAVED_PROMPT_MAX_TITLE_LENGTH = 80;
 
 type SavedPromptStorage = StateStorage | DebouncedStorage;
 
-function createSavedPromptStorage(): SavedPromptStorage {
-  if (typeof window !== "undefined" && window.desktopBridge) {
-    return {
-      getItem: (name) => {
-        const desktopValue = window.desktopBridge?.getSavedPromptStorage() ?? null;
-        if (desktopValue !== null) {
-          return desktopValue;
-        }
-
-        try {
-          const browserValue =
-            typeof localStorage !== "undefined" ? localStorage.getItem(name) : null;
-          if (browserValue !== null) {
-            window.desktopBridge?.setSavedPromptStorage(browserValue);
-          }
-          return browserValue;
-        } catch {
-          return null;
-        }
-      },
-      setItem: (_name, value) => {
-        window.desktopBridge?.setSavedPromptStorage(value);
-      },
-      removeItem: () => {
-        window.desktopBridge?.removeSavedPromptStorage();
-      },
-    };
-  }
-
+function createBrowserSavedPromptStorage(): DebouncedStorage {
   return createDebouncedStorage(
     typeof localStorage !== "undefined" ? localStorage : createMemoryStorage(),
     SAVED_PROMPTS_PERSIST_DEBOUNCE_MS,
   );
+}
+
+function hasSavedPromptDesktopStorage(
+  bridge: Window["desktopBridge"] | undefined,
+): bridge is NonNullable<Window["desktopBridge"]> {
+  return (
+    !!bridge &&
+    typeof bridge.getSavedPromptStorage === "function" &&
+    typeof bridge.setSavedPromptStorage === "function" &&
+    typeof bridge.removeSavedPromptStorage === "function"
+  );
+}
+
+function warnSavedPromptStorage(message: string, detail?: Record<string, string>): void {
+  console.warn("[SAVED_PROMPTS]", message, detail ?? {});
+}
+
+function readBrowserSavedPromptStorageItem(name: string): string | null {
+  try {
+    return typeof localStorage !== "undefined" ? localStorage.getItem(name) : null;
+  } catch {
+    return null;
+  }
+}
+
+function mutationErrorMessage(result: DesktopStorageMutationResult): string | null {
+  return result.status === "error" ? result.message : null;
+}
+
+function writeDesktopSavedPromptStorage(
+  bridge: NonNullable<Window["desktopBridge"]>,
+  value: string,
+  operation: string,
+): boolean {
+  try {
+    const error = mutationErrorMessage(bridge.setSavedPromptStorage(value));
+    if (error) {
+      warnSavedPromptStorage(`${operation} failed.`, { error });
+      return false;
+    }
+    return true;
+  } catch (error) {
+    warnSavedPromptStorage(`${operation} failed.`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+function removeDesktopSavedPromptStorage(bridge: NonNullable<Window["desktopBridge"]>): void {
+  try {
+    const error = mutationErrorMessage(bridge.removeSavedPromptStorage());
+    if (error) {
+      warnSavedPromptStorage("Remove failed.", { error });
+    }
+  } catch (error) {
+    warnSavedPromptStorage("Remove failed.", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function readDesktopSavedPromptStorage(
+  bridge: NonNullable<Window["desktopBridge"]>,
+): DesktopStorageReadResult {
+  try {
+    return bridge.getSavedPromptStorage();
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function createSavedPromptStorage(): SavedPromptStorage {
+  const bridge = typeof window !== "undefined" ? window.desktopBridge : undefined;
+  if (!hasSavedPromptDesktopStorage(bridge)) {
+    return createBrowserSavedPromptStorage();
+  }
+
+  const desktopStorage: StateStorage = {
+    getItem: (name) => {
+      const desktopResult = readDesktopSavedPromptStorage(bridge);
+      if (desktopResult.status === "ok") {
+        return desktopResult.value;
+      }
+
+      if (desktopResult.status === "missing") {
+        const browserValue = readBrowserSavedPromptStorageItem(name);
+        if (browserValue !== null) {
+          writeDesktopSavedPromptStorage(bridge, browserValue, "Local saved prompt migration");
+        }
+        return browserValue;
+      }
+
+      if (desktopResult.status === "corrupt") {
+        warnSavedPromptStorage("Desktop saved prompt storage is corrupt.", {
+          ...(desktopResult.backupPath ? { backupPath: desktopResult.backupPath } : {}),
+          error: desktopResult.message,
+        });
+        return null;
+      }
+
+      warnSavedPromptStorage("Desktop saved prompt storage could not be read.", {
+        error: desktopResult.message,
+      });
+      return null;
+    },
+    setItem: (_name, value) => {
+      writeDesktopSavedPromptStorage(bridge, value, "Persist");
+    },
+    removeItem: () => {
+      removeDesktopSavedPromptStorage(bridge);
+    },
+  };
+
+  return createDebouncedStorage(desktopStorage, SAVED_PROMPTS_PERSIST_DEBOUNCE_MS);
 }
 
 const savedPromptStorage = createSavedPromptStorage();
@@ -59,9 +153,11 @@ function flushSavedPromptStorage(): void {
 }
 
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-  window.addEventListener("beforeunload", () => {
+  const flush = () => {
     flushSavedPromptStorage();
-  });
+  };
+  window.addEventListener("beforeunload", flush);
+  window.addEventListener("pagehide", flush);
 }
 
 export const SavedPromptScopeSchema = Schema.Literals(["project", "global"]);

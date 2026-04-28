@@ -3,6 +3,7 @@ import * as Path from "node:path";
 
 import {
   ClientSettingsSchema,
+  type DesktopStorageReadResult,
   type ClientSettings,
   type PersistedSavedEnvironmentRecord,
 } from "@t3tools/contracts";
@@ -38,17 +39,6 @@ function readJsonFile<T>(filePath: string): T | null {
   }
 }
 
-function readTextFile(filePath: string): string | null {
-  try {
-    if (!FS.existsSync(filePath)) {
-      return null;
-    }
-    return FS.readFileSync(filePath, "utf8");
-  } catch {
-    return null;
-  }
-}
-
 function writeJsonFile(filePath: string, value: unknown): void {
   writeTextFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
@@ -64,9 +54,28 @@ function writeTextFile(filePath: string, value: string): void {
 function removeFile(filePath: string): void {
   try {
     FS.rmSync(filePath, { force: true });
-  } catch {
-    // Ignore cleanup failures. Callers treat missing persistence as empty state.
+  } catch (error) {
+    if (isNodeErrorWithCode(error) && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
   }
+}
+
+function isNodeErrorWithCode(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function makeCorruptBackupPath(filePath: string): string {
+  const directory = Path.dirname(filePath);
+  const extension = Path.extname(filePath) || ".json";
+  const basename = Path.basename(filePath, extension);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return Path.join(directory, `${basename}.corrupt-${timestamp}${extension}`);
 }
 
 function isPersistedSavedEnvironmentStorageRecord(
@@ -126,17 +135,29 @@ export function writeClientSettings(settingsPath: string, settings: ClientSettin
   writeJsonFile(settingsPath, { settings } satisfies ClientSettingsDocument);
 }
 
-export function readSavedPromptStorage(storagePath: string): string | null {
-  const raw = readTextFile(storagePath);
-  if (raw === null) {
-    return null;
+export function readSavedPromptStorageWithRecovery(storagePath: string): DesktopStorageReadResult {
+  let raw: string;
+  try {
+    raw = FS.readFileSync(storagePath, "utf8");
+  } catch (error) {
+    if (isNodeErrorWithCode(error) && error.code === "ENOENT") {
+      return { status: "missing" };
+    }
+    return { status: "error", message: errorMessage(error) };
   }
 
   try {
     JSON.parse(raw);
-    return raw;
-  } catch {
-    return null;
+    return { status: "ok", value: raw };
+  } catch (error) {
+    const message = errorMessage(error);
+    const backupPath = makeCorruptBackupPath(storagePath);
+    try {
+      FS.renameSync(storagePath, backupPath);
+      return { status: "corrupt", message, backupPath };
+    } catch {
+      return { status: "corrupt", message };
+    }
   }
 }
 

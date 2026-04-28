@@ -13,7 +13,7 @@ import {
   readClientSettings,
   readSavedEnvironmentRegistry,
   readSavedEnvironmentSecret,
-  readSavedPromptStorage,
+  readSavedPromptStorageWithRecovery,
   removeSavedPromptStorage,
   removeSavedEnvironmentSecret,
   writeClientSettings,
@@ -106,16 +106,70 @@ describe("clientPersistence", () => {
 
     writeSavedPromptStorage(storagePath, document);
 
-    expect(readSavedPromptStorage(storagePath)).toBe(document);
+    expect(readSavedPromptStorageWithRecovery(storagePath)).toEqual({
+      status: "ok",
+      value: document,
+    });
   });
 
-  it("removes saved prompt storage", () => {
+  it("returns missing for absent saved prompt storage", () => {
+    const storagePath = makeTempPath("saved-prompts.json");
+
+    expect(readSavedPromptStorageWithRecovery(storagePath)).toEqual({ status: "missing" });
+  });
+
+  it("quarantines corrupt saved prompt storage", () => {
+    const storagePath = makeTempPath("saved-prompts.json");
+
+    fs.writeFileSync(storagePath, "{not-json", "utf8");
+
+    const result = readSavedPromptStorageWithRecovery(storagePath);
+
+    expect(result).toMatchObject({
+      status: "corrupt",
+      message: expect.any(String),
+      backupPath: expect.stringContaining("saved-prompts.corrupt-"),
+    });
+    if (result.status !== "corrupt" || !result.backupPath) {
+      throw new Error("Expected corrupt result with backup path.");
+    }
+    expect(fs.existsSync(storagePath)).toBe(false);
+    expect(fs.readFileSync(result.backupPath, "utf8")).toBe("{not-json");
+  });
+
+  it("returns error for unreadable saved prompt storage", () => {
+    const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), "t3-saved-prompts-dir-test-"));
+    tempDirectories.push(storagePath);
+
+    expect(readSavedPromptStorageWithRecovery(storagePath)).toMatchObject({
+      status: "error",
+      message: expect.any(String),
+    });
+  });
+
+  it("rejects invalid saved prompt storage writes", () => {
+    const storagePath = makeTempPath("saved-prompts.json");
+
+    expect(() => writeSavedPromptStorage(storagePath, "{not-json")).toThrow(
+      "Invalid saved prompt storage payload.",
+    );
+  });
+
+  it("removes saved prompt storage and ignores missing files", () => {
     const storagePath = makeTempPath("saved-prompts.json");
 
     writeSavedPromptStorage(storagePath, JSON.stringify({ version: 1, state: {} }));
     removeSavedPromptStorage(storagePath);
+    removeSavedPromptStorage(storagePath);
 
-    expect(readSavedPromptStorage(storagePath)).toBeNull();
+    expect(readSavedPromptStorageWithRecovery(storagePath)).toEqual({ status: "missing" });
+  });
+
+  it("propagates non-missing saved prompt storage remove failures", () => {
+    const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), "t3-saved-prompts-dir-test-"));
+    tempDirectories.push(storagePath);
+
+    expect(() => removeSavedPromptStorage(storagePath)).toThrow();
   });
 
   it("persists and reloads saved environment metadata", () => {

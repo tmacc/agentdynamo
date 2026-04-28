@@ -1,5 +1,10 @@
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime";
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  type DesktopStorageMutationResult,
+  type DesktopStorageReadResult,
+} from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ENVIRONMENT_ID = EnvironmentId.make("environment-local");
@@ -28,35 +33,99 @@ function createLocalStorageStub(): Storage {
   };
 }
 
-function getTestWindow(): Window & typeof globalThis {
+type TestWindow = Window &
+  typeof globalThis & {
+    __listeners: Map<string, EventListener[]>;
+  };
+
+function createPersistedSnippetDocument(input: {
+  id?: string;
+  title: string;
+  body: string;
+  scope?: "project" | "global";
+  projectKey?: string | null;
+}): string {
+  const id = input.id ?? "snippet-1";
+  return JSON.stringify({
+    version: 1,
+    state: {
+      snippetsById: {
+        [id]: {
+          id,
+          title: input.title,
+          body: input.body,
+          scope: input.scope ?? "global",
+          projectKey: input.projectKey ?? null,
+          createdAt: "2026-04-19T12:00:00.000Z",
+          updatedAt: "2026-04-19T12:00:00.000Z",
+          lastUsedAt: null,
+        },
+      },
+    },
+  });
+}
+
+function getTestWindow(): TestWindow {
   const localStorage = createLocalStorageStub();
+  const listeners = new Map<string, EventListener[]>();
   const testWindow = {
-    addEventListener: () => undefined,
+    __listeners: listeners,
+    addEventListener: (type: string, listener: EventListener) => {
+      listeners.set(type, [...(listeners.get(type) ?? []), listener]);
+    },
     localStorage,
-  } as unknown as Window & typeof globalThis;
+  } as unknown as TestWindow;
   vi.stubGlobal("window", testWindow);
   vi.stubGlobal("localStorage", localStorage);
   return testWindow;
 }
 
+function dispatchTestWindowEvent(testWindow: TestWindow, type: string): void {
+  for (const listener of testWindow.__listeners.get(type) ?? []) {
+    listener(new Event(type));
+  }
+}
+
 function installSavedPromptDesktopBridge(
-  testWindow: Window & typeof globalThis,
+  testWindow: TestWindow,
   storageRef: { value: string | null },
+  options: {
+    readResult?: DesktopStorageReadResult;
+    setResult?: DesktopStorageMutationResult;
+    removeResult?: DesktopStorageMutationResult;
+    setThrows?: boolean;
+  } = {},
 ): void {
   Object.assign(testWindow, {
     desktopBridge: {
-      getSavedPromptStorage: () => storageRef.value,
+      getSavedPromptStorage: () =>
+        options.readResult ??
+        (storageRef.value === null
+          ? { status: "missing" }
+          : { status: "ok", value: storageRef.value }),
       setSavedPromptStorage: (value: string) => {
+        if (options.setThrows) {
+          throw new Error("write failed");
+        }
+        if (options.setResult?.status === "error") {
+          return options.setResult;
+        }
         storageRef.value = value;
+        return options.setResult ?? { status: "ok" };
       },
       removeSavedPromptStorage: () => {
+        if (options.removeResult?.status === "error") {
+          return options.removeResult;
+        }
         storageRef.value = null;
+        return options.removeResult ?? { status: "ok" };
       },
     },
   } satisfies { desktopBridge: Partial<NonNullable<Window["desktopBridge"]>> });
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.resetModules();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -67,22 +136,11 @@ describe("savedPromptStore", () => {
     const testWindow = getTestWindow();
     testWindow.localStorage.setItem(
       "dynamo:saved-prompts:v1",
-      JSON.stringify({
-        version: 1,
-        state: {
-          snippetsById: {
-            "snippet-1": {
-              id: "snippet-1",
-              title: "Review diff",
-              body: "Review the diff carefully",
-              scope: "project",
-              projectKey: scopedProjectKey(PROJECT_REF),
-              createdAt: "2026-04-19T12:00:00.000Z",
-              updatedAt: "2026-04-19T12:00:00.000Z",
-              lastUsedAt: null,
-            },
-          },
-        },
+      createPersistedSnippetDocument({
+        title: "Review diff",
+        body: "Review the diff carefully",
+        scope: "project",
+        projectKey: scopedProjectKey(PROJECT_REF),
       }),
     );
 
@@ -96,13 +154,15 @@ describe("savedPromptStore", () => {
   });
 
   it("uses desktop bridge storage instead of origin-scoped localStorage when available", async () => {
-    const storageRef = { value: null as string | null };
+    vi.useFakeTimers();
+    const initialDesktopValue = JSON.stringify({ version: 1, state: { snippetsById: {} } });
+    const storageRef = { value: initialDesktopValue as string | null };
     let testWindow = getTestWindow();
     testWindow.localStorage.setItem(
       "dynamo:saved-prompts:v1",
-      JSON.stringify({
-        version: 1,
-        state: { snippetsById: {} },
+      createPersistedSnippetDocument({
+        title: "Origin prompt",
+        body: "Ignore when desktop storage exists",
       }),
     );
     installSavedPromptDesktopBridge(testWindow, storageRef);
@@ -116,15 +176,14 @@ describe("savedPromptStore", () => {
     });
 
     expect(created.status).toBe("created");
+    expect(storageRef.value).toBe(initialDesktopValue);
+
+    vi.advanceTimersByTime(300);
     expect(storageRef.value).toContain("Desktop prompt");
-    expect(testWindow.localStorage.getItem("dynamo:saved-prompts:v1")).toBe(
-      JSON.stringify({
-        version: 1,
-        state: { snippetsById: {} },
-      }),
-    );
+    expect(testWindow.localStorage.getItem("dynamo:saved-prompts:v1")).toContain("Origin prompt");
 
     vi.resetModules();
+    vi.useRealTimers();
     testWindow = getTestWindow();
     installSavedPromptDesktopBridge(testWindow, storageRef);
 
@@ -137,6 +196,183 @@ describe("savedPromptStore", () => {
         body: "Persist through the desktop bridge",
       }),
     ]);
+  });
+
+  it("falls back to browser storage when a stale desktop bridge lacks saved prompt methods", async () => {
+    const testWindow = getTestWindow();
+    testWindow.localStorage.setItem(
+      "dynamo:saved-prompts:v1",
+      createPersistedSnippetDocument({
+        title: "Browser fallback",
+        body: "Use browser storage",
+      }),
+    );
+    Object.assign(testWindow, {
+      desktopBridge: {},
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+
+    expect(Object.values(useSavedPromptStore.getState().snippetsById)).toEqual([
+      expect.objectContaining({ title: "Browser fallback" }),
+    ]);
+  });
+
+  it("migrates current-origin localStorage only when desktop storage is missing", async () => {
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    testWindow.localStorage.setItem(
+      "dynamo:saved-prompts:v1",
+      createPersistedSnippetDocument({
+        title: "Migrated prompt",
+        body: "Copy me once",
+      }),
+    );
+    installSavedPromptDesktopBridge(testWindow, storageRef);
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+
+    expect(Object.values(useSavedPromptStore.getState().snippetsById)).toEqual([
+      expect.objectContaining({ title: "Migrated prompt" }),
+    ]);
+    expect(storageRef.value).toContain("Migrated prompt");
+  });
+
+  it("hydrates localStorage when missing-desktop migration write fails", async () => {
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    testWindow.localStorage.setItem(
+      "dynamo:saved-prompts:v1",
+      createPersistedSnippetDocument({
+        title: "Fallback despite write failure",
+        body: "Keep visible",
+      }),
+    );
+    installSavedPromptDesktopBridge(testWindow, storageRef, {
+      setResult: { status: "error", message: "disk full" },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+
+    expect(Object.values(useSavedPromptStore.getState().snippetsById)).toEqual([
+      expect.objectContaining({ title: "Fallback despite write failure" }),
+    ]);
+    expect(storageRef.value).toBeNull();
+  });
+
+  it("does not migrate stale localStorage when desktop storage is corrupt", async () => {
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    testWindow.localStorage.setItem(
+      "dynamo:saved-prompts:v1",
+      createPersistedSnippetDocument({
+        title: "Stale prompt",
+        body: "Do not restore",
+      }),
+    );
+    installSavedPromptDesktopBridge(testWindow, storageRef, {
+      readResult: {
+        status: "corrupt",
+        message: "Unexpected token",
+        backupPath: "/tmp/saved-prompts.corrupt.json",
+      },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+
+    expect(useSavedPromptStore.getState().snippetsById).toEqual({});
+    expect(storageRef.value).toBeNull();
+  });
+
+  it("does not migrate stale localStorage when desktop storage has a read error", async () => {
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    testWindow.localStorage.setItem(
+      "dynamo:saved-prompts:v1",
+      createPersistedSnippetDocument({
+        title: "Stale prompt",
+        body: "Do not restore",
+      }),
+    );
+    installSavedPromptDesktopBridge(testWindow, storageRef, {
+      readResult: { status: "error", message: "EACCES" },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+
+    expect(useSavedPromptStore.getState().snippetsById).toEqual({});
+    expect(storageRef.value).toBeNull();
+  });
+
+  it("flushes debounced desktop writes on beforeunload and pagehide", async () => {
+    vi.useFakeTimers();
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    installSavedPromptDesktopBridge(testWindow, storageRef);
+
+    let { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    useSavedPromptStore.getState().createSnippet({
+      title: "Before unload",
+      body: "Flush me",
+      scope: "global",
+    });
+    expect(storageRef.value).toBeNull();
+
+    dispatchTestWindowEvent(testWindow, "beforeunload");
+    expect(storageRef.value).toContain("Before unload");
+
+    vi.resetModules();
+    vi.useFakeTimers();
+    storageRef.value = null;
+    const nextWindow = getTestWindow();
+    installSavedPromptDesktopBridge(nextWindow, storageRef);
+
+    ({ useSavedPromptStore } = await import("./savedPromptStore"));
+    await useSavedPromptStore.persist.rehydrate();
+    useSavedPromptStore.getState().createSnippet({
+      title: "Page hide",
+      body: "Flush me too",
+      scope: "global",
+    });
+    expect(storageRef.value).toBeNull();
+
+    dispatchTestWindowEvent(nextWindow, "pagehide");
+    expect(storageRef.value).toContain("Page hide");
+  });
+
+  it("keeps store actions in memory when desktop mutations fail", async () => {
+    vi.useFakeTimers();
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    installSavedPromptDesktopBridge(testWindow, storageRef, {
+      setResult: { status: "error", message: "disk full" },
+      removeResult: { status: "error", message: "locked" },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    const created = useSavedPromptStore.getState().createSnippet({
+      title: "In memory",
+      body: "Persistence can fail",
+      scope: "global",
+    });
+    if (created.status !== "created") {
+      throw new Error("Expected snippet to be created.");
+    }
+
+    expect(() => {
+      useSavedPromptStore.getState().renameSnippet(created.snippet.id, "Renamed");
+      useSavedPromptStore.getState().markSnippetUsed(created.snippet.id);
+      useSavedPromptStore.getState().deleteSnippet(created.snippet.id);
+      vi.advanceTimersByTime(300);
+    }).not.toThrow();
+    expect(useSavedPromptStore.getState().snippetsById).toEqual({});
   });
 
   it("filters visible snippets by project scope and global scope", async () => {
