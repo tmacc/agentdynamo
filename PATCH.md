@@ -656,10 +656,14 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `User-visible impact`: New worktree threads should still get semantic branch names even if stale client metadata briefly writes the base branch back onto the thread during first-turn bootstrap. The physical worktree directory remains the original temporary path; the Git branch and thread metadata are corrected after rename.
 - `Why this patch exists`: Dynamo creates worktrees on temporary `t3code/<hex>` branches, then renames the branch from the first prompt. The rename reactor used to trust projected thread metadata, so a racing `thread.meta.update` could make it see `main` and skip the rename while the actual worktree was still on the temporary branch.
 - `Key files`:
+  - `apps/server/src/git/Services/GitCore.ts`
+  - `apps/server/src/git/Layers/GitCore.ts`
   - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
   - `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts`
+  - `apps/server/src/git/Layers/GitCore.test.ts`
 - `Important invariants`:
-  - First-turn worktree branch rename must inspect the current branch in `thread.worktreePath` before deciding whether the branch is temporary.
+  - First-turn worktree branch rename must use `GitCore.currentBranch` to inspect only the current branch in `thread.worktreePath` before deciding whether the branch is temporary.
+  - Detached HEAD and non-repository worktree states are authoritative and must skip semantic rename, even if thread metadata still contains a temporary branch.
   - If Git branch inspection fails, the reactor may fall back to stored thread metadata and keep the turn non-blocking.
   - Rename remains best-effort: generation or Git rename failures should log and continue the provider turn.
 - `Merge hotspots`:
@@ -667,6 +671,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - WebSocket worktree bootstrap metadata updates
   - Branch toolbar thread metadata writes
 - `Verification`:
+  - Run `bun run test src/git/Layers/GitCore.test.ts` in `apps/server`.
   - Run `bun run test src/orchestration/Layers/ProviderCommandReactor.test.ts` in `apps/server`.
   - Create a new worktree thread and confirm a semantic `t3code/<prompt-slug>` branch replaces the temporary branch even if setup/branch status updates arrive during bootstrap.
 

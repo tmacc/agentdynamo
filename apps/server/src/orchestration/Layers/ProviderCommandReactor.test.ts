@@ -9,6 +9,7 @@ import {
   ContextHandoffId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
+  GitCommandError,
   MessageId,
   ProjectId,
   TeamCoordinatorGrantId,
@@ -231,23 +232,8 @@ describe("ProviderCommandReactor", () => {
         pr: null,
       }),
     );
-    const statusDetails = vi.fn<GitCoreShape["statusDetails"]>((_) =>
-      Effect.succeed({
-        isRepo: true,
-        hasOriginRemote: true,
-        isDefaultBranch: false,
-        branch: null,
-        hasWorkingTreeChanges: false,
-        workingTree: {
-          files: [],
-          insertions: 0,
-          deletions: 0,
-        },
-        hasUpstream: false,
-        upstreamRef: null,
-        aheadCount: 0,
-        behindCount: 0,
-      }),
+    const currentBranch = vi.fn<GitCoreShape["currentBranch"]>((_) =>
+      Effect.succeed({ status: "detached" }),
     );
     const generateBranchName = vi.fn<TextGenerationShape["generateBranchName"]>((_) =>
       Effect.fail(
@@ -297,7 +283,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
       Layer.provideMerge(
-        Layer.succeed(GitCore, { renameBranch, statusDetails } as unknown as GitCoreShape),
+        Layer.succeed(GitCore, { renameBranch, currentBranch } as unknown as GitCoreShape),
       ),
       Layer.provideMerge(
         Layer.succeed(GitStatusBroadcaster, {
@@ -379,7 +365,7 @@ describe("ProviderCommandReactor", () => {
       respondToUserInput,
       stopSession,
       renameBranch,
-      statusDetails,
+      currentBranch,
       refreshStatus,
       generateBranchName,
       generateThreadTitle,
@@ -802,6 +788,9 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
+    harness.currentBranch.mockReturnValue(
+      Effect.succeed({ status: "branch", branch: "t3code/1234abcd" }),
+    );
     harness.generateBranchName.mockImplementation((input: unknown) =>
       Effect.succeed({
         branch:
@@ -856,23 +845,8 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    harness.statusDetails.mockReturnValue(
-      Effect.succeed({
-        isRepo: true,
-        hasOriginRemote: true,
-        isDefaultBranch: false,
-        branch: "t3code/b9c16155",
-        hasWorkingTreeChanges: false,
-        workingTree: {
-          files: [],
-          insertions: 0,
-          deletions: 0,
-        },
-        hasUpstream: false,
-        upstreamRef: null,
-        aheadCount: 0,
-        behindCount: 0,
-      }),
+    harness.currentBranch.mockReturnValue(
+      Effect.succeed({ status: "branch", branch: "t3code/b9c16155" }),
     );
     harness.generateBranchName.mockReturnValue(
       Effect.succeed({ branch: "worktree naming inconsistency" }),
@@ -908,6 +882,176 @@ describe("ProviderCommandReactor", () => {
         readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.branch ===
         "t3code/worktree-naming-inconsistency"
       );
+    });
+  });
+
+  it("skips worktree branch rename when the actual worktree is detached", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-detached-branch"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "t3code/1234abcd",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+
+    harness.currentBranch.mockReturnValue(Effect.succeed({ status: "detached" }));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-detached-branch"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-detached-branch"),
+          role: "user",
+          text: "Investigate detached rename behavior.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.drain();
+    expect(harness.generateBranchName).not.toHaveBeenCalled();
+    expect(harness.renameBranch).not.toHaveBeenCalled();
+  });
+
+  it("skips worktree branch rename when the worktree is not a repository", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-not-repo-branch"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "t3code/1234abcd",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+
+    harness.currentBranch.mockReturnValue(Effect.succeed({ status: "not-repo" }));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-not-repo-branch"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-not-repo-branch"),
+          role: "user",
+          text: "Investigate missing worktree behavior.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.drain();
+    expect(harness.generateBranchName).not.toHaveBeenCalled();
+    expect(harness.renameBranch).not.toHaveBeenCalled();
+  });
+
+  it("skips worktree branch rename when the actual branch is not temporary", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-non-temp-branch"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "t3code/1234abcd",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+
+    harness.currentBranch.mockReturnValue(
+      Effect.succeed({ status: "branch", branch: "feature/existing" }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-non-temp-branch"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-non-temp-branch"),
+          role: "user",
+          text: "Investigate non-temp rename behavior.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.drain();
+    expect(harness.generateBranchName).not.toHaveBeenCalled();
+    expect(harness.renameBranch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to thread branch metadata when current branch lookup fails unexpectedly", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-current-branch-failure"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "t3code/1234abcd",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+
+    harness.currentBranch.mockReturnValue(
+      Effect.fail(
+        new GitCommandError({
+          operation: "GitCore.currentBranch",
+          command: "git symbolic-ref --quiet --short HEAD",
+          cwd: "/tmp/provider-project-worktree",
+          detail: "unexpected git failure",
+        }),
+      ),
+    );
+    harness.generateBranchName.mockReturnValue(Effect.succeed({ branch: "fallback rename" }));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-current-branch-failure"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-current-branch-failure"),
+          role: "user",
+          text: "Investigate current branch failure fallback.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.renameBranch.mock.calls.length === 1);
+    expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
+      cwd: "/tmp/provider-project-worktree",
+      oldBranch: "t3code/1234abcd",
+      newBranch: "t3code/fallback-rename",
     });
   });
 

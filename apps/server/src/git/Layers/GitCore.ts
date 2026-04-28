@@ -27,6 +27,7 @@ import {
   type ExecuteGitProgress,
   type GitCommitOptions,
   type GitCoreShape,
+  type GitCurrentBranchResult,
   type GitStatusDetails,
   type ExecuteGitInput,
   type ExecuteGitResult,
@@ -378,6 +379,10 @@ function isMissingGitCwdError(error: GitCommandError): boolean {
     normalized.includes("enoent") ||
     normalized.includes("not a directory")
   );
+}
+
+function isNotGitRepositoryOutput(value: string): boolean {
+  return value.toLowerCase().includes("not a git repository");
 }
 
 function toGitCommandError(
@@ -1362,6 +1367,37 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     return yield* readStatusDetailsLocal(cwd);
   });
 
+  const currentBranch: GitCoreShape["currentBranch"] = Effect.fn("currentBranch")(function* (cwd) {
+    const args = ["symbolic-ref", "--quiet", "--short", "HEAD"] as const;
+    const result = yield* executeGit("GitCore.currentBranch", cwd, args, {
+      allowNonZeroExit: true,
+      timeoutMs: 5_000,
+    }).pipe(Effect.catchIf(isMissingGitCwdError, () => Effect.succeed(null)));
+
+    if (result === null) {
+      return { status: "not-repo" } satisfies GitCurrentBranchResult;
+    }
+
+    const stdout = result.stdout.trim();
+    const stderr = result.stderr.trim();
+    if (result.code === 0 && stdout.length > 0) {
+      return { status: "branch", branch: stdout } satisfies GitCurrentBranchResult;
+    }
+    if (result.code === 1 && stdout.length === 0 && stderr.length === 0) {
+      return { status: "detached" } satisfies GitCurrentBranchResult;
+    }
+    if (isNotGitRepositoryOutput(`${stdout}\n${stderr}`)) {
+      return { status: "not-repo" } satisfies GitCurrentBranchResult;
+    }
+
+    return yield* createGitCommandError(
+      "GitCore.currentBranch",
+      cwd,
+      args,
+      stderr || stdout || `git symbolic-ref failed with code ${result.code}`,
+    );
+  });
+
   const status: GitCoreShape["status"] = (input) =>
     statusDetails(input.cwd).pipe(
       Effect.map((details) => ({
@@ -2221,6 +2257,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     status,
     statusDetails,
     statusDetailsLocal,
+    currentBranch,
     prepareCommitContext,
     commit,
     pushCurrentBranch,

@@ -57,6 +57,11 @@ export interface GitStatusDetails extends Omit<GitStatusResult, "pr"> {
   upstreamRef: string | null;
 }
 
+export type GitCurrentBranchResult =
+  | { readonly status: "branch"; readonly branch: string }
+  | { readonly status: "detached" }
+  | { readonly status: "not-repo" };
+
 export interface GitPreparedCommitContext {
   stagedSummary: string;
   stagedPatch: string;
@@ -168,6 +173,11 @@ export interface GitCoreShape {
    * Read detailed working tree / branch status without refreshing remote tracking refs.
    */
   readonly statusDetailsLocal: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
+
+  /**
+   * Read only the currently checked-out branch state for a worktree.
+   */
+  readonly currentBranch: (cwd: string) => Effect.Effect<GitCurrentBranchResult, GitCommandError>;
 
   /**
    * Build staged change context for commit generation.

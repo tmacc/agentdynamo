@@ -673,16 +673,21 @@ const make = Effect.gen(function* () {
       return;
     }
     const cwd = input.worktreePath;
-    const currentBranch = yield* git.statusDetails(cwd).pipe(
-      Effect.map((details) => details.branch ?? input.branch),
+    const currentBranchResult = yield* git.currentBranch(cwd).pipe(
       Effect.catchCause((cause) =>
-        Effect.logWarning("provider command reactor failed to read worktree branch", {
+        Effect.logWarning("provider command reactor failed to read current worktree branch", {
           threadId: input.threadId,
           cwd,
           cause: Cause.pretty(cause),
-        }).pipe(Effect.as(input.branch)),
+        }).pipe(Effect.as(null)),
       ),
     );
+    const currentBranch =
+      currentBranchResult === null
+        ? input.branch
+        : currentBranchResult.status === "branch"
+          ? currentBranchResult.branch
+          : null;
     if (!currentBranch) {
       return;
     }

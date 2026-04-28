@@ -1167,6 +1167,63 @@ it.layer(TestLayer)("git integration", (it) => {
     );
   });
 
+  // ── currentBranch ──
+
+  describe("currentBranch", () => {
+    it.effect("returns the checked-out branch in a normal repo", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(tmp);
+
+        const result = yield* (yield* GitCore).currentBranch(tmp);
+
+        expect(result).toEqual({ status: "branch", branch: initialBranch });
+      }),
+    );
+
+    it.effect("returns detached after checking out detached HEAD", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        yield* git(tmp, ["checkout", "--detach", "HEAD"]);
+
+        const result = yield* (yield* GitCore).currentBranch(tmp);
+
+        expect(result).toEqual({ status: "detached" });
+      }),
+    );
+
+    it.effect("returns not-repo for a deleted worktree path", () =>
+      Effect.gen(function* () {
+        const deletedDir = path.join(yield* makeTmpDir(), "deleted-worktree");
+        yield* makeDirectory(deletedDir);
+        yield* removePath(deletedDir);
+
+        const result = yield* (yield* GitCore).currentBranch(deletedDir);
+
+        expect(result).toEqual({ status: "not-repo" });
+      }),
+    );
+
+    it.effect("uses only symbolic-ref for current branch detection", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(tmp);
+        const realGitCore = yield* GitCore;
+        const commandArgs: Array<ReadonlyArray<string>> = [];
+        const core = yield* makeIsolatedGitCore((input) => {
+          commandArgs.push([...input.args]);
+          return realGitCore.execute(input);
+        });
+
+        const result = yield* core.currentBranch(tmp);
+
+        expect(result).toEqual({ status: "branch", branch: initialBranch });
+        expect(commandArgs).toEqual([["symbolic-ref", "--quiet", "--short", "HEAD"]]);
+      }),
+    );
+  });
+
   // ── renameGitBranch ──
 
   describe("renameGitBranch", () => {
