@@ -678,6 +678,34 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/persistence/Migrations/045_RelaxProjectionBoardLinkedThreadUniquenessForArchivedCards.test.ts` in `apps/server`.
   - Run `bun run test src/environments/runtime/service.threadSubscriptions.test.ts src/boardStore.test.ts src/boardProjection.test.ts` in `apps/web`.
 
+### 2026-04-28 - Surface active provider account identity
+
+- `Status`: active
+- `Area`: provider | web | contracts
+- `User-visible impact`: Provider status now includes a lightweight account label when the underlying CLI exposes one. Codex shows the active ChatGPT email when available, and Claude best-effort extracts an email/account label from `claude auth status`. The model picker and provider settings surface this next to the auth plan/type so users with multiple OpenAI or Claude accounts can tell which account Dynamo will use.
+- `Why this patch exists`: Users can have several ChatGPT/OpenAI or Claude/Anthropic accounts configured locally. A generic "authenticated" provider state is not enough to predict which account, subscription, or API-key context an agent turn will use.
+- `Key files`:
+  - `packages/contracts/src/server.ts`
+  - `apps/server/src/provider/Layers/CodexProvider.ts`
+  - `apps/server/src/provider/Layers/ClaudeProvider.ts`
+  - `apps/web/src/providerAccountPresentation.ts`
+  - `apps/web/src/components/chat/ProviderModelPicker.tsx`
+  - `apps/web/src/components/chat/ModelPickerSidebar.tsx`
+  - `apps/web/src/components/settings/SettingsPanels.tsx`
+- `Important invariants`:
+  - Account labels are optional and best-effort; missing labels must not make a provider unavailable.
+  - Account labels should only be shown for authenticated provider states.
+  - The shared provider schema remains backward-compatible with snapshots that do not include `auth.accountLabel`.
+- `Merge hotspots`:
+  - Provider status schemas and WebSocket config snapshots
+  - Codex `account/read` mapping
+  - Claude auth/capability probe parsing
+  - Model picker and provider settings status copy
+- `Verification`:
+  - Run `bun run test src/server.test.ts` in `packages/contracts`.
+  - Run `bun run test src/provider/Layers/ProviderRegistry.test.ts` in `apps/server`.
+  - Open provider settings/model picker and confirm account labels appear when provider probes return them.
+
 ## Upstream-Touching Patch Entry Template
 
 Use this template for future bugfixes or behavioral patches that modify upstream-derived code:
