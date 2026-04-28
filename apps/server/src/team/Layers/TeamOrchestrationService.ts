@@ -7,10 +7,13 @@ import {
 } from "@t3tools/contracts";
 import { Effect, Layer } from "effect";
 
-import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { GitStatusBroadcaster } from "../../git/Services/GitStatusBroadcaster.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import {
+  resolveThreadWorkspaceContext,
+  shouldSyncThreadBranchFromLiveGit,
+} from "../../orchestration/threadWorkspaceContext.ts";
 import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScriptRunner.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -150,9 +153,28 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
         );
       }
 
-      const cwd =
-        resolveThreadWorkspaceCwd({ thread: parentThread, projects: readModel.projects }) ??
-        project.workspaceRoot;
+      const workspace = yield* resolveThreadWorkspaceContext({
+        thread: parentThread,
+        projects: readModel.projects,
+      }).pipe(Effect.provideService(GitCore, git));
+      const cwd = workspace.cwd ?? project.workspaceRoot;
+      if (
+        shouldSyncThreadBranchFromLiveGit({
+          storedBranch: parentThread.branch,
+          liveBranch: workspace.liveBranch,
+          hasWorktreePath: parentThread.worktreePath !== null,
+        })
+      ) {
+        yield* orchestrationEngine
+          .dispatch({
+            type: "thread.meta.update",
+            commandId: commandId("team-parent-branch-sync"),
+            threadId: parentThread.id,
+            branch: workspace.liveBranch,
+            worktreePath: parentThread.worktreePath,
+          })
+          .pipe(Effect.ignoreCause({ log: true }));
+      }
       const providers = yield* providerRegistry.getProviders;
       const taskKind =
         input.taskKind ??
@@ -174,12 +196,13 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
         providers,
         settings,
       });
-      const isGitProject = yield* git.status({ cwd }).pipe(
-        Effect.map((status) => status.isRepo),
-        Effect.catch(() => Effect.succeed(false)),
-      );
+      const isGitProject = workspace.isGitRepo;
+      const parentThreadForPrompt = {
+        ...parentThread,
+        branch: workspace.effectiveBranch,
+      };
       const rendered = renderTeamChildPrompt({
-        parentThread,
+        parentThread: parentThreadForPrompt,
         title: input.title,
         task: input.task,
         roleLabel: input.roleLabel ?? null,
@@ -232,23 +255,24 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
         createdAt: now,
       });
 
-      let childBranch: string | null = null;
-      let childWorktreePath: string | null = null;
+      let childBranch: string | null =
+        rendered.policy.resolvedWorkspaceMode === "shared" ? workspace.effectiveBranch : null;
+      let childWorktreePath: string | null =
+        rendered.policy.resolvedWorkspaceMode === "shared" ? parentThread.worktreePath : null;
+      let createdDedicatedWorktree = false;
       let childThreadCreated = false;
 
       yield* Effect.gen(function* () {
         if (rendered.policy.resolvedWorkspaceMode === "worktree" && isGitProject) {
-          const baseBranch =
-            parentThread.branch ??
-            (yield* git.status({ cwd }).pipe(Effect.map((status) => status.branch ?? "HEAD")));
           const worktree = yield* git.createWorktree({
             cwd,
-            branch: baseBranch,
+            branch: workspace.worktreeBaseRef,
             newBranch: branch,
             path: null,
           });
           childBranch = worktree.worktree.branch;
           childWorktreePath = worktree.worktree.path;
+          createdDedicatedWorktree = true;
           yield* gitStatusBroadcaster
             .refreshStatus(childWorktreePath)
             .pipe(Effect.ignoreCause({ log: true }));
@@ -277,13 +301,13 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
           createdAt: new Date().toISOString(),
         });
 
-        if (rendered.policy.resolvedSetupMode === "run" && childWorktreePath !== null) {
+        if (rendered.policy.resolvedSetupMode === "run" && createdDedicatedWorktree) {
           yield* projectSetupScriptRunner
             .runForThread({
               threadId: childThreadId,
               projectId: project.id,
               projectCwd: project.workspaceRoot,
-              worktreePath: childWorktreePath,
+              worktreePath: childWorktreePath as string,
             })
             .pipe(Effect.ignoreCause({ log: true }));
         }
@@ -306,7 +330,7 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
       }).pipe(
         Effect.catch((cause) =>
           Effect.gen(function* () {
-            if (childWorktreePath !== null && !childThreadCreated) {
+            if (createdDedicatedWorktree && childWorktreePath !== null && !childThreadCreated) {
               yield* git
                 .removeWorktree({ cwd, path: childWorktreePath, force: true })
                 .pipe(Effect.ignoreCause({ log: true }));

@@ -80,7 +80,9 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Provider/model selection must be persisted with `modelSelectionMode` and `modelSelectionReason` so the UI can explain coordinator-selected choices.
   - Child threads must remain linked to the parent by durable event-sourced team task state and projection rows.
   - Git projects default to isolated child worktrees/branches; non-Git projects fall back to shared workspace and should record the limitation.
+  - Dynamo-managed child agents resolve workspace context from the coordinator's effective cwd, not only projected thread branch metadata. Shared children inherit the coordinator branch/worktree metadata, dedicated child worktrees are based on coordinator `HEAD`, and stale coordinator branch metadata may be repaired from live git status as a best-effort server action.
   - Worktree setup should auto-run only for coding/test/UI tasks when the project has configured worktree setup; review/exploration/docs/general tasks skip setup by default.
+  - Worktree setup must only run for newly-created dedicated child worktrees; shared children that inherit the coordinator worktree must not rerun setup against that workspace.
   - Parent UI must show child status changes and final summaries without requiring a refresh.
   - Child agent threads should not appear as independent top-level sidebar rows; they are reached through the coordinator's Agents drawer and durable inline team blocks.
   - The Agents drawer is the primary team roster/control surface. It should show role/topic, provider/model, status, latest summary/error, worktree/setup metadata, and open/cancel actions.
