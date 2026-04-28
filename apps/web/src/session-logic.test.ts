@@ -19,6 +19,7 @@ import {
   findSidebarProposedPlan,
   hasActionableProposedPlan,
   hasToolActivityForTurn,
+  isActiveTurnInProgress,
   isLatestTurnSettled,
 } from "./session-logic";
 
@@ -1461,6 +1462,23 @@ describe("isLatestTurnSettled", () => {
         },
         null,
       ),
+    ).toBe(false);
+  });
+});
+
+describe("isActiveTurnInProgress", () => {
+  it("requires an active orchestration status and active turn id", () => {
+    expect(
+      isActiveTurnInProgress({
+        orchestrationStatus: "recovering",
+        activeTurnId: TurnId.make("turn-1"),
+      }),
+    ).toBe(true);
+    expect(
+      isActiveTurnInProgress({
+        orchestrationStatus: "ready",
+        activeTurnId: TurnId.make("turn-1"),
+      }),
     ).toBe(false);
   });
 });

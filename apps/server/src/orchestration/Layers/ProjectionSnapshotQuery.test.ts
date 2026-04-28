@@ -436,6 +436,15 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       if (threadDetail._tag === "Some") {
         assert.deepEqual(threadDetail.value, snapshot.threads[0]);
       }
+
+      const threadDetailSnapshot = yield* snapshotQuery.getThreadDetailSnapshotById(
+        ThreadId.make("thread-1"),
+      );
+      assert.equal(threadDetailSnapshot._tag, "Some");
+      if (threadDetailSnapshot._tag === "Some") {
+        assert.equal(threadDetailSnapshot.value.snapshotSequence, snapshot.snapshotSequence);
+        assert.deepEqual(threadDetailSnapshot.value.thread, snapshot.threads[0]);
+      }
     }),
   );
 

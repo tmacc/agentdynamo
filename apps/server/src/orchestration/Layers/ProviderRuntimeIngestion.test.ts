@@ -330,6 +330,26 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("turn failed");
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const turnCompleted = events.find(
+      (event) =>
+        event.type === "thread.turn-completed" && event.payload.turnId === asTurnId("turn-1"),
+    );
+    const clearingSession = events.find(
+      (event) =>
+        event.type === "thread.session-set" &&
+        event.payload.session.status === "error" &&
+        event.payload.session.activeTurnId === null &&
+        event.sequence > (turnCompleted?.sequence ?? Number.MAX_SAFE_INTEGER),
+    );
+    expect(turnCompleted).toBeDefined();
+    expect(clearingSession).toBeDefined();
+    expect(turnCompleted!.sequence).toBeLessThan(clearingSession!.sequence);
   });
 
   it("applies provider session.state.changed transitions directly", async () => {

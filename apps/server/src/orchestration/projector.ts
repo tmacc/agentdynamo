@@ -841,7 +841,13 @@ export function projectEvent(
           return nextBase;
         }
 
-        if (thread.latestTurn !== null && thread.latestTurn.turnId !== payload.turnId) {
+        const shouldPromote =
+          thread.latestTurn === null ||
+          thread.latestTurn.turnId === payload.turnId ||
+          (thread.session !== null &&
+            thread.session.activeTurnId === payload.turnId &&
+            isActiveSessionStatus(thread.session.status));
+        if (!shouldPromote) {
           return nextBase;
         }
 
@@ -920,7 +926,13 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             checkpoints,
             latestTurn:
-              thread.latestTurn !== null && thread.latestTurn.turnId !== payload.turnId
+              thread.latestTurn !== null &&
+              thread.latestTurn.turnId !== payload.turnId &&
+              !(
+                thread.session !== null &&
+                thread.session.activeTurnId === payload.turnId &&
+                isActiveSessionStatus(thread.session.status)
+              )
                 ? thread.latestTurn
                 : thread.session !== null &&
                     thread.session.activeTurnId === payload.turnId &&

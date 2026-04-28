@@ -816,8 +816,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               >(orchestrationEngine, {
                 subscriptionName: "orchestration.subscribeThread",
                 loadSnapshot: Effect.gen(function* () {
-                  const [threadDetail, snapshotSequence] = yield* Effect.all([
-                    projectionSnapshotQuery.getThreadDetailById(input.threadId).pipe(
+                  const threadSnapshot = yield* projectionSnapshotQuery
+                    .getThreadDetailSnapshotById(input.threadId)
+                    .pipe(
                       Effect.mapError(
                         (cause) =>
                           new OrchestrationGetSnapshotError({
@@ -825,13 +826,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                             cause,
                           }),
                       ),
-                    ),
-                    orchestrationEngine
-                      .getReadModel()
-                      .pipe(Effect.map((readModel) => readModel.snapshotSequence)),
-                  ]);
+                    );
 
-                  if (Option.isNone(threadDetail)) {
+                  if (Option.isNone(threadSnapshot)) {
                     return yield* new OrchestrationGetSnapshotError({
                       message: `Thread ${input.threadId} was not found`,
                       cause: input.threadId,
@@ -839,11 +836,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   }
 
                   return {
-                    snapshot: {
-                      snapshotSequence,
-                      thread: threadDetail.value,
-                    },
-                    snapshotSequence,
+                    snapshot: threadSnapshot.value,
+                    snapshotSequence: threadSnapshot.value.snapshotSequence,
                   };
                 }),
                 snapshotItem: (snapshot) => ({

@@ -91,6 +91,19 @@ function turnCompletionStateToProjectionState(
   return "completed";
 }
 
+function turnOrderingTime(turn: Pick<ProjectionTurn, "requestedAt" | "startedAt">): string | null {
+  return turn.startedAt ?? turn.requestedAt ?? null;
+}
+
+function isStrictlyNewerTurn(
+  candidate: Pick<ProjectionTurn, "requestedAt" | "startedAt"> | null,
+  currentLatest: Pick<ProjectionTurn, "requestedAt" | "startedAt"> | null,
+): boolean {
+  const candidateTime = candidate ? turnOrderingTime(candidate) : null;
+  const latestTime = currentLatest ? turnOrderingTime(currentLatest) : null;
+  return candidateTime !== null && latestTime !== null && candidateTime > latestTime;
+}
+
 interface ProjectorDefinition {
   readonly name: ProjectorName;
   readonly apply: (
@@ -751,19 +764,79 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
-            latestTurnId: event.payload.session.activeTurnId ?? existingRow.value.latestTurnId,
+            latestTurnId:
+              event.payload.session.activeTurnId !== null &&
+              isRuntimeActiveStatus(event.payload.session.status)
+                ? event.payload.session.activeTurnId
+                : existingRow.value.latestTurnId,
             updatedAt: event.occurredAt,
           });
           yield* refreshThreadShellSummary(event.payload.threadId);
           return;
         }
 
-        case "thread.turn-completed":
+        case "thread.turn-completed": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          const existingSession = yield* projectionThreadSessionRepository.getByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const eventTurn = yield* projectionTurnRepository.getByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+          });
+          const currentLatestTurn =
+            existingRow.value.latestTurnId === null
+              ? Option.none<ProjectionTurn>()
+              : yield* projectionTurnRepository.getByTurnId({
+                  threadId: event.payload.threadId,
+                  turnId: existingRow.value.latestTurnId,
+                });
+          const isActiveSessionTurn =
+            Option.isSome(existingSession) &&
+            existingSession.value.activeTurnId === event.payload.turnId &&
+            isRuntimeActiveStatus(existingSession.value.status);
+          const shouldPromote =
+            (existingRow.value.latestTurnId === null && Option.isSome(eventTurn)) ||
+            existingRow.value.latestTurnId === event.payload.turnId ||
+            isActiveSessionTurn ||
+            isStrictlyNewerTurn(
+              Option.isSome(eventTurn) ? eventTurn.value : null,
+              Option.isSome(currentLatestTurn) ? currentLatestTurn.value : null,
+            );
+          if (!shouldPromote) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestTurnId: event.payload.turnId,
+            updatedAt: event.occurredAt,
+          });
+          yield* refreshThreadShellSummary(event.payload.threadId);
+          return;
+        }
+
         case "thread.turn-diff-completed": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
           });
           if (Option.isNone(existingRow)) {
+            return;
+          }
+          const existingSession = yield* projectionThreadSessionRepository.getByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const shouldPromote =
+            existingRow.value.latestTurnId === null ||
+            existingRow.value.latestTurnId === event.payload.turnId ||
+            (Option.isSome(existingSession) &&
+              existingSession.value.activeTurnId === event.payload.turnId &&
+              isRuntimeActiveStatus(existingSession.value.status));
+          if (!shouldPromote) {
             return;
           }
           yield* projectionThreadRepository.upsert({
@@ -1337,6 +1410,30 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               requestedAt: existingTurn.value.requestedAt ?? event.payload.completedAt,
             });
           } else {
+            const existingThread = yield* projectionThreadRepository.getById({
+              threadId: event.payload.threadId,
+            });
+            const existingSession = yield* projectionThreadSessionRepository.getByThreadId({
+              threadId: event.payload.threadId,
+            });
+            const commandId = event.commandId === null ? "" : String(event.commandId);
+            const isRecoveryOrRepairCompletion =
+              commandId.startsWith("recovery:turn-complete:") ||
+              commandId.startsWith("repair:turn-complete:");
+            const canCreateTurn =
+              (Option.isSome(existingSession) &&
+                existingSession.value.activeTurnId === event.payload.turnId) ||
+              (Option.isSome(existingThread) &&
+                existingThread.value.latestTurnId === event.payload.turnId) ||
+              isRecoveryOrRepairCompletion;
+            if (!canCreateTurn) {
+              yield* Effect.logWarning("projection.thread-turns.ignored-unknown-turn-completion", {
+                threadId: event.payload.threadId,
+                turnId: event.payload.turnId,
+                commandId: event.commandId,
+              });
+              return;
+            }
             yield* projectionTurnRepository.upsertByTurnId({
               turnId: event.payload.turnId,
               threadId: event.payload.threadId,

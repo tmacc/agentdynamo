@@ -24,6 +24,7 @@ import {
   type OrchestrationProject,
   type OrchestrationSession,
   type OrchestrationThreadActivity,
+  type OrchestrationThreadDetailSnapshot,
   type OrchestrationThreadShell,
   ModelSelection,
   ProjectId,
@@ -164,6 +165,7 @@ const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.nativeSubagentTrace,
   ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
   ORCHESTRATION_PROJECTOR_NAMES.threadSessions,
+  ORCHESTRATION_PROJECTOR_NAMES.threadTurns,
   ORCHESTRATION_PROJECTOR_NAMES.checkpoints,
 ] as const;
 
@@ -1954,6 +1956,42 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       );
     });
 
+  const getThreadDetailSnapshotById: ProjectionSnapshotQueryShape["getThreadDetailSnapshotById"] = (
+    threadId,
+  ) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const [thread, stateRows] = yield* Effect.all([
+            getThreadDetailById(threadId),
+            listProjectionStateRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlError(
+                  "ProjectionSnapshotQuery.getThreadDetailSnapshotById:listState:query",
+                ),
+              ),
+            ),
+          ]);
+          if (Option.isNone(thread)) {
+            return Option.none<OrchestrationThreadDetailSnapshot>();
+          }
+          return Option.some({
+            snapshotSequence: computeSnapshotSequence(stateRows),
+            thread: thread.value,
+          });
+        }),
+      )
+      .pipe(
+        Effect.mapError((error) => {
+          if (isPersistenceError(error)) {
+            return error;
+          }
+          return toPersistenceSqlError(
+            "ProjectionSnapshotQuery.getThreadDetailSnapshotById:transaction",
+          )(error);
+        }),
+      );
+
   const getTeamTaskTrace: ProjectionSnapshotQueryShape["getTeamTaskTrace"] = (input) =>
     Effect.gen(function* () {
       const [items, stateRows] = yield* Effect.all([
@@ -1991,6 +2029,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadCheckpointContext,
     getThreadShellById,
     getThreadDetailById,
+    getThreadDetailSnapshotById,
     getTeamTaskTrace,
   } satisfies ProjectionSnapshotQueryShape;
 });

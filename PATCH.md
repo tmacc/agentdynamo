@@ -713,6 +713,48 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/persistence/Migrations/045_RelaxProjectionBoardLinkedThreadUniquenessForArchivedCards.test.ts` in `apps/server`.
   - Run `bun run test src/environments/runtime/service.threadSubscriptions.test.ts src/boardStore.test.ts src/boardProjection.test.ts` in `apps/web`.
 
+### 2026-04-28 - Replay-safe runtime recovery hardening
+
+- `Status`: active
+- `Area`: provider | orchestration | projection | websocket | web | team
+- `User-visible impact`: After a crash or app restart during an active provider turn, threads no longer look complete merely because assistant text arrived or a provider session reports idle. Active/recovering turns keep active controls until `thread.turn-completed` is durable, stale provider completions cannot regress newer work, and invalid `ready/stopped/error + activeTurnId` sessions are repaired explicitly.
+- `Why this patch exists`: Dynamo keeps fork-owned provider runtime recovery, WebSocket replay, and subagent projection behavior on top of upstream orchestration code. Crash recovery exposed gaps where session readiness, stale turn completions, or mixed snapshot cursors could make the UI lose working indicators and stop buttons while providers or Dynamo child agents were still running.
+- `Key files`:
+  - `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`
+  - `apps/server/src/orchestration/projector.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`
+  - `apps/server/src/orchestration/Services/ProjectionSnapshotQuery.ts`
+  - `apps/server/src/ws.ts`
+  - `apps/server/src/provider/Layers/ProviderSessionRecoveryReconciler.ts`
+  - `apps/server/src/team/Layers/TeamTaskReactor.ts`
+  - `apps/web/src/session-logic.ts`
+  - `apps/web/src/components/ChatView.logic.ts`
+  - `apps/web/src/boardProjection.ts`
+- `Important invariants`:
+  - For the active session turn, `thread.turn-completed` must be committed before `thread.session-set` clears `activeTurnId` or reports final/idle state.
+  - Historical known turn completions may update their own turn row, but must not clear current session state or promote themselves over a newer latest turn.
+  - `thread.turn-diff-completed` attaches checkpoint data without finalizing or promoting stale turns.
+  - Thread detail subscriptions must use a projection-owned snapshot cursor; do not pair projection table snapshots with the in-memory orchestration read-model sequence.
+  - Recovery must not emit `ready`, `stopped`, or `error` with a non-null stale `activeTurnId`.
+  - Web active controls and provider locks must derive from active orchestration statuses (`starting`, `running`, `recovering`) plus `activeTurnId`, not raw `activeTurnId`.
+  - Dynamo-managed and provider-native subagent tasks must reconcile from repaired child/parent session state and must not remain falsely running after recovery interruption/failure.
+- `Merge hotspots`:
+  - Provider runtime ingestion turn/session lifecycle ordering
+  - SQL and in-memory latest-turn projection precedence
+  - Projection snapshot query APIs and WebSocket subscription bootstrapping
+  - Provider recovery reconciler startup repair and failure classification
+  - Web session helper usage in composer/sidebar/board/provider-lock logic
+  - Native-provider trace/task recovery handling
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Run `bun run test src/orchestration/Layers/ProviderRuntimeIngestion.test.ts` in `apps/server`.
+  - Run `bun run test src/orchestration/Layers/ProjectionPipeline.test.ts` in `apps/server`.
+  - Run `bun run test src/orchestration/Layers/ProjectionSnapshotQuery.test.ts` in `apps/server`.
+  - Run `bun run test src/provider/Layers/ProviderSessionRecoveryReconciler.test.ts` in `apps/server`.
+  - Run `bun run test src/team/Layers/TeamTaskReactor.test.ts` in `apps/server`.
+  - Run `bun run test src/session-logic.test.ts src/store.test.ts src/components/ChatView.logic.test.ts` in `apps/web`.
+
 ## Upstream-Touching Patch Entry Template
 
 Use this template for future bugfixes or behavioral patches that modify upstream-derived code:
