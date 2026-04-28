@@ -68,7 +68,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/store.ts`
 - `Important invariants`:
   - Team delegation is only allowed from top-level threads; child threads must not recursively delegate in v1.
-  - Team agents are enabled by default, with a default max of three active child agents per parent.
+  - Team agents are enabled by default, with a default max of ten active child agents per parent.
   - Coordinator tools are injected only into supported top-level provider sessions, currently Codex and Claude, using MCP server name `dynamo_team`.
   - The `/api/team-mcp` route must behave like a normal MCP server during provider startup: authenticated POST requests support `initialize`, `notifications/initialized`, `ping`, `tools/list`, and `tools/call`, plus a lightweight GET health response.
   - Team agents can be disabled through server settings; disabling prevents coordinator tool injection and rejects team spawn attempts.
@@ -688,6 +688,26 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/team/Layers/TeamCoordinatorAccess.test.ts` in `apps/server`.
   - Run `bun run test src/persistence/Migrations/045_RelaxProjectionBoardLinkedThreadUniquenessForArchivedCards.test.ts` in `apps/server`.
   - Run `bun run test src/environments/runtime/service.threadSubscriptions.test.ts src/boardStore.test.ts src/boardProjection.test.ts` in `apps/web`.
+
+### 2026-04-28 - Raise default team child limit
+
+- `Status`: active
+- `Area`: contracts | orchestration | team
+- `User-visible impact`: New or defaulted server settings allow up to ten active Dynamo-managed child agents per coordinator thread before spawn requests are rejected.
+- `Why this patch exists`: Dynamo is a fork focused on visible parallel agent orchestration, and the previous default of three active child agents constrained larger coordinator-led team workflows.
+- `Key files`:
+  - `packages/contracts/src/settings.ts`
+  - `apps/server/src/team/Layers/TeamOrchestrationService.ts`
+  - `apps/server/src/orchestration/decider.ts`
+- `Important invariants`:
+  - The limit is still enforced by `maxActiveChildren` in both the service preflight path and the serialized `thread.team-task.spawn` decider path.
+  - Native-provider subagent mirrors remain exempt from this Dynamo-managed child limit because they mirror provider-created state.
+- `Merge hotspots`:
+  - Server settings defaults and sparse default stripping
+  - Team task spawn invariant checks
+- `Verification`:
+  - Run `bun run test src/serverSettings.test.ts` in `apps/server`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck` at the repo root.
 
 ## Upstream-Touching Patch Entry Template
 
