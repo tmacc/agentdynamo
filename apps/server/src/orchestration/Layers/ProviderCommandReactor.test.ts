@@ -231,6 +231,24 @@ describe("ProviderCommandReactor", () => {
         pr: null,
       }),
     );
+    const statusDetails = vi.fn<GitCoreShape["statusDetails"]>((_) =>
+      Effect.succeed({
+        isRepo: true,
+        hasOriginRemote: true,
+        isDefaultBranch: false,
+        branch: null,
+        hasWorkingTreeChanges: false,
+        workingTree: {
+          files: [],
+          insertions: 0,
+          deletions: 0,
+        },
+        hasUpstream: false,
+        upstreamRef: null,
+        aheadCount: 0,
+        behindCount: 0,
+      }),
+    );
     const generateBranchName = vi.fn<TextGenerationShape["generateBranchName"]>((_) =>
       Effect.fail(
         new TextGenerationError({
@@ -278,7 +296,9 @@ describe("ProviderCommandReactor", () => {
     const layer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
-      Layer.provideMerge(Layer.succeed(GitCore, { renameBranch } as unknown as GitCoreShape)),
+      Layer.provideMerge(
+        Layer.succeed(GitCore, { renameBranch, statusDetails } as unknown as GitCoreShape),
+      ),
       Layer.provideMerge(
         Layer.succeed(GitStatusBroadcaster, {
           getStatus: () => Effect.die("getStatus should not be called in this test"),
@@ -359,6 +379,7 @@ describe("ProviderCommandReactor", () => {
       respondToUserInput,
       stopSession,
       renameBranch,
+      statusDetails,
       refreshStatus,
       generateBranchName,
       generateThreadTitle,
@@ -819,6 +840,75 @@ describe("ProviderCommandReactor", () => {
       message: "Add a safer reconnect backoff.",
     });
     expect(harness.refreshStatus.mock.calls[0]?.[0]).toBe("/tmp/provider-project-worktree");
+  });
+
+  it("renames the real worktree branch when thread branch metadata is stale", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-stale-branch"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "main",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+
+    harness.statusDetails.mockReturnValue(
+      Effect.succeed({
+        isRepo: true,
+        hasOriginRemote: true,
+        isDefaultBranch: false,
+        branch: "t3code/b9c16155",
+        hasWorkingTreeChanges: false,
+        workingTree: {
+          files: [],
+          insertions: 0,
+          deletions: 0,
+        },
+        hasUpstream: false,
+        upstreamRef: null,
+        aheadCount: 0,
+        behindCount: 0,
+      }),
+    );
+    harness.generateBranchName.mockReturnValue(
+      Effect.succeed({ branch: "worktree naming inconsistency" }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-stale-branch"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-stale-branch"),
+          role: "user",
+          text: "Investigate worktree naming inconsistency.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.renameBranch.mock.calls.length === 1);
+    expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
+      cwd: "/tmp/provider-project-worktree",
+      oldBranch: "t3code/b9c16155",
+      newBranch: "t3code/worktree-naming-inconsistency",
+    });
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      return (
+        readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.branch ===
+        "t3code/worktree-naming-inconsistency"
+      );
+    });
   });
 
   it("forwards codex model options through session start and turn send", async () => {

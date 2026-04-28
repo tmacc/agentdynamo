@@ -649,6 +649,27 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/store.test.ts` in `apps/web`.
   - Launch `bun run dev:desktop`; verify generic same-provider subagent prompts can use provider-native delegation, then verify explicit cross-provider or Dynamo-visible child requests spawn Dynamo team agents and appear in the Agents drawer.
 
+### 2026-04-28 - Resolve worktree branch rename from Git state
+
+- `Status`: active
+- `Area`: orchestration | git | web
+- `User-visible impact`: New worktree threads should still get semantic branch names even if stale client metadata briefly writes the base branch back onto the thread during first-turn bootstrap. The physical worktree directory remains the original temporary path; the Git branch and thread metadata are corrected after rename.
+- `Why this patch exists`: Dynamo creates worktrees on temporary `t3code/<hex>` branches, then renames the branch from the first prompt. The rename reactor used to trust projected thread metadata, so a racing `thread.meta.update` could make it see `main` and skip the rename while the actual worktree was still on the temporary branch.
+- `Key files`:
+  - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
+  - `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts`
+- `Important invariants`:
+  - First-turn worktree branch rename must inspect the current branch in `thread.worktreePath` before deciding whether the branch is temporary.
+  - If Git branch inspection fails, the reactor may fall back to stored thread metadata and keep the turn non-blocking.
+  - Rename remains best-effort: generation or Git rename failures should log and continue the provider turn.
+- `Merge hotspots`:
+  - Provider command reactor first-turn handling
+  - WebSocket worktree bootstrap metadata updates
+  - Branch toolbar thread metadata writes
+- `Verification`:
+  - Run `bun run test src/orchestration/Layers/ProviderCommandReactor.test.ts` in `apps/server`.
+  - Create a new worktree thread and confirm a semantic `t3code/<prompt-slug>` branch replaces the temporary branch even if setup/branch status updates arrive during bootstrap.
+
 ### 2026-04-25 - Harden team coordinator grants and board projections
 
 - `Status`: active

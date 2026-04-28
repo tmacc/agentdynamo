@@ -669,15 +669,28 @@ const make = Effect.gen(function* () {
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
   }) {
-    if (!input.branch || !input.worktreePath) {
+    if (!input.worktreePath) {
       return;
     }
-    if (!isTemporaryWorktreeBranch(input.branch)) {
+    const cwd = input.worktreePath;
+    const currentBranch = yield* git.statusDetails(cwd).pipe(
+      Effect.map((details) => details.branch ?? input.branch),
+      Effect.catchCause((cause) =>
+        Effect.logWarning("provider command reactor failed to read worktree branch", {
+          threadId: input.threadId,
+          cwd,
+          cause: Cause.pretty(cause),
+        }).pipe(Effect.as(input.branch)),
+      ),
+    );
+    if (!currentBranch) {
+      return;
+    }
+    if (!isTemporaryWorktreeBranch(currentBranch)) {
       return;
     }
 
-    const oldBranch = input.branch;
-    const cwd = input.worktreePath;
+    const oldBranch = currentBranch;
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
       const { textGenerationModelSelection: modelSelection } =
