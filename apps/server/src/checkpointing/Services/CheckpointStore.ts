@@ -86,9 +86,9 @@ export interface CheckpointStoreShape {
   /**
    * Compute a per-file +/- summary between two checkpoint refs.
    *
-   * Uses `git diff --numstat`, which produces orders of magnitude less output
-   * than a full patch and so does not run up against the patch-size cap on
-   * long-running threads.
+   * Uses `git diff --numstat -z`, which produces orders of magnitude less
+   * output than a full patch while preserving machine-readable path records
+   * for unusual file names.
    */
   readonly summarizeCheckpointDiff: (
     input: DiffCheckpointsInput,

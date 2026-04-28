@@ -697,7 +697,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - SQLite connection setup must apply `PRAGMA busy_timeout` after `journal_mode = WAL` so writer contention waits rather than returning `SQLITE_BUSY` immediately.
   - The desktop supervisor must only reset `restartAttempt` after the child has logged readiness (the `Listening on …` line), not on `spawn` — otherwise a startup-time crash loop pins the backoff at 500 ms forever.
   - `ProviderService.stopSession` must succeed when no persisted binding exists for the thread; reactors that emit `thread.session-stop-requested` rely on stop being idempotent.
-  - `CheckpointStore` must expose a per-file `summarizeCheckpointDiff` that does not require buffering a full unified patch; the checkpoint reactor uses it for the turn diff summary so summaries survive >1 MB diffs.
+  - `CheckpointStore` must expose a per-file `summarizeCheckpointDiff` that does not require buffering a full unified patch; the checkpoint reactor uses it for the turn diff summary so summaries survive >1 MB diffs. The summary command must use `git diff --numstat -z --find-renames` so parsing is based on NUL-separated records, rename summaries use destination paths, and results do not depend on user Git config such as `diff.renames=false`. Server-side checkpoint summaries no longer depend on `@pierre/diffs`; the web diff viewer still does.
   - `ProviderRuntimeIngestion` must skip `thread.team-task.upsert-native` dispatches when the thread already has a `teamParent`, since the decider rejects them in v1 anyway.
 - `Merge hotspots`:
   - SQLite `setup` layer in `Sqlite.ts`
@@ -707,6 +707,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `processRuntimeEvent` native team-task dispatch in `ProviderRuntimeIngestion.ts`
 - `Verification`:
   - Run `bun run test src/checkpointing src/orchestration src/persistence src/provider` in `apps/server`.
+  - Run `bun run test src/checkpointing/Diffs.test.ts src/checkpointing/Layers/CheckpointStore.test.ts` in `apps/server` after changes to `summarizeCheckpointDiff` or its parser; coverage must include NUL-separated rename records and `diff.renames=false`.
   - Boot `bun run dev:desktop`, hold a write transaction in another tool against `~/.dynamo/userdata/state.sqlite`, and verify the server child does not exit with `database is locked` while the lock is held briefly.
   - Stop a thread whose binding has been wiped (delete the row from `provider_session_runtime`) and verify the stop request returns success without a logged `ProviderValidationError`.
   - Run a long-output thread (≥10 turns of large diffs) and verify the activity feed continues to render the per-file change summary.

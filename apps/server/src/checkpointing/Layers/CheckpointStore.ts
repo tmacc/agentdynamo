@@ -274,7 +274,7 @@ const makeCheckpointStore = Effect.gen(function* () {
     if (!fromCommitOid || !toCommitOid) {
       return yield* new GitCommandError({
         operation,
-        command: "git diff --numstat",
+        command: "git diff --numstat -z --find-renames",
         cwd: input.cwd,
         detail: "Checkpoint ref is unavailable for diff summary.",
       });
@@ -283,7 +283,7 @@ const makeCheckpointStore = Effect.gen(function* () {
     const result = yield* git.execute({
       operation,
       cwd: input.cwd,
-      args: ["diff", "--numstat", "--no-color", fromCommitOid, toCommitOid],
+      args: ["diff", "--numstat", "-z", "--find-renames", "--no-color", fromCommitOid, toCommitOid],
       maxOutputBytes: CHECKPOINT_NUMSTAT_MAX_OUTPUT_BYTES,
     });
 

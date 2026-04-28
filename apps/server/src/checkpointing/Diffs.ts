@@ -1,70 +1,72 @@
-import { parsePatchFiles } from "@pierre/diffs";
-
 export interface TurnDiffFileSummary {
   readonly path: string;
   readonly additions: number;
   readonly deletions: number;
 }
 
-export function parseTurnDiffFilesFromUnifiedDiff(
-  diff: string,
-): ReadonlyArray<TurnDiffFileSummary> {
-  const normalized = diff.replace(/\r\n/g, "\n").trim();
-  if (normalized.length === 0) {
-    return [];
-  }
-
-  const parsedPatches = parsePatchFiles(normalized);
-  const files = parsedPatches.flatMap((patch) =>
-    patch.files.map((file) => ({
-      path: file.name,
-      additions: file.hunks.reduce((total, hunk) => total + hunk.additionLines, 0),
-      deletions: file.hunks.reduce((total, hunk) => total + hunk.deletionLines, 0),
-    })),
-  );
-
-  return files.toSorted((left, right) => left.path.localeCompare(right.path));
-}
-
 /**
- * Parse `git diff --numstat` output into per-file +/- counts.
+ * Parse `git diff --numstat -z` output into per-file +/- counts.
  *
- * Output format: one tab-separated line per file as `<adds>\t<dels>\t<path>`.
- * Binary files report `-\t-\t<path>` and are reported as 0/0. Renames render
- * the path as `old => new` (or with brace syntax); the destination path is
+ * Normal files are emitted as `<adds>\t<dels>\t<path>\0`. Renames are emitted
+ * as `<adds>\t<dels>\t\0<old-path>\0<new-path>\0`; the destination path is
  * preferred so the summary lines up with the worktree state.
  */
 export function parseTurnDiffFilesFromNumstat(numstat: string): ReadonlyArray<TurnDiffFileSummary> {
-  const normalized = numstat.replace(/\r\n/g, "\n");
+  const records = numstat.split("\0");
+  if (records.at(-1) === "") {
+    records.pop();
+  }
+
   const files: TurnDiffFileSummary[] = [];
-  for (const line of normalized.split("\n")) {
-    if (line.length === 0) continue;
-    const parts = line.split("\t");
-    if (parts.length < 3) continue;
-    const [addsRaw, delsRaw, ...rest] = parts;
-    const rawPath = rest.join("\t").trim();
-    if (rawPath.length === 0) continue;
-    const additions = addsRaw === "-" ? 0 : Number.parseInt(addsRaw ?? "", 10);
-    const deletions = delsRaw === "-" ? 0 : Number.parseInt(delsRaw ?? "", 10);
-    if (!Number.isFinite(additions) || !Number.isFinite(deletions)) continue;
+
+  for (let index = 0; index < records.length; index += 1) {
+    const parsedHeader = parseNumstatHeader(records[index] ?? "");
+    if (!parsedHeader) continue;
+
+    let path = parsedHeader.path;
+    if (path.length === 0) {
+      const destinationPath = records[index + 2];
+      index += 2;
+      if (!destinationPath) continue;
+      path = destinationPath;
+    }
+
     files.push({
-      path: extractDestinationPath(rawPath),
-      additions,
-      deletions,
+      path,
+      additions: parsedHeader.additions,
+      deletions: parsedHeader.deletions,
     });
   }
+
   return files.toSorted((left, right) => left.path.localeCompare(right.path));
 }
 
-function extractDestinationPath(rawPath: string): string {
-  const braceMatch = rawPath.match(/^(.*)\{(.*) => (.*)\}(.*)$/);
-  if (braceMatch) {
-    const [, prefix = "", , destMid = "", suffix = ""] = braceMatch;
-    return `${prefix}${destMid}${suffix}`.replace(/\/+/g, "/");
+function parseNumstatHeader(
+  header: string,
+): { readonly additions: number; readonly deletions: number; readonly path: string } | null {
+  const firstTab = header.indexOf("\t");
+  if (firstTab === -1) return null;
+
+  const secondTab = header.indexOf("\t", firstTab + 1);
+  if (secondTab === -1) return null;
+
+  const additions = parseNumstatCount(header.slice(0, firstTab));
+  const deletions = parseNumstatCount(header.slice(firstTab + 1, secondTab));
+  if (additions === null || deletions === null) return null;
+
+  return {
+    additions,
+    deletions,
+    path: header.slice(secondTab + 1),
+  };
+}
+
+function parseNumstatCount(value: string): number | null {
+  if (value === "-") {
+    return 0;
   }
-  const arrowIndex = rawPath.indexOf(" => ");
-  if (arrowIndex !== -1) {
-    return rawPath.slice(arrowIndex + " => ".length);
+  if (!/^\d+$/.test(value)) {
+    return null;
   }
-  return rawPath;
+  return Number.parseInt(value, 10);
 }
