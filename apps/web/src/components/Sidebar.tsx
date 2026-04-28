@@ -359,7 +359,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   });
   const isHighlighted = isActive || isSelected;
   const isThreadRunning =
-    thread.session?.status === "running" && thread.session.activeTurnId != null;
+    (thread.session?.status === "running" || thread.session?.status === "recovering") &&
+    thread.session.activeTurnId != null;
   const threadStatus = resolveThreadStatusPill({
     thread: {
       ...thread,

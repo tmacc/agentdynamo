@@ -299,6 +299,24 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     return { adapter: recovered.adapter, threadId: input.threadId, isActive: true } as const;
   });
 
+  const recoverSession: ProviderServiceShape["recoverSession"] = Effect.fn(
+    "ProviderService.recoverSession",
+  )(function* (input) {
+    const bindingOption = yield* directory.getBinding(input.threadId);
+    const binding = Option.getOrUndefined(bindingOption);
+    if (!binding) {
+      return yield* toValidationError(
+        "ProviderService.recoverSession",
+        `Cannot recover thread '${input.threadId}' because no persisted provider binding exists.`,
+      );
+    }
+    const recovered = yield* recoverSessionForThread({
+      binding,
+      operation: "ProviderService.recoverSession",
+    });
+    return recovered.session;
+  });
+
   const stopStaleSessionsForThread = Effect.fn("stopStaleSessionsForThread")(function* (input: {
     readonly threadId: ThreadId;
     readonly currentProvider: ProviderSession["provider"];
@@ -784,6 +802,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     respondToRequest,
     respondToUserInput,
     stopSession,
+    recoverSession,
     listSessions,
     getCapabilities,
     rollbackConversation,

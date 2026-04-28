@@ -35,6 +35,7 @@ import {
   ThreadUnarchivedPayload,
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
+  ThreadTurnCompletedPayload,
   ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
 
@@ -46,6 +47,18 @@ function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error"
   if (status === "error") return "error" as const;
   if (status === "missing") return "interrupted" as const;
   return "completed" as const;
+}
+
+function turnCompletionStateToLatestTurnState(
+  state: "completed" | "failed" | "interrupted" | "cancelled",
+) {
+  if (state === "failed") return "error" as const;
+  if (state === "interrupted" || state === "cancelled") return "interrupted" as const;
+  return "completed" as const;
+}
+
+function isActiveSessionStatus(status: OrchestrationSession["status"]) {
+  return status === "starting" || status === "running" || status === "recovering";
 }
 
 function updateThread(
@@ -477,7 +490,7 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             session,
             latestTurn:
-              session.status === "running" && session.activeTurnId !== null
+              isActiveSessionStatus(session.status) && session.activeTurnId !== null
                 ? {
                     turnId: session.activeTurnId,
                     state: "running",
@@ -815,6 +828,48 @@ export function projectEvent(
         "payload",
       ).pipe(Effect.as(nextBase));
 
+    case "thread.turn-completed":
+      return Effect.gen(function* () {
+        const payload = yield* decodeForEvent(
+          ThreadTurnCompletedPayload,
+          event.payload,
+          event.type,
+          "payload",
+        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+        if (!thread) {
+          return nextBase;
+        }
+
+        if (thread.latestTurn !== null && thread.latestTurn.turnId !== payload.turnId) {
+          return nextBase;
+        }
+
+        return {
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            latestTurn: {
+              turnId: payload.turnId,
+              state: turnCompletionStateToLatestTurnState(payload.state),
+              requestedAt:
+                thread.latestTurn?.turnId === payload.turnId
+                  ? thread.latestTurn.requestedAt
+                  : payload.completedAt,
+              startedAt:
+                thread.latestTurn?.turnId === payload.turnId
+                  ? (thread.latestTurn.startedAt ?? payload.completedAt)
+                  : payload.completedAt,
+              completedAt: payload.completedAt,
+              assistantMessageId:
+                thread.latestTurn?.turnId === payload.turnId
+                  ? (thread.latestTurn.assistantMessageId ?? payload.assistantMessageId)
+                  : payload.assistantMessageId,
+            },
+            updatedAt: event.occurredAt,
+          }),
+        };
+      });
+
     case "thread.turn-diff-completed":
       return Effect.gen(function* () {
         const payload = yield* decodeForEvent(
@@ -864,20 +919,54 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             checkpoints,
-            latestTurn: {
-              turnId: payload.turnId,
-              state: checkpointStatusToLatestTurnState(payload.status),
-              requestedAt:
-                thread.latestTurn?.turnId === payload.turnId
-                  ? thread.latestTurn.requestedAt
-                  : payload.completedAt,
-              startedAt:
-                thread.latestTurn?.turnId === payload.turnId
-                  ? (thread.latestTurn.startedAt ?? payload.completedAt)
-                  : payload.completedAt,
-              completedAt: payload.completedAt,
-              assistantMessageId: payload.assistantMessageId,
-            },
+            latestTurn:
+              thread.latestTurn !== null && thread.latestTurn.turnId !== payload.turnId
+                ? thread.latestTurn
+                : thread.session !== null &&
+                    thread.session.activeTurnId === payload.turnId &&
+                    isActiveSessionStatus(thread.session.status)
+                  ? {
+                      turnId: payload.turnId,
+                      state: "running",
+                      requestedAt:
+                        thread.latestTurn?.turnId === payload.turnId
+                          ? thread.latestTurn.requestedAt
+                          : payload.completedAt,
+                      startedAt:
+                        thread.latestTurn?.turnId === payload.turnId
+                          ? (thread.latestTurn.startedAt ?? payload.completedAt)
+                          : payload.completedAt,
+                      completedAt: thread.latestTurn?.completedAt ?? null,
+                      assistantMessageId:
+                        thread.latestTurn?.turnId === payload.turnId
+                          ? (thread.latestTurn.assistantMessageId ?? payload.assistantMessageId)
+                          : payload.assistantMessageId,
+                    }
+                  : {
+                      turnId: payload.turnId,
+                      state:
+                        thread.latestTurn?.turnId === payload.turnId &&
+                        thread.latestTurn.completedAt !== null
+                          ? thread.latestTurn.state
+                          : checkpointStatusToLatestTurnState(payload.status),
+                      requestedAt:
+                        thread.latestTurn?.turnId === payload.turnId
+                          ? thread.latestTurn.requestedAt
+                          : payload.completedAt,
+                      startedAt:
+                        thread.latestTurn?.turnId === payload.turnId
+                          ? (thread.latestTurn.startedAt ?? payload.completedAt)
+                          : payload.completedAt,
+                      completedAt:
+                        thread.latestTurn?.turnId === payload.turnId &&
+                        thread.latestTurn.completedAt !== null
+                          ? thread.latestTurn.completedAt
+                          : payload.completedAt,
+                      assistantMessageId:
+                        thread.latestTurn?.turnId === payload.turnId
+                          ? (thread.latestTurn.assistantMessageId ?? payload.assistantMessageId)
+                          : payload.assistantMessageId,
+                    },
             updatedAt: event.occurredAt,
           }),
         };

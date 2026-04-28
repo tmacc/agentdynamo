@@ -78,6 +78,13 @@ export interface ProviderServiceShape {
   ) => Effect.Effect<void, ProviderServiceError>;
 
   /**
+   * Recover a persisted provider session binding after process restart.
+   */
+  readonly recoverSession?: (input: {
+    readonly threadId: ThreadId;
+  }) => Effect.Effect<ProviderSession, ProviderServiceError>;
+
+  /**
    * List active provider sessions.
    *
    * Aggregates runtime session lists from all registered adapters.

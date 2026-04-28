@@ -963,6 +963,17 @@ describe("incremental orchestration updates", () => {
           },
           { sequence: 3 },
         ),
+        makeEvent(
+          "thread.turn-completed",
+          {
+            threadId: thread.id,
+            turnId: TurnId.make("turn-1"),
+            state: "completed",
+            assistantMessageId: MessageId.make("assistant-1"),
+            completedAt: "2026-02-27T00:00:04.000Z",
+          },
+          { sequence: 4 },
+        ),
       ],
       localEnvironmentId,
     );

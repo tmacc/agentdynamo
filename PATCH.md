@@ -26,6 +26,42 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ## Fork Feature Inventory
 
+### Replay-safe runtime recovery
+
+- `Status`: Present on this branch.
+- `User-visible behavior`: Reloading or restarting Dynamo while a provider turn is active keeps the thread in an active/recovering state until the provider turn is explicitly settled. Assistant text arriving after reconnect no longer makes the UI report the thread as complete by itself. Stop controls remain available for recovering active turns, missed orchestration events are replayed after websocket snapshots, and Dynamo-managed/native subagent task state is reconciled after startup.
+- `Why it exists`: Active provider sessions can outlive the web process or app UI. Recovery must be event-sourced and sequence-aware so websocket reconnects, provider resume, and team task status do not diverge after a crash.
+- `Key fork files`:
+  - `packages/contracts/src/orchestration.ts`
+  - `apps/server/src/ws.ts`
+  - `apps/server/src/orchestration/decider.ts`
+  - `apps/server/src/orchestration/projector.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`
+  - `apps/server/src/orchestration/Layers/OrchestrationSubscriptionService.ts`
+  - `apps/server/src/provider/Layers/ProviderSessionRecoveryReconciler.ts`
+  - `apps/server/src/provider/Layers/ProviderService.ts`
+  - `apps/server/src/team/Layers/TeamTaskReactor.ts`
+  - `apps/web/src/store.ts`
+  - `apps/web/src/session-logic.ts`
+- `Important invariants`:
+  - `thread.turn-completed` is the authoritative final turn signal. Assistant message completion and checkpoint capture must not settle a running or recovering turn.
+  - `recovering` is a first-class session/runtime status and counts as active when paired with an `activeTurnId`.
+  - Websocket subscription snapshots must be followed by persisted event replay from the snapshot sequence, then queued live events, with duplicate/lower sequences ignored.
+  - Startup provider recovery commands use deterministic command ids so repeated reconciliation is idempotent.
+  - Provider-native subagent traces stay read-only/non-materialized; after restart, active traces may receive a lifecycle item noting possible live trace loss.
+  - Dynamo-managed child task projections are reconciled from child thread state on startup.
+- `Merge hotspots`:
+  - Orchestration command/event schemas and turn/session projections
+  - Provider runtime ingestion and provider session recovery/resume paths
+  - Websocket subscription setup in `ws.ts`
+  - Web store/session active-work derivation and sidebar/composer state
+  - Team task reactor status derivation
+- `Verification`:
+  - `bun fmt`
+  - `bun lint`
+  - `bun typecheck`
+  - Targeted `bun run test` suites for websocket replay, provider recovery/runtime ingestion, projection/projector, team task reactor, and web session/store logic.
+
 ### Multi-provider subagents
 
 - `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce` as autonomous coordinator-led team agents.

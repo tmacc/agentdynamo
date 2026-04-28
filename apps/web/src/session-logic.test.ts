@@ -1433,6 +1433,15 @@ describe("isLatestTurnSettled", () => {
     ).toBe(false);
   });
 
+  it("returns false while a session is recovering an active turn", () => {
+    expect(
+      isLatestTurnSettled(latestTurn, {
+        orchestrationStatus: "recovering",
+        activeTurnId: TurnId.make("turn-1"),
+      }),
+    ).toBe(false);
+  });
+
   it("returns true once the session is no longer running that turn", () => {
     expect(
       isLatestTurnSettled(latestTurn, {
