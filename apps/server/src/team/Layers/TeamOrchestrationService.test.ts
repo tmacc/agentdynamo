@@ -569,6 +569,36 @@ describe("TeamOrchestrationService", () => {
     }
   });
 
+  it("does not sync parent branch metadata for project-root threads", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const { runtime, service } = await makeRuntime({
+      readModel: await baseReadModel({
+        parentBranch: null,
+        parentWorktreePath: null,
+      }),
+      commands,
+      git: {
+        status: () => Effect.succeed(gitStatus({ isRepo: true, branch: "feature/live" })),
+      },
+    });
+    try {
+      await runtime.runPromise(
+        service.spawnChild({
+          parentThreadId: ThreadId.make("thread-parent"),
+          title: "Child",
+          task: "Do the work",
+          workspaceMode: "shared",
+          setupMode: "skip",
+        }),
+      );
+
+      expect(commands.some((command) => command.type === "thread.meta.update")).toBe(false);
+      expect(commands.map((command) => command.type)).toContain("thread.create");
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it("keeps auto children shared for non-git projects", async () => {
     const commands: OrchestrationCommand[] = [];
     const createWorktree = vi.fn();

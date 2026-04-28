@@ -66,15 +66,13 @@ export function shouldSyncThreadBranchFromLiveGit(input: {
   readonly liveBranch: string | null;
   readonly hasWorktreePath: boolean;
 }): boolean {
+  if (!input.hasWorktreePath) return false;
   if (input.liveBranch === null) return false;
   if (input.storedBranch === input.liveBranch) return false;
   if (input.storedBranch === null) return true;
 
   const normalizedStoredBranch = input.storedBranch.trim().toLowerCase();
-  if (
-    input.hasWorktreePath &&
-    (normalizedStoredBranch === "main" || normalizedStoredBranch === "master")
-  ) {
+  if (normalizedStoredBranch === "main" || normalizedStoredBranch === "master") {
     return true;
   }
 

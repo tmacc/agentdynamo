@@ -153,6 +153,7 @@ import {
 import { TeamAgentsSidebar } from "./chat/TeamAgentsSidebar";
 import type { TeamTaskInlineView } from "./chat/TeamTaskInlineBlock";
 import {
+  isDedicatedDynamoTeamWorktreeTask,
   isMaterializedDynamoTeamTask,
   teamTaskModelLabel,
   teamTaskStatusClassName,
@@ -3497,7 +3498,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const reviewTeamTaskChanges = useCallback(
     async (task: OrchestrationTeamTask) => {
-      if (!isMaterializedDynamoTeamTask(task)) return;
+      if (!isDedicatedDynamoTeamWorktreeTask(task)) return;
       if (!teamRootThread) return;
       const api = readEnvironmentApi(teamRootThread.environmentId);
       if (!api) return;
@@ -3543,7 +3544,7 @@ export default function ChatView(props: ChatViewProps) {
   const applyReviewedTeamTaskChanges = useCallback(async () => {
     if (!teamRootThread || !teamPatchReview) return;
     const { task, preview } = teamPatchReview;
-    if (!isMaterializedDynamoTeamTask(task)) return;
+    if (!isDedicatedDynamoTeamWorktreeTask(task)) return;
     const api = readEnvironmentApi(teamRootThread.environmentId);
     if (!api) return;
 

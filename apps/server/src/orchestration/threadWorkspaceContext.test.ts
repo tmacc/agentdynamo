@@ -109,6 +109,26 @@ describe("threadWorkspaceContext", () => {
     ).toBe(true);
   });
 
+  it("does not sync branch metadata for project-root threads", () => {
+    expect(
+      shouldSyncThreadBranchFromLiveGit({
+        storedBranch: null,
+        liveBranch: "feature/live",
+        hasWorktreePath: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("syncs a missing branch only for worktree-backed threads", () => {
+    expect(
+      shouldSyncThreadBranchFromLiveGit({
+        storedBranch: null,
+        liveBranch: "feature/live",
+        hasWorktreePath: true,
+      }),
+    ).toBe(true);
+  });
+
   it("does not replace a semantic branch with a temporary worktree branch", () => {
     expect(
       shouldSyncThreadBranchFromLiveGit({

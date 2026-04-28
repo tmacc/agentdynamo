@@ -53,6 +53,7 @@ import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScr
 import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { isDedicatedDynamoTeamWorktreeTask } from "../../team/teamTaskGuards.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
 import {
   decodeGitHubPullRequestListJson,
@@ -716,6 +717,12 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         "Native provider subagents do not have Dynamo-managed worktrees.",
       );
     }
+    if (!isDedicatedDynamoTeamWorktreeTask(task)) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "This child agent did not run in an isolated worktree.",
+      );
+    }
 
     const childThreadOption = yield* projectionSnapshotQuery
       .getThreadDetailById(task.childThreadId)
@@ -754,6 +761,15 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     }
     const parentCwd = parentThread.worktreePath ?? parentCheckpointContext.value.workspaceRoot;
     const childCwd = childThread.worktreePath;
+    const parentCanonicalPath = canonicalizeExistingPath(parentCwd);
+    const childCanonicalPath = canonicalizeExistingPath(childCwd);
+
+    if (parentCanonicalPath === childCanonicalPath) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "This child agent shares the coordinator workspace and cannot be reviewed as an isolated worktree.",
+      );
+    }
 
     const [parentCommonDir, childCommonDir] = yield* Effect.all(
       [resolveGitCommonDir(parentCwd), resolveGitCommonDir(childCwd)],
