@@ -19,5 +19,9 @@ export function stripFileBrowserRouteSearchParams(
   search: Record<string, unknown>,
 ): Record<string, unknown> {
   const { files: _files, filePath: _filePath, ...rest } = search;
-  return rest;
+  return {
+    ...rest,
+    files: undefined,
+    filePath: undefined,
+  };
 }

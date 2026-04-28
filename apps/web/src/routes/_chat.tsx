@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import type { FeatureCard } from "@t3tools/contracts";
 
 import { clearBoardRouteSearchParams, parseBoardRouteSearch } from "../boardRouteSearch";
+import { stripFileBrowserRouteSearchParams } from "../fileBrowserRouteSearch";
 import { parseFileBrowserRouteSearch } from "../fileBrowserRouteSearch";
 import { parseProjectIntelligenceRouteSearch } from "../projectIntelligenceRouteSearch";
 import { BoardView } from "../components/board/BoardView";
@@ -155,7 +156,10 @@ function BoardRouteView() {
   const handleCloseBoard = useCallback(() => {
     void navigate({
       to: ".",
-      search: (previous) => clearBoardRouteSearchParams(previous as Record<string, unknown>),
+      search: (previous) =>
+        stripFileBrowserRouteSearchParams(
+          clearBoardRouteSearchParams(previous as Record<string, unknown>),
+        ),
     }).catch(() => undefined);
   }, [navigate]);
 

@@ -43,6 +43,7 @@ import { readEnvironmentApi } from "../environmentApi";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { stripFileBrowserRouteSearchParams } from "../fileBrowserRouteSearch";
 import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
@@ -1728,7 +1729,7 @@ export default function ChatView(props: ChatViewProps) {
       },
       replace: true,
       search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
+        const rest = stripFileBrowserRouteSearchParams(stripDiffSearchParams(previous));
         return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
       },
     });
@@ -3473,7 +3474,7 @@ export default function ChatView(props: ChatViewProps) {
           threadId,
         },
         search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
+          const rest = stripFileBrowserRouteSearchParams(stripDiffSearchParams(previous));
           return filePath
             ? { ...rest, diff: "1", diffTurnId: turnId, diffFilePath: filePath }
             : { ...rest, diff: "1", diffTurnId: turnId };

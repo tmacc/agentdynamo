@@ -1,6 +1,10 @@
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
-import { type BoardRouteSearch, parseBoardRouteSearch } from "../boardRouteSearch";
+import {
+  type BoardRouteSearch,
+  parseBoardRouteSearch,
+  stripBoardRouteSearchParams,
+} from "../boardRouteSearch";
 import {
   type FileBrowserRouteSearch,
   parseFileBrowserRouteSearch,
@@ -91,7 +95,9 @@ function DraftChatThreadRouteView() {
     return null;
   }
   const filesOpen = search.files === "1";
-  const filesWorkspaceRoot = draftSession.worktreePath ?? draftProject?.cwd ?? null;
+  const filesTarget = draftSession.projectId
+    ? ({ kind: "project", projectId: draftSession.projectId } as const)
+    : null;
   const closeFiles = () => {
     void navigate({
       to: ".",
@@ -104,7 +110,10 @@ function DraftChatThreadRouteView() {
       search: (previous) =>
         filesOpen
           ? stripFileBrowserRouteSearchParams(previous as Record<string, unknown>)
-          : { ...(previous as Record<string, unknown>), files: "1" },
+          : {
+              ...stripBoardRouteSearchParams(previous as Record<string, unknown>),
+              files: "1",
+            },
     });
   };
   const selectFilePath = (relativePath: string | null) => {
@@ -134,11 +143,11 @@ function DraftChatThreadRouteView() {
           routeKind="draft"
         />
       </SidebarInset>
-      <RightPanelSheet open={filesOpen && Boolean(filesWorkspaceRoot)} onClose={closeFiles}>
-        {filesWorkspaceRoot ? (
+      <RightPanelSheet open={filesOpen && Boolean(filesTarget)} onClose={closeFiles}>
+        {filesTarget ? (
           <ProjectFilesPanel
             environmentId={draftSession.environmentId}
-            workspaceRoot={filesWorkspaceRoot}
+            target={filesTarget}
             projectName={draftProject?.name}
             selectedPath={search.filePath ?? null}
             resolvedTheme={resolvedTheme}

@@ -3,6 +3,7 @@ import type {
   ProjectFileEntry,
   ProjectFilePreviewKind,
   ProjectReadFileResult,
+  ProjectWorkspaceTarget,
 } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -16,7 +17,7 @@ import {
   RefreshCwIcon,
   XIcon,
 } from "lucide-react";
-import { memo, useCallback, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { openInPreferredEditor } from "../../editorPreferences";
 import { ensureEnvironmentApi } from "../../environmentApi";
@@ -31,7 +32,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 
 export interface ProjectFilesPanelProps {
   environmentId: EnvironmentId;
-  workspaceRoot: string;
+  target: ProjectWorkspaceTarget;
   projectName: string | undefined;
   selectedPath: string | null;
   resolvedTheme: "light" | "dark";
@@ -43,25 +44,35 @@ const EMPTY_ENTRIES: readonly ProjectFileEntry[] = [];
 
 function projectFileQueryKey(input: {
   environmentId: EnvironmentId;
-  cwd: string;
+  target: ProjectWorkspaceTarget;
   relativePath: string;
 }) {
-  return ["project-files", input.environmentId, input.cwd, input.relativePath] as const;
+  return ["project-files", input.environmentId, input.target, input.relativePath] as const;
+}
+
+function projectFileMetadataQueryKey(input: {
+  environmentId: EnvironmentId;
+  target: ProjectWorkspaceTarget;
+  relativePath: string | null;
+}) {
+  return ["project-file-metadata", input.environmentId, input.target, input.relativePath] as const;
 }
 
 function projectFilePreviewQueryKey(input: {
   environmentId: EnvironmentId;
-  cwd: string;
+  target: ProjectWorkspaceTarget;
   relativePath: string | null;
 }) {
-  return ["project-file-preview", input.environmentId, input.cwd, input.relativePath] as const;
+  return ["project-file-preview", input.environmentId, input.target, input.relativePath] as const;
 }
 
 function resolvePreviewUrl(environmentId: EnvironmentId, url: string): string {
   if (/^https?:\/\//i.test(url)) return url;
+  const parsed = new URL(url, window.location.origin);
   return resolveEnvironmentHttpUrl({
     environmentId,
-    pathname: url.startsWith("/") ? url : `/${url}`,
+    pathname: parsed.pathname,
+    searchParams: Object.fromEntries(parsed.searchParams),
   });
 }
 
@@ -120,7 +131,7 @@ export const ProjectFilesPanel = memo(function ProjectFilesPanel(props: ProjectF
         <div className="min-h-0 overflow-auto border-r border-border p-2">
           <DirectoryTree
             environmentId={props.environmentId}
-            workspaceRoot={props.workspaceRoot}
+            target={props.target}
             relativePath=""
             depth={0}
             selectedPath={selectedPath}
@@ -134,7 +145,7 @@ export const ProjectFilesPanel = memo(function ProjectFilesPanel(props: ProjectF
         <div className="min-h-0 overflow-hidden">
           <FilePreview
             environmentId={props.environmentId}
-            workspaceRoot={props.workspaceRoot}
+            target={props.target}
             relativePath={selectedPath}
             sourceMode={sourceMode}
             onSourceModeChange={setSourceMode}
@@ -148,7 +159,7 @@ export const ProjectFilesPanel = memo(function ProjectFilesPanel(props: ProjectF
 
 function DirectoryTree(props: {
   environmentId: EnvironmentId;
-  workspaceRoot: string;
+  target: ProjectWorkspaceTarget;
   relativePath: string;
   depth: number;
   selectedPath: string | null;
@@ -161,12 +172,12 @@ function DirectoryTree(props: {
   const query = useQuery({
     queryKey: projectFileQueryKey({
       environmentId: props.environmentId,
-      cwd: props.workspaceRoot,
+      target: props.target,
       relativePath: props.relativePath,
     }),
     queryFn: () =>
       ensureEnvironmentApi(props.environmentId).projects.listDirectory({
-        cwd: props.workspaceRoot,
+        target: props.target,
         relativePath: props.relativePath,
       }),
     staleTime: 15_000,
@@ -243,7 +254,7 @@ function DirectoryTree(props: {
                 <div>
                   <DirectoryTree
                     environmentId={props.environmentId}
-                    workspaceRoot={props.workspaceRoot}
+                    target={props.target}
                     relativePath={entry.relativePath}
                     depth={props.depth + 1}
                     selectedPath={props.selectedPath}
@@ -285,46 +296,77 @@ function DirectoryTree(props: {
 
 function FilePreview(props: {
   environmentId: EnvironmentId;
-  workspaceRoot: string;
+  target: ProjectWorkspaceTarget;
   relativePath: string | null;
   sourceMode: boolean;
   onSourceModeChange: (next: boolean) => void;
   onOpenInEditor: (path: string) => void;
 }) {
-  const textQuery = useQuery({
-    queryKey: projectFilePreviewQueryKey({
+  const metadataQuery = useQuery({
+    queryKey: projectFileMetadataQueryKey({
       environmentId: props.environmentId,
-      cwd: props.workspaceRoot,
+      target: props.target,
       relativePath: props.relativePath,
     }),
     queryFn: () => {
       if (!props.relativePath) throw new Error("No selected file.");
-      return ensureEnvironmentApi(props.environmentId).projects.readFile({
-        cwd: props.workspaceRoot,
+      return ensureEnvironmentApi(props.environmentId).projects.getFileMetadata({
+        target: props.target,
         relativePath: props.relativePath,
       });
     },
     enabled: Boolean(props.relativePath),
     retry: false,
   });
+  const metadata = metadataQuery.data;
+  const previewKind = metadata?.previewKind;
+  const isTextKind = previewKind === "markdown" || previewKind === "code" || previewKind === "text";
+  const isRawKind =
+    previewKind === "image" ||
+    previewKind === "svg" ||
+    previewKind === "pdf" ||
+    previewKind === "audio" ||
+    previewKind === "video";
+  const textQuery = useQuery({
+    queryKey: projectFilePreviewQueryKey({
+      environmentId: props.environmentId,
+      target: props.target,
+      relativePath: props.relativePath,
+    }),
+    queryFn: () => {
+      if (!props.relativePath) throw new Error("No selected file.");
+      return ensureEnvironmentApi(props.environmentId).projects.readFile({
+        target: props.target,
+        relativePath: props.relativePath,
+      });
+    },
+    enabled: Boolean(props.relativePath) && isTextKind,
+    retry: false,
+  });
   const rawQuery = useQuery({
-    queryKey: [
-      "project-file-raw-preview",
-      props.environmentId,
-      props.workspaceRoot,
-      props.relativePath,
-    ],
+    queryKey: ["project-file-raw-preview", props.environmentId, props.target, props.relativePath],
     queryFn: async () => {
       if (!props.relativePath) throw new Error("No selected file.");
       const result = await ensureEnvironmentApi(props.environmentId).projects.createFilePreviewUrl({
-        cwd: props.workspaceRoot,
+        target: props.target,
         relativePath: props.relativePath,
       });
       return { ...result, url: resolvePreviewUrl(props.environmentId, result.url) };
     },
-    enabled: Boolean(props.relativePath) && textQuery.isError,
+    enabled: Boolean(props.relativePath) && isRawKind,
     retry: false,
+    staleTime: 0,
   });
+  const rawPreviewExpiresAt = rawQuery.data?.expiresAt;
+  const refetchRawPreview = rawQuery.refetch;
+  useEffect(() => {
+    if (!rawPreviewExpiresAt) return;
+    const delayMs = Math.max(0, new Date(rawPreviewExpiresAt).getTime() - Date.now() - 30_000);
+    const timer = window.setTimeout(() => {
+      void refetchRawPreview();
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [rawPreviewExpiresAt, refetchRawPreview]);
 
   if (!props.relativePath) {
     return (
@@ -333,7 +375,7 @@ function FilePreview(props: {
       </div>
     );
   }
-  if (textQuery.isPending && !textQuery.isError) {
+  if (metadataQuery.isPending || (isTextKind && textQuery.isPending)) {
     return <PreviewSkeleton />;
   }
   if (textQuery.data) {
@@ -346,7 +388,7 @@ function FilePreview(props: {
       />
     );
   }
-  if (rawQuery.isPending) {
+  if (isRawKind && rawQuery.isPending) {
     return <PreviewSkeleton />;
   }
   if (rawQuery.data) {
@@ -356,15 +398,34 @@ function FilePreview(props: {
         url={rawQuery.data.url}
         kind={rawQuery.data.previewKind}
         mimeType={rawQuery.data.mimeType}
-        onOpenInEditor={() => props.onOpenInEditor(`${props.workspaceRoot}/${props.relativePath}`)}
+        onOpenInEditor={() => props.onOpenInEditor(rawQuery.data.openPath)}
+      />
+    );
+  }
+  if (metadata && metadata.previewKind === "unsupported") {
+    return (
+      <UnsupportedPreview
+        relativePath={props.relativePath}
+        message={metadata.mimeType ?? "Preview unavailable."}
+        onOpenInEditor={() => props.onOpenInEditor(metadata.openPath)}
       />
     );
   }
   return (
     <UnsupportedPreview
       relativePath={props.relativePath}
-      error={rawQuery.error ?? textQuery.error}
-      onOpenInEditor={() => props.onOpenInEditor(`${props.workspaceRoot}/${props.relativePath}`)}
+      message={
+        rawQuery.error instanceof Error
+          ? rawQuery.error.message
+          : textQuery.error instanceof Error
+            ? textQuery.error.message
+            : metadataQuery.error instanceof Error
+              ? metadataQuery.error.message
+              : "Preview unavailable."
+      }
+      onOpenInEditor={() => {
+        if (metadata?.openPath) props.onOpenInEditor(metadata.openPath);
+      }}
     />
   );
 }
@@ -474,12 +535,14 @@ function RawPreview(props: {
         {props.kind === "image" || props.kind === "svg" ? (
           <img src={props.url} alt="" className="max-h-full max-w-full object-contain" />
         ) : props.kind === "pdf" ? (
-          <iframe
-            src={props.url}
-            title={props.relativePath}
-            sandbox=""
+          <object
+            data={props.url}
+            type="application/pdf"
             className="h-full min-h-[320px] w-full border-0"
-          />
+            aria-label={props.relativePath}
+          >
+            <a href={props.url}>Open PDF preview</a>
+          </object>
         ) : props.kind === "audio" ? (
           <audio src={props.url} controls className="w-full max-w-lg" />
         ) : props.kind === "video" ? (
@@ -492,10 +555,9 @@ function RawPreview(props: {
 
 function UnsupportedPreview(props: {
   relativePath: string;
-  error: unknown;
+  message: string;
   onOpenInEditor: () => void;
 }) {
-  const message = props.error instanceof Error ? props.error.message : "Preview unavailable.";
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PreviewHeader
@@ -508,7 +570,7 @@ function UnsupportedPreview(props: {
           Open
         </Button>
       </PreviewHeader>
-      <div className="p-4 text-sm text-muted-foreground">{message}</div>
+      <div className="p-4 text-sm text-muted-foreground">{props.message}</div>
     </div>
   );
 }

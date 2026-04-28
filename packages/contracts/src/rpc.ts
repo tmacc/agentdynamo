@@ -77,6 +77,9 @@ import {
   ProjectCreateFilePreviewUrlError,
   ProjectCreateFilePreviewUrlInput,
   ProjectCreateFilePreviewUrlResult,
+  ProjectGetFileMetadataError,
+  ProjectGetFileMetadataInput,
+  ProjectGetFileMetadataResult,
   ProjectGetIntelligenceError,
   ProjectGetIntelligenceInput,
   ProjectGetIntelligenceResult,
@@ -127,6 +130,7 @@ export const WS_METHODS = {
   projectsRemove: "projects.remove",
   projectsSearchEntries: "projects.searchEntries",
   projectsListDirectory: "projects.listDirectory",
+  projectsGetFileMetadata: "projects.getFileMetadata",
   projectsReadFile: "projects.readFile",
   projectsCreateFilePreviewUrl: "projects.createFilePreviewUrl",
   projectsWriteFile: "projects.writeFile",
@@ -226,6 +230,12 @@ export const WsProjectsListDirectoryRpc = Rpc.make(WS_METHODS.projectsListDirect
   payload: ProjectListDirectoryInput,
   success: ProjectListDirectoryResult,
   error: ProjectListDirectoryError,
+});
+
+export const WsProjectsGetFileMetadataRpc = Rpc.make(WS_METHODS.projectsGetFileMetadata, {
+  payload: ProjectGetFileMetadataInput,
+  success: ProjectGetFileMetadataResult,
+  error: ProjectGetFileMetadataError,
 });
 
 export const WsProjectsReadFileRpc = Rpc.make(WS_METHODS.projectsReadFile, {
@@ -533,6 +543,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpdateSettingsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsListDirectoryRpc,
+  WsProjectsGetFileMetadataRpc,
   WsProjectsReadFileRpc,
   WsProjectsCreateFilePreviewUrlRpc,
   WsProjectsWriteFileRpc,

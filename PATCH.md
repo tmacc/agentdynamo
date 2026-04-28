@@ -29,7 +29,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 ### Project file browser
 
 - `Status`: Present as a read-only project file viewer tied to active chat workspaces.
-- `User-visible behavior`: Users can open a right-side Project Files panel from chat, browse the active project tree, and preview Markdown, code/text, images, SVG, PDF, audio, and video. The browser defaults to the active thread worktree when one exists and falls back to the base project root. Code and text previews are read-only and provide an Open action for the user's preferred external editor. Unsupported files show metadata/actions instead of attempting arbitrary binary rendering.
+- `User-visible behavior`: Users can open a right-side Project Files panel from chat, browse the active project tree, and preview Markdown, code/text, images, SVG, PDF, audio, and video. Server-backed threads default to the active thread worktree when one exists and fall back to the base project root; draft routes use the base project target until a server thread exists. Code and text previews are read-only and provide an Open action for the user's preferred external editor. Unsupported files show metadata/actions instead of attempting arbitrary binary rendering.
 - `Why it exists`: Lets users inspect files the agent is discussing or modifying without turning Dynamo into an IDE or adding write-capable file management UI.
 - `Key fork files`:
   - `packages/contracts/src/project.ts`
@@ -49,12 +49,16 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/routes/_chat.draft.$draftId.tsx`
 - `Important invariants`:
   - The panel is read-only: no edit, create, delete, rename, move, tabbed editor, diagnostics, or language-server features.
-  - Workspace roots and relative paths must be re-normalized server-side on every list/read/raw-preview operation.
-  - Symlinks must not allow file listing or raw preview reads outside the normalized workspace root.
-  - Raw previews use short-lived stateless signed URLs scoped to one workspace file; route handlers must revalidate signature, expiry, path containment, symlink containment, preview kind, and file stat hints before serving bytes.
+  - File browser RPC inputs must use server-resolved project/thread targets, not client-provided `cwd`.
+  - Workspace roots and relative paths must be re-normalized server-side on every list/metadata/read/raw-preview operation.
+  - Path containment, ignored directory policy, Git ignore filtering, and symlink containment must be enforced before metadata, text reads, token creation, and raw preview serving.
+  - Raw previews use short-lived stateless signed URLs scoped to one workspace file; route handlers must revalidate signature, expiry, target/root binding, path containment, symlink containment, preview kind, and file stat hints before serving bytes.
+  - Raw route responses must use `Cache-Control: no-store`, inline disposition, `X-Content-Type-Options: nosniff`, streaming/range file responses, and SVG CSP sandboxing.
+  - Markdown/code/text previews require UTF-8 compatible content; binary files with source-code extensions must remain unsupported.
   - HTML files are displayed as source text only, never rendered in an iframe.
   - SVG previews are loaded as browser image resources, never injected into the DOM as markup.
   - Browser-native binary previews are limited to common image/SVG/PDF/audio/video formats; arbitrary binaries remain unsupported.
+  - Files, Diff, and Board right-panel toggles should clear hidden competing panel route params during direct toggle actions.
 - `Merge hotspots`:
   - Shared project/RPC contracts and websocket method registration.
   - HTTP route ordering and auth/CORS behavior.

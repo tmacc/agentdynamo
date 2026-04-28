@@ -1,6 +1,8 @@
 import type {
   ProjectCreateFilePreviewUrlInput,
   ProjectCreateFilePreviewUrlResult,
+  ProjectGetFileMetadataInput,
+  ProjectGetFileMetadataResult,
   ProjectListDirectoryInput,
   ProjectListDirectoryResult,
   ProjectReadFileInput,
@@ -22,6 +24,7 @@ export class WorkspaceFileBrowserError extends Schema.TaggedErrorClass<Workspace
 
 export interface WorkspaceFileBrowserRawFile {
   readonly absolutePath: string;
+  readonly realPath: string;
   readonly mimeType: string;
   readonly sizeBytes: number;
   readonly previewKind: "image" | "svg" | "pdf" | "audio" | "video";
@@ -31,6 +34,9 @@ export interface WorkspaceFileBrowserShape {
   readonly listDirectory: (
     input: ProjectListDirectoryInput,
   ) => Effect.Effect<ProjectListDirectoryResult, WorkspaceFileBrowserError>;
+  readonly getFileMetadata: (
+    input: ProjectGetFileMetadataInput,
+  ) => Effect.Effect<ProjectGetFileMetadataResult, WorkspaceFileBrowserError>;
   readonly readFile: (
     input: ProjectReadFileInput,
   ) => Effect.Effect<ProjectReadFileResult, WorkspaceFileBrowserError>;

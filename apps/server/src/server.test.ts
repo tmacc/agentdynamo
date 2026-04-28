@@ -441,6 +441,7 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.mock(WorkspaceFileBrowser)({
         listDirectory: () => Effect.die(new Error("unused")),
+        getFileMetadata: () => Effect.die(new Error("unused")),
         readFile: () => Effect.die(new Error("unused")),
         createFilePreviewUrl: () => Effect.die(new Error("unused")),
         resolveRawPreviewToken: () => Effect.die(new Error("unused")),
@@ -982,6 +983,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               token === "valid"
                 ? Effect.succeed({
                     absolutePath: previewPath,
+                    realPath: previewPath,
                     mimeType: "application/pdf",
                     sizeBytes: 6,
                     previewKind: "pdf",
@@ -1006,9 +1008,80 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(response.status, 206);
       assert.equal(response.headers["cache-control"], "no-store");
       assert.equal(response.headers["content-disposition"], "inline");
+      assert.equal(response.headers["x-content-type-options"], "nosniff");
       assert.equal(response.headers["content-type"], "application/pdf");
       assert.equal(response.headers["content-range"], "bytes 1-3/6");
       assert.equal(yield* response.text, "bcd");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects invalid project file raw preview ranges", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const projectDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-router-project-file-raw-invalid-range-",
+      });
+      const previewPath = path.join(projectDir, "preview.pdf");
+      yield* fileSystem.writeFileString(previewPath, "abcdef");
+
+      yield* buildAppUnderTest({
+        layers: {
+          workspaceFileBrowser: {
+            resolveRawPreviewToken: () =>
+              Effect.succeed({
+                absolutePath: previewPath,
+                realPath: previewPath,
+                mimeType: "application/pdf",
+                sizeBytes: 6,
+                previewKind: "pdf",
+              }),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.get("/api/project-files/raw?token=valid", {
+        headers: {
+          range: "bytes=10-20",
+        },
+      });
+
+      assert.equal(response.status, 416);
+      assert.equal(response.headers["content-range"], "bytes */6");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves SVG raw previews with a sandboxing content security policy", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const projectDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-router-project-file-raw-svg-",
+      });
+      const previewPath = path.join(projectDir, "preview.svg");
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+      yield* fileSystem.writeFileString(previewPath, svg);
+
+      yield* buildAppUnderTest({
+        layers: {
+          workspaceFileBrowser: {
+            resolveRawPreviewToken: () =>
+              Effect.succeed({
+                absolutePath: previewPath,
+                realPath: previewPath,
+                mimeType: "image/svg+xml",
+                sizeBytes: Buffer.byteLength(svg),
+                previewKind: "svg",
+              }),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.get("/api/project-files/raw?token=valid");
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers["content-security-policy"]?.includes("sandbox"), true);
+      assert.equal(response.headers["x-content-type-options"], "nosniff");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

@@ -7,11 +7,13 @@ import type {
   ProjectFileEntry,
   ProjectFilePreviewKind,
   ProjectReadFileResult,
+  ProjectWorkspaceTarget,
 } from "@t3tools/contracts";
 import { Effect, Layer, Option, Path } from "effect";
 
 import { ServerSecretStore } from "../../auth/Services/ServerSecretStore.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
+import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { WorkspacePaths } from "../Services/WorkspacePaths.ts";
 import {
   WorkspaceFileBrowser,
@@ -21,6 +23,7 @@ import {
 } from "../Services/WorkspaceFileBrowser.ts";
 import {
   basenameOf,
+  hasIgnoredWorkspaceDirectorySegment,
   IGNORED_WORKSPACE_DIRECTORY_NAMES,
   isPathInIgnoredWorkspaceDirectory,
   isSafeWorkspaceRelativePath,
@@ -95,8 +98,14 @@ interface ResolvedWorkspacePath {
   readonly realPath: string;
 }
 
-interface PreviewTokenPayload {
+interface ResolvedWorkspaceTarget {
+  readonly target: ProjectWorkspaceTarget;
   readonly cwd: string;
+}
+
+interface PreviewTokenPayload {
+  readonly target: ProjectWorkspaceTarget;
+  readonly workspaceRoot: string;
   readonly relativePath: string;
   readonly exp: number;
   readonly sizeBytes: number;
@@ -150,6 +159,18 @@ function createToken(payload: PreviewTokenPayload, secret: Uint8Array): string {
   return `${encodedPayload}.${signature}`;
 }
 
+function isProjectWorkspaceTarget(value: unknown): value is ProjectWorkspaceTarget {
+  if (!value || typeof value !== "object") return false;
+  const target = value as Partial<ProjectWorkspaceTarget>;
+  if (target.kind === "project") {
+    return typeof target.projectId === "string" && target.projectId.length > 0;
+  }
+  if (target.kind === "thread") {
+    return typeof target.threadId === "string" && target.threadId.length > 0;
+  }
+  return false;
+}
+
 function decodeToken(
   token: string,
   secret: Uint8Array,
@@ -179,7 +200,8 @@ function decodeToken(
   if (
     !parsed ||
     typeof parsed !== "object" ||
-    typeof (parsed as PreviewTokenPayload).cwd !== "string" ||
+    !isProjectWorkspaceTarget((parsed as PreviewTokenPayload).target) ||
+    typeof (parsed as PreviewTokenPayload).workspaceRoot !== "string" ||
     typeof (parsed as PreviewTokenPayload).relativePath !== "string" ||
     typeof (parsed as PreviewTokenPayload).exp !== "number" ||
     typeof (parsed as PreviewTokenPayload).sizeBytes !== "number" ||
@@ -193,7 +215,7 @@ function decodeToken(
   const payload = parsed as PreviewTokenPayload;
   if (Date.now() > payload.exp) {
     return new WorkspaceFileBrowserError({
-      cwd: payload.cwd,
+      cwd: payload.workspaceRoot,
       relativePath: payload.relativePath,
       operation: "workspaceFileBrowser.decodeToken",
       detail: "Preview token expired.",
@@ -221,18 +243,31 @@ function classifyPreviewKind(input: {
   readonly filePath: string;
   readonly mimeType: string;
   readonly textCompatible?: boolean;
+  readonly svgCompatible?: boolean;
 }): ProjectFilePreviewKind {
   const extension = pathNode.extname(input.filePath).toLowerCase();
   const base = basenameOf(input.filePath).toLowerCase();
-  if (MARKDOWN_EXTENSIONS.has(extension)) return "markdown";
-  if (extension === ".svg" || input.mimeType === "image/svg+xml") return "svg";
+  if ((extension === ".svg" || input.mimeType === "image/svg+xml") && input.svgCompatible) {
+    return "svg";
+  }
+  if (
+    (MARKDOWN_EXTENSIONS.has(extension) ||
+      CODE_EXTENSIONS.has(extension) ||
+      TEXT_FILENAMES.has(base)) &&
+    !input.textCompatible
+  ) {
+    return "unsupported";
+  }
   if (input.mimeType === "application/pdf") return "pdf";
   if (input.mimeType.startsWith("image/")) return "image";
   if (input.mimeType.startsWith("audio/")) return "audio";
   if (input.mimeType.startsWith("video/")) return "video";
-  if (CODE_EXTENSIONS.has(extension)) return "code";
-  if (TEXT_FILENAMES.has(base)) return "text";
-  if (input.mimeType.startsWith("text/")) return CODE_EXTENSIONS.has(extension) ? "code" : "text";
+  if (MARKDOWN_EXTENSIONS.has(extension) && input.textCompatible) return "markdown";
+  if (CODE_EXTENSIONS.has(extension) && input.textCompatible) return "code";
+  if (TEXT_FILENAMES.has(base) && input.textCompatible) return "text";
+  if (input.mimeType.startsWith("text/") && input.textCompatible) {
+    return CODE_EXTENSIONS.has(extension) ? "code" : "text";
+  }
   if (input.textCompatible) return "text";
   return "unsupported";
 }
@@ -261,6 +296,16 @@ function looksUtf8Text(bytes: Uint8Array): boolean {
   }
 }
 
+function looksSvg(bytes: Uint8Array): boolean {
+  if (!looksUtf8Text(bytes)) return false;
+  try {
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes).trimStart();
+    return decoded.startsWith("<svg") || decoded.includes("<svg");
+  } catch {
+    return false;
+  }
+}
+
 function toError(input: {
   readonly cwd?: string;
   readonly relativePath?: string;
@@ -281,6 +326,7 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths;
   const secretStore = yield* ServerSecretStore;
+  const projectionQuery = yield* ProjectionSnapshotQuery;
   const gitOption = yield* Effect.serviceOption(GitCore);
 
   const signingSecret = yield* secretStore.getOrCreateRandom(RAW_PREVIEW_SECRET_NAME, 32).pipe(
@@ -323,6 +369,81 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
         }),
       ),
     );
+
+  const resolveWorkspaceTarget = Effect.fn("WorkspaceFileBrowser.resolveWorkspaceTarget")(
+    function* (
+      target: ProjectWorkspaceTarget,
+    ): Effect.fn.Return<ResolvedWorkspaceTarget, WorkspaceFileBrowserError> {
+      const workspaceRoot =
+        target.kind === "project"
+          ? yield* projectionQuery.getProjectShellById(target.projectId).pipe(
+              Effect.mapError((cause) =>
+                toError({
+                  operation: "workspaceFileBrowser.resolveWorkspaceTarget",
+                  detail: "Failed to resolve project workspace.",
+                  cause,
+                }),
+              ),
+              Effect.flatMap(
+                Option.match({
+                  onNone: () =>
+                    Effect.fail(
+                      toError({
+                        operation: "workspaceFileBrowser.resolveWorkspaceTarget",
+                        detail: "Project workspace is unavailable.",
+                      }),
+                    ),
+                  onSome: (project) => Effect.succeed(project.workspaceRoot),
+                }),
+              ),
+            )
+          : yield* projectionQuery.getThreadShellById(target.threadId).pipe(
+              Effect.mapError((cause) =>
+                toError({
+                  operation: "workspaceFileBrowser.resolveWorkspaceTarget",
+                  detail: "Failed to resolve thread workspace.",
+                  cause,
+                }),
+              ),
+              Effect.flatMap(
+                Option.match({
+                  onNone: () =>
+                    Effect.fail(
+                      toError({
+                        operation: "workspaceFileBrowser.resolveWorkspaceTarget",
+                        detail: "Thread workspace is unavailable.",
+                      }),
+                    ),
+                  onSome: (thread) =>
+                    projectionQuery.getProjectShellById(thread.projectId).pipe(
+                      Effect.mapError((cause) =>
+                        toError({
+                          operation: "workspaceFileBrowser.resolveWorkspaceTarget",
+                          detail: "Failed to resolve project workspace.",
+                          cause,
+                        }),
+                      ),
+                      Effect.flatMap(
+                        Option.match({
+                          onNone: () =>
+                            Effect.fail(
+                              toError({
+                                operation: "workspaceFileBrowser.resolveWorkspaceTarget",
+                                detail: "Project workspace is unavailable.",
+                              }),
+                            ),
+                          onSome: (project) =>
+                            Effect.succeed(thread.worktreePath ?? project.workspaceRoot),
+                        }),
+                      ),
+                    ),
+                }),
+              ),
+            );
+      const cwd = yield* normalizeCwd(workspaceRoot);
+      return { target, cwd };
+    },
+  );
 
   const assertRealPathInsideRoot = Effect.fn("WorkspaceFileBrowser.assertRealPathInsideRoot")(
     function* (input: { cwd: string; relativePath: string; absolutePath: string }) {
@@ -404,6 +525,14 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
         detail: "Workspace file path must stay within the project root.",
       });
     }
+    if (hasIgnoredWorkspaceDirectorySegment(toPosixPath(rawRelativePath))) {
+      return yield* toError({
+        cwd,
+        relativePath: rawRelativePath,
+        operation: "workspaceFileBrowser.resolvePath",
+        detail: "Workspace file path is ignored.",
+      });
+    }
     const resolved = yield* workspacePaths
       .resolveRelativePathWithinRoot({
         workspaceRoot: cwd,
@@ -433,11 +562,28 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
     };
   });
 
+  const assertGitAllowed = Effect.fn("WorkspaceFileBrowser.assertGitAllowed")(function* (
+    resolved: ResolvedWorkspacePath,
+  ) {
+    if (!resolved.relativePath || !(yield* isInsideGitWorkTree(resolved.cwd))) {
+      return;
+    }
+    const allowed = yield* filterGitIgnoredPaths(resolved.cwd, [resolved.relativePath]);
+    if (!allowed.includes(resolved.relativePath)) {
+      return yield* toError({
+        cwd: resolved.cwd,
+        relativePath: resolved.relativePath,
+        operation: "workspaceFileBrowser.gitIgnoredPath",
+        detail: "Workspace file path is ignored.",
+      });
+    }
+  });
+
   const statPath = Effect.fn("WorkspaceFileBrowser.statPath")(function* (
     resolved: ResolvedWorkspacePath,
   ) {
     return yield* Effect.tryPromise({
-      try: () => fsPromises.stat(resolved.absolutePath),
+      try: () => fsPromises.stat(resolved.realPath),
       catch: (cause) =>
         toError({
           cwd: resolved.cwd,
@@ -449,8 +595,8 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
     });
   });
 
-  const readTextCompatiblePrefix = async (absolutePath: string): Promise<Uint8Array> => {
-    const file = await fsPromises.open(absolutePath, "r");
+  const readTextCompatiblePrefix = async (realPath: string): Promise<Uint8Array> => {
+    const file = await fsPromises.open(realPath, "r");
     try {
       const buffer = Buffer.alloc(Math.min(8_192, TEXT_PREVIEW_MAX_BYTES));
       const result = await file.read(buffer, 0, buffer.length, 0);
@@ -465,13 +611,17 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
   ) {
     const mimeType = classifyMimeType(resolved.absolutePath);
     let textCompatible = false;
+    let svgCompatible = false;
     if (
       mimeType === "application/octet-stream" ||
       mimeType.startsWith("text/") ||
+      mimeType === "image/svg+xml" ||
+      pathNode.extname(resolved.relativePath).toLowerCase() === ".svg" ||
+      MARKDOWN_EXTENSIONS.has(pathNode.extname(resolved.relativePath).toLowerCase()) ||
       CODE_EXTENSIONS.has(pathNode.extname(resolved.relativePath).toLowerCase())
     ) {
       const prefix = yield* Effect.tryPromise({
-        try: () => readTextCompatiblePrefix(resolved.absolutePath),
+        try: () => readTextCompatiblePrefix(resolved.realPath),
         catch: (cause) =>
           toError({
             cwd: resolved.cwd,
@@ -482,6 +632,7 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
           }),
       }).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())));
       textCompatible = looksUtf8Text(prefix);
+      svgCompatible = looksSvg(prefix);
     }
     return {
       mimeType,
@@ -489,6 +640,7 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
         filePath: resolved.relativePath,
         mimeType,
         textCompatible,
+        svgCompatible,
       }),
     };
   });
@@ -538,7 +690,8 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
   const listDirectory: WorkspaceFileBrowserShape["listDirectory"] = Effect.fn(
     "WorkspaceFileBrowser.listDirectory",
   )(function* (input) {
-    const resolved = yield* resolvePath(input.cwd, input.relativePath, { allowRoot: true });
+    const workspace = yield* resolveWorkspaceTarget(input.target);
+    const resolved = yield* resolvePath(workspace.cwd, input.relativePath, { allowRoot: true });
     const stat = yield* statPath(resolved);
     if (!stat.isDirectory()) {
       return yield* toError({
@@ -606,10 +759,40 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
     };
   });
 
+  const getFileMetadata: WorkspaceFileBrowserShape["getFileMetadata"] = Effect.fn(
+    "WorkspaceFileBrowser.getFileMetadata",
+  )(function* (input) {
+    const workspace = yield* resolveWorkspaceTarget(input.target);
+    const resolved = yield* resolvePath(workspace.cwd, input.relativePath);
+    yield* assertGitAllowed(resolved);
+    const stat = yield* statPath(resolved);
+    if (!stat.isFile()) {
+      return yield* toError({
+        cwd: resolved.cwd,
+        relativePath: resolved.relativePath,
+        operation: "workspaceFileBrowser.getFileMetadata",
+        detail: "Workspace path is not a file.",
+      });
+    }
+    const classified = yield* classifyFile(resolved);
+    return {
+      name: basenameOf(resolved.relativePath),
+      relativePath: resolved.relativePath,
+      kind: "file",
+      openPath: resolved.absolutePath,
+      sizeBytes: Math.max(0, stat.size),
+      ...(toIsoDate(stat.mtimeMs) ? { modifiedAt: toIsoDate(stat.mtimeMs) } : {}),
+      mimeType: classified.mimeType,
+      previewKind: classified.previewKind,
+    };
+  });
+
   const readFile: WorkspaceFileBrowserShape["readFile"] = Effect.fn(
     "WorkspaceFileBrowser.readFile",
   )(function* (input) {
-    const resolved = yield* resolvePath(input.cwd, input.relativePath);
+    const workspace = yield* resolveWorkspaceTarget(input.target);
+    const resolved = yield* resolvePath(workspace.cwd, input.relativePath);
+    yield* assertGitAllowed(resolved);
     const stat = yield* statPath(resolved);
     if (!stat.isFile()) {
       return yield* toError({
@@ -630,7 +813,7 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
     }
     const buffer = yield* Effect.tryPromise({
       try: async () => {
-        const file = await fsPromises.open(resolved.absolutePath, "r");
+        const file = await fsPromises.open(resolved.realPath, "r");
         try {
           const bytes = Buffer.alloc(Math.min(TEXT_PREVIEW_MAX_BYTES, stat.size));
           const result = await file.read(bytes, 0, bytes.length, 0);
@@ -668,7 +851,11 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
   });
 
   const resolveBinaryPreview = Effect.fn("WorkspaceFileBrowser.resolveBinaryPreview")(
-    function* (input: { cwd: string; relativePath: string }): Effect.fn.Return<
+    function* (input: {
+      target: ProjectWorkspaceTarget;
+      relativePath: string;
+      expectedWorkspaceRoot?: string;
+    }): Effect.fn.Return<
       {
         readonly resolved: ResolvedWorkspacePath;
         readonly stat: Awaited<ReturnType<typeof fsPromises.stat>>;
@@ -677,7 +864,17 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
       },
       WorkspaceFileBrowserError
     > {
-      const resolved = yield* resolvePath(input.cwd, input.relativePath);
+      const workspace = yield* resolveWorkspaceTarget(input.target);
+      if (input.expectedWorkspaceRoot && workspace.cwd !== input.expectedWorkspaceRoot) {
+        return yield* toError({
+          cwd: workspace.cwd,
+          relativePath: input.relativePath,
+          operation: "workspaceFileBrowser.resolveBinaryPreview",
+          detail: "Workspace changed after the preview token was issued.",
+        });
+      }
+      const resolved = yield* resolvePath(workspace.cwd, input.relativePath);
+      yield* assertGitAllowed(resolved);
       const stat = yield* statPath(resolved);
       if (!stat.isFile()) {
         return yield* toError({
@@ -712,7 +909,8 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
     const expiresAtMs = Date.now() + RAW_PREVIEW_TOKEN_TTL_MS;
     const token = createToken(
       {
-        cwd: preview.resolved.cwd,
+        target: input.target,
+        workspaceRoot: preview.resolved.cwd,
         relativePath: preview.resolved.relativePath,
         exp: expiresAtMs,
         sizeBytes: Number(preview.stat.size),
@@ -725,6 +923,7 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
       expiresAt: new Date(expiresAtMs).toISOString(),
       mimeType: preview.mimeType,
       previewKind: preview.previewKind,
+      openPath: preview.resolved.absolutePath,
     };
   });
 
@@ -736,7 +935,8 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
       return yield* decoded;
     }
     const preview = yield* resolveBinaryPreview({
-      cwd: decoded.cwd,
+      target: decoded.target,
+      expectedWorkspaceRoot: decoded.workspaceRoot,
       relativePath: decoded.relativePath,
     });
     if (
@@ -744,7 +944,7 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
       Math.floor(Number(preview.stat.mtimeMs)) !== Math.floor(decoded.modifiedMs)
     ) {
       return yield* toError({
-        cwd: decoded.cwd,
+        cwd: decoded.workspaceRoot,
         relativePath: decoded.relativePath,
         operation: "workspaceFileBrowser.resolveRawPreviewToken",
         detail: "Workspace file changed after the preview token was issued.",
@@ -752,6 +952,7 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
     }
     return {
       absolutePath: preview.resolved.absolutePath,
+      realPath: preview.resolved.realPath,
       mimeType: preview.mimeType,
       sizeBytes: Number(preview.stat.size),
       previewKind: preview.previewKind,
@@ -760,6 +961,7 @@ export const makeWorkspaceFileBrowser = Effect.gen(function* () {
 
   return {
     listDirectory,
+    getFileMetadata,
     readFile,
     createFilePreviewUrl,
     resolveRawPreviewToken,

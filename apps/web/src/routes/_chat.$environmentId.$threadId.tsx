@@ -11,7 +11,11 @@ import {
   type DiffPanelMode,
 } from "../components/DiffPanelShell";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
-import { type BoardRouteSearch, parseBoardRouteSearch } from "../boardRouteSearch";
+import {
+  type BoardRouteSearch,
+  parseBoardRouteSearch,
+  stripBoardRouteSearchParams,
+} from "../boardRouteSearch";
 import {
   type DiffRouteSearch,
   parseDiffRouteSearch,
@@ -35,7 +39,7 @@ import { resolveThreadRouteRef, buildThreadRouteParams } from "../threadRoutes";
 import { RightPanelSheet } from "../components/RightPanelSheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 import { ProjectFilesPanel } from "../components/project-files/ProjectFilesPanel";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
 const DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
@@ -59,7 +63,7 @@ const ProjectFilesInlineSidebar = (props: {
   onCloseFiles: () => void;
   onOpenFiles: () => void;
   environmentId: EnvironmentId;
-  workspaceRoot: string;
+  target: { kind: "thread"; threadId: ThreadId };
   projectName: string | undefined;
   selectedPath: string | null;
   resolvedTheme: "light" | "dark";
@@ -95,7 +99,7 @@ const ProjectFilesInlineSidebar = (props: {
       >
         <ProjectFilesPanel
           environmentId={props.environmentId}
-          workspaceRoot={props.workspaceRoot}
+          target={props.target}
           projectName={props.projectName}
           selectedPath={props.selectedPath}
           resolvedTheme={props.resolvedTheme}
@@ -285,7 +289,9 @@ function ChatThreadRouteView() {
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(threadRef),
       search: (previous) => {
-        const rest = stripFileBrowserRouteSearchParams(stripDiffSearchParams(previous));
+        const rest = stripFileBrowserRouteSearchParams(
+          stripBoardRouteSearchParams(stripDiffSearchParams(previous)),
+        );
         return { ...rest, diff: "1" };
       },
     });
@@ -304,7 +310,9 @@ function ChatThreadRouteView() {
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(threadRef),
       search: (previous) => {
-        const rest = stripDiffSearchParams(previous as Record<string, unknown>);
+        const rest = stripBoardRouteSearchParams(
+          stripDiffSearchParams(previous as Record<string, unknown>),
+        );
         return { ...rest, files: "1" };
       },
     });
@@ -358,7 +366,9 @@ function ChatThreadRouteView() {
   }
 
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;
-  const filesWorkspaceRoot = serverThread?.worktreePath ?? project?.cwd ?? null;
+  const filesTarget = threadRef
+    ? ({ kind: "thread", threadId: threadRef.threadId } as const)
+    : null;
   const selectedFilePath = typeof search.filePath === "string" ? search.filePath : null;
 
   if (!shouldUseDiffSheet) {
@@ -381,13 +391,13 @@ function ChatThreadRouteView() {
           onOpenDiff={openDiff}
           renderDiffContent={shouldRenderDiffContent}
         />
-        {filesWorkspaceRoot ? (
+        {filesTarget ? (
           <ProjectFilesInlineSidebar
             filesOpen={filesOpen}
             onCloseFiles={closeFiles}
             onOpenFiles={openFiles}
             environmentId={threadRef.environmentId}
-            workspaceRoot={filesWorkspaceRoot}
+            target={filesTarget}
             projectName={project?.name}
             selectedPath={selectedFilePath}
             resolvedTheme={resolvedTheme}
@@ -413,11 +423,11 @@ function ChatThreadRouteView() {
       <RightPanelSheet open={diffOpen} onClose={closeDiff}>
         {shouldRenderDiffContent ? <LazyDiffPanel mode="sheet" /> : null}
       </RightPanelSheet>
-      <RightPanelSheet open={filesOpen && Boolean(filesWorkspaceRoot)} onClose={closeFiles}>
-        {filesWorkspaceRoot ? (
+      <RightPanelSheet open={filesOpen && Boolean(filesTarget)} onClose={closeFiles}>
+        {filesTarget ? (
           <ProjectFilesPanel
             environmentId={threadRef.environmentId}
-            workspaceRoot={filesWorkspaceRoot}
+            target={filesTarget}
             projectName={project?.name}
             selectedPath={selectedFilePath}
             resolvedTheme={resolvedTheme}

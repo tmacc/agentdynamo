@@ -14,6 +14,8 @@ import { type DraftId } from "~/composerDraftStore";
 import { DiffIcon, FilesIcon, LayoutGridIcon, TerminalSquareIcon } from "lucide-react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { clearBoardRouteSearchParams } from "~/boardRouteSearch";
+import { stripDiffSearchParams } from "~/diffRouteSearch";
+import { stripFileBrowserRouteSearchParams } from "~/fileBrowserRouteSearch";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -154,7 +156,9 @@ export const ChatHeader = memo(function ChatHeader({
                     search: (previous) =>
                       next
                         ? {
-                            ...(previous as Record<string, unknown>),
+                            ...stripFileBrowserRouteSearchParams(
+                              stripDiffSearchParams(previous as Record<string, unknown>),
+                            ),
                             view: "board",
                             boardEnvironmentId: activeThreadEnvironmentId,
                             boardProjectId: activeThreadProjectId,

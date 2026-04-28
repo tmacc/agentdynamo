@@ -41,6 +41,8 @@ import type {
   ProjectApplyWorktreeSetupResult,
   ProjectCreateFilePreviewUrlInput,
   ProjectCreateFilePreviewUrlResult,
+  ProjectGetFileMetadataInput,
+  ProjectGetFileMetadataResult,
   ProjectGetIntelligenceInput,
   ProjectGetIntelligenceResult,
   ProjectListDirectoryInput,
@@ -281,6 +283,7 @@ export interface EnvironmentApi {
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     listDirectory: (input: ProjectListDirectoryInput) => Promise<ProjectListDirectoryResult>;
+    getFileMetadata: (input: ProjectGetFileMetadataInput) => Promise<ProjectGetFileMetadataResult>;
     readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
     createFilePreviewUrl: (
       input: ProjectCreateFilePreviewUrlInput,

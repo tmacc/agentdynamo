@@ -22,6 +22,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   ProjectApplyWorktreeSetupError,
   ProjectCreateFilePreviewUrlError,
+  ProjectGetFileMetadataError,
   ProjectGetIntelligenceError,
   ProjectListDirectoryError,
   ProjectScanWorktreeSetupError,
@@ -1066,6 +1067,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               Effect.mapError(
                 (cause) =>
                   new ProjectListDirectoryError({
+                    message: cause.detail,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsGetFileMetadata]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsGetFileMetadata,
+            workspaceFileBrowser.getFileMetadata(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectGetFileMetadataError({
                     message: cause.detail,
                     cause,
                   }),

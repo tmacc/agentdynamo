@@ -1,5 +1,4 @@
 import Mime from "@effect/platform-node/Mime";
-import fsPromises from "node:fs/promises";
 import { Data, Effect, FileSystem, Option, Path } from "effect";
 import { cast } from "effect/Function";
 import {
@@ -226,16 +225,19 @@ export const projectFaviconRouteLayer = HttpRouter.add(
 function parseRangeHeader(
   rangeHeader: string | null,
   sizeBytes: number,
-): { start: number; end: number } | null {
-  if (!rangeHeader) return null;
+): { _tag: "none" } | { _tag: "invalid" } | { _tag: "range"; start: number; end: number } {
+  if (!rangeHeader) return { _tag: "none" };
+  if (rangeHeader.includes(",")) return { _tag: "invalid" };
   const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
-  if (!match) return null;
+  if (!match) return { _tag: "invalid" };
   const [, rawStart, rawEnd] = match;
-  if (!rawStart && !rawEnd) return null;
+  if (!rawStart && !rawEnd) return { _tag: "invalid" };
+  if (sizeBytes <= 0) return { _tag: "invalid" };
   if (!rawStart && rawEnd) {
     const suffixLength = Number.parseInt(rawEnd, 10);
-    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return null;
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return { _tag: "invalid" };
     return {
+      _tag: "range",
       start: Math.max(0, sizeBytes - suffixLength),
       end: sizeBytes - 1,
     };
@@ -249,9 +251,9 @@ function parseRangeHeader(
     end < start ||
     start >= sizeBytes
   ) {
-    return null;
+    return { _tag: "invalid" };
   }
-  return { start, end: Math.min(end, sizeBytes - 1) };
+  return { _tag: "range", start, end: Math.min(end, sizeBytes - 1) };
 }
 
 export const projectFilesRawRouteLayer = HttpRouter.add(
@@ -282,50 +284,54 @@ export const projectFilesRawRouteLayer = HttpRouter.add(
       "Accept-Ranges": "bytes",
       "Cache-Control": "no-store",
       "Content-Disposition": "inline",
+      "X-Content-Type-Options": "nosniff",
     };
+    if (rawFile.previewKind === "svg") {
+      headers["Content-Security-Policy"] =
+        "sandbox; default-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'";
+    }
     const rangeHeader = request.headers.range ?? null;
     const range = parseRangeHeader(rangeHeader, rawFile.sizeBytes);
-    const data = yield* Effect.tryPromise({
-      try: async () => {
-        const file = await fsPromises.open(rawFile.absolutePath, "r");
-        try {
-          if (!range) {
-            return await file.readFile();
-          }
-          const length = range.end - range.start + 1;
-          const bytes = Buffer.alloc(length);
-          const result = await file.read(bytes, 0, length, range.start);
-          return bytes.subarray(0, result.bytesRead);
-        } finally {
-          await file.close();
-        }
-      },
-      catch: () => null,
-    });
-    if (!data) {
-      return HttpServerResponse.text("Internal Server Error", { status: 500 });
-    }
-
-    if (range) {
-      return HttpServerResponse.uint8Array(data, {
-        status: 206,
-        contentType: rawFile.mimeType,
+    if (range._tag === "invalid") {
+      return HttpServerResponse.text("Invalid Range", {
+        status: 416,
         headers: {
           ...headers,
-          "Content-Length": String(data.byteLength),
-          "Content-Range": `bytes ${range.start}-${range.start + data.byteLength - 1}/${rawFile.sizeBytes}`,
+          "Content-Range": `bytes */${rawFile.sizeBytes}`,
         },
       });
     }
+    if (range._tag === "range") {
+      const bytesToRead = range.end - range.start + 1;
+      return yield* HttpServerResponse.file(rawFile.realPath, {
+        status: 206,
+        contentType: rawFile.mimeType,
+        contentLength: bytesToRead,
+        offset: range.start,
+        bytesToRead,
+        headers: {
+          ...headers,
+          "Content-Range": `bytes ${range.start}-${range.end}/${rawFile.sizeBytes}`,
+        },
+      }).pipe(
+        Effect.catch(() =>
+          Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
+        ),
+      );
+    }
 
-    return HttpServerResponse.uint8Array(data, {
+    return yield* HttpServerResponse.file(rawFile.realPath, {
       status: 200,
       contentType: rawFile.mimeType,
+      contentLength: rawFile.sizeBytes,
       headers: {
         ...headers,
-        "Content-Length": String(data.byteLength),
       },
-    });
+    }).pipe(
+      Effect.catch(() =>
+        Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
+      ),
+    );
   }),
 );
 

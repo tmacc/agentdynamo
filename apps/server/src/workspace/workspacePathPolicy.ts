@@ -36,6 +36,13 @@ export function isPathInIgnoredWorkspaceDirectory(relativePath: string): boolean
   return IGNORED_WORKSPACE_DIRECTORY_NAMES.has(firstSegment);
 }
 
+export function hasIgnoredWorkspaceDirectorySegment(relativePath: string): boolean {
+  return relativePath
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .some((segment) => IGNORED_WORKSPACE_DIRECTORY_NAMES.has(segment));
+}
+
 export function directoryAncestorsOf(relativePath: string): string[] {
   const segments = relativePath.split("/").filter((segment) => segment.length > 0);
   if (segments.length <= 1) return [];

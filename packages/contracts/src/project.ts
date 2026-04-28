@@ -4,6 +4,7 @@ import {
   NonNegativeInt,
   PositiveInt,
   ProjectId,
+  ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import {
@@ -98,8 +99,20 @@ export const ProjectFileEntry = Schema.Struct({
 });
 export type ProjectFileEntry = typeof ProjectFileEntry.Type;
 
+export const ProjectWorkspaceTarget = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("thread"),
+    threadId: ThreadId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("project"),
+    projectId: ProjectId,
+  }),
+]);
+export type ProjectWorkspaceTarget = typeof ProjectWorkspaceTarget.Type;
+
 export const ProjectListDirectoryInput = Schema.Struct({
-  cwd: TrimmedNonEmptyString,
+  target: ProjectWorkspaceTarget,
   relativePath: Schema.optional(
     Schema.String.check(Schema.isMaxLength(PROJECT_FILE_PATH_MAX_LENGTH)),
   ),
@@ -122,8 +135,25 @@ export class ProjectListDirectoryError extends Schema.TaggedErrorClass<ProjectLi
   },
 ) {}
 
+export const ProjectGetFileMetadataInput = Schema.Struct({
+  target: ProjectWorkspaceTarget,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_FILE_PATH_MAX_LENGTH)),
+});
+export type ProjectGetFileMetadataInput = typeof ProjectGetFileMetadataInput.Type;
+
+export const ProjectGetFileMetadataResult = ProjectFileEntry;
+export type ProjectGetFileMetadataResult = typeof ProjectGetFileMetadataResult.Type;
+
+export class ProjectGetFileMetadataError extends Schema.TaggedErrorClass<ProjectGetFileMetadataError>()(
+  "ProjectGetFileMetadataError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
 export const ProjectReadFileInput = Schema.Struct({
-  cwd: TrimmedNonEmptyString,
+  target: ProjectWorkspaceTarget,
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_FILE_PATH_MAX_LENGTH)),
 });
 export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
@@ -159,6 +189,7 @@ export const ProjectCreateFilePreviewUrlResult = Schema.Struct({
   expiresAt: IsoDateTime,
   mimeType: TrimmedNonEmptyString,
   previewKind: ProjectFilePreviewKind,
+  openPath: TrimmedNonEmptyString,
 });
 export type ProjectCreateFilePreviewUrlResult = typeof ProjectCreateFilePreviewUrlResult.Type;
 
