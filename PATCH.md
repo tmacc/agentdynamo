@@ -297,6 +297,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Key fork files`:
   - `packages/contracts/src/orchestration.ts`
   - `packages/contracts/src/project.ts`
+  - `packages/contracts/src/terminal.ts`
   - `packages/contracts/src/rpc.ts`
   - `packages/contracts/src/ipc.ts`
   - `packages/contracts/src/settings.ts`
@@ -312,6 +313,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/components/WorktreeSetupDialog.tsx`
   - `apps/web/src/components/ChatView.tsx`
   - `apps/server/src/project/Layers/ProjectSetupScriptRunner.ts`
+  - `apps/server/src/terminal/Layers/Manager.ts`
   - `apps/server/src/persistence/Migrations/035_ProjectionProjectWorktreeSetup.ts`
   - `apps/server/src/persistence/Services/ProjectionProjects.ts`
   - `apps/server/src/persistence/Layers/ProjectionProjects.ts`
@@ -324,6 +326,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Applying setup must not create or overwrite `.dynamo`, `.t3code`, or helper scripts inside the project checkout.
   - Per-worktree runtime env lives under the worktree Git admin dir at `dynamo/worktree.env`.
   - Setup failures should be visible without stranding the thread or deleting the worktree.
+  - Automatic setup/dev launches must start their command as part of terminal process creation, not by racing an immediate write into a newly-opened interactive shell.
   - Existing custom project scripts with `runOnWorktreeCreate` remain a backward-compatible fallback when no configured auto-run setup profile exists.
   - Runtime env includes `DYNAMO_*` variables and `T3CODE_*` compatibility aliases.
 - `Merge hotspots`:
@@ -336,7 +339,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Scan a project for worktree setup and review the proposed config.
   - Apply setup and confirm helper scripts are written under Dynamo state/runtime storage, not the project repo.
   - Confirm per-worktree env is written under the worktree Git admin dir.
-  - Create a new worktree thread and confirm the setup terminal launches automatically.
+  - Create a new worktree thread and confirm the setup terminal launches automatically, executes the helper command, and creates expected dependency artifacts such as `node_modules`.
   - Disable automatic setup and confirm custom `runOnWorktreeCreate` scripts still act as fallback.
   - Skip once and disable prompt from the setup dialog.
   - Verify existing worktrees do not rerun setup unexpectedly.

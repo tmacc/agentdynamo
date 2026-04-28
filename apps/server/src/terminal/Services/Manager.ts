@@ -52,6 +52,7 @@ export interface TerminalSessionState {
   unsubscribeExit: (() => void) | null;
   hasRunningSubprocess: boolean;
   runtimeEnv: Record<string, string> | null;
+  initialCommand: string | null;
 }
 
 export interface ShellCandidate {

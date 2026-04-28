@@ -12,6 +12,10 @@ class WorktreeSetupRuntimeFailure extends Error {
   override readonly name = "WorktreeSetupRuntimeFailure";
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
 const makeWorktreeSetupRuntime = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
   const terminalManager = yield* TerminalManager;
@@ -62,11 +66,7 @@ const makeWorktreeSetupRuntime = Effect.gen(function* () {
         env: {
           DYNAMO_WORKTREE_ENV_FILE: prepared.envFilePath,
         },
-      });
-      yield* terminalManager.write({
-        threadId: input.threadId,
-        terminalId,
-        data: `${prepared.helperPaths.setupHelperPath}\r`,
+        initialCommand: shellQuote(prepared.helperPaths.setupHelperPath),
       });
       return {
         status: "started",
@@ -89,11 +89,7 @@ const makeWorktreeSetupRuntime = Effect.gen(function* () {
         env: {
           DYNAMO_WORKTREE_ENV_FILE: prepared.envFilePath,
         },
-      });
-      yield* terminalManager.write({
-        threadId: input.threadId,
-        terminalId,
-        data: `${prepared.helperPaths.devHelperPath}\r`,
+        initialCommand: shellQuote(prepared.helperPaths.devHelperPath),
       });
       return {
         status: "started",

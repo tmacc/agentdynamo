@@ -22,6 +22,9 @@ const TerminalEnvValueSchema = Schema.String.check(Schema.isMaxLength(8_192));
 const TerminalEnvSchema = Schema.Record(TerminalEnvKeySchema, TerminalEnvValueSchema).check(
   Schema.isMaxProperties(128),
 );
+const TerminalInitialCommandSchema = Schema.String.check(Schema.isNonEmpty()).check(
+  Schema.isMaxLength(65_536),
+);
 
 const TerminalIdWithDefaultSchema = TerminalIdSchema.pipe(
   Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_ID)),
@@ -45,6 +48,7 @@ export const TerminalOpenInput = Schema.Struct({
   cols: Schema.optional(TerminalColsSchema),
   rows: Schema.optional(TerminalRowsSchema),
   env: Schema.optional(TerminalEnvSchema),
+  initialCommand: Schema.optional(TerminalInitialCommandSchema),
 });
 export type TerminalOpenInput = Schema.Codec.Encoded<typeof TerminalOpenInput>;
 

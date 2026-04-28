@@ -1001,6 +1001,51 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
     }),
   );
 
+  it.effect(
+    "spawns initial commands as shell startup commands instead of writing into the PTY",
+    () =>
+      Effect.gen(function* () {
+        if (process.platform === "win32") return;
+        const { manager, ptyAdapter } = yield* createManager(5, {
+          shellResolver: () => "/bin/zsh",
+        });
+
+        yield* manager.open(openInput({ initialCommand: "echo setup-ready" }));
+
+        const spawnInput = ptyAdapter.spawnInputs[0];
+        const fakeProcess = ptyAdapter.processes[0];
+        expect(spawnInput).toBeDefined();
+        expect(fakeProcess).toBeDefined();
+        if (!spawnInput || !fakeProcess) return;
+
+        expect(spawnInput.shell).toBe("/bin/zsh");
+        expect(spawnInput.args).toEqual(["-i", "-o", "nopromptsp", "-c", "echo setup-ready"]);
+        expect(fakeProcess.writes).toEqual([]);
+      }),
+  );
+
+  it.effect("uses PowerShell startup command flags for Windows initial commands", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        platform: "win32",
+        shellResolver: () => "pwsh.exe",
+        env: {
+          PATH: "C:\\Windows\\System32",
+          SystemRoot: "C:\\Windows",
+        },
+      });
+
+      yield* manager.open(openInput({ initialCommand: "Write-Output setup-ready" }));
+
+      const spawnInput = ptyAdapter.spawnInputs[0];
+      expect(spawnInput).toBeDefined();
+      if (!spawnInput) return;
+
+      expect(spawnInput.shell).toBe("pwsh.exe");
+      expect(spawnInput.args).toEqual(["-NoLogo", "-Command", "Write-Output setup-ready"]);
+    }),
+  );
+
   it.effect("bridges PTY callbacks back into Effect-managed event streaming", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter, getEvents } = yield* createManager(5, {
