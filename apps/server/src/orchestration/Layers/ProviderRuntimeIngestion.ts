@@ -2217,7 +2217,13 @@ const make = Effect.gen(function* () {
         }
       }
 
-      const nativeTeamTasks = nativeTeamTasksFromRuntimeEvent({ event, thread });
+      // The v1 orchestrator rejects `thread.team-task.upsert-native` for
+      // threads that already have a `teamParent`, since child threads cannot
+      // delegate to more team agents. Dispatching anyway just produces a
+      // stream of `OrchestrationCommandInvariantError` warnings on every
+      // task event a child agent emits — skip the dispatch entirely instead.
+      const nativeTeamTasks =
+        thread.teamParent != null ? [] : nativeTeamTasksFromRuntimeEvent({ event, thread });
       yield* Effect.forEach(nativeTeamTasks, (nativeTeamTask) =>
         orchestrationEngine.dispatch({
           type: "thread.team-task.upsert-native",

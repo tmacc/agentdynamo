@@ -31,6 +31,8 @@ const setup = Layer.effectDiscard(
     const sql = yield* SqlClient.SqlClient;
     yield* sql`PRAGMA journal_mode = WAL;`;
     yield* sql`PRAGMA foreign_keys = ON;`;
+    // Block on writer contention rather than failing fast with SQLITE_BUSY.
+    yield* sql`PRAGMA busy_timeout = 5000;`;
     yield* runMigrations();
   }),
 );

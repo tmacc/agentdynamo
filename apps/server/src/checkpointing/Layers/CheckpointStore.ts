@@ -16,10 +16,12 @@ import { Effect, Layer, FileSystem, Path } from "effect";
 import { CheckpointInvariantError } from "../Errors.ts";
 import { GitCommandError } from "@t3tools/contracts";
 import { GitCore } from "../../git/Services/GitCore.ts";
+import { parseTurnDiffFilesFromNumstat } from "../Diffs.ts";
 import { CheckpointStore, type CheckpointStoreShape } from "../Services/CheckpointStore.ts";
 import { CheckpointRef } from "@t3tools/contracts";
 
 const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
+const CHECKPOINT_NUMSTAT_MAX_OUTPUT_BYTES = 4_000_000;
 
 const makeCheckpointStore = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -254,6 +256,40 @@ const makeCheckpointStore = Effect.gen(function* () {
     },
   );
 
+  const summarizeCheckpointDiff: CheckpointStoreShape["summarizeCheckpointDiff"] = Effect.fn(
+    "summarizeCheckpointDiff",
+  )(function* (input) {
+    const operation = "CheckpointStore.summarizeCheckpointDiff";
+
+    let fromCommitOid = yield* resolveCheckpointCommit(input.cwd, input.fromCheckpointRef);
+    const toCommitOid = yield* resolveCheckpointCommit(input.cwd, input.toCheckpointRef);
+
+    if (!fromCommitOid && input.fallbackFromToHead === true) {
+      const headCommit = yield* resolveHeadCommit(input.cwd);
+      if (headCommit) {
+        fromCommitOid = headCommit;
+      }
+    }
+
+    if (!fromCommitOid || !toCommitOid) {
+      return yield* new GitCommandError({
+        operation,
+        command: "git diff --numstat",
+        cwd: input.cwd,
+        detail: "Checkpoint ref is unavailable for diff summary.",
+      });
+    }
+
+    const result = yield* git.execute({
+      operation,
+      cwd: input.cwd,
+      args: ["diff", "--numstat", "--no-color", fromCommitOid, toCommitOid],
+      maxOutputBytes: CHECKPOINT_NUMSTAT_MAX_OUTPUT_BYTES,
+    });
+
+    return parseTurnDiffFilesFromNumstat(result.stdout);
+  });
+
   const deleteCheckpointRefs: CheckpointStoreShape["deleteCheckpointRefs"] = Effect.fn(
     "deleteCheckpointRefs",
   )(function* (input) {
@@ -278,6 +314,7 @@ const makeCheckpointStore = Effect.gen(function* () {
     hasCheckpointRef,
     restoreCheckpoint,
     diffCheckpoints,
+    summarizeCheckpointDiff,
     deleteCheckpointRefs,
   } satisfies CheckpointStoreShape;
 });

@@ -14,6 +14,7 @@ import { Context } from "effect";
 import type { Effect } from "effect";
 
 import type { CheckpointStoreError } from "../Errors.ts";
+import type { TurnDiffFileSummary } from "../Diffs.ts";
 import { CheckpointRef } from "@t3tools/contracts";
 
 export interface CaptureCheckpointInput {
@@ -81,6 +82,17 @@ export interface CheckpointStoreShape {
   readonly diffCheckpoints: (
     input: DiffCheckpointsInput,
   ) => Effect.Effect<string, CheckpointStoreError>;
+
+  /**
+   * Compute a per-file +/- summary between two checkpoint refs.
+   *
+   * Uses `git diff --numstat`, which produces orders of magnitude less output
+   * than a full patch and so does not run up against the patch-size cap on
+   * long-running threads.
+   */
+  readonly summarizeCheckpointDiff: (
+    input: DiffCheckpointsInput,
+  ) => Effect.Effect<ReadonlyArray<TurnDiffFileSummary>, CheckpointStoreError>;
 
   /**
    * Delete the provided checkpoint refs.

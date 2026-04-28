@@ -608,6 +608,19 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       });
       let metricProvider = "unknown";
       return yield* Effect.gen(function* () {
+        const bindingOption = yield* directory.getBinding(input.threadId);
+        const binding = Option.getOrUndefined(bindingOption);
+        if (!binding) {
+          // Stop is idempotent: no persisted binding means there is nothing
+          // running, so treat the request as already-satisfied instead of
+          // surfacing a validation error to upstream reactors.
+          yield* Effect.annotateCurrentSpan({
+            "provider.operation": "stop-session",
+            "provider.thread_id": input.threadId,
+            "provider.session.absent": true,
+          });
+          return;
+        }
         const routed = yield* resolveRoutableSession({
           threadId: input.threadId,
           operation: "ProviderService.stopSession",

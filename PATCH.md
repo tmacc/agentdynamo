@@ -677,6 +677,40 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/persistence/Migrations/045_RelaxProjectionBoardLinkedThreadUniquenessForArchivedCards.test.ts` in `apps/server`.
   - Run `bun run test src/environments/runtime/service.threadSubscriptions.test.ts src/boardStore.test.ts src/boardProjection.test.ts` in `apps/web`.
 
+### 2026-04-28 - Reliability cleanups from log audit
+
+- `Status`: active
+- `Area`: persistence | desktop | provider | orchestration | checkpointing
+- `User-visible impact`: Server child no longer crash-loops at 500 ms forever when migrations contend on the SQLite database; concurrent writers wait instead of failing fast. Stopping a session for a thread that has no persisted provider binding is now a no-op rather than a logged validation error. Long-running threads that produce >1 MB diffs still get an accurate per-file change summary instead of a "diff summary unavailable" placeholder. Child threads no longer flood the log with `OrchestrationCommandInvariantError` warnings every time a sub-task event arrives.
+- `Why this patch exists`: Production logs at `~/.dynamo/userdata/logs/server-child.log` showed (a) 88 successive migration failures with cause `database is locked` because no `busy_timeout` was set and the desktop supervisor reset its restart backoff on `spawn` (which fires before the migration even runs), (b) `ProviderValidationError: ... no persisted provider binding exists` for `thread.session-stop-requested` despite stop being conceptually idempotent, (c) repeated `failed to derive checkpoint file summary` warnings because the reactor needed only +/- counts but pulled the full unified patch through a 1 MB cap, and (d) repeated `Child threads cannot delegate to more team agents in v1` warnings because runtime ingestion dispatched `thread.team-task.upsert-native` for child threads even though the decider always rejects it.
+- `Key files`:
+  - `apps/server/src/persistence/Layers/Sqlite.ts`
+  - `apps/desktop/src/main.ts`
+  - `apps/server/src/provider/Layers/ProviderService.ts`
+  - `apps/server/src/checkpointing/Diffs.ts`
+  - `apps/server/src/checkpointing/Services/CheckpointStore.ts`
+  - `apps/server/src/checkpointing/Layers/CheckpointStore.ts`
+  - `apps/server/src/checkpointing/Layers/CheckpointDiffQuery.test.ts`
+  - `apps/server/src/orchestration/Layers/CheckpointReactor.ts`
+  - `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`
+- `Important invariants`:
+  - SQLite connection setup must apply `PRAGMA busy_timeout` after `journal_mode = WAL` so writer contention waits rather than returning `SQLITE_BUSY` immediately.
+  - The desktop supervisor must only reset `restartAttempt` after the child has logged readiness (the `Listening on …` line), not on `spawn` — otherwise a startup-time crash loop pins the backoff at 500 ms forever.
+  - `ProviderService.stopSession` must succeed when no persisted binding exists for the thread; reactors that emit `thread.session-stop-requested` rely on stop being idempotent.
+  - `CheckpointStore` must expose a per-file `summarizeCheckpointDiff` that does not require buffering a full unified patch; the checkpoint reactor uses it for the turn diff summary so summaries survive >1 MB diffs.
+  - `ProviderRuntimeIngestion` must skip `thread.team-task.upsert-native` dispatches when the thread already has a `teamParent`, since the decider rejects them in v1 anyway.
+- `Merge hotspots`:
+  - SQLite `setup` layer in `Sqlite.ts`
+  - Desktop backend supervisor restart loop in `apps/desktop/src/main.ts`
+  - `stopSession` flow in `ProviderService.ts` and its `resolveRoutableSession` helper
+  - `CheckpointStoreShape` interface and `CheckpointReactor` consumer
+  - `processRuntimeEvent` native team-task dispatch in `ProviderRuntimeIngestion.ts`
+- `Verification`:
+  - Run `bun run test src/checkpointing src/orchestration src/persistence src/provider` in `apps/server`.
+  - Boot `bun run dev:desktop`, hold a write transaction in another tool against `~/.dynamo/userdata/state.sqlite`, and verify the server child does not exit with `database is locked` while the lock is held briefly.
+  - Stop a thread whose binding has been wiped (delete the row from `provider_session_runtime`) and verify the stop request returns success without a logged `ProviderValidationError`.
+  - Run a long-output thread (≥10 turns of large diffs) and verify the activity feed continues to render the per-file change summary.
+
 ## Upstream-Touching Patch Entry Template
 
 Use this template for future bugfixes or behavioral patches that modify upstream-derived code:
