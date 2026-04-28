@@ -224,7 +224,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/components/chat/MessagesTimeline.tsx`
   - `apps/web/src/components/ChatView.tsx`
 - `Important invariants`:
-  - Storage is local-first and survives reloads.
+  - Storage is local-first and survives reloads. Desktop builds persist saved prompts through the desktop bridge at `userdata/saved-prompts.json` instead of origin-scoped `localStorage`, because the backend HTTP port can change between app launches.
   - Project-scoped snippets must stay isolated by project key.
   - Duplicate snippets within the same scope should be deduped.
   - Composer insertion and "save prompt" actions must operate on the same store shape.
@@ -234,6 +234,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Project scoping logic tied to environment/project identity
 - `Verification`:
   - Save a prompt from a message.
+  - Quit and relaunch the desktop app; confirm saved prompts are still present even if the backend port changes.
   - Reuse it from the composer.
   - Change scope between project/global.
   - Reload and confirm snippets persist and remain scoped correctly.

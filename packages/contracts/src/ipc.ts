@@ -180,6 +180,9 @@ export interface PickFolderOptions {
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   getLocalEnvironmentBootstrap: () => DesktopEnvironmentBootstrap | null;
+  getSavedPromptStorage: () => string | null;
+  setSavedPromptStorage: (value: string) => void;
+  removeSavedPromptStorage: () => void;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
   getSavedEnvironmentRegistry: () => Promise<readonly PersistedSavedEnvironmentRecord[]>;
