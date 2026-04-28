@@ -119,4 +119,140 @@ it.layer(TestLayer)("CheckpointStoreLive", (it) => {
       }),
     );
   });
+
+  describe("summarizeCheckpointDiff", () => {
+    it.effect("summarizes modified, added, and renamed files", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        yield* writeTextFile(path.join(tmp, "old-name.txt"), "one\ntwo\n");
+        yield* git(tmp, ["add", "."]);
+        yield* git(tmp, ["commit", "-m", "add rename source"]);
+
+        const checkpointStore = yield* CheckpointStore;
+        const threadId = ThreadId.make("thread-checkpoint-store-summary");
+        const fromCheckpointRef = checkpointRefForThreadTurn(threadId, 0);
+        const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
+
+        yield* checkpointStore.captureCheckpoint({
+          cwd: tmp,
+          checkpointRef: fromCheckpointRef,
+        });
+        yield* writeTextFile(path.join(tmp, "README.md"), "# test updated\nextra\n");
+        yield* writeTextFile(path.join(tmp, "added.txt"), "first\nsecond\n");
+        yield* git(tmp, ["mv", "old-name.txt", "renamed-name.txt"]);
+        yield* writeTextFile(path.join(tmp, "renamed-name.txt"), "one\ntwo\nthree\n");
+        yield* checkpointStore.captureCheckpoint({
+          cwd: tmp,
+          checkpointRef: toCheckpointRef,
+        });
+
+        const files = yield* checkpointStore.summarizeCheckpointDiff({
+          cwd: tmp,
+          fromCheckpointRef,
+          toCheckpointRef,
+        });
+
+        expect(files).toContainEqual({ path: "README.md", additions: 2, deletions: 1 });
+        expect(files).toContainEqual({ path: "added.txt", additions: 2, deletions: 0 });
+        expect(files).toContainEqual({ path: "renamed-name.txt", additions: 1, deletions: 0 });
+        expect(files.map((file) => file.path)).not.toContain("old-name.txt");
+      }),
+    );
+
+    it.effect("detects renames even when user git config disables rename detection", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        yield* writeTextFile(path.join(tmp, "rename-source.txt"), "one\ntwo\n");
+        yield* git(tmp, ["add", "."]);
+        yield* git(tmp, ["commit", "-m", "add rename source"]);
+
+        const checkpointStore = yield* CheckpointStore;
+        const threadId = ThreadId.make("thread-checkpoint-store-rename-config");
+        const fromCheckpointRef = checkpointRefForThreadTurn(threadId, 0);
+        const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
+
+        yield* checkpointStore.captureCheckpoint({
+          cwd: tmp,
+          checkpointRef: fromCheckpointRef,
+        });
+        yield* git(tmp, ["config", "diff.renames", "false"]);
+        yield* git(tmp, ["mv", "rename-source.txt", "rename-destination.txt"]);
+        yield* writeTextFile(path.join(tmp, "rename-destination.txt"), "one\ntwo\nthree\n");
+        yield* checkpointStore.captureCheckpoint({
+          cwd: tmp,
+          checkpointRef: toCheckpointRef,
+        });
+
+        const files = yield* checkpointStore.summarizeCheckpointDiff({
+          cwd: tmp,
+          fromCheckpointRef,
+          toCheckpointRef,
+        });
+
+        expect(files).toContainEqual({
+          path: "rename-destination.txt",
+          additions: 1,
+          deletions: 0,
+        });
+        expect(files.map((file) => file.path)).not.toContain("rename-source.txt");
+      }),
+    );
+
+    it.effect("preserves unusual destination paths", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const renamePairs = [
+          ["space-old.txt", "name with spaces.txt", "space"],
+          ["arrow-old.txt", "new => still tricky.txt", "arrow"],
+          ["brace-old.txt", "{newbrace}.txt", "brace"],
+        ] as const;
+        for (const [sourcePath, , contents] of renamePairs) {
+          yield* writeTextFile(path.join(tmp, sourcePath), `${contents}\n`);
+        }
+        yield* git(tmp, ["add", "."]);
+        yield* git(tmp, ["commit", "-m", "add unusual rename sources"]);
+
+        const checkpointStore = yield* CheckpointStore;
+        const threadId = ThreadId.make("thread-checkpoint-store-unusual-paths");
+        const fromCheckpointRef = checkpointRefForThreadTurn(threadId, 0);
+        const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
+
+        yield* checkpointStore.captureCheckpoint({
+          cwd: tmp,
+          checkpointRef: fromCheckpointRef,
+        });
+        for (const [sourcePath, destinationPath, contents] of renamePairs) {
+          yield* git(tmp, ["mv", sourcePath, destinationPath]);
+          yield* writeTextFile(path.join(tmp, destinationPath), `${contents}\nextra\n`);
+        }
+        yield* writeTextFile(path.join(tmp, "tab\tnew.txt"), "tab\nextra\n");
+        yield* checkpointStore.captureCheckpoint({
+          cwd: tmp,
+          checkpointRef: toCheckpointRef,
+        });
+
+        const files = yield* checkpointStore.summarizeCheckpointDiff({
+          cwd: tmp,
+          fromCheckpointRef,
+          toCheckpointRef,
+        });
+
+        expect(files).toHaveLength(4);
+        expect(files).toContainEqual({ path: "name with spaces.txt", additions: 1, deletions: 0 });
+        expect(files).toContainEqual({
+          path: "new => still tricky.txt",
+          additions: 1,
+          deletions: 0,
+        });
+        expect(files).toContainEqual({ path: "{newbrace}.txt", additions: 1, deletions: 0 });
+        expect(files).toContainEqual({ path: "tab\tnew.txt", additions: 2, deletions: 0 });
+        for (const [sourcePath] of renamePairs) {
+          expect(files.map((file) => file.path)).not.toContain(sourcePath);
+        }
+      }),
+    );
+  });
 });

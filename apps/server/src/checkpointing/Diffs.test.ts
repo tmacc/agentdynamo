@@ -1,68 +1,90 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTurnDiffFilesFromUnifiedDiff } from "./Diffs.ts";
+import { parseTurnDiffFilesFromNumstat } from "./Diffs.ts";
 
-describe("parseTurnDiffFilesFromUnifiedDiff", () => {
-  it("returns empty list for empty diff", () => {
-    expect(parseTurnDiffFilesFromUnifiedDiff("")).toEqual([]);
+describe("parseTurnDiffFilesFromNumstat", () => {
+  it("returns empty list for empty numstat", () => {
+    expect(parseTurnDiffFilesFromNumstat("")).toEqual([]);
   });
 
-  it("parses per-file additions and deletions", () => {
-    const diff = [
-      "diff --git a/a.txt b/a.txt",
-      "index 1111111..2222222 100644",
-      "--- a/a.txt",
-      "+++ b/a.txt",
-      "@@ -1,2 +1,3 @@",
-      " one",
-      "-two",
-      "+two updated",
-      "+three",
-      "diff --git a/src/b.ts b/src/b.ts",
-      "index 3333333..4444444 100644",
-      "--- a/src/b.ts",
-      "+++ b/src/b.ts",
-      "@@ -3,2 +3,0 @@",
-      "-old",
-      "-stale",
-      "",
-    ].join("\n");
-
-    expect(parseTurnDiffFilesFromUnifiedDiff(diff)).toEqual([
+  it("parses regular modified files", () => {
+    expect(parseTurnDiffFilesFromNumstat("2\t1\ta.txt\0")).toEqual([
       { path: "a.txt", additions: 2, deletions: 1 },
-      { path: "src/b.ts", additions: 0, deletions: 2 },
     ]);
   });
 
-  it("parses rename-only diffs with zero line changes", () => {
-    const diff = [
-      "diff --git a/src/old.ts b/src/new.ts",
-      "similarity index 100%",
-      "rename from src/old.ts",
-      "rename to src/new.ts",
-      "",
-    ].join("\n");
+  it("sorts multiple files by path", () => {
+    const numstat = ["0\t2\tz.ts", "3\t1\ta.ts", ""].join("\0");
 
-    expect(parseTurnDiffFilesFromUnifiedDiff(diff)).toEqual([
-      { path: "src/new.ts", additions: 0, deletions: 0 },
+    expect(parseTurnDiffFilesFromNumstat(numstat)).toEqual([
+      { path: "a.ts", additions: 3, deletions: 1 },
+      { path: "z.ts", additions: 0, deletions: 2 },
     ]);
   });
 
-  it("normalizes CRLF input before parsing", () => {
-    const diff = [
-      "diff --git a/a.txt b/a.txt",
-      "index 1111111..2222222 100644",
-      "--- a/a.txt",
-      "+++ b/a.txt",
-      "@@ -1 +1,2 @@",
-      "-one",
-      "+one updated",
-      "+two",
-      "",
-    ].join("\r\n");
+  it("parses binary files as zero line changes", () => {
+    expect(parseTurnDiffFilesFromNumstat("-\t-\tasset.bin\0")).toEqual([
+      { path: "asset.bin", additions: 0, deletions: 0 },
+    ]);
+  });
 
-    expect(parseTurnDiffFilesFromUnifiedDiff(diff)).toEqual([
-      { path: "a.txt", additions: 2, deletions: 1 },
+  it("uses the destination path for rename records", () => {
+    expect(parseTurnDiffFilesFromNumstat("1\t0\t\0old.ts\0new.ts\0")).toEqual([
+      { path: "new.ts", additions: 1, deletions: 0 },
+    ]);
+  });
+
+  it("preserves paths with spaces, arrows, braces, and tabs", () => {
+    const numstat = [
+      "1\t0\tname with spaces.ts",
+      "2\t0\tnew => still tricky.ts",
+      "3\t0\tsrc/{newbrace}.ts",
+      "4\t0\ttab\tname.ts",
+      "",
+    ].join("\0");
+
+    expect(parseTurnDiffFilesFromNumstat(numstat)).toEqual([
+      { path: "name with spaces.ts", additions: 1, deletions: 0 },
+      { path: "new => still tricky.ts", additions: 2, deletions: 0 },
+      { path: "src/{newbrace}.ts", additions: 3, deletions: 0 },
+      { path: "tab\tname.ts", additions: 4, deletions: 0 },
+    ]);
+  });
+
+  it("preserves unusual destination paths on rename records", () => {
+    const numstat = [
+      "1\t0\t",
+      "old => tricky.ts",
+      "new => still tricky.ts",
+      "2\t0\t",
+      "src/{oldbrace}.ts",
+      "src/{newbrace}.ts",
+      "3\t0\t",
+      "tab\told.ts",
+      "tab\tnew.ts",
+      "",
+    ].join("\0");
+
+    expect(parseTurnDiffFilesFromNumstat(numstat)).toEqual([
+      { path: "new => still tricky.ts", additions: 1, deletions: 0 },
+      { path: "src/{newbrace}.ts", additions: 2, deletions: 0 },
+      { path: "tab\tnew.ts", additions: 3, deletions: 0 },
+    ]);
+  });
+
+  it("ignores malformed records", () => {
+    const numstat = [
+      "not-a-record",
+      "x\t1\tbad-count.ts",
+      "1\tx\tbad-count.ts",
+      "2\t1\tvalid.ts",
+      "1\t0\t",
+      "old-without-destination.ts",
+      "",
+    ].join("\0");
+
+    expect(parseTurnDiffFilesFromNumstat(numstat)).toEqual([
+      { path: "valid.ts", additions: 2, deletions: 1 },
     ]);
   });
 });

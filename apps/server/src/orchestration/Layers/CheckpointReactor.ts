@@ -11,7 +11,6 @@ import {
 import { Cause, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
-import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import {
   checkpointRefForThreadTurn,
   resolveThreadWorkspaceCwd,
@@ -232,15 +231,15 @@ const make = Effect.gen(function* () {
     yield* workspaceEntries.invalidate(input.cwd);
 
     const files = yield* checkpointStore
-      .diffCheckpoints({
+      .summarizeCheckpointDiff({
         cwd: input.cwd,
         fromCheckpointRef,
         toCheckpointRef: targetCheckpointRef,
         fallbackFromToHead: false,
       })
       .pipe(
-        Effect.map((diff) =>
-          parseTurnDiffFilesFromUnifiedDiff(diff).map((file) => ({
+        Effect.map((summaries) =>
+          summaries.map((file) => ({
             path: file.path,
             kind: "modified" as const,
             additions: file.additions,

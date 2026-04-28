@@ -1436,6 +1436,14 @@ function startBackend(): void {
   }
   const listeningDetector = new ServerListeningDetector();
   backendListeningDetector = listeningDetector;
+  // Reset the restart backoff only after the child reports readiness. Resetting
+  // on `spawn` lets a migration-startup crash loop pin the delay at 500 ms.
+  void listeningDetector.promise.then(
+    () => {
+      restartAttempt = 0;
+    },
+    () => {},
+  );
   backendProcess = child;
   let backendSessionClosed = false;
   const closeBackendSession = (details: string) => {
@@ -1448,10 +1456,6 @@ function startBackend(): void {
     `pid=${child.pid ?? "unknown"} port=${backendPort} cwd=${resolveBackendCwd()}`,
   );
   captureBackendOutput(child);
-
-  child.once("spawn", () => {
-    restartAttempt = 0;
-  });
 
   child.on("error", (error) => {
     if (backendListeningDetector === listeningDetector) {
