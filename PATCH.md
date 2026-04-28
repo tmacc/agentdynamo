@@ -29,7 +29,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 ### Multi-provider subagents
 
 - `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce` as autonomous coordinator-led team agents.
-  - `User-visible behavior`: The user asks for a team/delegation in normal chat. No modal or pre-spawn confirmation appears. The coordinator provider can call Dynamo's `dynamo_team` MCP tools to spawn bounded child threads, omit provider/model when it wants Dynamo to choose, inspect/wait for child work, send follow-ups, and close children. The parent thread shows created child agents, selected provider/model, status, summaries, and open/cancel/review/apply actions. Users can open an Agents drawer from the composer controls to inspect child agents and jump into their chat streams. Child agent chats show an explicit child-agent banner with a back-to-coordinator action. Users can message a child agent directly; the follow-up is logged on the coordinator thread. Users can explicitly review a child diff and apply that child worktree patch into the coordinator worktree; Dynamo never auto-merges child changes. Users can turn team agents off from General settings.
+  - `User-visible behavior`: The user asks for a team/delegation in normal chat. No modal or pre-spawn confirmation appears. The coordinator provider can call Dynamo's `dynamo_team` MCP tools to spawn bounded child threads, omit provider/model when it wants Dynamo to choose, inspect/wait for child work, send follow-ups, and close children. The parent thread shows created child agents, selected provider/model, status, summaries, and open/cancel/review/apply actions. Users can open an Agents drawer from the composer controls to inspect child agents and jump into their chat streams. The Agents drawer participates in the responsive chat right-panel dock: on wide screens it can sit beside the Plan panel, compact layouts replace the active right panel, and Plan/Agents widths are resizable and persisted independently. Child agent chats show an explicit child-agent banner with a back-to-coordinator action. Users can message a child agent directly; the follow-up is logged on the coordinator thread. Users can explicitly review a child diff and apply that child worktree patch into the coordinator worktree; Dynamo never auto-merges child changes. Users can turn team agents off from General settings.
 - `Why it exists`: Lets Dynamo coordinate real parallel agent work inside the product while keeping provider/model choice, worktree isolation, lifecycle state, and UI visibility under Dynamo's control.
 - `Key fork files`:
   - `packages/contracts/src/orchestration.ts`
@@ -68,7 +68,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/store.ts`
 - `Important invariants`:
   - Team delegation is only allowed from top-level threads; child threads must not recursively delegate in v1.
-  - Team agents are enabled by default, with a default max of three active child agents per parent.
+  - Team agents are enabled by default, with a default max of ten active child agents per parent.
   - Coordinator tools are injected only into supported top-level provider sessions, currently Codex and Claude, using MCP server name `dynamo_team`.
   - The `/api/team-mcp` route must behave like a normal MCP server during provider startup: authenticated POST requests support `initialize`, `notifications/initialized`, `ping`, `tools/list`, and `tools/call`, plus a lightweight GET health response.
   - Team agents can be disabled through server settings; disabling prevents coordinator tool injection and rejects team spawn attempts.
@@ -84,6 +84,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Parent UI must show child status changes and final summaries without requiring a refresh.
   - Child agent threads should not appear as independent top-level sidebar rows; they are reached through the coordinator's Agents drawer and durable inline team blocks.
   - The Agents drawer is the primary team roster/control surface. It should show role/topic, provider/model, status, latest summary/error, worktree/setup metadata, and open/cancel actions.
+  - The Agents drawer should share the chat right-panel dock with the Plan panel on wide layouts, replace the active right panel on compact layouts, and keep its width independently resizable/persistent.
   - Child agent chats must make parent navigation obvious with a child-agent banner and `Back to coordinator` action.
   - Child composer copy must make clear that typed follow-ups go directly to the child agent. Direct child follow-ups must emit `thread.team-task.send-message` so the coordinator history records `team.task.message.sent`.
   - Sending a direct follow-up to a completed/failed/cancelled child task reopens the durable task status to `running`; later child events can complete/fail/cancel it again.
@@ -187,6 +188,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Fork origin metadata must survive projection and reload.
   - Timeline UI must show where imported history stops and new fork-local history begins.
   - Fork creation must not break branch/worktree metadata.
+  - Worktree forks must branch from the exact source conversation workspace `HEAD` SHA captured at fork time, not from a mutable branch ref or stale/default thread metadata. Detached-HEAD source workspaces are valid when `HEAD` resolves. The dialog label should show the live source branch when available, but absence of a branch label must not disable worktree fork. Fork worktrees must also receive the source workspace's dirty tracked changes, deletions, and untracked non-ignored files as unstaged changes; ignored files stay excluded. If fork preparation fails after worktree creation, cleanup must remove both the worktree path and the temporary `t3code/<hex>` branch.
   - Fork materialization must reconstruct source history by filtering source-thread aggregate events, so unrelated or legacy orchestration events elsewhere in the event log cannot make fork creation fail with `Failed to read the source thread history`.
   - Fork creation cleanup must only dispatch child-thread deletion after the child thread was actually created.
   - Fork creation prepares a durable `thread.context-handoff-prepared` record; successful provider acceptance marks it delivered, failed sends leave it pending for retry.
@@ -208,6 +210,10 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Confirm the timeline shows a `Forked from ...` separator at the imported-history boundary.
   - Confirm new messages only affect the forked thread.
   - Confirm the first live turn in the fork sees the imported transcript/proposed plans/attachment metadata in provider input and the second live turn does not repeat the handoff import.
+  - From a thread whose workspace is checked out on a non-default branch, create a worktree fork and confirm the new worktree is based on the exact source `HEAD` rather than `main`.
+  - From a detached-HEAD workspace, create a worktree fork and confirm the detached commit content is preserved.
+  - Add dirty tracked edits, deletions, and an untracked non-ignored file before forking; confirm the fork worktree contains those changes while ignored files are not copied.
+  - Force fork setup failure after worktree creation and confirm no temporary worktree path or branch remains.
   - Force a first-send failure and verify retry still includes the pending handoff.
   - Confirm the first live turn can replace the default `Fork of X` title with an auto-generated title.
   - Reload and verify provenance is still present.
@@ -477,6 +483,10 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Restored: browser persistence keys use the `dynamo:*` namespace; Dynamo should not import or remove upstream `t3code:*` browser state.
   - Restored: release/nightly names in `scripts/resolve-nightly-release.ts` and `scripts/release-smoke.ts` use `Dynamo`.
   - Restored: `scripts/build-desktop-artifact.ts` derives product name, artifact name, bundle id, executable name, staged package name, commit hash field, author, and description from shared Dynamo branding.
+  - Restored: marketing homepage positions Dynamo as the agent orchestrator for building apps, centered on parallel agent teams, isolated worktrees, reviewable patches, cross-provider work, and inspectable project context rather than inherited T3 Code copy.
+  - Restored: marketing icon/favicons are generated from `assets/prod/black-universal-1024.png`, with `dynamo-mark.webp` used for the nav logo.
+  - Restored: marketing product imagery is Dynamo-specific (`hero-agents.webp`, `feature-board.webp`, `feature-project-intelligence.webp`, and `screenshot.jpeg`) and must not regress to T3 Code screenshots or stale fork names.
+  - Restored: marketing release lookup stores latest-release data under the Dynamo cache key `dynamo-latest-release`.
   - Icon files under `apps/desktop/resources`, `apps/web/public`, and `apps/marketing/public` currently match both the pre-merge fork and upstream; if there were newer custom icon edits, they were not present as tracked differences in `365ae6d9`.
   - Ignored dev runtime assets under `apps/desktop/.electron-runtime` currently contain Dynamo dev icon/name data, but those are generated/ignored and must not be treated as merge-preserved source of truth.
 - `Key fork files`:
@@ -515,6 +525,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - User-facing update, splash, connection, and release text should say Dynamo.
   - Repository-facing context that agents read first, especially `README.md` and `AGENTS.md`, should identify the product as Dynamo so local AI does not infer the project is named T3 Code.
   - Marketing page titles, release names, and generated checkpoint commit author/committer names should say Dynamo.
+  - Marketing homepage and download page copy should stay Dynamo-specific: no visible T3 Code branding, no `t3code` release/cache naming, and no product screenshots containing old T3 UI.
   - Default runtime state should live under `~/.dynamo`, including `userdata/state.sqlite`, logs, settings, keybindings, and worktrees.
   - `DYNAMO_HOME` is the primary home override. `T3CODE_HOME` remains a fallback alias and is set to the same path for child processes that still expect it.
   - Desktop Chromium profile/userData should use Dynamo-specific folders so upstream T3 Code and Dynamo do not share local profile state.
@@ -533,6 +544,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/appBranding.test.ts` in `apps/desktop`.
   - Run `bun run test src/branding.test.ts src/components/desktopUpdate.logic.test.ts src/savedPromptStore.test.ts src/clientPersistenceStorage.test.ts src/uiStateStore.test.ts` in `apps/web`.
   - Run `bun run test scripts/build-desktop-artifact.test.ts scripts/resolve-nightly-release.test.ts scripts/dev-runner.test.ts`.
+  - Run `bun run build:marketing` and review `/` plus `/download` for Dynamo-specific positioning, product imagery, and links to `https://github.com/tmacc/agentdynamo`.
 
 ## 2026-04-27 - Terminal dimension clamping
 
@@ -705,6 +717,26 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/server.test.ts` in `packages/contracts`.
   - Run `bun run test src/provider/Layers/ProviderRegistry.test.ts` in `apps/server`.
   - Open provider settings/model picker and confirm account labels appear when provider probes return them.
+
+### 2026-04-28 - Raise default team child limit
+
+- `Status`: active
+- `Area`: contracts | orchestration | team
+- `User-visible impact`: New or defaulted server settings allow up to ten active Dynamo-managed child agents per coordinator thread before spawn requests are rejected.
+- `Why this patch exists`: Dynamo is a fork focused on visible parallel agent orchestration, and the previous default of three active child agents constrained larger coordinator-led team workflows.
+- `Key files`:
+  - `packages/contracts/src/settings.ts`
+  - `apps/server/src/team/Layers/TeamOrchestrationService.ts`
+  - `apps/server/src/orchestration/decider.ts`
+- `Important invariants`:
+  - The limit is still enforced by `maxActiveChildren` in both the service preflight path and the serialized `thread.team-task.spawn` decider path.
+  - Native-provider subagent mirrors remain exempt from this Dynamo-managed child limit because they mirror provider-created state.
+- `Merge hotspots`:
+  - Server settings defaults and sparse default stripping
+  - Team task spawn invariant checks
+- `Verification`:
+  - Run `bun run test src/serverSettings.test.ts` in `apps/server`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck` at the repo root.
 
 ## Upstream-Touching Patch Entry Template
 

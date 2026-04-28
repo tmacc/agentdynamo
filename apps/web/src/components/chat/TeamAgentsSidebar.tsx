@@ -52,7 +52,7 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
   activeThreadId: ThreadId;
   tasks: ReadonlyArray<TeamTaskInlineView>;
   timestampFormat: TimestampFormat;
-  mode?: "sheet" | "sidebar";
+  mode?: "dock" | "sheet" | "sidebar";
   onOpenThread: (threadId: ThreadId) => void;
   onCancelTask: (taskId: TeamTaskId) => void;
   onReviewTaskChanges: (task: OrchestrationTeamTask) => void;
@@ -71,6 +71,7 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
           mode === "sidebar"
             ? "h-full w-[360px] shrink-0 border-l border-border/70"
             : "h-full w-full",
+          mode === "dock" && "bg-transparent",
         )}
       >
         <NativeSubagentTracePanel
@@ -90,6 +91,7 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
         mode === "sidebar"
           ? "h-full w-[360px] shrink-0 border-l border-border/70"
           : "h-full w-full",
+        mode === "dock" && "bg-transparent",
       )}
     >
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/60 px-3">
