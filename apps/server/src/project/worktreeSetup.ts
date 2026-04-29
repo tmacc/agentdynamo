@@ -555,9 +555,7 @@ if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
 `;
 }
 
-export function buildPowerShellSetupHelperContent(
-  profile: ProjectWorktreeSetupProfile,
-): string {
+export function buildPowerShellSetupHelperContent(profile: ProjectWorktreeSetupProfile): string {
   const envBlock = buildPowerShellEnvSyncBlock(profile);
   const installBlock = profile.installCommand
     ? `

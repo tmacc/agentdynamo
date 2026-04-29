@@ -95,10 +95,19 @@ describe("worktreeSetup", () => {
     assert.equal(fs.existsSync(helpers.devPowerShellPath), true);
     assert.equal(fs.existsSync(helpers.setupWindowsCommandPath), true);
     assert.equal(fs.existsSync(helpers.devWindowsCommandPath), true);
-    assert.equal(path.basename(helpers.setupPowerShellPath), WORKTREE_SETUP_POWERSHELL_HELPER_FILENAME);
+    assert.equal(
+      path.basename(helpers.setupPowerShellPath),
+      WORKTREE_SETUP_POWERSHELL_HELPER_FILENAME,
+    );
     assert.equal(path.basename(helpers.devPowerShellPath), WORKTREE_DEV_POWERSHELL_HELPER_FILENAME);
-    assert.equal(path.basename(helpers.setupWindowsCommandPath), WORKTREE_SETUP_WINDOWS_COMMAND_FILENAME);
-    assert.equal(path.basename(helpers.devWindowsCommandPath), WORKTREE_DEV_WINDOWS_COMMAND_FILENAME);
+    assert.equal(
+      path.basename(helpers.setupWindowsCommandPath),
+      WORKTREE_SETUP_WINDOWS_COMMAND_FILENAME,
+    );
+    assert.equal(
+      path.basename(helpers.devWindowsCommandPath),
+      WORKTREE_DEV_WINDOWS_COMMAND_FILENAME,
+    );
     assert.equal(fs.existsSync(path.join(projectCwd, ".dynamo")), false);
     assert.equal(fs.existsSync(path.join(projectCwd, ".t3code")), false);
   });
@@ -259,7 +268,10 @@ describe("worktreeSetup", () => {
 
     assert.match(viteDev, /\$env:PORT = \$env:DYNAMO_PRIMARY_PORT/);
     assert.match(viteDev, /\$env:HOST = "127\.0\.0\.1"/);
-    assert.match(viteDev, /\$devCommand = 'bun run dev -- --host "\$env:HOST" --port "\$env:PORT"'/);
+    assert.match(
+      viteDev,
+      /\$devCommand = 'bun run dev -- --host "\$env:HOST" --port "\$env:PORT"'/,
+    );
     assert.match(nextDev, /\$devCommand = 'npm run dev -- -p "\$env:PORT" -H "\$env:HOST"'/);
   });
 });
