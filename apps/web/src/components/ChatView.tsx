@@ -169,6 +169,7 @@ import {
 import { TeamAgentsSidebar } from "./chat/TeamAgentsSidebar";
 import type { TeamTaskInlineView } from "./chat/TeamTaskInlineBlock";
 import {
+  isDedicatedDynamoTeamWorktreeTask,
   isMaterializedDynamoTeamTask,
   teamTaskModelLabel,
   teamTaskStatusClassName,
@@ -181,7 +182,12 @@ import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
-import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
+import {
+  DEFAULT_NEW_WORKTREE_BASE_BRANCH,
+  resolveDraftContextForEnvModeChange,
+  resolveEffectiveEnvMode,
+  resolveEnvironmentOptionLabel,
+} from "./BranchToolbar.logic";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import {
@@ -200,6 +206,7 @@ import {
   deriveLockedProvider,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
+  resolveCreateThreadBranch,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
@@ -2786,6 +2793,13 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
     }
+    const createThreadBranch = resolveCreateThreadBranch({
+      isLocalDraftThread,
+      sendEnvMode,
+      activeThreadBranch,
+      currentGitBranch: gitStatusQuery.data?.branch ?? null,
+      activeWorktreePath: activeThread.worktreePath,
+    });
 
     sendInFlightRef.current = true;
     beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
@@ -2920,7 +2934,7 @@ export default function ChatView(props: ChatViewProps) {
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
                       interactionMode,
-                      branch: activeThreadBranch,
+                      branch: createThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
                     },
@@ -3501,13 +3515,20 @@ export default function ChatView(props: ChatViewProps) {
     (mode: DraftThreadEnvMode) => {
       if (canOverrideServerThreadEnvMode) {
         setPendingServerThreadEnvMode(mode);
+        setPendingServerThreadBranch(
+          mode === "worktree" ? DEFAULT_NEW_WORKTREE_BASE_BRANCH : undefined,
+        );
         scheduleComposerFocus();
         return;
       }
       if (isLocalDraftThread) {
         setDraftThreadContext(composerDraftTarget, {
-          envMode: mode,
-          ...(mode === "worktree" && draftThread?.worktreePath ? { worktreePath: null } : {}),
+          ...resolveDraftContextForEnvModeChange({
+            mode,
+            currentGitBranch: gitStatusQuery.data?.branch ?? null,
+            currentThreadBranch: draftThread?.branch ?? null,
+            currentWorktreePath: draftThread?.worktreePath ?? null,
+          }),
         });
       }
       scheduleComposerFocus();
@@ -3515,8 +3536,11 @@ export default function ChatView(props: ChatViewProps) {
     [
       canOverrideServerThreadEnvMode,
       composerDraftTarget,
+      gitStatusQuery.data?.branch,
+      draftThread?.branch,
       draftThread?.worktreePath,
       isLocalDraftThread,
+      setPendingServerThreadBranch,
       setPendingServerThreadEnvMode,
       scheduleComposerFocus,
       setDraftThreadContext,
@@ -3569,7 +3593,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const reviewTeamTaskChanges = useCallback(
     async (task: OrchestrationTeamTask) => {
-      if (!isMaterializedDynamoTeamTask(task)) return;
+      if (!isDedicatedDynamoTeamWorktreeTask(task)) return;
       if (!teamRootThread) return;
       const api = readEnvironmentApi(teamRootThread.environmentId);
       if (!api) return;
@@ -3615,7 +3639,7 @@ export default function ChatView(props: ChatViewProps) {
   const applyReviewedTeamTaskChanges = useCallback(async () => {
     if (!teamRootThread || !teamPatchReview) return;
     const { task, preview } = teamPatchReview;
-    if (!isMaterializedDynamoTeamTask(task)) return;
+    if (!isDedicatedDynamoTeamWorktreeTask(task)) return;
     const api = readEnvironmentApi(teamRootThread.environmentId);
     if (!api) return;
 
@@ -3967,8 +3991,10 @@ export default function ChatView(props: ChatViewProps) {
               {...(canOverrideServerThreadEnvMode ? { effectiveEnvModeOverride: envMode } : {})}
               {...(canOverrideServerThreadEnvMode
                 ? {
-                    activeThreadBranchOverride: activeThreadBranch,
-                    onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
+                    onPendingWorktreeBaseBranchChange: setPendingServerThreadBranch,
+                    ...(pendingServerThreadBranch !== undefined
+                      ? { pendingWorktreeBaseBranch: pendingServerThreadBranch }
+                      : {}),
                   }
                 : {})}
               envLocked={envLocked}

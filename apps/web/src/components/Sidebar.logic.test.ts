@@ -202,6 +202,8 @@ describe("resolveSidebarNewThreadSeedContext", () => {
         },
       }),
     ).toEqual({
+      branch: "main",
+      worktreePath: null,
       envMode: "worktree",
     });
   });
@@ -262,6 +264,8 @@ describe("resolveSidebarNewThreadSeedContext", () => {
         activeDraftThread: null,
       }),
     ).toEqual({
+      branch: "main",
+      worktreePath: null,
       envMode: "worktree",
     });
   });

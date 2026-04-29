@@ -180,6 +180,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.auth.status, "authenticated");
           assert.strictEqual(status.auth.type, "chatgpt");
           assert.strictEqual(status.auth.label, "ChatGPT Pro 20x Subscription");
+          assert.strictEqual(status.auth.accountLabel, "test@example.com");
           assert.deepStrictEqual(status.models, [
             {
               slug: "gpt-live-codex",
@@ -259,6 +260,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.auth.status, "authenticated");
           assert.strictEqual(status.auth.type, "apiKey");
           assert.strictEqual(status.auth.label, "OpenAI API Key");
+          assert.strictEqual(status.auth.accountLabel, undefined);
         }),
       );
 
@@ -657,6 +659,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.auth.status, "authenticated");
           assert.strictEqual(status.auth.type, "maxplan");
           assert.strictEqual(status.auth.label, "Claude Max Subscription");
+          assert.strictEqual(status.auth.accountLabel, "claude@example.com");
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
@@ -664,7 +667,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
-                  stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
+                  stdout:
+                    '{"loggedIn":true,"authMethod":"claude.ai","account":{"email":"claude@example.com"}}\n',
                   stderr: "",
                   code: 0,
                 };
@@ -761,6 +765,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.auth.status, "authenticated");
           assert.strictEqual(status.auth.type, "apiKey");
           assert.strictEqual(status.auth.label, "Claude API Key");
+          assert.strictEqual(status.auth.accountLabel, "key-owner@example.com");
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
@@ -768,7 +773,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
-                  stdout: '{"loggedIn":true,"authMethod":"api-key"}\n',
+                  stdout:
+                    '{"loggedIn":true,"authMethod":"api-key","userEmail":"key-owner@example.com"}\n',
                   stderr: "",
                   code: 0,
                 };

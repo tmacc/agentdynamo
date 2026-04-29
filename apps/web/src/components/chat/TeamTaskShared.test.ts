@@ -10,8 +10,10 @@ import { describe, expect, it } from "vitest";
 
 import { TeamAgentsSidebar } from "./TeamAgentsSidebar";
 import { TeamAgentPills } from "./TeamAgentPills";
+import { TeamTaskInlineBlocks } from "./TeamTaskInlineBlock";
 import { TeamTaskInspector } from "./TeamTaskInspector";
 import {
+  isDedicatedDynamoTeamWorktreeTask,
   isDynamoManagedTeamTask,
   isMaterializedDynamoTeamTask,
   isNativeProviderTeamTask,
@@ -83,6 +85,10 @@ describe("TeamTaskShared", () => {
     expect(isMaterializedDynamoTeamTask(legacyMissingSource)).toBe(true);
     expect(isDynamoManagedTeamTask(legacyMissingSource)).toBe(true);
     expect(isMaterializedDynamoTeamTask(pendingDynamo)).toBe(false);
+    expect(isDedicatedDynamoTeamWorktreeTask(legacyMissingSource)).toBe(false);
+    expect(isDedicatedDynamoTeamWorktreeTask(task({ resolvedWorkspaceMode: "worktree" }))).toBe(
+      true,
+    );
   });
 
   it("renders native provider tasks without Dynamo child-thread controls", () => {
@@ -137,8 +143,10 @@ describe("TeamTaskShared", () => {
     expect(pillsMarkup).not.toContain("Cancel child agent");
   });
 
-  it("keeps Dynamo task controls visible", () => {
+  it("keeps Dynamo task controls visible for dedicated worktree children", () => {
     const dynamo = task({
+      workspaceMode: "worktree",
+      resolvedWorkspaceMode: "worktree",
       status: "completed",
       completedAt: "2026-01-01T00:01:00.000Z",
     });
@@ -176,5 +184,95 @@ describe("TeamTaskShared", () => {
     expect(sidebarMarkup).toContain("Review &amp; apply");
     expect(inspectorMarkup).toContain("Open child thread");
     expect(inspectorMarkup).toContain("Cancel");
+  });
+
+  it("does not show review controls for shared Dynamo children with inherited worktree paths", () => {
+    const dynamo = task({
+      resolvedWorkspaceMode: "shared",
+      status: "completed",
+      completedAt: "2026-01-01T00:01:00.000Z",
+    });
+
+    const sidebarMarkup = renderToStaticMarkup(
+      createElement(TeamAgentsSidebar, {
+        environmentId: EnvironmentId.make("environment-local"),
+        coordinatorTitle: "Coordinator",
+        coordinatorThreadId: dynamo.parentThreadId,
+        activeThreadId: dynamo.parentThreadId,
+        tasks: [
+          {
+            task: dynamo,
+            diffSummary: "1 file changed, +1/-0",
+            elapsed: "1m",
+            childWorktreePath: "/tmp/coordinator-worktree",
+          },
+        ],
+        timestampFormat: "locale",
+        onOpenThread: () => {},
+        onCancelTask: () => {},
+        onReviewTaskChanges: () => {},
+        onClose: () => {},
+      }),
+    );
+
+    expect(sidebarMarkup).toContain("Open chat");
+    expect(sidebarMarkup).not.toContain("Review &amp; apply");
+  });
+
+  it("does not show inline review controls for shared Dynamo children with inherited worktree paths", () => {
+    const dynamo = task({
+      resolvedWorkspaceMode: "shared",
+      status: "completed",
+      completedAt: "2026-01-01T00:01:00.000Z",
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(TeamTaskInlineBlocks, {
+        tasks: [
+          {
+            task: dynamo,
+            diffSummary: "1 file changed, +1/-0",
+            elapsed: "1m",
+            childWorktreePath: "/tmp/coordinator-worktree",
+            defaultOpen: true,
+          },
+        ],
+        onOpenTask: () => {},
+        onCancelTask: () => {},
+        onReviewTaskChanges: () => {},
+      }),
+    );
+
+    expect(markup).toContain("Open child thread");
+    expect(markup).not.toContain("Review &amp; apply");
+  });
+
+  it("shows inline review controls for dedicated worktree children", () => {
+    const dynamo = task({
+      workspaceMode: "worktree",
+      resolvedWorkspaceMode: "worktree",
+      status: "completed",
+      completedAt: "2026-01-01T00:01:00.000Z",
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(TeamTaskInlineBlocks, {
+        tasks: [
+          {
+            task: dynamo,
+            diffSummary: "1 file changed, +1/-0",
+            elapsed: "1m",
+            childWorktreePath: "/tmp/child-worktree",
+            defaultOpen: true,
+          },
+        ],
+        onOpenTask: () => {},
+        onCancelTask: () => {},
+        onReviewTaskChanges: () => {},
+      }),
+    );
+
+    expect(markup).toContain("Open child thread");
+    expect(markup).toContain("Review &amp; apply");
   });
 });

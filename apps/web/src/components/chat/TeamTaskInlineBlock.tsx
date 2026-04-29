@@ -5,6 +5,7 @@ import { memo, useState, type MouseEvent } from "react";
 import { cn } from "~/lib/utils";
 import {
   isActiveTeamTask,
+  isDedicatedDynamoTeamWorktreeTask,
   isMaterializedDynamoTeamTask,
   teamTaskModelLabel,
   teamTaskStatusClassName,
@@ -17,6 +18,7 @@ export interface TeamTaskInlineView {
   diffSummary: string | null;
   elapsed: string | null;
   childWorktreePath: string | null;
+  defaultOpen?: boolean;
 }
 
 function stopPropagation(handler: () => void) {
@@ -70,11 +72,12 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
   onCancelTask: (taskId: TeamTaskId) => void;
   onReviewTaskChanges: (task: OrchestrationTeamTask) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(view.defaultOpen ?? false);
   const { task, diffSummary, elapsed } = view;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[task.modelSelection.provider];
   const active = isActiveTeamTask(task);
   const isMaterializedDynamo = isMaterializedDynamoTeamTask(task);
+  const isDedicatedDynamoWorktree = isDedicatedDynamoTeamWorktreeTask(task);
 
   return (
     <div className="border-border/50 border-b last:border-b-0">
@@ -133,7 +136,7 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
                 <ExternalLinkIcon className="size-3" />
               </button>
             ) : null}
-            {view.childWorktreePath && !active && isMaterializedDynamo ? (
+            {view.childWorktreePath && !active && isDedicatedDynamoWorktree ? (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-success transition-colors hover:text-success/80"

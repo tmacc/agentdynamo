@@ -18,6 +18,7 @@ import {
   type TerminalContextDraft,
 } from "../lib/terminalContext";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
+import { DEFAULT_NEW_WORKTREE_BASE_BRANCH } from "./BranchToolbar.logic";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "dynamo:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
@@ -162,6 +163,31 @@ export function resolveSendEnvMode(input: {
   isGitRepo: boolean;
 }): DraftThreadEnvMode {
   return input.isGitRepo ? input.requestedEnvMode : "local";
+}
+
+export function resolveCreateThreadBranch(input: {
+  isLocalDraftThread: boolean;
+  sendEnvMode: DraftThreadEnvMode;
+  activeThreadBranch: string | null;
+  currentGitBranch: string | null;
+  activeWorktreePath: string | null;
+}): string | null {
+  if (!input.isLocalDraftThread) {
+    return input.activeThreadBranch;
+  }
+  if (input.sendEnvMode === "worktree") {
+    return input.activeThreadBranch;
+  }
+  if (input.currentGitBranch) {
+    return input.currentGitBranch;
+  }
+  if (input.activeWorktreePath) {
+    return input.activeThreadBranch;
+  }
+  if (input.activeThreadBranch === DEFAULT_NEW_WORKTREE_BASE_BRANCH) {
+    return null;
+  }
+  return input.activeThreadBranch;
 }
 
 export function cloneComposerImageForRetry(

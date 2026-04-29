@@ -1,3 +1,7 @@
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join as joinPath, relative, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
+
 import {
   Cache,
   Data,
@@ -30,6 +34,7 @@ import {
   type GitStatusDetails,
   type ExecuteGitInput,
   type ExecuteGitResult,
+  type GitWorktreeSeedMetadata,
 } from "../Services/GitCore.ts";
 import {
   parseRemoteNames,
@@ -60,6 +65,8 @@ const STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN = Duration.seconds(5);
 const STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY = 2_048;
 const DEFAULT_BASE_BRANCH_CANDIDATES = ["main", "master"] as const;
 const GIT_LIST_BRANCHES_DEFAULT_LIMIT = 100;
+const WORKTREE_SNAPSHOT_PATCH_MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
+const WORKTREE_SEED_METADATA_PATH = "dynamo/team-seed.json";
 const NON_REPOSITORY_STATUS_DETAILS = Object.freeze<GitStatusDetails>({
   isRepo: false,
   hasOriginRemote: false,
@@ -85,6 +92,7 @@ class StatusRemoteRefreshCacheKey extends Data.Class<{
 
 interface ExecuteGitOptions {
   stdin?: string | undefined;
+  env?: NodeJS.ProcessEnv | undefined;
   timeoutMs?: number | undefined;
   allowNonZeroExit?: boolean | undefined;
   fallbackErrorMessage?: string | undefined;
@@ -135,6 +143,42 @@ function splitNullSeparatedPaths(input: string, truncated: boolean): string[] {
   }
 
   return parts.filter((value) => value.length > 0);
+}
+
+function resolveRepoRelativePath(operation: string, cwd: string, relativePath: string): string {
+  const root = resolve(cwd);
+  const target = resolve(root, relativePath);
+  const relativeToRoot = relative(root, target);
+  if (
+    relativeToRoot === "" ||
+    (relativeToRoot !== ".." && !relativeToRoot.startsWith(`..${sep}`))
+  ) {
+    return target;
+  }
+
+  throw createGitCommandError(operation, cwd, [], `Unsafe repository path: ${relativePath}`);
+}
+
+function isNodeErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
+  return cause instanceof Error && "code" in cause;
+}
+
+function parseWorktreeSeedMetadata(raw: string): GitWorktreeSeedMetadata | null {
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+  const record = parsed as Record<string, unknown>;
+  const baseHeadSha = record.baseHeadSha;
+  const seedTreeSha = record.seedTreeSha;
+  if (typeof baseHeadSha !== "string" || typeof seedTreeSha !== "string") {
+    return null;
+  }
+  const shaPattern = /^[0-9a-f]{40,64}$/i;
+  if (!shaPattern.test(baseHeadSha) || !shaPattern.test(seedTreeSha)) {
+    return null;
+  }
+  return { baseHeadSha, seedTreeSha };
 }
 
 function chunkPathsForGitCheckIgnore(relativePaths: readonly string[]): string[][] {
@@ -797,6 +841,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       cwd,
       args,
       ...(options.stdin !== undefined ? { stdin: options.stdin } : {}),
+      ...(options.env !== undefined ? { env: options.env } : {}),
       allowNonZeroExit: true,
       ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
       ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
@@ -2008,6 +2053,253 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     },
   );
 
+  const createWorktreeSnapshotTree: GitCoreShape["createWorktreeSnapshotTree"] = Effect.fn(
+    "createWorktreeSnapshotTree",
+  )(function* (cwd) {
+    const tempDir = yield* Effect.tryPromise({
+      try: () => mkdtemp(joinPath(tmpdir(), "dynamo-worktree-snapshot-")),
+      catch: (cause) =>
+        createGitCommandError(
+          "GitCore.createWorktreeSnapshotTree.tempIndex",
+          cwd,
+          [],
+          "Failed to create a temporary Git index.",
+          cause,
+        ),
+    });
+    const indexFile = joinPath(tempDir, "index");
+    const env = { GIT_INDEX_FILE: indexFile };
+
+    const snapshot = Effect.gen(function* () {
+      yield* executeGit("GitCore.createWorktreeSnapshotTree.readTree", cwd, ["read-tree", "HEAD"], {
+        env,
+      });
+      yield* executeGit("GitCore.createWorktreeSnapshotTree.addAll", cwd, ["add", "-A"], {
+        env,
+      });
+      const tree = yield* executeGit(
+        "GitCore.createWorktreeSnapshotTree.writeTree",
+        cwd,
+        ["write-tree"],
+        { env },
+      );
+      return tree.stdout.trim();
+    });
+
+    return yield* snapshot.pipe(
+      Effect.ensuring(
+        Effect.promise(() => rm(tempDir, { recursive: true, force: true })).pipe(Effect.ignore),
+      ),
+    );
+  });
+
+  const resolveWorktreeGitDir = Effect.fn("resolveWorktreeGitDir")(function* (cwd: string) {
+    const result = yield* executeGit("GitCore.worktreeSeed.gitDir", cwd, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-dir",
+    ]);
+    return result.stdout.trim();
+  });
+
+  const worktreeSeedMetadataPath = Effect.fn("worktreeSeedMetadataPath")(function* (cwd: string) {
+    const gitDir = yield* resolveWorktreeGitDir(cwd);
+    return joinPath(gitDir, WORKTREE_SEED_METADATA_PATH);
+  });
+
+  const readWorktreeSeedMetadata: GitCoreShape["readWorktreeSeedMetadata"] = Effect.fn(
+    "readWorktreeSeedMetadata",
+  )(function* (cwd) {
+    const metadataPath = yield* worktreeSeedMetadataPath(cwd);
+    const raw = yield* Effect.tryPromise({
+      try: async () => {
+        try {
+          return await readFile(metadataPath, "utf8");
+        } catch (cause) {
+          if (isNodeErrnoException(cause) && cause.code === "ENOENT") {
+            return null;
+          }
+          throw cause;
+        }
+      },
+      catch: (cause) =>
+        createGitCommandError(
+          "GitCore.readWorktreeSeedMetadata",
+          cwd,
+          [],
+          "Failed to read worktree seed metadata.",
+          cause,
+        ),
+    });
+    if (raw === null) return null;
+    const metadata = yield* Effect.try({
+      try: () => parseWorktreeSeedMetadata(raw),
+      catch: (cause) =>
+        createGitCommandError(
+          "GitCore.readWorktreeSeedMetadata",
+          cwd,
+          [],
+          "Failed to parse worktree seed metadata.",
+          cause,
+        ),
+    });
+    if (!metadata) {
+      return yield* createGitCommandError(
+        "GitCore.readWorktreeSeedMetadata",
+        cwd,
+        [],
+        "Invalid worktree seed metadata.",
+      );
+    }
+    return metadata;
+  });
+
+  const writeWorktreeSeedMetadata = Effect.fn("writeWorktreeSeedMetadata")(function* (
+    cwd: string,
+    metadata: GitWorktreeSeedMetadata,
+  ) {
+    const metadataPath = yield* worktreeSeedMetadataPath(cwd);
+    yield* Effect.tryPromise({
+      try: async () => {
+        await mkdir(dirname(metadataPath), { recursive: true });
+        await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+      },
+      catch: (cause) =>
+        createGitCommandError(
+          "GitCore.writeWorktreeSeedMetadata",
+          cwd,
+          [],
+          "Failed to write worktree seed metadata.",
+          cause,
+        ),
+    });
+  });
+
+  const removeWorktreeSeedMetadata = Effect.fn("removeWorktreeSeedMetadata")(function* (
+    cwd: string,
+  ) {
+    const metadataPath = yield* worktreeSeedMetadataPath(cwd);
+    yield* Effect.tryPromise({
+      try: () => rm(metadataPath, { force: true }),
+      catch: (cause) =>
+        createGitCommandError(
+          "GitCore.removeWorktreeSeedMetadata",
+          cwd,
+          [],
+          "Failed to remove worktree seed metadata.",
+          cause,
+        ),
+    });
+  });
+
+  const seedWorktreeFromSnapshot: GitCoreShape["seedWorktreeFromSnapshot"] = Effect.fn(
+    "seedWorktreeFromSnapshot",
+  )(function* (input) {
+    const baseHead = yield* executeGit(
+      "GitCore.seedWorktreeFromSnapshot.baseHead",
+      input.targetCwd,
+      ["rev-parse", "HEAD"],
+    );
+    const baseHeadSha = baseHead.stdout.trim();
+    const trackedPatch = yield* executeGit(
+      "GitCore.seedWorktreeFromSnapshot.diff",
+      input.sourceCwd,
+      ["diff", "--binary", "--full-index", "HEAD"],
+      {
+        maxOutputBytes: WORKTREE_SNAPSHOT_PATCH_MAX_OUTPUT_BYTES,
+        truncateOutputAtMaxBytes: false,
+      },
+    );
+    const trackedPatchApplied = trackedPatch.stdout.length > 0;
+    if (trackedPatchApplied) {
+      yield* executeGit(
+        "GitCore.seedWorktreeFromSnapshot.applyTracked",
+        input.targetCwd,
+        ["apply", "--whitespace=nowarn", "-"],
+        {
+          stdin: trackedPatch.stdout,
+          maxOutputBytes: WORKTREE_SNAPSHOT_PATCH_MAX_OUTPUT_BYTES,
+          truncateOutputAtMaxBytes: false,
+        },
+      );
+    }
+
+    const untracked = yield* executeGit(
+      "GitCore.seedWorktreeFromSnapshot.listUntracked",
+      input.sourceCwd,
+      ["ls-files", "--others", "--exclude-standard", "-z"],
+      {
+        maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+        truncateOutputAtMaxBytes: true,
+      },
+    );
+    const untrackedPaths = splitNullSeparatedPaths(untracked.stdout, untracked.stdoutTruncated);
+    const targetRoot = resolve(input.targetCwd);
+    const copiedUntrackedPaths: string[] = [];
+    for (const relativePath of untrackedPaths) {
+      const sourcePath = resolveRepoRelativePath(
+        "GitCore.seedWorktreeFromSnapshot.copyUntracked",
+        input.sourceCwd,
+        relativePath,
+      );
+      const relativeToTargetRoot = relative(targetRoot, sourcePath);
+      if (
+        sourcePath === targetRoot ||
+        (relativeToTargetRoot !== ".." && !relativeToTargetRoot.startsWith(`..${sep}`))
+      ) {
+        continue;
+      }
+      const targetPath = resolveRepoRelativePath(
+        "GitCore.seedWorktreeFromSnapshot.copyUntracked",
+        input.targetCwd,
+        relativePath,
+      );
+      yield* Effect.tryPromise({
+        try: async () => {
+          await mkdir(dirname(targetPath), { recursive: true });
+          await cp(sourcePath, targetPath, { recursive: true, dereference: false, force: true });
+        },
+        catch: (cause) =>
+          createGitCommandError(
+            "GitCore.seedWorktreeFromSnapshot.copyUntracked",
+            input.sourceCwd,
+            [],
+            `Failed to copy untracked file into child worktree: ${relativePath}`,
+            cause,
+          ),
+      });
+      copiedUntrackedPaths.push(relativePath);
+    }
+
+    const [headTree, seedTreeSha] = yield* Effect.all(
+      [
+        executeGit("GitCore.seedWorktreeFromSnapshot.headTree", input.targetCwd, [
+          "rev-parse",
+          "HEAD^{tree}",
+        ]).pipe(Effect.map((result) => result.stdout.trim())),
+        createWorktreeSnapshotTree(input.targetCwd),
+      ],
+      { concurrency: "unbounded" },
+    );
+    if (seedTreeSha === headTree) {
+      yield* removeWorktreeSeedMetadata(input.targetCwd);
+      return {
+        baseHeadSha,
+        seedTreeSha: null,
+        trackedPatchApplied,
+        copiedUntrackedPaths,
+      };
+    }
+
+    yield* writeWorktreeSeedMetadata(input.targetCwd, { baseHeadSha, seedTreeSha });
+    return {
+      baseHeadSha,
+      seedTreeSha,
+      trackedPatchApplied,
+      copiedUntrackedPaths,
+    };
+  });
+
   const fetchPullRequestBranch: GitCoreShape["fetchPullRequestBranch"] = Effect.fn(
     "fetchPullRequestBranch",
   )(function* (input) {
@@ -2234,6 +2526,9 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     filterIgnoredPaths,
     listBranches,
     createWorktree,
+    seedWorktreeFromSnapshot,
+    createWorktreeSnapshotTree,
+    readWorktreeSeedMetadata,
     fetchPullRequestBranch,
     ensureRemote,
     fetchRemoteBranch,

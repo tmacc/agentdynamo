@@ -119,6 +119,23 @@ export interface GitRenameBranchResult {
   branch: string;
 }
 
+export interface GitWorktreeSeedMetadata {
+  readonly baseHeadSha: string;
+  readonly seedTreeSha: string;
+}
+
+export interface GitSeedWorktreeFromSnapshotInput {
+  readonly sourceCwd: string;
+  readonly targetCwd: string;
+}
+
+export interface GitSeedWorktreeFromSnapshotResult {
+  readonly baseHeadSha: string;
+  readonly seedTreeSha: string | null;
+  readonly trackedPatchApplied: boolean;
+  readonly copiedUntrackedPaths: ReadonlyArray<string>;
+}
+
 export interface GitFetchPullRequestBranchInput {
   cwd: string;
   prNumber: number;
@@ -263,6 +280,25 @@ export interface GitCoreShape {
   readonly createWorktree: (
     input: GitCreateWorktreeInput,
   ) => Effect.Effect<GitCreateWorktreeResult, GitCommandError>;
+
+  /**
+   * Seed a newly-created worktree with the source worktree's current dirty snapshot.
+   */
+  readonly seedWorktreeFromSnapshot: (
+    input: GitSeedWorktreeFromSnapshotInput,
+  ) => Effect.Effect<GitSeedWorktreeFromSnapshotResult, GitCommandError>;
+
+  /**
+   * Create a Git tree object from the current worktree snapshot without mutating the real index.
+   */
+  readonly createWorktreeSnapshotTree: (cwd: string) => Effect.Effect<string, GitCommandError>;
+
+  /**
+   * Read seed metadata recorded for a worktree, when present.
+   */
+  readonly readWorktreeSeedMetadata: (
+    cwd: string,
+  ) => Effect.Effect<GitWorktreeSeedMetadata | null, GitCommandError>;
 
   /**
    * Materialize a GitHub pull request head as a local branch without switching checkout.

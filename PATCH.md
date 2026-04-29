@@ -26,6 +26,35 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ## Fork Feature Inventory
 
+### New worktree thread base branch default
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: When the user creates a new thread in `New worktree` mode, or switches an unsent local draft/empty thread to `New worktree`, Dynamo defaults the `From` branch to `main` instead of carrying over the current checkout branch or the previously opened thread branch.
+- `Why it exists`: New isolated worktrees should normally branch from the project integration branch, avoiding accidental worktree creation from an unrelated feature branch.
+- `Key fork files`:
+  - `apps/web/src/components/BranchToolbar.logic.ts`
+  - `apps/web/src/components/ChatView.tsx`
+  - `apps/web/src/components/Sidebar.logic.ts`
+  - `apps/web/src/components/Sidebar.tsx`
+- `Important invariants`:
+  - This default applies only to pending new-worktree setup where no concrete worktree path exists yet.
+  - Pending worktree base branch selection on empty server threads is UI-only until first send and must not dispatch `thread.meta.update`.
+  - Switching a pending draft/thread back to `Current checkout` must restore the live checkout branch when available, or clear branch metadata rather than persisting stale `main`.
+  - Forking a thread must continue to use the source conversation workspace/HEAD as the base.
+  - Selecting a branch in the branch picker must still override the default before send.
+  - Existing concrete worktree threads and concrete draft worktrees keep their stored branch/worktree path and are locked from env-mode switching.
+- `Merge hotspots`:
+  - Sidebar new-thread seed context
+  - Chat composer environment-mode switching
+  - New-thread draft creation flows
+- `Verification`:
+  - From a thread on a feature branch, create a new thread in `New worktree` mode and confirm the branch selector shows `From main`.
+  - From an unsent local draft whose stored branch is a feature branch, switch to `New worktree` and confirm the branch selector changes to `From main`.
+  - Switch that draft back to `Current checkout`, send the first message, and confirm no worktree is prepared and stale `main` is not persisted as the local branch.
+  - From an empty server thread, switch to `New worktree`, select a different base branch, and confirm the selection is not persisted as thread metadata before send.
+  - Fork a thread from a feature branch and confirm the fork still uses the source workspace commit/branch rather than `main`.
+  - Select a different base branch manually and confirm send uses that selected branch.
+
 ### Multi-provider subagents
 
 - `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce` as autonomous coordinator-led team agents.
@@ -68,7 +97,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/store.ts`
 - `Important invariants`:
   - Team delegation is only allowed from top-level threads; child threads must not recursively delegate in v1.
-  - Team agents are enabled by default, with a default max of three active child agents per parent.
+  - Team agents are enabled by default, with a default max of ten active child agents per parent.
   - Coordinator tools are injected only into supported top-level provider sessions, currently Codex and Claude, using MCP server name `dynamo_team`.
   - The `/api/team-mcp` route must behave like a normal MCP server during provider startup: authenticated POST requests support `initialize`, `notifications/initialized`, `ping`, `tools/list`, and `tools/call`, plus a lightweight GET health response.
   - Team agents can be disabled through server settings; disabling prevents coordinator tool injection and rejects team spawn attempts.
@@ -80,7 +109,13 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Provider/model selection must be persisted with `modelSelectionMode` and `modelSelectionReason` so the UI can explain coordinator-selected choices.
   - Child threads must remain linked to the parent by durable event-sourced team task state and projection rows.
   - Git projects default to isolated child worktrees/branches; non-Git projects fall back to shared workspace and should record the limitation.
+  - Dynamo-managed child agents resolve workspace context from the coordinator's effective cwd, not only projected thread branch metadata. Shared children inherit the coordinator branch/worktree metadata for execution cwd, dedicated child worktrees are created from coordinator `HEAD` and then seeded with the coordinator's current non-ignored dirty snapshot, and stale coordinator branch metadata may be repaired from live git status as a best-effort server action for worktree-backed coordinator threads.
+  - Dedicated child worktree seeding records the parent WIP baseline under the child worktree Git admin dir. Review/apply must diff against that seed baseline so inherited parent WIP is context for the child, not child-authored work.
+  - Inherited `worktreePath` is not proof of isolated child worktree ownership. Only `resolvedWorkspaceMode === "worktree"` enables child review/apply, patch generation, and temporary branch auto-rename. Shared children that inherit the coordinator worktree must never auto-rename the coordinator branch.
+  - Explicit `workspaceMode: "worktree"` is a hard isolation requirement and must fail clearly when the coordinator workspace is not a Git repo or Git status cannot be resolved. `workspaceMode: "auto"` is the only mode that silently falls back to shared for non-Git projects.
   - Worktree setup should auto-run only for coding/test/UI tasks when the project has configured worktree setup; review/exploration/docs/general tasks skip setup by default.
+  - Worktree setup must only run for newly-created dedicated child worktrees; shared children that inherit the coordinator worktree must not rerun setup against that workspace and must record `resolvedSetupMode: "skip"` even when setup was requested.
+  - Child prompts must distinguish isolated child worktrees from shared coordinator workspaces so shared children are not instructed to assume branch/worktree isolation.
   - Parent UI must show child status changes and final summaries without requiring a refresh.
   - Child agent threads should not appear as independent top-level sidebar rows; they are reached through the coordinator's Agents drawer and durable inline team blocks.
   - The Agents drawer is the primary team roster/control surface. It should show role/topic, provider/model, status, latest summary/error, worktree/setup metadata, and open/cancel actions.
@@ -88,7 +123,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Child agent chats must make parent navigation obvious with a child-agent banner and `Back to coordinator` action.
   - Child composer copy must make clear that typed follow-ups go directly to the child agent. Direct child follow-ups must emit `thread.team-task.send-message` so the coordinator history records `team.task.message.sent`.
   - Sending a direct follow-up to a completed/failed/cancelled child task reopens the durable task status to `running`; later child events can complete/fail/cancel it again.
-  - Child code changes remain isolated until explicitly applied. Review/apply is task-based: the client sends `parentThreadId` and `taskId`, and the server resolves/validates the linked child thread and worktree before reading files. Review builds the same binary Git patch that apply will use, including committed child branch changes plus dirty/untracked worktree changes via a temporary index. Apply requires the reviewed patch hash, checks it against a clean coordinator worktree, then applies it there as uncommitted changes. If the task is still active, the worktree linkage is invalid, the repositories differ, the coordinator worktree is dirty, the patch changed after review, or the patch conflicts, the operation must fail clearly without partial application.
+  - Child code changes remain isolated until explicitly applied. Review/apply is task-based and only available for Dynamo-managed tasks whose resolved workspace mode is `worktree`: the client sends `parentThreadId` and `taskId`, and the server resolves/validates the linked child thread and worktree before reading files. Review builds the same binary Git patch that apply will use, including committed child branch changes plus dirty/untracked worktree changes via a temporary index. For WIP-seeded child worktrees, the patch base is the recorded seed tree rather than the coordinator `HEAD`, and apply may proceed onto a dirty coordinator worktree only when its current snapshot still matches that seed tree. Otherwise apply requires a clean coordinator worktree. If the task is shared-mode, still active, the worktree linkage is invalid, the child path resolves to the coordinator path, the repositories differ, the coordinator worktree has diverged from the seed baseline, the patch changed after review, or the patch conflicts, the operation must fail clearly without partial application.
   - Team membership surfaces are persistent task/thread state, not closable document tabs. Future file tabs should remain a separate UI concept.
   - Parent activity entries for `team.task.*` must be event-sourced so replay/restart does not duplicate lifecycle milestones.
   - Existing incompatible/partial team-task projection tables should be repaired by migration, then rebuilt from the event stream.
@@ -113,7 +148,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Confirm child chat streams show the child-agent banner, `Back to coordinator`, and child-specific composer copy.
   - Confirm typing into a child chat sends only to that child and appends a parent-side `team.task.message.sent` activity.
   - Confirm typing into a completed child chat reopens that task as running until the new child turn settles.
-  - Confirm review opens the child diff, apply copies child worktree changes into a clean coordinator worktree, and dirty/conflicting coordinator worktrees fail without changing files.
+  - Confirm review opens the child diff, apply copies child worktree changes into a clean coordinator worktree, WIP-seeded children review/apply only child deltas on top of unchanged parent WIP, and dirty/conflicting coordinator worktrees fail without changing files.
   - Confirm child agent threads are hidden from the top-level sidebar list.
   - Confirm completed/failed/cancelled child summaries remain visible after reload/reprojection.
   - Confirm child threads do not receive coordinator tools.
@@ -230,7 +265,11 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/components/chat/MessagesTimeline.tsx`
   - `apps/web/src/components/ChatView.tsx`
 - `Important invariants`:
-  - Storage is local-first and survives reloads.
+  - Storage is local-first and survives reloads. Desktop builds persist saved prompts through the desktop bridge at `userdata/saved-prompts.json` instead of origin-scoped `localStorage`, because the backend HTTP port can change between app launches.
+  - Desktop reads must distinguish missing, corrupt, and errored storage. Current-origin `localStorage` migration only runs when desktop storage is explicitly missing, never when the desktop file is corrupt or temporarily unreadable.
+  - The renderer classifies saved-prompt persistence documents before trusting them for desktop hydration or migration. Schema-invalid or unsupported-version desktop documents must be preserved and must block desktop writes for that session instead of being normalized to empty and overwritten.
+  - Corrupt desktop prompt files must be preserved as `saved-prompts.corrupt-*.json` backups before a fresh file can be written. Desktop writes must preflight the existing file and refuse to overwrite invalid JSON if quarantine fails.
+  - Desktop writes are debounced and flushed on `beforeunload` and `pagehide`.
   - Project-scoped snippets must stay isolated by project key.
   - Duplicate snippets within the same scope should be deduped.
   - Composer insertion and "save prompt" actions must operate on the same store shape.
@@ -240,6 +279,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Project scoping logic tied to environment/project identity
 - `Verification`:
   - Save a prompt from a message.
+  - Quit and relaunch the desktop app; confirm saved prompts are still present even if the backend port changes.
   - Reuse it from the composer.
   - Change scope between project/global.
   - Reload and confirm snippets persist and remain scoped correctly.
@@ -656,6 +696,34 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/store.test.ts` in `apps/web`.
   - Launch `bun run dev:desktop`; verify generic same-provider subagent prompts can use provider-native delegation, then verify explicit cross-provider or Dynamo-visible child requests spawn Dynamo team agents and appear in the Agents drawer.
 
+### 2026-04-29 - Guard worktree branch metadata during bootstrap
+
+- `Status`: active
+- `Area`: web | orchestration | git
+- `User-visible impact`: New worktree threads should get first-turn semantic branch names even when bootstrap metadata briefly says `main` before the live worktree branch is observed.
+- `Why this patch exists`: Worktree bootstrap dispatches thread metadata after the first turn is queued. During that window, draft/default branch metadata or the Git actions control can persist `main` onto the worktree-backed thread. The server must therefore use the live worktree branch when deciding whether a first-turn temporary branch can be renamed, while shared team children must still be excluded.
+- `Key files`:
+  - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
+  - `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts`
+  - `apps/web/src/components/GitActionsControl.logic.ts`
+  - `apps/web/src/components/GitActionsControl.tsx`
+  - `apps/web/src/components/GitActionsControl.logic.test.ts`
+- `Important invariants`:
+  - First-turn branch rename eligibility is based on having a worktree path plus team ownership policy; the actual branch to rename is resolved from live git status before falling back to stored temporary metadata.
+  - Shared Dynamo team children that inherit the coordinator workspace must never auto-rename the coordinator branch.
+  - Dedicated Dynamo team child worktrees may still auto-rename their own temporary branch.
+  - A server thread with a non-null `worktreePath` and temporary `t3code/<hex>` branch must not be live-synced to a non-temporary branch such as `main`.
+  - Semantic thread branches still must not regress to temporary worktree branches.
+  - Non-worktree thread branch sync remains unchanged.
+- `Merge hotspots`:
+  - Git actions live branch sync
+  - Worktree bootstrap metadata updates
+  - First-turn semantic branch naming
+- `Verification`:
+  - Run `bun run test src/orchestration/Layers/ProviderCommandReactor.test.ts` in `apps/server`.
+  - Run `bun run test src/components/GitActionsControl.logic.test.ts` in `apps/web`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck` at the repo root.
+
 ### 2026-04-25 - Harden team coordinator grants and board projections
 
 - `Status`: active
@@ -695,6 +763,54 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/team/Layers/TeamCoordinatorAccess.test.ts` in `apps/server`.
   - Run `bun run test src/persistence/Migrations/045_RelaxProjectionBoardLinkedThreadUniquenessForArchivedCards.test.ts` in `apps/server`.
   - Run `bun run test src/environments/runtime/service.threadSubscriptions.test.ts src/boardStore.test.ts src/boardProjection.test.ts` in `apps/web`.
+
+### 2026-04-28 - Surface active provider account identity
+
+- `Status`: active
+- `Area`: provider | web | contracts
+- `User-visible impact`: Provider status now includes a lightweight account label when the underlying CLI exposes one. Codex shows the active ChatGPT email when available, and Claude best-effort extracts an email/account label from `claude auth status`. The model picker and provider settings surface this next to the auth plan/type so users with multiple OpenAI or Claude accounts can tell which account Dynamo will use.
+- `Why this patch exists`: Users can have several ChatGPT/OpenAI or Claude/Anthropic accounts configured locally. A generic "authenticated" provider state is not enough to predict which account, subscription, or API-key context an agent turn will use.
+- `Key files`:
+  - `packages/contracts/src/server.ts`
+  - `apps/server/src/provider/Layers/CodexProvider.ts`
+  - `apps/server/src/provider/Layers/ClaudeProvider.ts`
+  - `apps/web/src/providerAccountPresentation.ts`
+  - `apps/web/src/components/chat/ProviderModelPicker.tsx`
+  - `apps/web/src/components/chat/ModelPickerSidebar.tsx`
+  - `apps/web/src/components/settings/SettingsPanels.tsx`
+- `Important invariants`:
+  - Account labels are optional and best-effort; missing labels must not make a provider unavailable.
+  - Account labels should only be shown for authenticated provider states.
+  - The shared provider schema remains backward-compatible with snapshots that do not include `auth.accountLabel`.
+- `Merge hotspots`:
+  - Provider status schemas and WebSocket config snapshots
+  - Codex `account/read` mapping
+  - Claude auth/capability probe parsing
+  - Model picker and provider settings status copy
+- `Verification`:
+  - Run `bun run test src/server.test.ts` in `packages/contracts`.
+  - Run `bun run test src/provider/Layers/ProviderRegistry.test.ts` in `apps/server`.
+  - Open provider settings/model picker and confirm account labels appear when provider probes return them.
+
+### 2026-04-28 - Raise default team child limit
+
+- `Status`: active
+- `Area`: contracts | orchestration | team
+- `User-visible impact`: New or defaulted server settings allow up to ten active Dynamo-managed child agents per coordinator thread before spawn requests are rejected.
+- `Why this patch exists`: Dynamo is a fork focused on visible parallel agent orchestration, and the previous default of three active child agents constrained larger coordinator-led team workflows.
+- `Key files`:
+  - `packages/contracts/src/settings.ts`
+  - `apps/server/src/team/Layers/TeamOrchestrationService.ts`
+  - `apps/server/src/orchestration/decider.ts`
+- `Important invariants`:
+  - The limit is still enforced by `maxActiveChildren` in both the service preflight path and the serialized `thread.team-task.spawn` decider path.
+  - Native-provider subagent mirrors remain exempt from this Dynamo-managed child limit because they mirror provider-created state.
+- `Merge hotspots`:
+  - Server settings defaults and sparse default stripping
+  - Team task spawn invariant checks
+- `Verification`:
+  - Run `bun run test src/serverSettings.test.ts` in `apps/server`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck` at the repo root.
 
 ## Upstream-Touching Patch Entry Template
 
