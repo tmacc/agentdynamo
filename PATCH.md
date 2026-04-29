@@ -226,7 +226,8 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Important invariants`:
   - Storage is local-first and survives reloads. Desktop builds persist saved prompts through the desktop bridge at `userdata/saved-prompts.json` instead of origin-scoped `localStorage`, because the backend HTTP port can change between app launches.
   - Desktop reads must distinguish missing, corrupt, and errored storage. Current-origin `localStorage` migration only runs when desktop storage is explicitly missing, never when the desktop file is corrupt or temporarily unreadable.
-  - Corrupt desktop prompt files must be preserved as `saved-prompts.corrupt-*.json` backups before a fresh file can be written.
+  - The renderer classifies saved-prompt persistence documents before trusting them for desktop hydration or migration. Schema-invalid or unsupported-version desktop documents must be preserved and must block desktop writes for that session instead of being normalized to empty and overwritten.
+  - Corrupt desktop prompt files must be preserved as `saved-prompts.corrupt-*.json` backups before a fresh file can be written. Desktop writes must preflight the existing file and refuse to overwrite invalid JSON if quarantine fails.
   - Desktop writes are debounced and flushed on `beforeunload` and `pagehide`.
   - Project-scoped snippets must stay isolated by project key.
   - Duplicate snippets within the same scope should be deduped.

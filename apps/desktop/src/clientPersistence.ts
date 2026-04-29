@@ -161,6 +161,34 @@ export function readSavedPromptStorageWithRecovery(storagePath: string): Desktop
   }
 }
 
+function preserveExistingCorruptSavedPromptStorageBeforeWrite(storagePath: string): void {
+  let raw: string;
+  try {
+    raw = FS.readFileSync(storagePath, "utf8");
+  } catch (error) {
+    if (isNodeErrorWithCode(error) && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    JSON.parse(raw);
+  } catch {
+    const backupPath = makeCorruptBackupPath(storagePath);
+    try {
+      FS.renameSync(storagePath, backupPath);
+    } catch (renameError) {
+      throw new Error(
+        `Failed to preserve corrupt saved prompt storage before write: ${errorMessage(
+          renameError,
+        )}`,
+        { cause: renameError },
+      );
+    }
+  }
+}
+
 export function writeSavedPromptStorage(storagePath: string, value: string): void {
   try {
     JSON.parse(value);
@@ -168,6 +196,7 @@ export function writeSavedPromptStorage(storagePath: string, value: string): voi
     throw new Error("Invalid saved prompt storage payload.");
   }
 
+  preserveExistingCorruptSavedPromptStorageBeforeWrite(storagePath);
   writeTextFile(storagePath, value);
 }
 

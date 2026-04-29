@@ -65,6 +65,15 @@ function createPersistedSnippetDocument(input: {
   });
 }
 
+function createEmptyPersistedSnippetDocument(version = 1): string {
+  return JSON.stringify({
+    version,
+    state: {
+      snippetsById: {},
+    },
+  });
+}
+
 function getTestWindow(): TestWindow {
   const localStorage = createLocalStorageStub();
   const listeners = new Map<string, EventListener[]>();
@@ -90,38 +99,57 @@ function installSavedPromptDesktopBridge(
   testWindow: TestWindow,
   storageRef: { value: string | null },
   options: {
-    readResult?: DesktopStorageReadResult;
+    readResult?: DesktopStorageReadResult | (() => DesktopStorageReadResult);
     setResult?: DesktopStorageMutationResult;
     removeResult?: DesktopStorageMutationResult;
     setThrows?: boolean;
   } = {},
-): void {
+): {
+  getSavedPromptStorage: ReturnType<typeof vi.fn>;
+  setSavedPromptStorage: ReturnType<typeof vi.fn>;
+  removeSavedPromptStorage: ReturnType<typeof vi.fn>;
+} {
+  const getSavedPromptStorage = vi.fn(() => {
+    if (typeof options.readResult === "function") {
+      return options.readResult();
+    }
+    return (
+      options.readResult ??
+      (storageRef.value === null
+        ? { status: "missing" as const }
+        : { status: "ok" as const, value: storageRef.value })
+    );
+  });
+  const setSavedPromptStorage = vi.fn((value: string) => {
+    if (options.setThrows) {
+      throw new Error("write failed");
+    }
+    if (options.setResult?.status === "error") {
+      return options.setResult;
+    }
+    storageRef.value = value;
+    return options.setResult ?? { status: "ok" as const };
+  });
+  const removeSavedPromptStorage = vi.fn(() => {
+    if (options.removeResult?.status === "error") {
+      return options.removeResult;
+    }
+    storageRef.value = null;
+    return options.removeResult ?? { status: "ok" as const };
+  });
+
   Object.assign(testWindow, {
     desktopBridge: {
-      getSavedPromptStorage: () =>
-        options.readResult ??
-        (storageRef.value === null
-          ? { status: "missing" }
-          : { status: "ok", value: storageRef.value }),
-      setSavedPromptStorage: (value: string) => {
-        if (options.setThrows) {
-          throw new Error("write failed");
-        }
-        if (options.setResult?.status === "error") {
-          return options.setResult;
-        }
-        storageRef.value = value;
-        return options.setResult ?? { status: "ok" };
-      },
-      removeSavedPromptStorage: () => {
-        if (options.removeResult?.status === "error") {
-          return options.removeResult;
-        }
-        storageRef.value = null;
-        return options.removeResult ?? { status: "ok" };
-      },
+      getSavedPromptStorage,
+      setSavedPromptStorage,
+      removeSavedPromptStorage,
     },
   } satisfies { desktopBridge: Partial<NonNullable<Window["desktopBridge"]>> });
+  return {
+    getSavedPromptStorage,
+    setSavedPromptStorage,
+    removeSavedPromptStorage,
+  };
 }
 
 afterEach(() => {
@@ -132,6 +160,56 @@ afterEach(() => {
 });
 
 describe("savedPromptStore", () => {
+  it("classifies saved prompt storage documents without leaking document contents", async () => {
+    const { classifySavedPromptStorageDocument } = await import("./savedPromptStore");
+    const sentinel = "SENTINEL_PROMPT_BODY_SHOULD_NOT_LEAK";
+
+    expect(
+      classifySavedPromptStorageDocument(
+        createPersistedSnippetDocument({
+          title: "Valid",
+          body: "Valid body",
+        }),
+      ),
+    ).toEqual({ status: "valid" });
+    expect(classifySavedPromptStorageDocument("{not-json")).toEqual({
+      status: "invalid-json",
+      message: expect.any(String),
+    });
+    expect(classifySavedPromptStorageDocument("{}")).toEqual({
+      status: "invalid-shape",
+      message: expect.any(String),
+    });
+    expect(classifySavedPromptStorageDocument("null")).toEqual({
+      status: "invalid-shape",
+      message: expect.any(String),
+    });
+    expect(classifySavedPromptStorageDocument(createEmptyPersistedSnippetDocument(99))).toEqual({
+      status: "unsupported-version",
+      message: expect.any(String),
+    });
+
+    for (const result of [
+      classifySavedPromptStorageDocument("{not-json"),
+      classifySavedPromptStorageDocument(
+        JSON.stringify({
+          version: 1,
+          state: {
+            snippetsById: {
+              "snippet-1": {
+                body: sentinel,
+              },
+            },
+          },
+        }),
+      ),
+    ]) {
+      if ("message" in result) {
+        expect(result.message).not.toContain(sentinel);
+      }
+    }
+  });
+
   it("hydrates persisted snippets from localStorage", async () => {
     const testWindow = getTestWindow();
     testWindow.localStorage.setItem(
@@ -306,6 +384,242 @@ describe("savedPromptStore", () => {
     await useSavedPromptStore.persist.rehydrate();
 
     expect(useSavedPromptStore.getState().snippetsById).toEqual({});
+    expect(storageRef.value).toBeNull();
+  });
+
+  it("blocks desktop writes after a desktop read error", async () => {
+    vi.useFakeTimers();
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    testWindow.localStorage.setItem(
+      "dynamo:saved-prompts:v1",
+      createPersistedSnippetDocument({
+        title: "Stale prompt",
+        body: "Do not restore or overwrite",
+      }),
+    );
+    const bridge = installSavedPromptDesktopBridge(testWindow, storageRef, {
+      readResult: { status: "error", message: "EACCES" },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    const created = useSavedPromptStore.getState().createSnippet({
+      title: "In memory only",
+      body: "Do not persist over unread desktop data",
+      scope: "global",
+    });
+
+    expect(created.status).toBe("created");
+    vi.advanceTimersByTime(300);
+    expect(bridge.setSavedPromptStorage).not.toHaveBeenCalled();
+    expect(storageRef.value).toBeNull();
+  });
+
+  it("blocks desktop removes after a desktop read error", async () => {
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    const bridge = installSavedPromptDesktopBridge(testWindow, storageRef, {
+      readResult: { status: "error", message: "EACCES" },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    void useSavedPromptStore.persist.clearStorage();
+
+    expect(bridge.removeSavedPromptStorage).not.toHaveBeenCalled();
+  });
+
+  it("blocks desktop writes when corrupt desktop storage was not preserved", async () => {
+    vi.useFakeTimers();
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    const bridge = installSavedPromptDesktopBridge(testWindow, storageRef, {
+      readResult: { status: "corrupt", message: "Unexpected token" },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    useSavedPromptStore.getState().createSnippet({
+      title: "Blocked after corrupt read",
+      body: "Do not overwrite unpreserved corrupt file",
+      scope: "global",
+    });
+
+    vi.advanceTimersByTime(300);
+    expect(bridge.setSavedPromptStorage).not.toHaveBeenCalled();
+  });
+
+  it("permits fresh desktop writes when corrupt desktop storage was preserved", async () => {
+    vi.useFakeTimers();
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    const bridge = installSavedPromptDesktopBridge(testWindow, storageRef, {
+      readResult: {
+        status: "corrupt",
+        message: "Unexpected token",
+        backupPath: "/tmp/saved-prompts.corrupt.json",
+      },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    useSavedPromptStore.getState().createSnippet({
+      title: "Fresh prompt",
+      body: "Corrupt file was already preserved",
+      scope: "global",
+    });
+
+    vi.advanceTimersByTime(300);
+    expect(bridge.setSavedPromptStorage).toHaveBeenCalledOnce();
+    expect(storageRef.value).toContain("Fresh prompt");
+  });
+
+  it("blocks desktop writes for schema-invalid desktop storage", async () => {
+    vi.useFakeTimers();
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    testWindow.localStorage.setItem(
+      "dynamo:saved-prompts:v1",
+      createPersistedSnippetDocument({
+        title: "Stale prompt",
+        body: "Do not migrate",
+      }),
+    );
+    const bridge = installSavedPromptDesktopBridge(testWindow, storageRef, {
+      readResult: { status: "ok", value: "{}" },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    useSavedPromptStore.getState().createSnippet({
+      title: "Blocked schema",
+      body: "Do not overwrite invalid desktop shape",
+      scope: "global",
+    });
+
+    vi.advanceTimersByTime(300);
+    expect(useSavedPromptStore.getState().snippetsById).not.toEqual({});
+    expect(bridge.setSavedPromptStorage).not.toHaveBeenCalled();
+    expect(storageRef.value).toBeNull();
+  });
+
+  it("blocks desktop writes for unsupported saved prompt storage versions", async () => {
+    vi.useFakeTimers();
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    const bridge = installSavedPromptDesktopBridge(testWindow, storageRef, {
+      readResult: { status: "ok", value: createEmptyPersistedSnippetDocument(99) },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    useSavedPromptStore.getState().createSnippet({
+      title: "Blocked version",
+      body: "Do not downgrade a future storage version",
+      scope: "global",
+    });
+
+    vi.advanceTimersByTime(300);
+    expect(bridge.setSavedPromptStorage).not.toHaveBeenCalled();
+  });
+
+  it("does not migrate schema-invalid localStorage when desktop storage is missing", async () => {
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    testWindow.localStorage.setItem("dynamo:saved-prompts:v1", "{}");
+    const bridge = installSavedPromptDesktopBridge(testWindow, storageRef);
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+
+    expect(useSavedPromptStore.getState().snippetsById).toEqual({});
+    expect(bridge.setSavedPromptStorage).not.toHaveBeenCalled();
+    expect(storageRef.value).toBeNull();
+  });
+
+  it("clears a desktop write block when a later read returns valid desktop storage", async () => {
+    vi.useFakeTimers();
+    const storageRef = { value: createEmptyPersistedSnippetDocument() as string | null };
+    const testWindow = getTestWindow();
+    let readResult: DesktopStorageReadResult = { status: "error", message: "EACCES" };
+    const bridge = installSavedPromptDesktopBridge(testWindow, storageRef, {
+      readResult: () => readResult,
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    useSavedPromptStore.getState().createSnippet({
+      title: "Blocked first",
+      body: "This write should be blocked",
+      scope: "global",
+    });
+    vi.advanceTimersByTime(300);
+    expect(bridge.setSavedPromptStorage).not.toHaveBeenCalled();
+
+    readResult = { status: "ok", value: createEmptyPersistedSnippetDocument() };
+    await useSavedPromptStore.persist.rehydrate();
+    useSavedPromptStore.getState().createSnippet({
+      title: "Allowed after valid read",
+      body: "This write should persist",
+      scope: "global",
+    });
+    vi.advanceTimersByTime(300);
+
+    expect(bridge.setSavedPromptStorage).toHaveBeenCalledOnce();
+    expect(storageRef.value).toContain("Allowed after valid read");
+  });
+
+  it("does not include prompt bodies in desktop persistence warnings", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sentinel = "SENTINEL_PROMPT_BODY_SHOULD_NOT_LEAK";
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    testWindow.localStorage.setItem(
+      "dynamo:saved-prompts:v1",
+      createPersistedSnippetDocument({
+        title: "Stale prompt",
+        body: sentinel,
+      }),
+    );
+    installSavedPromptDesktopBridge(testWindow, storageRef, {
+      readResult: { status: "error", message: "EACCES" },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    useSavedPromptStore.getState().createSnippet({
+      title: "New prompt",
+      body: sentinel,
+      scope: "global",
+    });
+    vi.advanceTimersByTime(300);
+
+    const warningText = warnSpy.mock.calls.map((args) => JSON.stringify(args)).join("\n");
+    expect(warningText).not.toContain(sentinel);
+  });
+
+  it("keeps blocked desktop writes idempotent under unload flush", async () => {
+    vi.useFakeTimers();
+    const storageRef = { value: null as string | null };
+    const testWindow = getTestWindow();
+    const bridge = installSavedPromptDesktopBridge(testWindow, storageRef, {
+      readResult: { status: "error", message: "EACCES" },
+    });
+
+    const { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    useSavedPromptStore.getState().createSnippet({
+      title: "Blocked flush",
+      body: "Unload flush should no-op",
+      scope: "global",
+    });
+
+    dispatchTestWindowEvent(testWindow, "beforeunload");
+    vi.advanceTimersByTime(300);
+
+    expect(bridge.setSavedPromptStorage).not.toHaveBeenCalled();
     expect(storageRef.value).toBeNull();
   });
 
