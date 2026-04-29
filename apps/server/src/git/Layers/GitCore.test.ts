@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -1368,6 +1368,53 @@ it.layer(TestLayer)("git integration", (it) => {
         expect(branchOutput).toBe("wt-check");
 
         yield* (yield* GitCore).removeWorktree({ cwd: tmp, path: wtPath });
+      }),
+    );
+
+    it.effect("seeds a child worktree from the parent dirty snapshot", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        yield* writeTextFile(path.join(tmp, "tracked.txt"), "tracked\n");
+        yield* writeTextFile(path.join(tmp, ".gitignore"), "ignored.log\n");
+        yield* git(tmp, ["add", "."]);
+        yield* git(tmp, ["commit", "-m", "add tracked files"]);
+
+        yield* writeTextFile(path.join(tmp, "README.md"), "# test\nparent wip\n");
+        yield* removePath(path.join(tmp, "tracked.txt"));
+        yield* makeDirectory(path.join(tmp, "notes"));
+        yield* writeTextFile(path.join(tmp, "notes/context.txt"), "untracked context\n");
+        yield* writeTextFile(path.join(tmp, "ignored.log"), "ignored output\n");
+
+        const wtPath = path.join(tmp, "wt-seeded");
+        yield* (yield* GitCore).createWorktree({
+          cwd: tmp,
+          branch: "HEAD",
+          newBranch: "wt-seeded",
+          path: wtPath,
+        });
+
+        const result = yield* (yield* GitCore).seedWorktreeFromSnapshot({
+          sourceCwd: tmp,
+          targetCwd: wtPath,
+        });
+        const metadata = yield* (yield* GitCore).readWorktreeSeedMetadata(wtPath);
+
+        expect(result.trackedPatchApplied).toBe(true);
+        expect(result.copiedUntrackedPaths).toContain("notes/context.txt");
+        expect(result.seedTreeSha).toMatch(/^[0-9a-f]{40}$/);
+        expect(metadata).toEqual({
+          baseHeadSha: result.baseHeadSha,
+          seedTreeSha: result.seedTreeSha,
+        });
+        expect(readFileSync(path.join(wtPath, "README.md"), "utf8")).toBe("# test\nparent wip\n");
+        expect(existsSync(path.join(wtPath, "tracked.txt"))).toBe(false);
+        expect(readFileSync(path.join(wtPath, "notes/context.txt"), "utf8")).toBe(
+          "untracked context\n",
+        );
+        expect(existsSync(path.join(wtPath, "ignored.log"))).toBe(false);
+
+        yield* (yield* GitCore).removeWorktree({ cwd: tmp, path: wtPath, force: true });
       }),
     );
 

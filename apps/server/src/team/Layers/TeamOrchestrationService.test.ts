@@ -4,14 +4,16 @@ import {
   ProjectId,
   TeamTaskId,
   ThreadId,
+  GitCommandError,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationReadModel,
   type OrchestrationTeamTask,
   type ServerProvider,
+  type GitStatusResult,
 } from "@t3tools/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, Stream } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { GitCore, type GitCoreShape } from "../../git/Services/GitCore.ts";
 import {
@@ -34,6 +36,21 @@ import { TeamOrchestrationService } from "../Services/TeamOrchestrationService.t
 import { TeamOrchestrationServiceLive } from "./TeamOrchestrationService.ts";
 
 const now = "2026-01-01T00:00:00.000Z";
+const parentWorktreePath = "/repo/.dynamo/worktrees/project/t3code-411b93f1";
+
+const gitStatus = (overrides: Partial<GitStatusResult> = {}): GitStatusResult => ({
+  isRepo: false,
+  hasOriginRemote: false,
+  isDefaultBranch: false,
+  branch: null,
+  hasWorkingTreeChanges: false,
+  workingTree: { files: [], insertions: 0, deletions: 0 },
+  hasUpstream: false,
+  aheadCount: 0,
+  behindCount: 0,
+  pr: null,
+  ...overrides,
+});
 
 function makeEvent(input: {
   readonly sequence: number;
@@ -110,7 +127,12 @@ function teamTask(overrides: Partial<OrchestrationTeamTask> = {}): Orchestration
   };
 }
 
-async function baseReadModel() {
+async function baseReadModel(
+  options: {
+    readonly parentBranch?: string | null;
+    readonly parentWorktreePath?: string | null;
+  } = {},
+) {
   let readModel = createEmptyReadModel(now);
   for (const event of [
     makeEvent({
@@ -143,8 +165,8 @@ async function baseReadModel() {
         },
         runtimeMode: "full-access",
         interactionMode: "default",
-        branch: null,
-        worktreePath: null,
+        branch: options.parentBranch ?? null,
+        worktreePath: options.parentWorktreePath ?? null,
         createdAt: now,
         updatedAt: now,
       },
@@ -199,6 +221,8 @@ async function makeRuntime(input: {
   readonly readModel: OrchestrationReadModel;
   readonly commands: OrchestrationCommand[];
   readonly failCommandType?: OrchestrationCommand["type"];
+  readonly git?: Partial<GitCoreShape>;
+  readonly setup?: Partial<ProjectSetupScriptRunnerShape>;
 }) {
   const engine = {
     getReadModel: () => Effect.succeed(input.readModel),
@@ -226,20 +250,16 @@ async function makeRuntime(input: {
     streamChanges: Stream.empty,
   } satisfies ProviderRegistryShape;
   const git = {
-    status: () =>
-      Effect.succeed({
-        isRepo: false,
-        hasOriginRemote: false,
-        isDefaultBranch: false,
-        branch: null,
-        hasWorkingTreeChanges: false,
-        workingTree: { files: [], insertions: 0, deletions: 0 },
-        hasUpstream: false,
-        aheadCount: 0,
-        behindCount: 0,
-        pr: null,
-      }),
+    status: () => Effect.succeed(gitStatus()),
     removeWorktree: () => Effect.void,
+    seedWorktreeFromSnapshot: () =>
+      Effect.succeed({
+        baseHeadSha: "a".repeat(40),
+        seedTreeSha: null,
+        trackedPatchApplied: false,
+        copiedUntrackedPaths: [],
+      }),
+    ...input.git,
   } as unknown as GitCoreShape;
   const gitStatusBroadcaster = {
     refreshStatus: () =>
@@ -258,6 +278,7 @@ async function makeRuntime(input: {
   } as unknown as GitStatusBroadcasterShape;
   const setup = {
     runForThread: () => Effect.succeed({ status: "no-script" as const }),
+    ...input.setup,
   } satisfies ProjectSetupScriptRunnerShape;
   const layer = TeamOrchestrationServiceLive.pipe(
     Layer.provide(
@@ -381,6 +402,375 @@ describe("TeamOrchestrationService", () => {
         type: "thread.team-task.mark-failed",
         detail: expect.stringContaining("test dispatch failure"),
       });
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("inherits the coordinator worktree for shared child agents", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const createWorktree = vi.fn();
+    const runForThread = vi.fn((_: Parameters<ProjectSetupScriptRunnerShape["runForThread"]>[0]) =>
+      Effect.succeed({ status: "no-script" as const }),
+    );
+    const { runtime, service } = await makeRuntime({
+      readModel: await baseReadModel({
+        parentBranch: "main",
+        parentWorktreePath,
+      }),
+      commands,
+      git: {
+        status: () => Effect.succeed(gitStatus({ isRepo: true, branch: "t3code/411b93f1" })),
+        createWorktree,
+      },
+      setup: { runForThread },
+    });
+    try {
+      await runtime.runPromise(
+        service.spawnChild({
+          parentThreadId: ThreadId.make("thread-parent"),
+          title: "Shared child",
+          task: "Do shared work",
+          workspaceMode: "shared",
+          setupMode: "run",
+        }),
+      );
+
+      const childCreate = commands.find((command) => command.type === "thread.create");
+      expect(childCreate).toMatchObject({
+        type: "thread.create",
+        branch: "t3code/411b93f1",
+        worktreePath: parentWorktreePath,
+      });
+      const taskSpawn = commands.find((command) => command.type === "thread.team-task.spawn");
+      expect(taskSpawn).toMatchObject({
+        type: "thread.team-task.spawn",
+        teamTask: expect.objectContaining({
+          workspaceMode: "shared",
+          resolvedWorkspaceMode: "shared",
+          setupMode: "run",
+          resolvedSetupMode: "skip",
+        }),
+      });
+      const turnStart = commands.find((command) => command.type === "thread.turn.start");
+      expect(turnStart).toMatchObject({
+        type: "thread.turn.start",
+        message: expect.objectContaining({
+          text: expect.stringContaining("Coordinator branch: t3code/411b93f1"),
+        }),
+      });
+      expect(turnStart).toMatchObject({
+        type: "thread.turn.start",
+        message: expect.objectContaining({
+          text: expect.stringContaining("Workspace policy: shared -> shared"),
+        }),
+      });
+      expect(turnStart).toMatchObject({
+        type: "thread.turn.start",
+        message: expect.objectContaining({
+          text: expect.stringContaining("Setup policy: run -> skip"),
+        }),
+      });
+      expect(turnStart).toMatchObject({
+        type: "thread.turn.start",
+        message: expect.objectContaining({
+          text: expect.stringContaining("You are sharing the coordinator workspace."),
+        }),
+      });
+      expect(
+        (turnStart as { message?: { text?: string } } | undefined)?.message?.text,
+      ).not.toContain("assigned isolated child branch/worktree");
+      expect(createWorktree).not.toHaveBeenCalled();
+      expect(runForThread).not.toHaveBeenCalled();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("creates worktree child agents from the coordinator HEAD", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
+      Effect.succeed({
+        worktree: {
+          branch: "agent/worker-123456",
+          path: "/repo/.dynamo/worktrees/project/agent-worker-123456",
+        },
+      }),
+    );
+    const seedWorktreeFromSnapshot = vi.fn(
+      (_: Parameters<GitCoreShape["seedWorktreeFromSnapshot"]>[0]) =>
+        Effect.succeed({
+          baseHeadSha: "a".repeat(40),
+          seedTreeSha: "b".repeat(40),
+          trackedPatchApplied: true,
+          copiedUntrackedPaths: ["context.txt"],
+        }),
+    );
+    const { runtime, service } = await makeRuntime({
+      readModel: await baseReadModel({
+        parentBranch: "main",
+        parentWorktreePath,
+      }),
+      commands,
+      git: {
+        status: () => Effect.succeed(gitStatus({ isRepo: true, branch: "t3code/411b93f1" })),
+        createWorktree,
+        seedWorktreeFromSnapshot,
+      },
+    });
+    try {
+      await runtime.runPromise(
+        service.spawnChild({
+          parentThreadId: ThreadId.make("thread-parent"),
+          title: "Worktree child",
+          task: "Do isolated work",
+          workspaceMode: "worktree",
+          setupMode: "skip",
+        }),
+      );
+
+      expect(createWorktree).toHaveBeenCalledTimes(1);
+      expect(createWorktree.mock.calls[0]?.[0]).toMatchObject({
+        cwd: parentWorktreePath,
+        branch: "HEAD",
+        path: null,
+      });
+      expect(createWorktree.mock.calls[0]?.[0].newBranch).toMatch(/^agent\//);
+      expect(seedWorktreeFromSnapshot).toHaveBeenCalledWith({
+        sourceCwd: parentWorktreePath,
+        targetCwd: "/repo/.dynamo/worktrees/project/agent-worker-123456",
+      });
+
+      const childCreate = commands.find((command) => command.type === "thread.create");
+      expect(childCreate).toMatchObject({
+        type: "thread.create",
+        branch: "agent/worker-123456",
+        worktreePath: "/repo/.dynamo/worktrees/project/agent-worker-123456",
+      });
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("syncs stale parent branch metadata from live git before spawning", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const { runtime, service } = await makeRuntime({
+      readModel: await baseReadModel({
+        parentBranch: "main",
+        parentWorktreePath,
+      }),
+      commands,
+      git: {
+        status: () => Effect.succeed(gitStatus({ isRepo: true, branch: "t3code/411b93f1" })),
+      },
+    });
+    try {
+      await runtime.runPromise(
+        service.spawnChild({
+          parentThreadId: ThreadId.make("thread-parent"),
+          title: "Child",
+          task: "Do the work",
+          workspaceMode: "shared",
+          setupMode: "skip",
+        }),
+      );
+
+      expect(commands[0]).toMatchObject({
+        type: "thread.meta.update",
+        threadId: ThreadId.make("thread-parent"),
+        branch: "t3code/411b93f1",
+        worktreePath: parentWorktreePath,
+      });
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("continues spawning when best-effort parent branch sync fails", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const { runtime, service } = await makeRuntime({
+      readModel: await baseReadModel({
+        parentBranch: "main",
+        parentWorktreePath,
+      }),
+      commands,
+      failCommandType: "thread.meta.update",
+      git: {
+        status: () => Effect.succeed(gitStatus({ isRepo: true, branch: "t3code/411b93f1" })),
+      },
+    });
+    try {
+      await runtime.runPromise(
+        service.spawnChild({
+          parentThreadId: ThreadId.make("thread-parent"),
+          title: "Child",
+          task: "Do the work",
+          workspaceMode: "shared",
+          setupMode: "skip",
+        }),
+      );
+
+      expect(commands.map((command) => command.type)).toContain("thread.create");
+      const childCreate = commands.find((command) => command.type === "thread.create");
+      expect(childCreate).toMatchObject({
+        type: "thread.create",
+        branch: "t3code/411b93f1",
+        worktreePath: parentWorktreePath,
+      });
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("does not sync parent branch metadata for project-root threads", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const { runtime, service } = await makeRuntime({
+      readModel: await baseReadModel({
+        parentBranch: null,
+        parentWorktreePath: null,
+      }),
+      commands,
+      git: {
+        status: () => Effect.succeed(gitStatus({ isRepo: true, branch: "feature/live" })),
+      },
+    });
+    try {
+      await runtime.runPromise(
+        service.spawnChild({
+          parentThreadId: ThreadId.make("thread-parent"),
+          title: "Child",
+          task: "Do the work",
+          workspaceMode: "shared",
+          setupMode: "skip",
+        }),
+      );
+
+      expect(commands.some((command) => command.type === "thread.meta.update")).toBe(false);
+      expect(commands.map((command) => command.type)).toContain("thread.create");
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("keeps auto children shared for non-git projects", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const createWorktree = vi.fn();
+    const runForThread = vi.fn((_: Parameters<ProjectSetupScriptRunnerShape["runForThread"]>[0]) =>
+      Effect.succeed({ status: "no-script" as const }),
+    );
+    const { runtime, service } = await makeRuntime({
+      readModel: await baseReadModel(),
+      commands,
+      git: {
+        status: () => Effect.succeed(gitStatus({ isRepo: false })),
+        createWorktree,
+      },
+      setup: { runForThread },
+    });
+    try {
+      await runtime.runPromise(
+        service.spawnChild({
+          parentThreadId: ThreadId.make("thread-parent"),
+          title: "Non-git child",
+          task: "Do the work",
+          workspaceMode: "auto",
+          setupMode: "run",
+        }),
+      );
+
+      const taskSpawn = commands.find((command) => command.type === "thread.team-task.spawn");
+      expect(taskSpawn).toMatchObject({
+        type: "thread.team-task.spawn",
+        teamTask: expect.objectContaining({
+          resolvedWorkspaceMode: "shared",
+          setupMode: "run",
+          resolvedSetupMode: "skip",
+        }),
+      });
+      const childCreate = commands.find((command) => command.type === "thread.create");
+      expect(childCreate).toMatchObject({
+        type: "thread.create",
+        branch: null,
+        worktreePath: null,
+      });
+      expect(createWorktree).not.toHaveBeenCalled();
+      expect(runForThread).not.toHaveBeenCalled();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("rejects explicit worktree children when the coordinator workspace is not a git repo", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const createWorktree = vi.fn();
+    const { runtime, service } = await makeRuntime({
+      readModel: await baseReadModel(),
+      commands,
+      git: {
+        status: () => Effect.succeed(gitStatus({ isRepo: false })),
+        createWorktree,
+      },
+    });
+    try {
+      const result = await runtime.runPromiseExit(
+        service.spawnChild({
+          parentThreadId: ThreadId.make("thread-parent"),
+          title: "Worktree child",
+          task: "Do isolated work",
+          workspaceMode: "worktree",
+          setupMode: "skip",
+        }),
+      );
+
+      expect(Exit.isFailure(result)).toBe(true);
+      if (!Exit.isFailure(result)) {
+        throw new Error("Expected explicit worktree spawn to fail.");
+      }
+      expect(String(result.cause)).toContain("Cannot create an isolated child worktree");
+      expect(commands).toEqual([]);
+      expect(createWorktree).not.toHaveBeenCalled();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("rejects explicit worktree children when git status fails", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const createWorktree = vi.fn();
+    const { runtime, service } = await makeRuntime({
+      readModel: await baseReadModel(),
+      commands,
+      git: {
+        status: () =>
+          Effect.fail(
+            new GitCommandError({
+              operation: "status",
+              command: "git status",
+              cwd: "/tmp/project",
+              detail: "not a repository",
+            }),
+          ),
+        createWorktree,
+      },
+    });
+    try {
+      const result = await runtime.runPromiseExit(
+        service.spawnChild({
+          parentThreadId: ThreadId.make("thread-parent"),
+          title: "Worktree child",
+          task: "Do isolated work",
+          workspaceMode: "worktree",
+          setupMode: "skip",
+        }),
+      );
+
+      expect(Exit.isFailure(result)).toBe(true);
+      if (!Exit.isFailure(result)) {
+        throw new Error("Expected explicit worktree spawn to fail.");
+      }
+      expect(String(result.cause)).toContain("Cannot create an isolated child worktree");
+      expect(commands).toEqual([]);
+      expect(createWorktree).not.toHaveBeenCalled();
     } finally {
       await runtime.dispose();
     }

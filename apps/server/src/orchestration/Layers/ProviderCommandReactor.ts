@@ -36,6 +36,7 @@ import { renderContextHandoff, type ContextHandoffRenderResult } from "../contex
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ServerConfig } from "../../config.ts";
 import { TeamCoordinatorAccess } from "../../team/Services/TeamCoordinatorAccess.ts";
+import { isDedicatedDynamoTeamWorktreeTask } from "../../team/teamTaskGuards.ts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -715,6 +716,30 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const shouldAutoRenameWorktreeBranchForFirstTurn = Effect.fn(
+    "shouldAutoRenameWorktreeBranchForFirstTurn",
+  )(function* (input: { readonly thread: OrchestrationThread }) {
+    if (!input.thread.branch || !input.thread.worktreePath) {
+      return false;
+    }
+    if (!isTemporaryWorktreeBranch(input.thread.branch)) {
+      return false;
+    }
+    if (!input.thread.teamParent) {
+      return true;
+    }
+
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const parentThread = readModel.threads.find(
+      (candidate) => candidate.id === input.thread.teamParent?.parentThreadId,
+    );
+    const task = parentThread?.teamTasks?.find(
+      (candidate) => candidate.id === input.thread.teamParent?.taskId,
+    );
+
+    return task ? isDedicatedDynamoTeamWorktreeTask(task) : false;
+  });
+
   const maybeGenerateThreadTitleForFirstTurn = Effect.fn("maybeGenerateThreadTitleForFirstTurn")(
     function* (input: {
       readonly threadId: ThreadId;
@@ -802,12 +827,14 @@ const make = Effect.gen(function* () {
         ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
       };
 
-      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
-        threadId: event.payload.threadId,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
-        ...generationInput,
-      }).pipe(Effect.forkScoped);
+      if (yield* shouldAutoRenameWorktreeBranchForFirstTurn({ thread })) {
+        yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
+          threadId: event.payload.threadId,
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+          ...generationInput,
+        }).pipe(Effect.forkScoped);
+      }
 
       if (canReplaceThreadTitle(thread.title, event.payload.titleSeed, thread.forkOrigin)) {
         yield* maybeGenerateThreadTitleForFirstTurn({
