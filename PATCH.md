@@ -38,6 +38,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/components/Sidebar.tsx`
 - `Important invariants`:
   - This default applies only to pending new-worktree setup where no concrete worktree path exists yet.
+  - Switching a pending draft/thread back to `Current checkout` must restore the live checkout branch when available, or clear branch metadata rather than persisting stale `main`.
   - Forking a thread must continue to use the source conversation workspace/HEAD as the base.
   - Selecting a branch in the branch picker must still override the default before send.
   - Existing concrete worktree threads keep their stored branch/worktree path.
@@ -48,6 +49,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Verification`:
   - From a thread on a feature branch, create a new thread in `New worktree` mode and confirm the branch selector shows `From main`.
   - From an unsent local draft whose stored branch is a feature branch, switch to `New worktree` and confirm the branch selector changes to `From main`.
+  - Switch that draft back to `Current checkout`, send the first message, and confirm no worktree is prepared and stale `main` is not persisted as the local branch.
   - Fork a thread from a feature branch and confirm the fork still uses the source workspace commit/branch rather than `main`.
   - Select a different base branch manually and confirm send uses that selected branch.
 

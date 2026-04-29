@@ -6,6 +6,7 @@ import {
   resolveEnvironmentOptionLabel,
   resolveBranchSelectionTarget,
   resolveCurrentWorkspaceLabel,
+  resolveDraftContextForEnvModeChange,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
   resolveEnvModeLabel,
@@ -81,6 +82,50 @@ describe("resolveBranchToolbarValue", () => {
         currentGitBranch: "main",
       }),
     ).toBe("main");
+  });
+});
+
+describe("resolveDraftContextForEnvModeChange", () => {
+  it("defaults pending new-worktree drafts to main", () => {
+    expect(
+      resolveDraftContextForEnvModeChange({
+        mode: "worktree",
+        currentGitBranch: "feature/foo",
+        currentWorktreePath: null,
+      }),
+    ).toEqual({
+      envMode: "worktree",
+      branch: "main",
+      worktreePath: null,
+    });
+  });
+
+  it("restores the current checkout branch when switching back to local mode", () => {
+    expect(
+      resolveDraftContextForEnvModeChange({
+        mode: "local",
+        currentGitBranch: "feature/foo",
+        currentWorktreePath: null,
+      }),
+    ).toEqual({
+      envMode: "local",
+      branch: "feature/foo",
+      worktreePath: null,
+    });
+  });
+
+  it("clears stale worktree base branch metadata when local branch is unknown", () => {
+    expect(
+      resolveDraftContextForEnvModeChange({
+        mode: "local",
+        currentGitBranch: null,
+        currentWorktreePath: null,
+      }),
+    ).toEqual({
+      envMode: "local",
+      branch: null,
+      worktreePath: null,
+    });
   });
 });
 

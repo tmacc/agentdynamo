@@ -85,6 +85,30 @@ export function resolveDraftEnvModeAfterBranchChange(input: {
   return "local";
 }
 
+export function resolveDraftContextForEnvModeChange(input: {
+  mode: EnvMode;
+  currentGitBranch: string | null;
+  currentWorktreePath: string | null;
+}): {
+  envMode: EnvMode;
+  branch?: string | null;
+  worktreePath?: string | null;
+} {
+  if (input.mode === "worktree") {
+    return {
+      envMode: "worktree",
+      branch: DEFAULT_NEW_WORKTREE_BASE_BRANCH,
+      worktreePath: null,
+    };
+  }
+
+  return {
+    envMode: "local",
+    branch: input.currentGitBranch,
+    worktreePath: null,
+  };
+}
+
 export function resolveBranchToolbarValue(input: {
   envMode: EnvMode;
   activeWorktreePath: string | null;

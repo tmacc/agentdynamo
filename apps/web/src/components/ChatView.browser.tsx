@@ -2535,6 +2535,129 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("does not keep stale main metadata after switching a draft back to current checkout", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadKey: {
+        [THREAD_KEY]: {
+          threadId: THREAD_ID,
+          environmentId: LOCAL_ENVIRONMENT_ID,
+          projectId: PROJECT_ID,
+          logicalProjectKey: PROJECT_DRAFT_KEY,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: "feature/last-opened",
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      logicalProjectDraftThreadKeyByLogicalProjectKey: {
+        [PROJECT_DRAFT_KEY]: THREAD_KEY,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitListBranches) {
+          return {
+            isRepo: true,
+            hasOriginRemote: true,
+            nextCursor: null,
+            totalCount: 2,
+            branches: [
+              {
+                name: "main",
+                current: false,
+                isDefault: true,
+                worktreePath: null,
+              },
+              {
+                name: "feature/last-opened",
+                current: true,
+                isDefault: false,
+                worktreePath: null,
+              },
+            ],
+          };
+        }
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      (await waitForButtonByText("Current checkout")).click();
+      await page.getByText("New worktree", { exact: true }).click();
+
+      await vi.waitFor(
+        () => {
+          expect(findButtonByText("From main")).toBeTruthy();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      (await waitForButtonByText("New worktree")).click();
+      await page.getByText("Current checkout", { exact: true }).click();
+
+      await vi.waitFor(
+        () => {
+          expect(useComposerDraftStore.getState().getDraftThread(THREAD_REF)).toMatchObject({
+            branch: null,
+            worktreePath: null,
+            envMode: "local",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      useComposerDraftStore.getState().setPrompt(THREAD_REF, "Ship it locally");
+      await waitForLayout();
+
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          ) as
+            | {
+                _tag: string;
+                type?: string;
+                bootstrap?: {
+                  createThread?: { branch?: string | null };
+                  prepareWorktree?: { baseBranch?: string };
+                };
+              }
+            | undefined;
+
+          expect(turnStartRequest).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            type: "thread.turn.start",
+            bootstrap: {
+              createThread: {
+                branch: null,
+              },
+            },
+          });
+          expect(turnStartRequest?.bootstrap?.prepareWorktree).toBeUndefined();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps new-worktree mode on empty server threads and bootstraps the first send", async () => {
     const snapshot = addThreadToSnapshot(createDraftOnlySnapshot(), THREAD_ID);
     const mounted = await mountChatView({
