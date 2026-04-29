@@ -1314,6 +1314,38 @@ it.layer(TestLayer)("git integration", (it) => {
       }),
     );
 
+    it.effect("creates a worktree with a new branch from an exact commit sha", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const initialSha = yield* git(tmp, ["rev-parse", "HEAD"]);
+        yield* commitWithDate(
+          tmp,
+          "later.txt",
+          "later commit\n",
+          "2026-01-01T00:00:00.000Z",
+          "later commit",
+        );
+
+        const wtPath = path.join(tmp, "wt-from-sha");
+        const result = yield* (yield* GitCore).createWorktree({
+          cwd: tmp,
+          branch: initialSha,
+          newBranch: "wt-from-sha",
+          path: wtPath,
+        });
+
+        expect(result.worktree.path).toBe(wtPath);
+        expect(result.worktree.branch).toBe("wt-from-sha");
+        expect(existsSync(path.join(wtPath, "README.md"))).toBe(true);
+        expect(existsSync(path.join(wtPath, "later.txt"))).toBe(false);
+        const branchOutput = yield* git(wtPath, ["branch", "--show-current"]);
+        expect(branchOutput).toBe("wt-from-sha");
+
+        yield* (yield* GitCore).removeWorktree({ cwd: tmp, path: wtPath });
+      }),
+    );
+
     it.effect("worktree has the new branch checked out", () =>
       Effect.gen(function* () {
         const tmp = yield* makeTmpDir();

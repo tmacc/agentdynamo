@@ -18,6 +18,7 @@ import {
   getTriggerDisplayModelName,
 } from "./providerIconUtils";
 import { setModelPickerOpen } from "../../modelPickerOpenState";
+import { formatProviderAuthDetails } from "../../providerAccountPresentation";
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   provider: ProviderKind;
@@ -50,6 +51,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const triggerTitle = selectedModel ? getTriggerDisplayModelName(selectedModel) : props.model;
   const triggerSubtitle = selectedModel?.subProvider;
   const triggerLabel = selectedModel ? getTriggerDisplayModelLabel(selectedModel) : props.model;
+  const activeProviderStatus = props.providers?.find(
+    (provider) => provider.provider === activeProvider,
+  );
+  const authDetails = formatProviderAuthDetails(activeProviderStatus);
+  const triggerTooltip = authDetails ? `${triggerLabel} — ${authDetails}` : triggerLabel;
 
   const setIsMenuOpen = (open: boolean) => {
     props.onOpenChange?.(open);
@@ -132,7 +138,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 triggerTitle
               )}
             </TooltipTrigger>
-            <TooltipPopup side="top">{triggerLabel}</TooltipPopup>
+            <TooltipPopup side="top">{triggerTooltip}</TooltipPopup>
           </Tooltip>
           <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
         </span>

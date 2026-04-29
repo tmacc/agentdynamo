@@ -17,6 +17,12 @@ const makeServerSettingsLayer = () =>
   );
 
 it.layer(NodeServices.layer)("server settings", (it) => {
+  it.effect("defaults team agents to ten active children", () =>
+    Effect.sync(() => {
+      assert.equal(DEFAULT_SERVER_SETTINGS.teamAgents.maxActiveChildren, 10);
+    }),
+  );
+
   it.effect("decodes nested settings patches", () =>
     Effect.sync(() => {
       const decodePatch = Schema.decodeUnknownSync(ServerSettingsPatch);
