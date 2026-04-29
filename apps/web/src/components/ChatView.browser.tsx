@@ -2236,6 +2236,45 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("locks environment mode for concrete draft worktrees", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadKey: {
+        [THREAD_KEY]: {
+          threadId: THREAD_ID,
+          environmentId: LOCAL_ENVIRONMENT_ID,
+          projectId: PROJECT_ID,
+          logicalProjectKey: PROJECT_DRAFT_KEY,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: "pr-1359",
+          worktreePath: "/repo/worktrees/pr-1359",
+          envMode: "worktree",
+        },
+      },
+      logicalProjectDraftThreadKeyByLogicalProjectKey: {
+        [PROJECT_DRAFT_KEY]: THREAD_KEY,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+    });
+
+    try {
+      await expect.element(page.getByText("Worktree", { exact: true })).toBeInTheDocument();
+      expect(findButtonByText("New worktree")).toBeNull();
+      expect(useComposerDraftStore.getState().getDraftThread(THREAD_REF)).toMatchObject({
+        branch: "pr-1359",
+        worktreePath: "/repo/worktrees/pr-1359",
+        envMode: "worktree",
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("lets the server own setup after preparing a pull request worktree thread", async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadKey: {
@@ -2464,6 +2503,200 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("resets a local draft base branch to main when switching to new-worktree mode", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadKey: {
+        [THREAD_KEY]: {
+          threadId: THREAD_ID,
+          environmentId: LOCAL_ENVIRONMENT_ID,
+          projectId: PROJECT_ID,
+          logicalProjectKey: PROJECT_DRAFT_KEY,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: "feature/last-opened",
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      logicalProjectDraftThreadKeyByLogicalProjectKey: {
+        [PROJECT_DRAFT_KEY]: THREAD_KEY,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitListBranches) {
+          return {
+            isRepo: true,
+            hasOriginRemote: true,
+            nextCursor: null,
+            totalCount: 2,
+            branches: [
+              {
+                name: "main",
+                current: false,
+                isDefault: true,
+                worktreePath: null,
+              },
+              {
+                name: "feature/last-opened",
+                current: true,
+                isDefault: false,
+                worktreePath: null,
+              },
+            ],
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      (await waitForButtonByText("Current checkout")).click();
+      await page.getByText("New worktree", { exact: true }).click();
+
+      await vi.waitFor(
+        () => {
+          expect(findButtonByText("From main")).toBeTruthy();
+          expect(useComposerDraftStore.getState().getDraftThread(THREAD_REF)).toMatchObject({
+            branch: "main",
+            worktreePath: null,
+            envMode: "worktree",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("does not keep stale main metadata after switching a draft back to current checkout", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadKey: {
+        [THREAD_KEY]: {
+          threadId: THREAD_ID,
+          environmentId: LOCAL_ENVIRONMENT_ID,
+          projectId: PROJECT_ID,
+          logicalProjectKey: PROJECT_DRAFT_KEY,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: "feature/last-opened",
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      logicalProjectDraftThreadKeyByLogicalProjectKey: {
+        [PROJECT_DRAFT_KEY]: THREAD_KEY,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitListBranches) {
+          return {
+            isRepo: true,
+            hasOriginRemote: true,
+            nextCursor: null,
+            totalCount: 2,
+            branches: [
+              {
+                name: "main",
+                current: false,
+                isDefault: true,
+                worktreePath: null,
+              },
+              {
+                name: "feature/last-opened",
+                current: true,
+                isDefault: false,
+                worktreePath: null,
+              },
+            ],
+          };
+        }
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      (await waitForButtonByText("Current checkout")).click();
+      await page.getByText("New worktree", { exact: true }).click();
+
+      await vi.waitFor(
+        () => {
+          expect(findButtonByText("From main")).toBeTruthy();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      (await waitForButtonByText("New worktree")).click();
+      await page.getByText("Current checkout", { exact: true }).click();
+
+      await vi.waitFor(
+        () => {
+          expect(useComposerDraftStore.getState().getDraftThread(THREAD_REF)).toMatchObject({
+            branch: null,
+            worktreePath: null,
+            envMode: "local",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      useComposerDraftStore.getState().setPrompt(THREAD_REF, "Ship it locally");
+      await waitForLayout();
+
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          ) as
+            | {
+                _tag: string;
+                type?: string;
+                bootstrap?: {
+                  createThread?: { branch?: string | null };
+                  prepareWorktree?: { baseBranch?: string };
+                };
+              }
+            | undefined;
+
+          expect(turnStartRequest).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            type: "thread.turn.start",
+            bootstrap: {
+              createThread: {
+                branch: null,
+              },
+            },
+          });
+          expect(turnStartRequest?.bootstrap?.prepareWorktree).toBeUndefined();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps new-worktree mode on empty server threads and bootstraps the first send", async () => {
     const snapshot = addThreadToSnapshot(createDraftOnlySnapshot(), THREAD_ID);
     const mounted = await mountChatView({
@@ -2612,6 +2845,19 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
+      expect(
+        wsRequests.some(
+          (request) =>
+            request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+            request.type === "thread.meta.update" &&
+            request.branch === "release/next",
+        ),
+      ).toBe(false);
+      expect(
+        useStore.getState().environmentStateById[LOCAL_ENVIRONMENT_ID]?.threadShellById[THREAD_ID]
+          ?.branch,
+      ).toBe("main");
+
       useComposerDraftStore.getState().setPrompt(THREAD_REF, "Ship it");
       await waitForLayout();
 
@@ -2639,6 +2885,113 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("clears pending worktree base selection when switching an empty server thread back to local", async () => {
+    const snapshot = addThreadToSnapshot(createDraftOnlySnapshot(), THREAD_ID);
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        threads: snapshot.threads.map((thread) =>
+          thread.id === THREAD_ID ? Object.assign({}, thread, { session: null }) : thread,
+        ),
+      },
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitListBranches) {
+          return {
+            isRepo: true,
+            hasOriginRemote: true,
+            nextCursor: null,
+            totalCount: 2,
+            branches: [
+              {
+                name: "main",
+                current: true,
+                isDefault: true,
+                worktreePath: null,
+              },
+              {
+                name: "release/next",
+                current: false,
+                isDefault: false,
+                worktreePath: null,
+              },
+            ],
+          };
+        }
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      (await waitForButtonByText("Current checkout")).click();
+      await page.getByText("New worktree", { exact: true }).click();
+      await page.getByText("From main", { exact: true }).click();
+      await page.getByText("release/next", { exact: true }).click();
+
+      await vi.waitFor(
+        () => {
+          expect(findButtonByText("From release/next")).toBeTruthy();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      (await waitForButtonByText("New worktree")).click();
+      await page.getByText("Current checkout", { exact: true }).click();
+
+      await vi.waitFor(
+        () => {
+          expect(findButtonByText("Current checkout")).toBeTruthy();
+          expect(findButtonByText("From release/next")).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      useComposerDraftStore.getState().setPrompt(THREAD_REF, "Ship it locally");
+      await waitForLayout();
+
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          ) as
+            | {
+                _tag: string;
+                type?: string;
+                bootstrap?: {
+                  prepareWorktree?: { baseBranch?: string };
+                };
+              }
+            | undefined;
+
+          expect(turnStartRequest).toBeTruthy();
+          expect(turnStartRequest?.bootstrap?.prepareWorktree).toBeUndefined();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      expect(
+        wsRequests.some(
+          (request) =>
+            request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+            request.type === "thread.meta.update" &&
+            request.branch === "release/next",
+        ),
+      ).toBe(false);
     } finally {
       await mounted.cleanup();
     }
@@ -3754,6 +4107,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const newDraftId = draftIdFromPath(newThreadPath);
 
       expect(useComposerDraftStore.getState().getDraftSession(newDraftId)).toMatchObject({
+        branch: "main",
         envMode: "worktree",
         worktreePath: null,
       });

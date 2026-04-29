@@ -11,6 +11,7 @@ import {
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   reconcileMountedTerminalThreadIds,
+  resolveCreateThreadBranch,
   resolveSendEnvMode,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
@@ -91,6 +92,56 @@ describe("resolveSendEnvMode", () => {
   it("forces local mode for non-git repositories", () => {
     expect(resolveSendEnvMode({ requestedEnvMode: "worktree", isGitRepo: false })).toBe("local");
     expect(resolveSendEnvMode({ requestedEnvMode: "local", isGitRepo: false })).toBe("local");
+  });
+});
+
+describe("resolveCreateThreadBranch", () => {
+  it("preserves selected base branch for worktree sends", () => {
+    expect(
+      resolveCreateThreadBranch({
+        isLocalDraftThread: true,
+        sendEnvMode: "worktree",
+        activeThreadBranch: "release/next",
+        currentGitBranch: "feature/current",
+        activeWorktreePath: null,
+      }),
+    ).toBe("release/next");
+  });
+
+  it("uses current git branch for local sends", () => {
+    expect(
+      resolveCreateThreadBranch({
+        isLocalDraftThread: true,
+        sendEnvMode: "local",
+        activeThreadBranch: "main",
+        currentGitBranch: "feature/current",
+        activeWorktreePath: null,
+      }),
+    ).toBe("feature/current");
+  });
+
+  it("clears stale main worktree base metadata for local sends when current branch is unknown", () => {
+    expect(
+      resolveCreateThreadBranch({
+        isLocalDraftThread: true,
+        sendEnvMode: "local",
+        activeThreadBranch: "main",
+        currentGitBranch: null,
+        activeWorktreePath: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("preserves inherited non-main branch metadata for local sends when current branch is unknown", () => {
+    expect(
+      resolveCreateThreadBranch({
+        isLocalDraftThread: true,
+        sendEnvMode: "local",
+        activeThreadBranch: "feature/inherited",
+        currentGitBranch: null,
+        activeWorktreePath: null,
+      }),
+    ).toBe("feature/inherited");
   });
 });
 

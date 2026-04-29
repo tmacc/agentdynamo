@@ -23,7 +23,9 @@ import { parsePullRequestReference } from "../pullRequestReference";
 import { useStore } from "../store";
 import { createProjectSelectorByRef, createThreadSelectorByRef } from "../storeSelectors";
 import {
+  DEFAULT_NEW_WORKTREE_BASE_BRANCH,
   deriveLocalBranchNameFromRemoteRef,
+  isPendingWorktreeBaseMode,
   resolveBranchSelectionTarget,
   resolveBranchToolbarValue,
   resolveDraftEnvModeAfterBranchChange,
@@ -50,8 +52,8 @@ interface BranchToolbarBranchSelectorProps {
   draftId?: DraftId;
   envLocked: boolean;
   effectiveEnvModeOverride?: "local" | "worktree";
-  activeThreadBranchOverride?: string | null;
-  onActiveThreadBranchOverrideChange?: (branch: string | null) => void;
+  pendingWorktreeBaseBranch?: string | null;
+  onPendingWorktreeBaseBranchChange?: (branch: string | null) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
@@ -81,8 +83,8 @@ export function BranchToolbarBranchSelector({
   draftId,
   envLocked,
   effectiveEnvModeOverride,
-  activeThreadBranchOverride,
-  onActiveThreadBranchOverrideChange,
+  pendingWorktreeBaseBranch,
+  onPendingWorktreeBaseBranchChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
@@ -114,10 +116,7 @@ export function BranchToolbarBranchSelector({
   const activeProject = useStore(activeProjectSelector);
 
   const activeThreadId = serverThread?.id ?? (draftThread ? threadId : undefined);
-  const activeThreadBranch =
-    activeThreadBranchOverride !== undefined
-      ? activeThreadBranchOverride
-      : (serverThread?.branch ?? draftThread?.branch ?? null);
+  const persistedActiveThreadBranch = serverThread?.branch ?? draftThread?.branch ?? null;
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const activeProjectCwd = activeProject?.cwd ?? null;
   const branchCwd = activeWorktreePath ?? activeProjectCwd;
@@ -129,6 +128,15 @@ export function BranchToolbarBranchSelector({
       hasServerThread,
       draftThreadEnvMode: draftThread?.envMode,
     });
+  const pendingWorktreeBaseMode = isPendingWorktreeBaseMode({
+    effectiveEnvMode,
+    envLocked,
+    activeWorktreePath,
+  });
+  const activeThreadBranch =
+    pendingWorktreeBaseMode && pendingWorktreeBaseBranch !== undefined
+      ? pendingWorktreeBaseBranch
+      : persistedActiveThreadBranch;
 
   // ---------------------------------------------------------------------------
   // Thread branch mutation (colocated — only this component calls it)
@@ -157,7 +165,6 @@ export function BranchToolbarBranchSelector({
         });
       }
       if (hasServerThread) {
-        onActiveThreadBranchOverrideChange?.(branch);
         setThreadBranchAction(threadRef, branch, worktreePath);
         return;
       }
@@ -179,7 +186,6 @@ export function BranchToolbarBranchSelector({
       serverSession,
       activeWorktreePath,
       hasServerThread,
-      onActiveThreadBranchOverrideChange,
       setThreadBranchAction,
       setDraftThreadContext,
       draftId,
@@ -240,11 +246,9 @@ export function BranchToolbarBranchSelector({
   );
   const normalizedDeferredBranchQuery = deferredTrimmedBranchQuery.toLowerCase();
   const prReference = parsePullRequestReference(trimmedBranchQuery);
-  const isSelectingWorktreeBase =
-    effectiveEnvMode === "worktree" && !envLocked && !activeWorktreePath;
   const checkoutPullRequestItemValue =
     prReference && onCheckoutPullRequestRequest ? `__checkout_pull_request__:${prReference}` : null;
-  const canCreateBranch = !isSelectingWorktreeBase && trimmedBranchQuery.length > 0;
+  const canCreateBranch = !pendingWorktreeBaseMode && trimmedBranchQuery.length > 0;
   const hasExactBranchMatch = branchByName.has(trimmedBranchQuery);
   const createBranchItemValue = canCreateBranch
     ? `__create_new_branch__:${trimmedBranchQuery}`
@@ -309,8 +313,12 @@ export function BranchToolbarBranchSelector({
     const api = readEnvironmentApi(environmentId);
     if (!api || !branchCwd || !activeProjectCwd || isBranchActionPending) return;
 
-    if (isSelectingWorktreeBase) {
-      setThreadBranch(branch.name, null);
+    if (pendingWorktreeBaseMode) {
+      if (hasServerThread) {
+        onPendingWorktreeBaseBranchChange?.(branch.name);
+      } else {
+        setThreadBranch(branch.name, null);
+      }
       setIsBranchMenuOpen(false);
       onComposerFocusRequest?.();
       return;
@@ -395,16 +403,21 @@ export function BranchToolbarBranchSelector({
   };
 
   useEffect(() => {
-    if (
-      effectiveEnvMode !== "worktree" ||
-      activeWorktreePath ||
-      activeThreadBranch ||
-      !currentGitBranch
-    ) {
+    if (!pendingWorktreeBaseMode || activeThreadBranch) {
       return;
     }
-    setThreadBranch(currentGitBranch, null);
-  }, [activeThreadBranch, activeWorktreePath, currentGitBranch, effectiveEnvMode, setThreadBranch]);
+    if (hasServerThread) {
+      onPendingWorktreeBaseBranchChange?.(DEFAULT_NEW_WORKTREE_BASE_BRANCH);
+      return;
+    }
+    setThreadBranch(DEFAULT_NEW_WORKTREE_BASE_BRANCH, null);
+  }, [
+    activeThreadBranch,
+    hasServerThread,
+    onPendingWorktreeBaseBranchChange,
+    pendingWorktreeBaseMode,
+    setThreadBranch,
+  ]);
 
   // ---------------------------------------------------------------------------
   // Combobox / list plumbing
