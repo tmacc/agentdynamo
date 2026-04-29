@@ -6,6 +6,7 @@ import { AVAILABLE_PROVIDER_OPTIONS, PROVIDER_ICON_BY_PROVIDER } from "./provide
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
+import { formatProviderAuthDetails } from "../../providerAccountPresentation";
 
 function describeUnavailableProvider(label: string, live: ServerProvider | undefined): string {
   if (!live) {
@@ -91,12 +92,13 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
         const isDisabled = !liveProvider || liveProvider.status !== "ready";
         const isSelected = props.selectedProvider === option.value;
         const badge = option.pickerSidebarBadge;
+        const authDetails = formatProviderAuthDetails(liveProvider);
 
         const providerTooltip = isDisabled
           ? describeUnavailableProvider(option.label, liveProvider)
           : badge === "new"
-            ? `${option.label} — New`
-            : option.label;
+            ? [option.label, "New", authDetails].filter(Boolean).join(" — ")
+            : [option.label, authDetails].filter(Boolean).join(" — ");
 
         const button = (
           <button

@@ -38,12 +38,35 @@ function readJsonFile<T>(filePath: string): T | null {
   }
 }
 
+function readTextFile(filePath: string): string | null {
+  try {
+    if (!FS.existsSync(filePath)) {
+      return null;
+    }
+    return FS.readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 function writeJsonFile(filePath: string, value: unknown): void {
+  writeTextFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writeTextFile(filePath: string, value: string): void {
   const directory = Path.dirname(filePath);
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   FS.mkdirSync(directory, { recursive: true });
-  FS.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  FS.writeFileSync(tempPath, value, "utf8");
   FS.renameSync(tempPath, filePath);
+}
+
+function removeFile(filePath: string): void {
+  try {
+    FS.rmSync(filePath, { force: true });
+  } catch {
+    // Ignore cleanup failures. Callers treat missing persistence as empty state.
+  }
 }
 
 function isPersistedSavedEnvironmentStorageRecord(
@@ -101,6 +124,34 @@ export function readClientSettings(settingsPath: string): ClientSettings | null 
 
 export function writeClientSettings(settingsPath: string, settings: ClientSettings): void {
   writeJsonFile(settingsPath, { settings } satisfies ClientSettingsDocument);
+}
+
+export function readSavedPromptStorage(storagePath: string): string | null {
+  const raw = readTextFile(storagePath);
+  if (raw === null) {
+    return null;
+  }
+
+  try {
+    JSON.parse(raw);
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+export function writeSavedPromptStorage(storagePath: string, value: string): void {
+  try {
+    JSON.parse(value);
+  } catch {
+    throw new Error("Invalid saved prompt storage payload.");
+  }
+
+  writeTextFile(storagePath, value);
+}
+
+export function removeSavedPromptStorage(storagePath: string): void {
+  removeFile(storagePath);
 }
 
 export function readSavedEnvironmentRegistry(

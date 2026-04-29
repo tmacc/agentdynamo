@@ -13,10 +13,13 @@ import {
   readClientSettings,
   readSavedEnvironmentRegistry,
   readSavedEnvironmentSecret,
+  readSavedPromptStorage,
+  removeSavedPromptStorage,
   removeSavedEnvironmentSecret,
   writeClientSettings,
   writeSavedEnvironmentRegistry,
   writeSavedEnvironmentSecret,
+  writeSavedPromptStorage,
   type DesktopSecretStorage,
 } from "./clientPersistence.ts";
 
@@ -79,6 +82,40 @@ describe("clientPersistence", () => {
     writeClientSettings(settingsPath, clientSettings);
 
     expect(readClientSettings(settingsPath)).toEqual(clientSettings);
+  });
+
+  it("persists and reloads saved prompt storage", () => {
+    const storagePath = makeTempPath("saved-prompts.json");
+    const document = JSON.stringify({
+      version: 1,
+      state: {
+        snippetsById: {
+          "snippet-1": {
+            id: "snippet-1",
+            title: "Review diff",
+            body: "Review the diff",
+            scope: "global",
+            projectKey: null,
+            createdAt: "2026-04-19T12:00:00.000Z",
+            updatedAt: "2026-04-19T12:00:00.000Z",
+            lastUsedAt: null,
+          },
+        },
+      },
+    });
+
+    writeSavedPromptStorage(storagePath, document);
+
+    expect(readSavedPromptStorage(storagePath)).toBe(document);
+  });
+
+  it("removes saved prompt storage", () => {
+    const storagePath = makeTempPath("saved-prompts.json");
+
+    writeSavedPromptStorage(storagePath, JSON.stringify({ version: 1, state: {} }));
+    removeSavedPromptStorage(storagePath);
+
+    expect(readSavedPromptStorage(storagePath)).toBeNull();
   });
 
   it("persists and reloads saved environment metadata", () => {

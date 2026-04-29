@@ -39,6 +39,23 @@ function getTestWindow(): Window & typeof globalThis {
   return testWindow;
 }
 
+function installSavedPromptDesktopBridge(
+  testWindow: Window & typeof globalThis,
+  storageRef: { value: string | null },
+): void {
+  Object.assign(testWindow, {
+    desktopBridge: {
+      getSavedPromptStorage: () => storageRef.value,
+      setSavedPromptStorage: (value: string) => {
+        storageRef.value = value;
+      },
+      removeSavedPromptStorage: () => {
+        storageRef.value = null;
+      },
+    },
+  } satisfies { desktopBridge: Partial<NonNullable<Window["desktopBridge"]>> });
+}
+
 afterEach(() => {
   vi.resetModules();
   vi.unstubAllGlobals();
@@ -76,6 +93,50 @@ describe("savedPromptStore", () => {
       title: "Review diff",
       projectKey: scopedProjectKey(PROJECT_REF),
     });
+  });
+
+  it("uses desktop bridge storage instead of origin-scoped localStorage when available", async () => {
+    const storageRef = { value: null as string | null };
+    let testWindow = getTestWindow();
+    testWindow.localStorage.setItem(
+      "dynamo:saved-prompts:v1",
+      JSON.stringify({
+        version: 1,
+        state: { snippetsById: {} },
+      }),
+    );
+    installSavedPromptDesktopBridge(testWindow, storageRef);
+
+    let { useSavedPromptStore } = await import("./savedPromptStore");
+    await useSavedPromptStore.persist.rehydrate();
+    const created = useSavedPromptStore.getState().createSnippet({
+      title: "Desktop prompt",
+      body: "Persist through the desktop bridge",
+      scope: "global",
+    });
+
+    expect(created.status).toBe("created");
+    expect(storageRef.value).toContain("Desktop prompt");
+    expect(testWindow.localStorage.getItem("dynamo:saved-prompts:v1")).toBe(
+      JSON.stringify({
+        version: 1,
+        state: { snippetsById: {} },
+      }),
+    );
+
+    vi.resetModules();
+    testWindow = getTestWindow();
+    installSavedPromptDesktopBridge(testWindow, storageRef);
+
+    ({ useSavedPromptStore } = await import("./savedPromptStore"));
+    await useSavedPromptStore.persist.rehydrate();
+
+    expect(Object.values(useSavedPromptStore.getState().snippetsById)).toEqual([
+      expect.objectContaining({
+        title: "Desktop prompt",
+        body: "Persist through the desktop bridge",
+      }),
+    ]);
   });
 
   it("filters visible snippets by project scope and global scope", async () => {

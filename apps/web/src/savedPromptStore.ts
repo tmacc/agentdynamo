@@ -5,6 +5,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
+import type { DebouncedStorage, StateStorage } from "./lib/storage";
 import { randomUUID } from "./lib/utils";
 
 export const SAVED_PROMPTS_STORAGE_KEY = "dynamo:saved-prompts:v1";
@@ -12,14 +13,54 @@ const SAVED_PROMPTS_STORAGE_VERSION = 1;
 const SAVED_PROMPTS_PERSIST_DEBOUNCE_MS = 300;
 const SAVED_PROMPT_MAX_TITLE_LENGTH = 80;
 
-const savedPromptDebouncedStorage = createDebouncedStorage(
-  typeof localStorage !== "undefined" ? localStorage : createMemoryStorage(),
-  SAVED_PROMPTS_PERSIST_DEBOUNCE_MS,
-);
+type SavedPromptStorage = StateStorage | DebouncedStorage;
+
+function createSavedPromptStorage(): SavedPromptStorage {
+  if (typeof window !== "undefined" && window.desktopBridge) {
+    return {
+      getItem: (name) => {
+        const desktopValue = window.desktopBridge?.getSavedPromptStorage() ?? null;
+        if (desktopValue !== null) {
+          return desktopValue;
+        }
+
+        try {
+          const browserValue =
+            typeof localStorage !== "undefined" ? localStorage.getItem(name) : null;
+          if (browserValue !== null) {
+            window.desktopBridge?.setSavedPromptStorage(browserValue);
+          }
+          return browserValue;
+        } catch {
+          return null;
+        }
+      },
+      setItem: (_name, value) => {
+        window.desktopBridge?.setSavedPromptStorage(value);
+      },
+      removeItem: () => {
+        window.desktopBridge?.removeSavedPromptStorage();
+      },
+    };
+  }
+
+  return createDebouncedStorage(
+    typeof localStorage !== "undefined" ? localStorage : createMemoryStorage(),
+    SAVED_PROMPTS_PERSIST_DEBOUNCE_MS,
+  );
+}
+
+const savedPromptStorage = createSavedPromptStorage();
+
+function flushSavedPromptStorage(): void {
+  if ("flush" in savedPromptStorage) {
+    savedPromptStorage.flush();
+  }
+}
 
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   window.addEventListener("beforeunload", () => {
-    savedPromptDebouncedStorage.flush();
+    flushSavedPromptStorage();
   });
 }
 
@@ -320,7 +361,7 @@ export const useSavedPromptStore = create<SavedPromptStoreState>()(
     {
       name: SAVED_PROMPTS_STORAGE_KEY,
       version: SAVED_PROMPTS_STORAGE_VERSION,
-      storage: createJSONStorage(() => savedPromptDebouncedStorage),
+      storage: createJSONStorage(() => savedPromptStorage),
       partialize: (state) => ({
         snippetsById: state.snippetsById,
       }),
