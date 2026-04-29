@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   dedupeRemoteBranchesWithLocalMatches,
   deriveLocalBranchNameFromRemoteRef,
+  isPendingWorktreeBaseMode,
   resolveEnvironmentOptionLabel,
   resolveBranchSelectionTarget,
   resolveCurrentWorkspaceLabel,
   resolveDraftContextForEnvModeChange,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
+  resolveEnvModeLocked,
   resolveEnvModeLabel,
   resolveBranchToolbarValue,
   resolveLockedWorkspaceLabel,
@@ -91,6 +93,7 @@ describe("resolveDraftContextForEnvModeChange", () => {
       resolveDraftContextForEnvModeChange({
         mode: "worktree",
         currentGitBranch: "feature/foo",
+        currentThreadBranch: "feature/foo",
         currentWorktreePath: null,
       }),
     ).toEqual({
@@ -105,6 +108,7 @@ describe("resolveDraftContextForEnvModeChange", () => {
       resolveDraftContextForEnvModeChange({
         mode: "local",
         currentGitBranch: "feature/foo",
+        currentThreadBranch: "main",
         currentWorktreePath: null,
       }),
     ).toEqual({
@@ -119,6 +123,7 @@ describe("resolveDraftContextForEnvModeChange", () => {
       resolveDraftContextForEnvModeChange({
         mode: "local",
         currentGitBranch: null,
+        currentThreadBranch: "main",
         currentWorktreePath: null,
       }),
     ).toEqual({
@@ -126,6 +131,87 @@ describe("resolveDraftContextForEnvModeChange", () => {
       branch: null,
       worktreePath: null,
     });
+  });
+
+  it("preserves concrete draft worktree context when switching to local mode", () => {
+    expect(
+      resolveDraftContextForEnvModeChange({
+        mode: "local",
+        currentGitBranch: "pr-1359",
+        currentThreadBranch: "main",
+        currentWorktreePath: "/repo/worktrees/pr-1359",
+      }),
+    ).toEqual({
+      envMode: "worktree",
+      branch: "pr-1359",
+      worktreePath: "/repo/worktrees/pr-1359",
+    });
+  });
+
+  it("preserves concrete draft worktree context when switching to worktree mode", () => {
+    expect(
+      resolveDraftContextForEnvModeChange({
+        mode: "worktree",
+        currentGitBranch: null,
+        currentThreadBranch: "pr-1359",
+        currentWorktreePath: "/repo/worktrees/pr-1359",
+      }),
+    ).toEqual({
+      envMode: "worktree",
+      branch: "pr-1359",
+      worktreePath: "/repo/worktrees/pr-1359",
+    });
+  });
+});
+
+describe("isPendingWorktreeBaseMode", () => {
+  it("detects unlocked new-worktree mode without a concrete worktree path", () => {
+    expect(
+      isPendingWorktreeBaseMode({
+        effectiveEnvMode: "worktree",
+        envLocked: false,
+        activeWorktreePath: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false when the environment is locked", () => {
+    expect(
+      isPendingWorktreeBaseMode({
+        effectiveEnvMode: "worktree",
+        envLocked: true,
+        activeWorktreePath: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("returns false for concrete worktree paths", () => {
+    expect(
+      isPendingWorktreeBaseMode({
+        effectiveEnvMode: "worktree",
+        envLocked: false,
+        activeWorktreePath: "/repo/worktrees/pr-1359",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("resolveEnvModeLocked", () => {
+  it("locks when the environment is already locked", () => {
+    expect(resolveEnvModeLocked({ envLocked: true, activeWorktreePath: null })).toBe(true);
+  });
+
+  it("locks concrete worktree paths", () => {
+    expect(
+      resolveEnvModeLocked({
+        envLocked: false,
+        activeWorktreePath: "/repo/worktrees/pr-1359",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps pending no-path drafts selectable", () => {
+    expect(resolveEnvModeLocked({ envLocked: false, activeWorktreePath: null })).toBe(false);
   });
 });
 

@@ -3526,6 +3526,7 @@ export default function ChatView(props: ChatViewProps) {
           ...resolveDraftContextForEnvModeChange({
             mode,
             currentGitBranch: gitStatusQuery.data?.branch ?? null,
+            currentThreadBranch: draftThread?.branch ?? null,
             currentWorktreePath: draftThread?.worktreePath ?? null,
           }),
         });
@@ -3536,6 +3537,7 @@ export default function ChatView(props: ChatViewProps) {
       canOverrideServerThreadEnvMode,
       composerDraftTarget,
       gitStatusQuery.data?.branch,
+      draftThread?.branch,
       draftThread?.worktreePath,
       isLocalDraftThread,
       setPendingServerThreadBranch,
@@ -3989,8 +3991,10 @@ export default function ChatView(props: ChatViewProps) {
               {...(canOverrideServerThreadEnvMode ? { effectiveEnvModeOverride: envMode } : {})}
               {...(canOverrideServerThreadEnvMode
                 ? {
-                    activeThreadBranchOverride: activeThreadBranch,
-                    onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
+                    onPendingWorktreeBaseBranchChange: setPendingServerThreadBranch,
+                    ...(pendingServerThreadBranch !== undefined
+                      ? { pendingWorktreeBaseBranch: pendingServerThreadBranch }
+                      : {}),
                   }
                 : {})}
               envLocked={envLocked}

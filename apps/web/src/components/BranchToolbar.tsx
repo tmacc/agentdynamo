@@ -9,6 +9,7 @@ import {
   type EnvMode,
   type EnvironmentOption,
   resolveEffectiveEnvMode,
+  resolveEnvModeLocked,
 } from "./BranchToolbar.logic";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
@@ -21,8 +22,8 @@ interface BranchToolbarProps {
   draftId?: DraftId;
   onEnvModeChange: (mode: EnvMode) => void;
   effectiveEnvModeOverride?: EnvMode;
-  activeThreadBranchOverride?: string | null;
-  onActiveThreadBranchOverrideChange?: (branch: string | null) => void;
+  pendingWorktreeBaseBranch?: string | null;
+  onPendingWorktreeBaseBranchChange?: (branch: string | null) => void;
   envLocked: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
@@ -36,8 +37,8 @@ export const BranchToolbar = memo(function BranchToolbar({
   draftId,
   onEnvModeChange,
   effectiveEnvModeOverride,
-  activeThreadBranchOverride,
-  onActiveThreadBranchOverrideChange,
+  pendingWorktreeBaseBranch,
+  onPendingWorktreeBaseBranchChange,
   envLocked,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
@@ -72,7 +73,10 @@ export const BranchToolbar = memo(function BranchToolbar({
       hasServerThread: serverThread !== undefined,
       draftThreadEnvMode: draftThread?.envMode,
     });
-  const envModeLocked = envLocked || (serverThread !== undefined && activeWorktreePath !== null);
+  const envModeLocked = resolveEnvModeLocked({
+    envLocked,
+    activeWorktreePath,
+  });
 
   const showEnvironmentPicker =
     availableEnvironments && availableEnvironments.length > 1 && onEnvironmentChange;
@@ -107,8 +111,8 @@ export const BranchToolbar = memo(function BranchToolbar({
         {...(draftId ? { draftId } : {})}
         envLocked={envLocked}
         {...(effectiveEnvModeOverride ? { effectiveEnvModeOverride } : {})}
-        {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
-        {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
+        {...(pendingWorktreeBaseBranch !== undefined ? { pendingWorktreeBaseBranch } : {})}
+        {...(onPendingWorktreeBaseBranchChange ? { onPendingWorktreeBaseBranchChange } : {})}
         {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
         {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
       />
