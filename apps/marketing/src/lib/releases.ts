@@ -3,7 +3,7 @@ const REPO = "tmacc/agentdynamo";
 export const RELEASES_URL = `https://github.com/${REPO}/releases`;
 
 const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
-const CACHE_KEY = "t3code-latest-release";
+const CACHE_KEY = "dynamo-latest-release";
 
 export interface ReleaseAsset {
   name: string;
