@@ -181,7 +181,7 @@ describe("ProjectSetupScriptRunner", () => {
     });
   });
 
-  it("opens the deterministic setup terminal with worktree env and writes the command", async () => {
+  it("opens the deterministic setup terminal with worktree env and an initial command", async () => {
     const open = vi.fn(() =>
       Effect.succeed({
         threadId: "thread-1",
@@ -270,11 +270,8 @@ describe("ProjectSetupScriptRunner", () => {
         T3CODE_PROJECT_ROOT: "/repo/project",
         T3CODE_WORKTREE_PATH: "/repo/worktrees/a",
       },
+      initialCommand: "bun install",
     });
-    expect(write).toHaveBeenCalledWith({
-      threadId: "thread-1",
-      terminalId: "setup-setup",
-      data: "bun install\r",
-    });
+    expect(write).not.toHaveBeenCalled();
   });
 });
