@@ -670,14 +670,24 @@ const make = Effect.gen(function* () {
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
   }) {
-    if (!input.branch || !input.worktreePath) {
-      return;
-    }
-    if (!isTemporaryWorktreeBranch(input.branch)) {
+    if (!input.worktreePath) {
       return;
     }
 
-    const oldBranch = input.branch;
+    const status = yield* git.status({ cwd: input.worktreePath }).pipe(Effect.option);
+    const oldBranch = Option.isSome(status)
+      ? status.value.isRepo &&
+        status.value.branch !== null &&
+        isTemporaryWorktreeBranch(status.value.branch)
+        ? status.value.branch
+        : null
+      : input.branch && isTemporaryWorktreeBranch(input.branch)
+        ? input.branch
+        : null;
+    if (oldBranch === null) {
+      return;
+    }
+
     const cwd = input.worktreePath;
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
@@ -719,12 +729,10 @@ const make = Effect.gen(function* () {
   const shouldAutoRenameWorktreeBranchForFirstTurn = Effect.fn(
     "shouldAutoRenameWorktreeBranchForFirstTurn",
   )(function* (input: { readonly thread: OrchestrationThread }) {
-    if (!input.thread.branch || !input.thread.worktreePath) {
+    if (!input.thread.worktreePath) {
       return false;
     }
-    if (!isTemporaryWorktreeBranch(input.thread.branch)) {
-      return false;
-    }
+
     if (!input.thread.teamParent) {
       return true;
     }

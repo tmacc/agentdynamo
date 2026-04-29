@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type {
+  GitStatusResult,
   ModelSelection,
   OrchestrationTeamTask,
   ProviderRuntimeEvent,
@@ -56,6 +57,24 @@ const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalReques
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asTeamTaskId = (value: string): TeamTaskId => TeamTaskId.make(value);
+
+const gitStatus = (overrides: Partial<GitStatusResult> = {}): GitStatusResult => ({
+  isRepo: true,
+  hasOriginRemote: true,
+  isDefaultBranch: false,
+  branch: "t3code/1234abcd",
+  hasWorkingTreeChanges: false,
+  workingTree: {
+    files: [],
+    insertions: 0,
+    deletions: 0,
+  },
+  hasUpstream: true,
+  aheadCount: 0,
+  behindCount: 0,
+  pr: null,
+  ...overrides,
+});
 
 function teamTask(overrides: Partial<OrchestrationTeamTask> = {}): OrchestrationTeamTask {
   const now = "2026-01-01T00:00:00.000Z";
@@ -145,6 +164,7 @@ describe("ProviderCommandReactor", () => {
     readonly baseDir?: string;
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
+    readonly gitStatusBranch?: string | null;
   }) {
     const now = new Date().toISOString();
     const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "t3code-reactor-"));
@@ -254,6 +274,9 @@ describe("ProviderCommandReactor", () => {
             : "renamed-branch",
       }),
     );
+    const status = vi.fn<GitCoreShape["status"]>(() =>
+      Effect.succeed(gitStatus({ branch: input?.gitStatusBranch ?? "t3code/1234abcd" })),
+    );
     const refreshStatus = vi.fn((_: string) =>
       Effect.succeed({
         isRepo: true,
@@ -319,7 +342,9 @@ describe("ProviderCommandReactor", () => {
     const layer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
-      Layer.provideMerge(Layer.succeed(GitCore, { renameBranch } as unknown as GitCoreShape)),
+      Layer.provideMerge(
+        Layer.succeed(GitCore, { renameBranch, status } as unknown as GitCoreShape),
+      ),
       Layer.provideMerge(
         Layer.succeed(GitStatusBroadcaster, {
           getStatus: () => Effect.die("getStatus should not be called in this test"),
@@ -399,6 +424,7 @@ describe("ProviderCommandReactor", () => {
       respondToRequest,
       respondToUserInput,
       stopSession,
+      status,
       renameBranch,
       refreshStatus,
       generateBranchName,
@@ -860,6 +886,91 @@ describe("ProviderCommandReactor", () => {
       message: "Add a safer reconnect backoff.",
     });
     expect(harness.refreshStatus.mock.calls[0]?.[0]).toBe("/tmp/provider-project-worktree");
+  });
+
+  it("uses the live temporary worktree branch when stored first-turn metadata is stale", async () => {
+    const harness = await createHarness({ gitStatusBranch: "t3code/1234abcd" });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-stale-branch"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "main",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+
+    harness.generateBranchName.mockReturnValue(Effect.succeed({ branch: "feature/stale-main" }));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-stale-branch"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-stale-branch"),
+          role: "user",
+          text: "Make bootstrap branch naming resilient.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.renameBranch.mock.calls.length === 1);
+    expect(harness.status.mock.calls[0]?.[0]).toMatchObject({
+      cwd: "/tmp/provider-project-worktree",
+    });
+    expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
+      cwd: "/tmp/provider-project-worktree",
+      oldBranch: "t3code/1234abcd",
+      newBranch: "t3code/feature/stale-main",
+    });
+  });
+
+  it("does not generate a branch name when the live first-turn worktree branch is already semantic", async () => {
+    const harness = await createHarness({ gitStatusBranch: "feature/existing" });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-semantic-live-branch"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "t3code/1234abcd",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+
+    harness.generateBranchName.mockReturnValue(
+      Effect.succeed({ branch: "feature/should-not-run" }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-semantic-live-branch"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-semantic-live-branch"),
+          role: "user",
+          text: "This branch was already renamed.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.status).toHaveBeenCalled();
+    expect(harness.generateBranchName).not.toHaveBeenCalled();
+    expect(harness.renameBranch).not.toHaveBeenCalled();
   });
 
   it("does not rename a shared team child branch on the first turn", async () => {

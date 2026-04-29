@@ -660,6 +660,34 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/store.test.ts` in `apps/web`.
   - Launch `bun run dev:desktop`; verify generic same-provider subagent prompts can use provider-native delegation, then verify explicit cross-provider or Dynamo-visible child requests spawn Dynamo team agents and appear in the Agents drawer.
 
+### 2026-04-29 - Guard worktree branch metadata during bootstrap
+
+- `Status`: active
+- `Area`: web | orchestration | git
+- `User-visible impact`: New worktree threads should get first-turn semantic branch names even when bootstrap metadata briefly says `main` before the live worktree branch is observed.
+- `Why this patch exists`: Worktree bootstrap dispatches thread metadata after the first turn is queued. During that window, draft/default branch metadata or the Git actions control can persist `main` onto the worktree-backed thread. The server must therefore use the live worktree branch when deciding whether a first-turn temporary branch can be renamed, while shared team children must still be excluded.
+- `Key files`:
+  - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
+  - `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts`
+  - `apps/web/src/components/GitActionsControl.logic.ts`
+  - `apps/web/src/components/GitActionsControl.tsx`
+  - `apps/web/src/components/GitActionsControl.logic.test.ts`
+- `Important invariants`:
+  - First-turn branch rename eligibility is based on having a worktree path plus team ownership policy; the actual branch to rename is resolved from live git status before falling back to stored temporary metadata.
+  - Shared Dynamo team children that inherit the coordinator workspace must never auto-rename the coordinator branch.
+  - Dedicated Dynamo team child worktrees may still auto-rename their own temporary branch.
+  - A server thread with a non-null `worktreePath` and temporary `t3code/<hex>` branch must not be live-synced to a non-temporary branch such as `main`.
+  - Semantic thread branches still must not regress to temporary worktree branches.
+  - Non-worktree thread branch sync remains unchanged.
+- `Merge hotspots`:
+  - Git actions live branch sync
+  - Worktree bootstrap metadata updates
+  - First-turn semantic branch naming
+- `Verification`:
+  - Run `bun run test src/orchestration/Layers/ProviderCommandReactor.test.ts` in `apps/server`.
+  - Run `bun run test src/components/GitActionsControl.logic.test.ts` in `apps/web`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck` at the repo root.
+
 ### 2026-04-25 - Harden team coordinator grants and board projections
 
 - `Status`: active
