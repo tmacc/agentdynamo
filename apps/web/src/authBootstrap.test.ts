@@ -98,7 +98,10 @@ describe("resolveInitialServerAuthGateState", () => {
         wsBaseUrl: "ws://localhost:3773",
         bootstrapToken: "desktop-bootstrap-token",
       }),
-    } as DesktopBridge;
+      getSavedPromptStorage: () => ({ status: "missing" }),
+      setSavedPromptStorage: () => ({ status: "ok" }),
+      removeSavedPromptStorage: () => ({ status: "ok" }),
+    } as unknown as DesktopBridge;
 
     const { resolveInitialServerAuthGateState } = await import("./environments/primary");
 
@@ -197,7 +200,10 @@ describe("resolveInitialServerAuthGateState", () => {
         httpBaseUrl: "http://127.0.0.1:3773",
         wsBaseUrl: "ws://127.0.0.1:3773",
       }),
-    } as DesktopBridge;
+      getSavedPromptStorage: () => ({ status: "missing" }),
+      setSavedPromptStorage: () => ({ status: "ok" }),
+      removeSavedPromptStorage: () => ({ status: "ok" }),
+    } as unknown as DesktopBridge;
 
     const { resolveInitialServerAuthGateState } = await import("./environments/primary");
 
@@ -409,7 +415,10 @@ describe("resolveInitialServerAuthGateState", () => {
         wsBaseUrl: "ws://localhost:3773",
         bootstrapToken: "desktop-bootstrap-token",
       }),
-    } as DesktopBridge;
+      getSavedPromptStorage: () => ({ status: "missing" }),
+      setSavedPromptStorage: () => ({ status: "ok" }),
+      removeSavedPromptStorage: () => ({ status: "ok" }),
+    } as unknown as DesktopBridge;
 
     const { resolveInitialServerAuthGateState } = await import("./environments/primary");
 

@@ -59,7 +59,7 @@ import {
   readClientSettings,
   readSavedEnvironmentRegistry,
   readSavedEnvironmentSecret,
-  readSavedPromptStorage,
+  readSavedPromptStorageWithRecovery,
   removeSavedEnvironmentSecret,
   removeSavedPromptStorage,
   writeClientSettings,
@@ -150,6 +150,10 @@ const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
+
+function messageFromUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 const SERVER_SETTINGS_PATH = Path.join(STATE_DIR, "settings.json");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -1594,23 +1598,39 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeAllListeners(GET_SAVED_PROMPT_STORAGE_CHANNEL);
   ipcMain.on(GET_SAVED_PROMPT_STORAGE_CHANNEL, (event) => {
-    event.returnValue = readSavedPromptStorage(SAVED_PROMPTS_PATH);
+    try {
+      event.returnValue = readSavedPromptStorageWithRecovery(SAVED_PROMPTS_PATH);
+    } catch (error) {
+      event.returnValue = { status: "error", message: messageFromUnknownError(error) };
+    }
   });
 
   ipcMain.removeAllListeners(SET_SAVED_PROMPT_STORAGE_CHANNEL);
   ipcMain.on(SET_SAVED_PROMPT_STORAGE_CHANNEL, (event, rawValue: unknown) => {
-    if (typeof rawValue !== "string") {
-      throw new Error("Invalid saved prompt storage payload.");
-    }
+    try {
+      if (typeof rawValue !== "string") {
+        event.returnValue = {
+          status: "error",
+          message: "Invalid saved prompt storage payload.",
+        };
+        return;
+      }
 
-    writeSavedPromptStorage(SAVED_PROMPTS_PATH, rawValue);
-    event.returnValue = undefined;
+      writeSavedPromptStorage(SAVED_PROMPTS_PATH, rawValue);
+      event.returnValue = { status: "ok" };
+    } catch (error) {
+      event.returnValue = { status: "error", message: messageFromUnknownError(error) };
+    }
   });
 
   ipcMain.removeAllListeners(REMOVE_SAVED_PROMPT_STORAGE_CHANNEL);
   ipcMain.on(REMOVE_SAVED_PROMPT_STORAGE_CHANNEL, (event) => {
-    removeSavedPromptStorage(SAVED_PROMPTS_PATH);
-    event.returnValue = undefined;
+    try {
+      removeSavedPromptStorage(SAVED_PROMPTS_PATH);
+      event.returnValue = { status: "ok" };
+    } catch (error) {
+      event.returnValue = { status: "error", message: messageFromUnknownError(error) };
+    }
   });
 
   ipcMain.removeHandler(GET_CLIENT_SETTINGS_CHANNEL);
