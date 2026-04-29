@@ -4,7 +4,7 @@ import {
   ChevronRightIcon,
   CloudIcon,
   GitPullRequestIcon,
-  PlusIcon,
+  FolderPlusIcon,
   SearchIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -2633,7 +2633,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                   />
                 }
               >
-                <PlusIcon className="size-3.5" />
+                <FolderPlusIcon className="size-3.5" />
               </TooltipTrigger>
               <TooltipPopup side="right">Add project</TooltipPopup>
             </Tooltip>
