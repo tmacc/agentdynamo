@@ -167,6 +167,8 @@ export function resolveSidebarNewThreadEnvMode(input: {
   return input.requestedEnvMode ?? input.defaultEnvMode;
 }
 
+export const DEFAULT_SIDEBAR_NEW_WORKTREE_BASE_BRANCH = "main";
+
 export function resolveSidebarNewThreadSeedContext(input: {
   projectId: string;
   defaultEnvMode: SidebarNewThreadEnvMode;
@@ -188,6 +190,8 @@ export function resolveSidebarNewThreadSeedContext(input: {
 } {
   if (input.defaultEnvMode === "worktree") {
     return {
+      branch: DEFAULT_SIDEBAR_NEW_WORKTREE_BASE_BRANCH,
+      worktreePath: null,
       envMode: "worktree",
     };
   }
