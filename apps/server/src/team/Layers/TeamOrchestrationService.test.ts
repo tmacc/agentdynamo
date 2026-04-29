@@ -4,6 +4,7 @@ import {
   ProjectId,
   TeamTaskId,
   ThreadId,
+  GitCommandError,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationReadModel,
@@ -251,6 +252,13 @@ async function makeRuntime(input: {
   const git = {
     status: () => Effect.succeed(gitStatus()),
     removeWorktree: () => Effect.void,
+    seedWorktreeFromSnapshot: () =>
+      Effect.succeed({
+        baseHeadSha: "a".repeat(40),
+        seedTreeSha: null,
+        trackedPatchApplied: false,
+        copiedUntrackedPaths: [],
+      }),
     ...input.git,
   } as unknown as GitCoreShape;
   const gitStatusBroadcaster = {
@@ -434,6 +442,16 @@ describe("TeamOrchestrationService", () => {
         branch: "t3code/411b93f1",
         worktreePath: parentWorktreePath,
       });
+      const taskSpawn = commands.find((command) => command.type === "thread.team-task.spawn");
+      expect(taskSpawn).toMatchObject({
+        type: "thread.team-task.spawn",
+        teamTask: expect.objectContaining({
+          workspaceMode: "shared",
+          resolvedWorkspaceMode: "shared",
+          setupMode: "run",
+          resolvedSetupMode: "skip",
+        }),
+      });
       const turnStart = commands.find((command) => command.type === "thread.turn.start");
       expect(turnStart).toMatchObject({
         type: "thread.turn.start",
@@ -441,6 +459,27 @@ describe("TeamOrchestrationService", () => {
           text: expect.stringContaining("Coordinator branch: t3code/411b93f1"),
         }),
       });
+      expect(turnStart).toMatchObject({
+        type: "thread.turn.start",
+        message: expect.objectContaining({
+          text: expect.stringContaining("Workspace policy: shared -> shared"),
+        }),
+      });
+      expect(turnStart).toMatchObject({
+        type: "thread.turn.start",
+        message: expect.objectContaining({
+          text: expect.stringContaining("Setup policy: run -> skip"),
+        }),
+      });
+      expect(turnStart).toMatchObject({
+        type: "thread.turn.start",
+        message: expect.objectContaining({
+          text: expect.stringContaining("You are sharing the coordinator workspace."),
+        }),
+      });
+      expect(
+        (turnStart as { message?: { text?: string } } | undefined)?.message?.text,
+      ).not.toContain("assigned isolated child branch/worktree");
       expect(createWorktree).not.toHaveBeenCalled();
       expect(runForThread).not.toHaveBeenCalled();
     } finally {
@@ -458,6 +497,15 @@ describe("TeamOrchestrationService", () => {
         },
       }),
     );
+    const seedWorktreeFromSnapshot = vi.fn(
+      (_: Parameters<GitCoreShape["seedWorktreeFromSnapshot"]>[0]) =>
+        Effect.succeed({
+          baseHeadSha: "a".repeat(40),
+          seedTreeSha: "b".repeat(40),
+          trackedPatchApplied: true,
+          copiedUntrackedPaths: ["context.txt"],
+        }),
+    );
     const { runtime, service } = await makeRuntime({
       readModel: await baseReadModel({
         parentBranch: "main",
@@ -467,6 +515,7 @@ describe("TeamOrchestrationService", () => {
       git: {
         status: () => Effect.succeed(gitStatus({ isRepo: true, branch: "t3code/411b93f1" })),
         createWorktree,
+        seedWorktreeFromSnapshot,
       },
     });
     try {
@@ -487,6 +536,10 @@ describe("TeamOrchestrationService", () => {
         path: null,
       });
       expect(createWorktree.mock.calls[0]?.[0].newBranch).toMatch(/^agent\//);
+      expect(seedWorktreeFromSnapshot).toHaveBeenCalledWith({
+        sourceCwd: parentWorktreePath,
+        targetCwd: "/repo/.dynamo/worktrees/project/agent-worker-123456",
+      });
 
       const childCreate = commands.find((command) => command.type === "thread.create");
       expect(childCreate).toMatchObject({
@@ -602,6 +655,54 @@ describe("TeamOrchestrationService", () => {
   it("keeps auto children shared for non-git projects", async () => {
     const commands: OrchestrationCommand[] = [];
     const createWorktree = vi.fn();
+    const runForThread = vi.fn((_: Parameters<ProjectSetupScriptRunnerShape["runForThread"]>[0]) =>
+      Effect.succeed({ status: "no-script" as const }),
+    );
+    const { runtime, service } = await makeRuntime({
+      readModel: await baseReadModel(),
+      commands,
+      git: {
+        status: () => Effect.succeed(gitStatus({ isRepo: false })),
+        createWorktree,
+      },
+      setup: { runForThread },
+    });
+    try {
+      await runtime.runPromise(
+        service.spawnChild({
+          parentThreadId: ThreadId.make("thread-parent"),
+          title: "Non-git child",
+          task: "Do the work",
+          workspaceMode: "auto",
+          setupMode: "run",
+        }),
+      );
+
+      const taskSpawn = commands.find((command) => command.type === "thread.team-task.spawn");
+      expect(taskSpawn).toMatchObject({
+        type: "thread.team-task.spawn",
+        teamTask: expect.objectContaining({
+          resolvedWorkspaceMode: "shared",
+          setupMode: "run",
+          resolvedSetupMode: "skip",
+        }),
+      });
+      const childCreate = commands.find((command) => command.type === "thread.create");
+      expect(childCreate).toMatchObject({
+        type: "thread.create",
+        branch: null,
+        worktreePath: null,
+      });
+      expect(createWorktree).not.toHaveBeenCalled();
+      expect(runForThread).not.toHaveBeenCalled();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("rejects explicit worktree children when the coordinator workspace is not a git repo", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const createWorktree = vi.fn();
     const { runtime, service } = await makeRuntime({
       readModel: await baseReadModel(),
       commands,
@@ -611,29 +712,64 @@ describe("TeamOrchestrationService", () => {
       },
     });
     try {
-      await runtime.runPromise(
+      const result = await runtime.runPromiseExit(
         service.spawnChild({
           parentThreadId: ThreadId.make("thread-parent"),
-          title: "Non-git child",
-          task: "Do the work",
-          workspaceMode: "auto",
+          title: "Worktree child",
+          task: "Do isolated work",
+          workspaceMode: "worktree",
           setupMode: "skip",
         }),
       );
 
-      const taskSpawn = commands.find((command) => command.type === "thread.team-task.spawn");
-      expect(taskSpawn).toMatchObject({
-        type: "thread.team-task.spawn",
-        teamTask: expect.objectContaining({
-          resolvedWorkspaceMode: "shared",
+      expect(Exit.isFailure(result)).toBe(true);
+      if (!Exit.isFailure(result)) {
+        throw new Error("Expected explicit worktree spawn to fail.");
+      }
+      expect(String(result.cause)).toContain("Cannot create an isolated child worktree");
+      expect(commands).toEqual([]);
+      expect(createWorktree).not.toHaveBeenCalled();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("rejects explicit worktree children when git status fails", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const createWorktree = vi.fn();
+    const { runtime, service } = await makeRuntime({
+      readModel: await baseReadModel(),
+      commands,
+      git: {
+        status: () =>
+          Effect.fail(
+            new GitCommandError({
+              operation: "status",
+              command: "git status",
+              cwd: "/tmp/project",
+              detail: "not a repository",
+            }),
+          ),
+        createWorktree,
+      },
+    });
+    try {
+      const result = await runtime.runPromiseExit(
+        service.spawnChild({
+          parentThreadId: ThreadId.make("thread-parent"),
+          title: "Worktree child",
+          task: "Do isolated work",
+          workspaceMode: "worktree",
+          setupMode: "skip",
         }),
-      });
-      const childCreate = commands.find((command) => command.type === "thread.create");
-      expect(childCreate).toMatchObject({
-        type: "thread.create",
-        branch: null,
-        worktreePath: null,
-      });
+      );
+
+      expect(Exit.isFailure(result)).toBe(true);
+      if (!Exit.isFailure(result)) {
+        throw new Error("Expected explicit worktree spawn to fail.");
+      }
+      expect(String(result.cause)).toContain("Cannot create an isolated child worktree");
+      expect(commands).toEqual([]);
       expect(createWorktree).not.toHaveBeenCalled();
     } finally {
       await runtime.dispose();

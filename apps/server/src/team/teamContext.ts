@@ -138,13 +138,15 @@ export function resolveTeamWorkspacePolicy(input: {
       ? "shared"
       : "worktree";
   const resolvedSetupMode =
-    input.setupMode === "run"
-      ? "run"
-      : input.setupMode === "skip"
-        ? "skip"
-        : input.projectHasWorktreeSetup && RUN_SETUP_FOR_AUTO_KINDS.has(input.taskKind)
-          ? "run"
-          : "skip";
+    resolvedWorkspaceMode === "shared"
+      ? "skip"
+      : input.setupMode === "run"
+        ? "run"
+        : input.setupMode === "skip"
+          ? "skip"
+          : input.projectHasWorktreeSetup && RUN_SETUP_FOR_AUTO_KINDS.has(input.taskKind)
+            ? "run"
+            : "skip";
   return { resolvedWorkspaceMode, resolvedSetupMode };
 }
 
@@ -171,10 +173,14 @@ export function renderTeamChildPrompt(input: TeamTaskContextInput): {
     isGitProject: input.isGitProject,
     projectHasWorktreeSetup: input.projectHasWorktreeSetup,
   });
+  const workspaceInstruction =
+    policy.resolvedWorkspaceMode === "worktree"
+      ? "Work only in your assigned isolated child branch/worktree. Do not merge or apply changes back to the coordinator workspace."
+      : "You are sharing the coordinator workspace. Do not assume isolated worktree ownership; keep changes scoped to the assigned task and report what you changed.";
   const header = [
     "You are a child agent working for a Dynamo coordinator thread.",
     "Do not delegate, spawn subagents, or use native collaboration tools.",
-    "Work only in your assigned child branch/worktree. Do not merge or apply changes back to the coordinator workspace.",
+    workspaceInstruction,
     "Return a concise result with changed files, tests/checks run, and blockers.",
     "",
     `Coordinator thread: ${input.parentThread.title} (${input.parentThread.id})`,

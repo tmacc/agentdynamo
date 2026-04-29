@@ -18,6 +18,7 @@ export interface TeamTaskInlineView {
   diffSummary: string | null;
   elapsed: string | null;
   childWorktreePath: string | null;
+  defaultOpen?: boolean;
 }
 
 function stopPropagation(handler: () => void) {
@@ -71,7 +72,7 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
   onCancelTask: (taskId: TeamTaskId) => void;
   onReviewTaskChanges: (task: OrchestrationTeamTask) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(view.defaultOpen ?? false);
   const { task, diffSummary, elapsed } = view;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[task.modelSelection.provider];
   const active = isActiveTeamTask(task);

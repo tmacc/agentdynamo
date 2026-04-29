@@ -784,7 +784,8 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
     const parentHeadSha = yield* resolveHeadSha(parentCwd);
     const childHeadSha = yield* resolveHeadSha(childCwd);
-    const baseSha = yield* resolveMergeBase(childCwd, parentHeadSha);
+    const seedMetadata = yield* gitCore.readWorktreeSeedMetadata(childCwd);
+    const baseSha = seedMetadata?.seedTreeSha ?? (yield* resolveMergeBase(childCwd, parentHeadSha));
     const childPatch = yield* buildChildWorktreePatch(childCwd, baseSha);
     const patchHash = hashPatch(childPatch.patch);
 
@@ -793,10 +794,13 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       childCwd,
       baseSha,
       childHeadSha,
+      seedMetadata,
       patch: childPatch.patch,
       files: childPatch.files,
       patchHash,
-      includesCommittedChanges: childHeadSha !== baseSha,
+      includesCommittedChanges: seedMetadata
+        ? childHeadSha !== seedMetadata.baseHeadSha
+        : childHeadSha !== baseSha,
     };
   });
 
@@ -2027,7 +2031,15 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         maxOutputBytes: 2 * 1024 * 1024,
         truncateOutputAtMaxBytes: false,
       });
-      if (parentStatus.stdout.trim().length > 0) {
+      if (context.seedMetadata) {
+        const parentSnapshotTree = yield* gitCore.createWorktreeSnapshotTree(context.parentCwd);
+        if (parentSnapshotTree !== context.seedMetadata.seedTreeSha) {
+          return yield* gitManagerError(
+            "GitManager.applyWorktreePatch",
+            "The coordinator worktree changed since this child agent was spawned. Review the latest diff before applying child agent changes.",
+          );
+        }
+      } else if (parentStatus.stdout.trim().length > 0) {
         return yield* gitManagerError(
           "GitManager.applyWorktreePatch",
           "The coordinator worktree has local changes. Commit, stash, or discard them before applying child agent changes.",

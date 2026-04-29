@@ -4,6 +4,7 @@ import {
   ThreadId,
   type OrchestrationTeamTask,
   type TeamTaskId,
+  type TeamTaskWorkspaceMode,
 } from "@t3tools/contracts";
 import { Effect, Layer } from "effect";
 
@@ -42,6 +43,21 @@ const commandId = (tag: string): CommandId =>
 const messageId = (): MessageId => MessageId.make(`team-msg:${crypto.randomUUID()}`);
 const threadId = (): ThreadId => ThreadId.make(`team-thread:${crypto.randomUUID()}`);
 const taskId = (): TeamTaskId => `team-task:${crypto.randomUUID()}` as TeamTaskId;
+
+function validateRequestedWorkspaceMode(input: {
+  readonly requestedWorkspaceMode: TeamTaskWorkspaceMode;
+  readonly isGitProject: boolean;
+}): Effect.Effect<void, TeamOrchestrationError> {
+  if (input.requestedWorkspaceMode !== "worktree" || input.isGitProject) {
+    return Effect.void;
+  }
+
+  return Effect.fail(
+    new TeamOrchestrationError(
+      'Cannot create an isolated child worktree because the coordinator workspace is not a Git repository or Git status could not be resolved. Use workspaceMode: "shared" or "auto" for a shared child workspace.',
+    ),
+  );
+}
 
 function sanitizeBranchSegment(value: string): string {
   return (
@@ -158,6 +174,12 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
         projects: readModel.projects,
       }).pipe(Effect.provideService(GitCore, git));
       const cwd = workspace.cwd ?? project.workspaceRoot;
+      const requestedWorkspaceMode = input.workspaceMode ?? "auto";
+      const isGitProject = workspace.isGitRepo;
+      yield* validateRequestedWorkspaceMode({
+        requestedWorkspaceMode,
+        isGitProject,
+      });
       if (
         shouldSyncThreadBranchFromLiveGit({
           storedBranch: parentThread.branch,
@@ -196,7 +218,6 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
         providers,
         settings,
       });
-      const isGitProject = workspace.isGitRepo;
       const parentThreadForPrompt = {
         ...parentThread,
         branch: workspace.effectiveBranch,
@@ -211,7 +232,7 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
         taskKind,
         modelSelection: selected.modelSelection,
         modelSelectionReason: selected.reason,
-        workspaceMode: input.workspaceMode ?? "auto",
+        workspaceMode: requestedWorkspaceMode,
         setupMode: input.setupMode ?? "auto",
         projectHasWorktreeSetup: project.worktreeSetup?.status === "configured",
         isGitProject,
@@ -231,7 +252,7 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
         modelSelection: selected.modelSelection,
         modelSelectionMode: selected.mode,
         modelSelectionReason: selected.reason,
-        workspaceMode: input.workspaceMode ?? "auto",
+        workspaceMode: requestedWorkspaceMode,
         resolvedWorkspaceMode: rendered.policy.resolvedWorkspaceMode,
         setupMode: input.setupMode ?? "auto",
         resolvedSetupMode: rendered.policy.resolvedSetupMode,
@@ -273,6 +294,10 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
           childBranch = worktree.worktree.branch;
           childWorktreePath = worktree.worktree.path;
           createdDedicatedWorktree = true;
+          yield* git.seedWorktreeFromSnapshot({
+            sourceCwd: cwd,
+            targetCwd: childWorktreePath,
+          });
           yield* gitStatusBroadcaster
             .refreshStatus(childWorktreePath)
             .pipe(Effect.ignoreCause({ log: true }));

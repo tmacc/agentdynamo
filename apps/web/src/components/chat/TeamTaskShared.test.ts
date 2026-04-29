@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { TeamAgentsSidebar } from "./TeamAgentsSidebar";
 import { TeamAgentPills } from "./TeamAgentPills";
+import { TeamTaskInlineBlocks } from "./TeamTaskInlineBlock";
 import { TeamTaskInspector } from "./TeamTaskInspector";
 import {
   isDedicatedDynamoTeamWorktreeTask,
@@ -216,5 +217,62 @@ describe("TeamTaskShared", () => {
 
     expect(sidebarMarkup).toContain("Open chat");
     expect(sidebarMarkup).not.toContain("Review &amp; apply");
+  });
+
+  it("does not show inline review controls for shared Dynamo children with inherited worktree paths", () => {
+    const dynamo = task({
+      resolvedWorkspaceMode: "shared",
+      status: "completed",
+      completedAt: "2026-01-01T00:01:00.000Z",
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(TeamTaskInlineBlocks, {
+        tasks: [
+          {
+            task: dynamo,
+            diffSummary: "1 file changed, +1/-0",
+            elapsed: "1m",
+            childWorktreePath: "/tmp/coordinator-worktree",
+            defaultOpen: true,
+          },
+        ],
+        onOpenTask: () => {},
+        onCancelTask: () => {},
+        onReviewTaskChanges: () => {},
+      }),
+    );
+
+    expect(markup).toContain("Open child thread");
+    expect(markup).not.toContain("Review &amp; apply");
+  });
+
+  it("shows inline review controls for dedicated worktree children", () => {
+    const dynamo = task({
+      workspaceMode: "worktree",
+      resolvedWorkspaceMode: "worktree",
+      status: "completed",
+      completedAt: "2026-01-01T00:01:00.000Z",
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(TeamTaskInlineBlocks, {
+        tasks: [
+          {
+            task: dynamo,
+            diffSummary: "1 file changed, +1/-0",
+            elapsed: "1m",
+            childWorktreePath: "/tmp/child-worktree",
+            defaultOpen: true,
+          },
+        ],
+        onOpenTask: () => {},
+        onCancelTask: () => {},
+        onReviewTaskChanges: () => {},
+      }),
+    );
+
+    expect(markup).toContain("Open child thread");
+    expect(markup).toContain("Review &amp; apply");
   });
 });
