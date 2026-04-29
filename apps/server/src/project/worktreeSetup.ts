@@ -15,7 +15,12 @@ import type {
 export const WORKTREE_SETUP_RUNTIME_DIR = "worktree-runtime";
 export const WORKTREE_SETUP_HELPER_FILENAME = "setup.sh";
 export const WORKTREE_DEV_HELPER_FILENAME = "dev.sh";
+export const WORKTREE_SETUP_POWERSHELL_HELPER_FILENAME = "setup.ps1";
+export const WORKTREE_DEV_POWERSHELL_HELPER_FILENAME = "dev.ps1";
+export const WORKTREE_SETUP_WINDOWS_COMMAND_FILENAME = "setup.cmd";
+export const WORKTREE_DEV_WINDOWS_COMMAND_FILENAME = "dev.cmd";
 export const WORKTREE_ENV_RELATIVE_PATH = "dynamo/worktree.env";
+export const WORKTREE_POWERSHELL_ENV_RELATIVE_PATH = "dynamo/worktree.env.ps1";
 export const WORKTREE_SETUP_PORT_RANGE_START = 41_000;
 export const WORKTREE_SETUP_PORT_RANGE_END = 61_000;
 export const DEFAULT_WORKTREE_SETUP_PORT_COUNT = 5;
@@ -38,16 +43,25 @@ export interface WorktreeSetupHelperPaths {
   readonly helperRoot: string;
   readonly setupHelperPath: string;
   readonly devHelperPath: string;
+  readonly setupPowerShellPath: string;
+  readonly devPowerShellPath: string;
+  readonly setupWindowsCommandPath: string;
+  readonly devWindowsCommandPath: string;
 }
 
 export interface WorktreeRuntimePreparation {
   readonly envFilePath: string;
+  readonly powerShellEnvFilePath: string;
   readonly helperPaths: WorktreeSetupHelperPaths;
   readonly env: Record<string, string>;
 }
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function powerShellQuote(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -346,6 +360,23 @@ function appendScriptFlags(input: {
   }
 }
 
+function appendPowerShellScriptFlags(input: {
+  readonly packageManager: ProjectWorktreeSetupPackageManager;
+  readonly devCommand: string;
+  readonly flags: string;
+}) {
+  switch (input.packageManager) {
+    case "npm":
+    case "bun":
+      return `${input.devCommand} -- ${input.flags}`;
+    case "pnpm":
+    case "yarn":
+      return `${input.devCommand} ${input.flags}`;
+    default:
+      return null;
+  }
+}
+
 function buildDevInvocation(profile: ProjectWorktreeSetupProfile): string {
   switch (profile.framework) {
     case "next":
@@ -373,6 +404,35 @@ function buildDevInvocation(profile: ProjectWorktreeSetupProfile): string {
       return `PORT="$PORT" ${profile.devCommand}`;
     case "generic":
       return `PORT="$PORT" HOST="$HOST" ${profile.devCommand}`;
+  }
+}
+
+function buildPowerShellDevInvocation(profile: ProjectWorktreeSetupProfile): string {
+  switch (profile.framework) {
+    case "next":
+      return (
+        appendPowerShellScriptFlags({
+          packageManager: profile.packageManager,
+          devCommand: profile.devCommand,
+          flags: `-p "$env:PORT" -H "$env:HOST"`,
+        }) ?? profile.devCommand
+      );
+    case "vite":
+    case "astro":
+      return (
+        appendPowerShellScriptFlags({
+          packageManager: profile.packageManager,
+          devCommand: profile.devCommand,
+          flags: `--host "$env:HOST" --port "$env:PORT"`,
+        }) ?? profile.devCommand
+      );
+    case "django":
+      return `python manage.py runserver "$($env:HOST):$($env:PORT)"`;
+    case "rails":
+      return `bin/rails server -b "$env:HOST" -p "$env:PORT"`;
+    case "phoenix":
+    case "generic":
+      return profile.devCommand;
   }
 }
 
@@ -435,6 +495,112 @@ export HOST="\${HOST:-127.0.0.1}"
 
 cd "$DYNAMO_WORKTREE_PATH"
 exec ${invocation}
+	`;
+}
+
+function buildPowerShellEnvSyncBlock(profile: ProjectWorktreeSetupProfile): string {
+  if (profile.envStrategy === "none" || !profile.envSourcePath) {
+    return "";
+  }
+
+  return `
+$sourcePath = Join-Path -Path $env:DYNAMO_PROJECT_ROOT -ChildPath ${powerShellQuote(profile.envSourcePath)}
+$targetPath = Join-Path -Path $env:DYNAMO_WORKTREE_PATH -ChildPath ${powerShellQuote(profile.envSourcePath)}
+if (Test-Path -LiteralPath $sourcePath -PathType Leaf) {
+  $targetDir = Split-Path -Parent $targetPath
+  if ($targetDir) {
+    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+  }
+  if (${powerShellQuote(profile.envStrategy)} -eq 'symlink_root') {
+    try {
+      if (Test-Path -LiteralPath $targetPath) {
+        Remove-Item -LiteralPath $targetPath -Force
+      }
+      New-Item -ItemType SymbolicLink -Path $targetPath -Target $sourcePath -Force | Out-Null
+    } catch {
+      Write-Warning "Dynamo warning: failed to symlink env source; copying instead. $($_.Exception.Message)"
+      Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
+    }
+  } else {
+    Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
+  }
+} else {
+  Write-Host "Dynamo warning: env source $sourcePath was not found."
+}
+`;
+}
+
+function buildPowerShellExitBlock(): string {
+  return `
+if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
+}
+`;
+}
+
+function buildPowerShellHelperHeader(): string {
+  return `$ErrorActionPreference = "Stop"
+
+$envFile = $env:DYNAMO_WORKTREE_ENV_FILE
+if ([string]::IsNullOrWhiteSpace($envFile)) {
+  Write-Error "DYNAMO_WORKTREE_ENV_FILE is required"
+  exit 1
+}
+if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+  Write-Error "Missing worktree setup env file: $envFile"
+  exit 1
+}
+
+. $envFile
+`;
+}
+
+export function buildPowerShellSetupHelperContent(
+  profile: ProjectWorktreeSetupProfile,
+): string {
+  const envBlock = buildPowerShellEnvSyncBlock(profile);
+  const installBlock = profile.installCommand
+    ? `
+Set-Location -LiteralPath $env:DYNAMO_WORKTREE_PATH
+$installCommand = ${powerShellQuote(profile.installCommand)}
+Invoke-Expression $installCommand
+${buildPowerShellExitBlock()}`
+    : "";
+
+  return `${buildPowerShellHelperHeader()}${envBlock}${installBlock}
+$primaryPort = $env:DYNAMO_PRIMARY_PORT
+if ([string]::IsNullOrWhiteSpace($primaryPort)) {
+  $primaryPort = "unknown"
+}
+Write-Host "Worktree path: $env:DYNAMO_WORKTREE_PATH"
+Write-Host "Primary port: $primaryPort"
+Write-Host "App URL: http://127.0.0.1:$primaryPort"
+`;
+}
+
+export function buildPowerShellDevHelperContent(profile: ProjectWorktreeSetupProfile): string {
+  const invocation = buildPowerShellDevInvocation(profile);
+  return `${buildPowerShellHelperHeader()}
+if (-not [string]::IsNullOrWhiteSpace($env:DYNAMO_PRIMARY_PORT)) {
+  $env:PORT = $env:DYNAMO_PRIMARY_PORT
+} elseif ([string]::IsNullOrWhiteSpace($env:PORT)) {
+  $env:PORT = "41000"
+}
+if ([string]::IsNullOrWhiteSpace($env:HOST)) {
+  $env:HOST = "127.0.0.1"
+}
+
+Set-Location -LiteralPath $env:DYNAMO_WORKTREE_PATH
+$devCommand = ${powerShellQuote(invocation)}
+Invoke-Expression $devCommand
+${buildPowerShellExitBlock()}`;
+}
+
+function buildWindowsCommandWrapperContent(powerShellFileName: string): string {
+  return `@echo off\r
+setlocal\r
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0${powerShellFileName}"\r
+exit /b %ERRORLEVEL%\r
 `;
 }
 
@@ -458,6 +624,10 @@ export function resolveWorktreeSetupHelperPaths(input: {
     helperRoot,
     setupHelperPath: path.join(helperRoot, WORKTREE_SETUP_HELPER_FILENAME),
     devHelperPath: path.join(helperRoot, WORKTREE_DEV_HELPER_FILENAME),
+    setupPowerShellPath: path.join(helperRoot, WORKTREE_SETUP_POWERSHELL_HELPER_FILENAME),
+    devPowerShellPath: path.join(helperRoot, WORKTREE_DEV_POWERSHELL_HELPER_FILENAME),
+    setupWindowsCommandPath: path.join(helperRoot, WORKTREE_SETUP_WINDOWS_COMMAND_FILENAME),
+    devWindowsCommandPath: path.join(helperRoot, WORKTREE_DEV_WINDOWS_COMMAND_FILENAME),
   };
 }
 
@@ -475,6 +645,22 @@ export async function materializeWorktreeSetupHelpers(input: {
   const helperPaths = resolveWorktreeSetupHelperPaths(input);
   await writeExecutable(helperPaths.setupHelperPath, buildSetupHelperContent(input.profile));
   await writeExecutable(helperPaths.devHelperPath, buildDevHelperContent(input.profile));
+  await writeExecutable(
+    helperPaths.setupPowerShellPath,
+    buildPowerShellSetupHelperContent(input.profile),
+  );
+  await writeExecutable(
+    helperPaths.devPowerShellPath,
+    buildPowerShellDevHelperContent(input.profile),
+  );
+  await writeExecutable(
+    helperPaths.setupWindowsCommandPath,
+    buildWindowsCommandWrapperContent(WORKTREE_SETUP_POWERSHELL_HELPER_FILENAME),
+  );
+  await writeExecutable(
+    helperPaths.devWindowsCommandPath,
+    buildWindowsCommandWrapperContent(WORKTREE_DEV_POWERSHELL_HELPER_FILENAME),
+  );
   return helperPaths;
 }
 
@@ -547,6 +733,13 @@ export function serializeWorktreeRuntimeEnv(values: Record<string, string>): str
     .join("\n")}\n`;
 }
 
+export function serializePowerShellWorktreeRuntimeEnv(values: Record<string, string>): string {
+  return `${Object.entries(values)
+    .toSorted(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `$env:${key} = ${powerShellQuote(value)}`)
+    .join("\n")}\n`;
+}
+
 export async function prepareWorktreeSetupRuntime(input: {
   readonly stateDir: string;
   readonly projectId: ProjectId;
@@ -556,12 +749,16 @@ export async function prepareWorktreeSetupRuntime(input: {
 }): Promise<WorktreeRuntimePreparation> {
   const gitAdminDir = await resolveWorktreeGitAdminDir(input.worktreePath);
   const envFilePath = path.join(gitAdminDir, WORKTREE_ENV_RELATIVE_PATH);
+  const powerShellEnvFilePath = path.join(gitAdminDir, WORKTREE_POWERSHELL_ENV_RELATIVE_PATH);
   const env = buildRuntimeEnvValues(input);
   const helperPaths = await materializeWorktreeSetupHelpers(input);
   await fs.mkdir(path.dirname(envFilePath), { recursive: true });
   await fs.writeFile(envFilePath, serializeWorktreeRuntimeEnv(env), "utf8");
+  await fs.mkdir(path.dirname(powerShellEnvFilePath), { recursive: true });
+  await fs.writeFile(powerShellEnvFilePath, serializePowerShellWorktreeRuntimeEnv(env), "utf8");
   return {
     envFilePath,
+    powerShellEnvFilePath,
     helperPaths,
     env,
   };

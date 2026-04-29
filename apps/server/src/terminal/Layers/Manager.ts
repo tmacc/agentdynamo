@@ -1733,20 +1733,28 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
           }
 
           const liveSession = existing.value;
+          const inputHasInitialCommand = Object.hasOwn(input, "initialCommand");
+          const requestedInitialCommand = inputHasInitialCommand
+            ? (input.initialCommand ?? null)
+            : undefined;
+          const attachingToCommandSession =
+            liveSession.initialCommand !== null && !inputHasInitialCommand;
           const nextRuntimeEnv = normalizedRuntimeEnv(input.env);
           const currentRuntimeEnv = liveSession.runtimeEnv;
           const targetCols = input.cols ?? liveSession.cols;
           const targetRows = input.rows ?? liveSession.rows;
-          const runtimeEnvChanged = !Equal.equals(currentRuntimeEnv, nextRuntimeEnv);
+          const runtimeEnvChanged =
+            !attachingToCommandSession && !Equal.equals(currentRuntimeEnv, nextRuntimeEnv);
+          const cwdChanged = !attachingToCommandSession && liveSession.cwd !== input.cwd;
           const initialCommandChanged =
-            liveSession.initialCommand !== (input.initialCommand ?? null);
+            inputHasInitialCommand && liveSession.initialCommand !== requestedInitialCommand;
 
-          if (liveSession.cwd !== input.cwd || runtimeEnvChanged || initialCommandChanged) {
+          if (cwdChanged || runtimeEnvChanged || initialCommandChanged) {
             yield* stopProcess(liveSession);
             liveSession.cwd = input.cwd;
             liveSession.worktreePath = input.worktreePath ?? null;
             liveSession.runtimeEnv = nextRuntimeEnv;
-            liveSession.initialCommand = input.initialCommand ?? null;
+            liveSession.initialCommand = requestedInitialCommand ?? null;
             liveSession.history = "";
             liveSession.pendingHistoryControlSequence = "";
             liveSession.pendingProcessEvents = [];
@@ -1758,8 +1766,11 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
               liveSession.history,
             );
           } else if (liveSession.status === "exited" || liveSession.status === "error") {
+            if (attachingToCommandSession) {
+              return snapshot(liveSession);
+            }
             liveSession.runtimeEnv = nextRuntimeEnv;
-            liveSession.initialCommand = input.initialCommand ?? null;
+            liveSession.initialCommand = requestedInitialCommand ?? null;
             liveSession.worktreePath = input.worktreePath ?? null;
             liveSession.history = "";
             liveSession.pendingHistoryControlSequence = "";
@@ -1784,7 +1795,9 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
                 cols: targetCols,
                 rows: targetRows,
                 ...(input.env ? { env: input.env } : {}),
-                ...(input.initialCommand ? { initialCommand: input.initialCommand } : {}),
+                ...(liveSession.initialCommand
+                  ? { initialCommand: liveSession.initialCommand }
+                  : {}),
               },
               "started",
             );

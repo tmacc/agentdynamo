@@ -12,13 +12,49 @@ class WorktreeSetupRuntimeFailure extends Error {
   override readonly name = "WorktreeSetupRuntimeFailure";
 }
 
+interface WorktreeSetupRuntimeOptions {
+  readonly platform?: NodeJS.Platform;
+}
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-const makeWorktreeSetupRuntime = Effect.gen(function* () {
+function cmdQuotePath(value: string): string {
+  if (value.includes('"')) {
+    throw new WorktreeSetupRuntimeFailure(
+      `Cannot launch Windows worktree helper with a quote in its path: ${value}`,
+    );
+  }
+  return `"${value}"`;
+}
+
+function commandLaunchInput(input: {
+  readonly platform: NodeJS.Platform;
+  readonly posixEnvFilePath: string;
+  readonly powerShellEnvFilePath: string;
+  readonly posixHelperPath: string;
+  readonly windowsCommandPath: string;
+}): { readonly envFilePath: string; readonly initialCommand: string } {
+  if (input.platform === "win32") {
+    return {
+      envFilePath: input.powerShellEnvFilePath,
+      initialCommand: `cmd.exe /d /s /c ${cmdQuotePath(input.windowsCommandPath)}`,
+    };
+  }
+  return {
+    envFilePath: input.posixEnvFilePath,
+    initialCommand: shellQuote(input.posixHelperPath),
+  };
+}
+
+export const makeWorktreeSetupRuntimeWithOptions = (
+  options: WorktreeSetupRuntimeOptions = {},
+) =>
+  Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
   const terminalManager = yield* TerminalManager;
+  const platform = options.platform ?? process.platform;
 
   const materializeProjectHelpers: WorktreeSetupRuntimeShape["materializeProjectHelpers"] = (
     input,
@@ -58,15 +94,22 @@ const makeWorktreeSetupRuntime = Effect.gen(function* () {
     Effect.gen(function* () {
       const prepared = yield* prepareWorktreeRuntime(input);
       const terminalId = input.preferredTerminalId ?? "worktree-setup";
+      const launchInput = commandLaunchInput({
+        platform,
+        posixEnvFilePath: prepared.envFilePath,
+        powerShellEnvFilePath: prepared.powerShellEnvFilePath,
+        posixHelperPath: prepared.helperPaths.setupHelperPath,
+        windowsCommandPath: prepared.helperPaths.setupWindowsCommandPath,
+      });
       yield* terminalManager.open({
         threadId: input.threadId,
         terminalId,
         cwd: input.worktreePath,
         worktreePath: input.worktreePath,
         env: {
-          DYNAMO_WORKTREE_ENV_FILE: prepared.envFilePath,
+          DYNAMO_WORKTREE_ENV_FILE: launchInput.envFilePath,
         },
-        initialCommand: shellQuote(prepared.helperPaths.setupHelperPath),
+        initialCommand: launchInput.initialCommand,
       });
       return {
         status: "started",
@@ -81,15 +124,22 @@ const makeWorktreeSetupRuntime = Effect.gen(function* () {
     Effect.gen(function* () {
       const prepared = yield* prepareWorktreeRuntime(input);
       const terminalId = input.preferredTerminalId ?? "worktree-dev";
+      const launchInput = commandLaunchInput({
+        platform,
+        posixEnvFilePath: prepared.envFilePath,
+        powerShellEnvFilePath: prepared.powerShellEnvFilePath,
+        posixHelperPath: prepared.helperPaths.devHelperPath,
+        windowsCommandPath: prepared.helperPaths.devWindowsCommandPath,
+      });
       yield* terminalManager.open({
         threadId: input.threadId,
         terminalId,
         cwd: input.worktreePath,
         worktreePath: input.worktreePath,
         env: {
-          DYNAMO_WORKTREE_ENV_FILE: prepared.envFilePath,
+          DYNAMO_WORKTREE_ENV_FILE: launchInput.envFilePath,
         },
-        initialCommand: shellQuote(prepared.helperPaths.devHelperPath),
+        initialCommand: launchInput.initialCommand,
       });
       return {
         status: "started",
@@ -110,5 +160,5 @@ const makeWorktreeSetupRuntime = Effect.gen(function* () {
 
 export const WorktreeSetupRuntimeLive = Layer.effect(
   WorktreeSetupRuntime,
-  makeWorktreeSetupRuntime,
+  makeWorktreeSetupRuntimeWithOptions(),
 );

@@ -308,6 +308,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/server/src/project/Layers/WorktreeSetupApplicator.ts`
   - `apps/server/src/project/Services/WorktreeSetupRuntime.ts`
   - `apps/server/src/project/Layers/WorktreeSetupRuntime.ts`
+  - `apps/server/src/project/Layers/WorktreeSetupRuntime.test.ts`
   - `apps/web/src/components/ProjectScriptsControl.tsx`
   - `apps/web/src/hooks/useEnsureWorktreeSetup.tsx`
   - `apps/web/src/components/WorktreeSetupDialog.tsx`
@@ -322,11 +323,12 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `packages/shared/src/projectScripts.ts`
 - `Important invariants`:
   - The persisted project `worktreeSetup` profile is the source of truth; generated scripts are derived artifacts.
-  - Generated setup/dev helpers live under Dynamo runtime storage by default, not in the project repo.
+  - Generated setup/dev helpers live under Dynamo runtime storage by default, not in the project repo. POSIX helpers are `setup.sh`/`dev.sh`; Windows helpers are `setup.ps1`/`dev.ps1` plus `setup.cmd`/`dev.cmd` wrappers that launch PowerShell with execution-policy bypass.
   - Applying setup must not create or overwrite `.dynamo`, `.t3code`, or helper scripts inside the project checkout.
-  - Per-worktree runtime env lives under the worktree Git admin dir at `dynamo/worktree.env`.
+  - Per-worktree runtime env lives under the worktree Git admin dir at `dynamo/worktree.env` for POSIX helpers and `dynamo/worktree.env.ps1` for Windows helpers.
   - Setup failures should be visible without stranding the thread or deleting the worktree.
   - Automatic setup/dev launches must start their command as part of terminal process creation, not by racing an immediate write into a newly-opened interactive shell.
+  - Reopening or attaching to a command-mode terminal without an explicit `initialCommand` must not stop the running setup/dev command, clear setup logs, or restart a plain shell after the command exits.
   - Existing custom project scripts with `runOnWorktreeCreate` remain a backward-compatible fallback when no configured auto-run setup profile exists.
   - Runtime env includes `DYNAMO_*` variables and `T3CODE_*` compatibility aliases.
 - `Merge hotspots`:
@@ -338,8 +340,10 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Verification`:
   - Scan a project for worktree setup and review the proposed config.
   - Apply setup and confirm helper scripts are written under Dynamo state/runtime storage, not the project repo.
-  - Confirm per-worktree env is written under the worktree Git admin dir.
+  - Confirm per-worktree env is written under the worktree Git admin dir for both POSIX and PowerShell helpers.
   - Create a new worktree thread and confirm the setup terminal launches automatically, executes the helper command, and creates expected dependency artifacts such as `node_modules`.
+  - Open the setup terminal drawer while setup is running and confirm the setup command is not interrupted; reopen after exit and confirm logs remain visible.
+  - On Windows, confirm setup/dev launch through the generated `.cmd` wrapper, dot-source `worktree.env.ps1`, and run the configured install/dev commands.
   - Disable automatic setup and confirm custom `runOnWorktreeCreate` scripts still act as fallback.
   - Skip once and disable prompt from the setup dialog.
   - Verify existing worktrees do not rerun setup unexpectedly.

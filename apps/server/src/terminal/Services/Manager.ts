@@ -72,8 +72,11 @@ export interface TerminalManagerShape {
   /**
    * Open or attach to a terminal session.
    *
-   * Reuses an existing session for the same thread/terminal id and restores
-   * persisted history on first open.
+   * Reuses an existing session for the same thread/terminal id and restores persisted history on
+   * first open. For an existing session, omitting `initialCommand` attaches to that session instead
+   * of replacing command-mode terminals. Providing `initialCommand` starts that command on first
+   * open, reruns exited command sessions, or replaces an existing command session when the command
+   * changes. Use `restart` for an explicit plain-shell reset.
    */
   readonly open: (
     input: TerminalOpenInput,
