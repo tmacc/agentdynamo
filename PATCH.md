@@ -26,24 +26,28 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ## Fork Feature Inventory
 
-### Sidebar new worktree thread base branch default
+### New worktree thread base branch default
 
 - `Status`: Present on current fork.
-- `User-visible behavior`: When the user creates a new thread from the sidebar while the default environment mode is `New worktree`, Dynamo defaults the `From` branch to `main` instead of carrying over the current checkout branch or the previously opened thread branch.
+- `User-visible behavior`: When the user creates a new thread in `New worktree` mode, or switches an unsent local draft/empty thread to `New worktree`, Dynamo defaults the `From` branch to `main` instead of carrying over the current checkout branch or the previously opened thread branch.
 - `Why it exists`: New isolated worktrees should normally branch from the project integration branch, avoiding accidental worktree creation from an unrelated feature branch.
 - `Key fork files`:
+  - `apps/web/src/components/BranchToolbar.logic.ts`
+  - `apps/web/src/components/ChatView.tsx`
   - `apps/web/src/components/Sidebar.logic.ts`
   - `apps/web/src/components/Sidebar.tsx`
 - `Important invariants`:
-  - This default applies only to sidebar-created new worktree drafts.
+  - This default applies only to pending new-worktree setup where no concrete worktree path exists yet.
   - Forking a thread must continue to use the source conversation workspace/HEAD as the base.
   - Selecting a branch in the branch picker must still override the default before send.
   - Existing concrete worktree threads keep their stored branch/worktree path.
 - `Merge hotspots`:
   - Sidebar new-thread seed context
+  - Chat composer environment-mode switching
   - New-thread draft creation flows
 - `Verification`:
   - From a thread on a feature branch, create a new thread in `New worktree` mode and confirm the branch selector shows `From main`.
+  - From an unsent local draft whose stored branch is a feature branch, switch to `New worktree` and confirm the branch selector changes to `From main`.
   - Fork a thread from a feature branch and confirm the fork still uses the source workspace commit/branch rather than `main`.
   - Select a different base branch manually and confirm send uses that selected branch.
 

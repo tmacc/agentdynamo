@@ -14,6 +14,7 @@ export interface EnvironmentOption {
 
 export const EnvMode = Schema.Literals(["local", "worktree"]);
 export type EnvMode = typeof EnvMode.Type;
+export const DEFAULT_NEW_WORKTREE_BASE_BRANCH = "main";
 
 const GENERIC_LOCAL_ENVIRONMENT_LABELS = new Set(["local", "local environment"]);
 

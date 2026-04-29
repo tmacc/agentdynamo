@@ -9,6 +9,7 @@ import {
 import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
+import { DEFAULT_NEW_WORKTREE_BASE_BRANCH } from "./BranchToolbar.logic";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
@@ -167,8 +168,6 @@ export function resolveSidebarNewThreadEnvMode(input: {
   return input.requestedEnvMode ?? input.defaultEnvMode;
 }
 
-export const DEFAULT_SIDEBAR_NEW_WORKTREE_BASE_BRANCH = "main";
-
 export function resolveSidebarNewThreadSeedContext(input: {
   projectId: string;
   defaultEnvMode: SidebarNewThreadEnvMode;
@@ -190,7 +189,7 @@ export function resolveSidebarNewThreadSeedContext(input: {
 } {
   if (input.defaultEnvMode === "worktree") {
     return {
-      branch: DEFAULT_SIDEBAR_NEW_WORKTREE_BASE_BRANCH,
+      branch: DEFAULT_NEW_WORKTREE_BASE_BRANCH,
       worktreePath: null,
       envMode: "worktree",
     };

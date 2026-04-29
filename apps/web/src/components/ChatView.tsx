@@ -117,6 +117,7 @@ import {
   type ChatRightPanelId,
 } from "../rightPanelLayout";
 import { BranchToolbar } from "./BranchToolbar";
+import { DEFAULT_NEW_WORKTREE_BASE_BRANCH } from "./BranchToolbar.logic";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
@@ -3501,12 +3502,16 @@ export default function ChatView(props: ChatViewProps) {
     (mode: DraftThreadEnvMode) => {
       if (canOverrideServerThreadEnvMode) {
         setPendingServerThreadEnvMode(mode);
+        setPendingServerThreadBranch(
+          mode === "worktree" ? DEFAULT_NEW_WORKTREE_BASE_BRANCH : undefined,
+        );
         scheduleComposerFocus();
         return;
       }
       if (isLocalDraftThread) {
         setDraftThreadContext(composerDraftTarget, {
           envMode: mode,
+          ...(mode === "worktree" ? { branch: DEFAULT_NEW_WORKTREE_BASE_BRANCH } : {}),
           ...(mode === "worktree" && draftThread?.worktreePath ? { worktreePath: null } : {}),
         });
       }
@@ -3517,6 +3522,7 @@ export default function ChatView(props: ChatViewProps) {
       composerDraftTarget,
       draftThread?.worktreePath,
       isLocalDraftThread,
+      setPendingServerThreadBranch,
       setPendingServerThreadEnvMode,
       scheduleComposerFocus,
       setDraftThreadContext,
