@@ -1,10 +1,10 @@
-import { randomUUID } from "node:crypto";
-
 import {
   ApprovalRequestId,
-  DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_MODEL,
   EventId,
+  ProviderDriverKind,
   ProviderItemId,
+  type ProviderInstanceId,
   type ProviderApprovalDecision,
   type ProviderEvent,
   type ProviderInteractionMode,
@@ -17,7 +17,7 @@ import {
   TurnId,
 } from "@t3tools/contracts";
 import { normalizeModelSlug } from "@t3tools/shared/model";
-import { Deferred, Effect, Exit, Layer, Queue, Ref, Scope, Schema, Stream } from "effect";
+import { Deferred, Effect, Exit, Layer, Queue, Ref, Scope, Random, Schema, Stream } from "effect";
 import * as SchemaIssue from "effect/SchemaIssue";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as CodexClient from "effect-codex-app-server/client";
@@ -26,14 +26,14 @@ import * as CodexRpc from "effect-codex-app-server/rpc";
 import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
 import { buildCodexInitializeParams } from "./CodexProvider.ts";
+import { expandHomePath } from "../../pathExpansion.ts";
 import {
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS,
 } from "../CodexDeveloperInstructions.ts";
-import { expandHomePath } from "../../pathExpansion.ts";
 
-const PROVIDER = "codex" as const;
+const PROVIDER = ProviderDriverKind.make("codex");
 
 const ANSI_ESCAPE_CHAR = String.fromCharCode(27);
 const ANSI_ESCAPE_REGEX = new RegExp(`${ANSI_ESCAPE_CHAR}\\[[0-9;]*m`, "g");
@@ -77,8 +77,10 @@ type CodexThreadItem =
 
 export interface CodexSessionRuntimeOptions {
   readonly threadId: ThreadId;
+  readonly providerInstanceId?: ProviderInstanceId;
   readonly binaryPath: string;
   readonly homePath?: string;
+  readonly environment?: NodeJS.ProcessEnv;
   readonly cwd: string;
   readonly runtimeMode: RuntimeMode;
   readonly model?: string;
@@ -91,7 +93,10 @@ export interface CodexSessionRuntimeOptions {
 
 export interface CodexSessionRuntimeSendTurnInput {
   readonly input?: string;
-  readonly attachments?: ReadonlyArray<{ readonly type: "image"; readonly url: string }>;
+  readonly attachments?: ReadonlyArray<{
+    readonly type: "image";
+    readonly url: string;
+  }>;
   readonly model?: string;
   readonly serviceTier?: EffectCodexSchema.V2TurnStartParams__ServiceTier | undefined;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort | undefined;
@@ -308,7 +313,7 @@ function buildCodexCollaborationMode(input: {
   if (input.interactionMode === undefined && input.teamCoordinatorTools !== true) {
     return undefined;
   }
-  const model = normalizeCodexModelSlug(input.model) ?? DEFAULT_MODEL_BY_PROVIDER.codex;
+  const model = normalizeCodexModelSlug(input.model) ?? DEFAULT_MODEL;
   const baseDeveloperInstructions =
     input.interactionMode === "plan"
       ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
@@ -331,7 +336,10 @@ export function buildTurnStartParams(input: {
   readonly threadId: string;
   readonly runtimeMode: RuntimeMode;
   readonly prompt?: string;
-  readonly attachments?: ReadonlyArray<{ readonly type: "image"; readonly url: string }>;
+  readonly attachments?: ReadonlyArray<{
+    readonly type: "image";
+    readonly url: string;
+  }>;
   readonly model?: string;
   readonly serviceTier?: EffectCodexSchema.V2TurnStartParams__ServiceTier;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
@@ -696,16 +704,20 @@ export const makeCodexSessionRuntime = (
       ...(options.configOverrides ?? []).flatMap((override) => ["-c", override]),
       "app-server",
     ];
-    const childEnv = {
-      ...process.env,
-      ...(options.homePath ? { CODEX_HOME: expandHomePath(options.homePath) } : {}),
+    // `~` is not shell-expanded when env vars are set via
+    // `child_process.spawn`; `expandHomePath` lets a configured
+    // `CODEX_HOME=~/.codex_work` reach codex as an absolute path.
+    const resolvedHomePath = options.homePath ? expandHomePath(options.homePath) : undefined;
+    const env = {
+      ...(options.environment ?? process.env),
+      ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
       ...options.env,
     };
     const child = yield* spawner
       .spawn(
         ChildProcess.make(options.binaryPath, codexArgs, {
           cwd: options.cwd,
-          env: childEnv,
+          env,
           shell: process.platform === "win32",
         }),
       )
@@ -731,6 +743,7 @@ export const makeCodexSessionRuntime = (
 
     const initialSession = {
       provider: PROVIDER,
+      ...(options.providerInstanceId ? { providerInstanceId: options.providerInstanceId } : {}),
       status: "connecting",
       runtimeMode: options.runtimeMode,
       cwd: options.cwd,
@@ -744,13 +757,15 @@ export const makeCodexSessionRuntime = (
     const offerEvent = (event: ProviderEvent) => Queue.offer(events, event).pipe(Effect.asVoid);
 
     const emitEvent = (event: Omit<ProviderEvent, "id" | "provider" | "createdAt">) =>
-      offerEvent({
-        id: EventId.make(randomUUID()),
-        provider: PROVIDER,
-        createdAt: new Date().toISOString(),
-        ...event,
-      });
-
+      Effect.flatMap(Random.nextUUIDv4, (id) =>
+        offerEvent({
+          id: EventId.make(id),
+          provider: PROVIDER,
+          ...(options.providerInstanceId ? { providerInstanceId: options.providerInstanceId } : {}),
+          createdAt: new Date().toISOString(),
+          ...event,
+        }),
+      );
     const emitSessionEvent = (method: string, message: string) =>
       emitEvent({
         kind: "session",
@@ -910,7 +925,7 @@ export const makeCodexSessionRuntime = (
 
     yield* client.handleServerRequest("item/commandExecution/requestApproval", (payload) =>
       Effect.gen(function* () {
-        const requestId = ApprovalRequestId.make(randomUUID());
+        const requestId = ApprovalRequestId.make(yield* Random.nextUUIDv4);
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
         const decision = yield* Deferred.make<ProviderApprovalDecision>();
@@ -966,7 +981,7 @@ export const makeCodexSessionRuntime = (
 
     yield* client.handleServerRequest("item/fileChange/requestApproval", (payload) =>
       Effect.gen(function* () {
-        const requestId = ApprovalRequestId.make(randomUUID());
+        const requestId = ApprovalRequestId.make(yield* Random.nextUUIDv4);
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
         const decision = yield* Deferred.make<ProviderApprovalDecision>();
@@ -1022,7 +1037,7 @@ export const makeCodexSessionRuntime = (
 
     yield* client.handleServerRequest("item/tool/requestUserInput", (payload) =>
       Effect.gen(function* () {
-        const requestId = ApprovalRequestId.make(randomUUID());
+        const requestId = ApprovalRequestId.make(yield* Random.nextUUIDv4);
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
         const answers = yield* Deferred.make<ProviderUserInputAnswers>();

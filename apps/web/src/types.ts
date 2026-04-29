@@ -15,7 +15,8 @@ import type {
   MessageId,
   OrchestrationThreadForkOrigin,
   ProjectWorktreeSetupProfile,
-  ProviderKind,
+  ProviderDriverKind,
+  ProviderInstanceId,
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
@@ -173,7 +174,8 @@ export interface SidebarThreadSummary {
 }
 
 export interface ThreadSession {
-  provider: ProviderKind;
+  provider: ProviderDriverKind;
+  providerInstanceId?: ProviderInstanceId | undefined;
   status: SessionPhase | "error" | "closed";
   activeTurnId?: TurnId | undefined;
   createdAt: string;
