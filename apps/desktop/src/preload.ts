@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopBridge } from "@t3tools/contracts";
+import type {
+  DesktopBridge,
+  DesktopStorageMutationResult,
+  DesktopStorageReadResult,
+} from "@t3tools/contracts";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
@@ -15,6 +19,9 @@ const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const GET_APP_BRANDING_CHANNEL = "desktop:get-app-branding";
 const GET_LOCAL_ENVIRONMENT_BOOTSTRAP_CHANNEL = "desktop:get-local-environment-bootstrap";
+const GET_SAVED_PROMPT_STORAGE_CHANNEL = "desktop:get-saved-prompt-storage";
+const SET_SAVED_PROMPT_STORAGE_CHANNEL = "desktop:set-saved-prompt-storage";
+const REMOVE_SAVED_PROMPT_STORAGE_CHANNEL = "desktop:remove-saved-prompt-storage";
 const GET_CLIENT_SETTINGS_CHANNEL = "desktop:get-client-settings";
 const SET_CLIENT_SETTINGS_CHANNEL = "desktop:set-client-settings";
 const GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL = "desktop:get-saved-environment-registry";
@@ -24,6 +31,55 @@ const SET_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:set-saved-environment-secr
 const REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:remove-saved-environment-secret";
 const GET_SERVER_EXPOSURE_STATE_CHANNEL = "desktop:get-server-exposure-state";
 const SET_SERVER_EXPOSURE_MODE_CHANNEL = "desktop:set-server-exposure-mode";
+
+const INVALID_SAVED_PROMPT_STORAGE_RESPONSE_MESSAGE =
+  "Invalid desktop saved prompt storage response.";
+
+const INVALID_SAVED_PROMPT_STORAGE_RESPONSE: DesktopStorageMutationResult = {
+  status: "error",
+  message: INVALID_SAVED_PROMPT_STORAGE_RESPONSE_MESSAGE,
+};
+
+function isDesktopStorageReadResult(value: unknown): value is DesktopStorageReadResult {
+  if (typeof value !== "object" || value === null || !("status" in value)) {
+    return false;
+  }
+  const result = value as Partial<DesktopStorageReadResult>;
+  if (result.status === "missing") {
+    return true;
+  }
+  if (result.status === "ok") {
+    return typeof result.value === "string";
+  }
+  if (result.status === "error") {
+    return typeof result.message === "string";
+  }
+  if (result.status === "corrupt") {
+    return (
+      typeof result.message === "string" &&
+      (result.backupPath === undefined || typeof result.backupPath === "string")
+    );
+  }
+  return false;
+}
+
+function isDesktopStorageMutationResult(value: unknown): value is DesktopStorageMutationResult {
+  if (typeof value !== "object" || value === null || !("status" in value)) {
+    return false;
+  }
+  const result = value as Partial<DesktopStorageMutationResult>;
+  if (result.status === "ok") {
+    return true;
+  }
+  return result.status === "error" && typeof result.message === "string";
+}
+
+function invalidSavedPromptStorageReadResult(): DesktopStorageReadResult {
+  return {
+    status: "error",
+    message: INVALID_SAVED_PROMPT_STORAGE_RESPONSE_MESSAGE,
+  };
+}
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getAppBranding: () => {
@@ -39,6 +95,18 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       return null;
     }
     return result as ReturnType<DesktopBridge["getLocalEnvironmentBootstrap"]>;
+  },
+  getSavedPromptStorage: () => {
+    const result = ipcRenderer.sendSync(GET_SAVED_PROMPT_STORAGE_CHANNEL);
+    return isDesktopStorageReadResult(result) ? result : invalidSavedPromptStorageReadResult();
+  },
+  setSavedPromptStorage: (value) => {
+    const result = ipcRenderer.sendSync(SET_SAVED_PROMPT_STORAGE_CHANNEL, value);
+    return isDesktopStorageMutationResult(result) ? result : INVALID_SAVED_PROMPT_STORAGE_RESPONSE;
+  },
+  removeSavedPromptStorage: () => {
+    const result = ipcRenderer.sendSync(REMOVE_SAVED_PROMPT_STORAGE_CHANNEL);
+    return isDesktopStorageMutationResult(result) ? result : INVALID_SAVED_PROMPT_STORAGE_RESPONSE;
   },
   getClientSettings: () => ipcRenderer.invoke(GET_CLIENT_SETTINGS_CHANNEL),
   setClientSettings: (settings) => ipcRenderer.invoke(SET_CLIENT_SETTINGS_CHANNEL, settings),

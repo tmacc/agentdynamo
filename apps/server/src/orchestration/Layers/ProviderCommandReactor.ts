@@ -36,6 +36,7 @@ import { renderContextHandoff, type ContextHandoffRenderResult } from "../contex
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ServerConfig } from "../../config.ts";
 import { TeamCoordinatorAccess } from "../../team/Services/TeamCoordinatorAccess.ts";
+import { isDedicatedDynamoTeamWorktreeTask } from "../../team/teamTaskGuards.ts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -669,14 +670,24 @@ const make = Effect.gen(function* () {
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
   }) {
-    if (!input.branch || !input.worktreePath) {
-      return;
-    }
-    if (!isTemporaryWorktreeBranch(input.branch)) {
+    if (!input.worktreePath) {
       return;
     }
 
-    const oldBranch = input.branch;
+    const status = yield* git.status({ cwd: input.worktreePath }).pipe(Effect.option);
+    const oldBranch = Option.isSome(status)
+      ? status.value.isRepo &&
+        status.value.branch !== null &&
+        isTemporaryWorktreeBranch(status.value.branch)
+        ? status.value.branch
+        : null
+      : input.branch && isTemporaryWorktreeBranch(input.branch)
+        ? input.branch
+        : null;
+    if (oldBranch === null) {
+      return;
+    }
+
     const cwd = input.worktreePath;
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
@@ -713,6 +724,28 @@ const make = Effect.gen(function* () {
         }),
       ),
     );
+  });
+
+  const shouldAutoRenameWorktreeBranchForFirstTurn = Effect.fn(
+    "shouldAutoRenameWorktreeBranchForFirstTurn",
+  )(function* (input: { readonly thread: OrchestrationThread }) {
+    if (!input.thread.worktreePath) {
+      return false;
+    }
+
+    if (!input.thread.teamParent) {
+      return true;
+    }
+
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const parentThread = readModel.threads.find(
+      (candidate) => candidate.id === input.thread.teamParent?.parentThreadId,
+    );
+    const task = parentThread?.teamTasks?.find(
+      (candidate) => candidate.id === input.thread.teamParent?.taskId,
+    );
+
+    return task ? isDedicatedDynamoTeamWorktreeTask(task) : false;
   });
 
   const maybeGenerateThreadTitleForFirstTurn = Effect.fn("maybeGenerateThreadTitleForFirstTurn")(
@@ -802,12 +835,14 @@ const make = Effect.gen(function* () {
         ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
       };
 
-      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
-        threadId: event.payload.threadId,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
-        ...generationInput,
-      }).pipe(Effect.forkScoped);
+      if (yield* shouldAutoRenameWorktreeBranchForFirstTurn({ thread })) {
+        yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
+          threadId: event.payload.threadId,
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+          ...generationInput,
+        }).pipe(Effect.forkScoped);
+      }
 
       if (canReplaceThreadTitle(thread.title, event.payload.titleSeed, thread.forkOrigin)) {
         yield* maybeGenerateThreadTitleForFirstTurn({

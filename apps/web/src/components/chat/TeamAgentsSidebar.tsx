@@ -22,6 +22,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "~/lib/utils";
 import {
   isActiveTeamTask,
+  isDedicatedDynamoTeamWorktreeTask,
   isMaterializedDynamoTeamTask,
   isNativeProviderTeamTask,
   teamTaskModelLabel,
@@ -191,6 +192,7 @@ const AgentCard = memo(function AgentCard({
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[task.modelSelection.provider];
   const isActive = isActiveTeamTask(task);
   const isMaterializedDynamo = isMaterializedDynamoTeamTask(task);
+  const isDedicatedDynamoWorktree = isDedicatedDynamoTeamWorktreeTask(task);
   const isNativeProvider = isNativeProviderTeamTask(task);
   const hasActions = isMaterializedDynamo;
 
@@ -254,7 +256,7 @@ const AgentCard = memo(function AgentCard({
             Inspect activity
           </Button>
         ) : null}
-        {childWorktreePath && !isActive && isMaterializedDynamo ? (
+        {childWorktreePath && !isActive && isDedicatedDynamoWorktree ? (
           <Button size="xs" variant="ghost" onClick={() => onReviewTaskChanges(task)}>
             <CheckIcon className="size-3" />
             Review & apply

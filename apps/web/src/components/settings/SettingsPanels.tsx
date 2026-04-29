@@ -79,6 +79,7 @@ import {
   useServerObservability,
   useServerProviders,
 } from "../../rpc/serverState";
+import { formatProviderAuthDetails } from "../../providerAccountPresentation";
 
 const THEME_OPTIONS = [
   {
@@ -188,7 +189,7 @@ function getProviderSummary(provider: ServerProvider | undefined) {
     };
   }
   if (provider.auth.status === "authenticated") {
-    const authLabel = provider.auth.label ?? provider.auth.type;
+    const authLabel = formatProviderAuthDetails(provider);
     return {
       headline: authLabel ? `Authenticated · ${authLabel}` : "Authenticated",
       detail: provider.message ?? null,

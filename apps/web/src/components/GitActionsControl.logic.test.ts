@@ -1029,6 +1029,28 @@ describe("resolveLiveThreadBranchUpdate", () => {
 
     assert.equal(update, null);
   });
+
+  it("does not replace a temporary worktree branch with a non-temporary live branch", () => {
+    const update = resolveLiveThreadBranchUpdate({
+      threadBranch: "t3code/07f7f5eb",
+      threadWorktreePath: "/repo/.dynamo/worktrees/project/t3code-07f7f5eb",
+      gitStatus: status({ branch: "main" }),
+    });
+
+    assert.equal(update, null);
+  });
+
+  it("allows non-worktree temporary branch metadata to sync from live git status", () => {
+    const update = resolveLiveThreadBranchUpdate({
+      threadBranch: "t3code/07f7f5eb",
+      threadWorktreePath: null,
+      gitStatus: status({ branch: "main" }),
+    });
+
+    assert.deepEqual(update, {
+      branch: "main",
+    });
+  });
 });
 
 describe("resolveAutoFeatureBranchName", () => {

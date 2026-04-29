@@ -835,6 +835,390 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("applies only child deltas when the child was seeded from parent WIP", () =>
+    Effect.gen(function* () {
+      const rootDir = yield* makeTempDir("t3code-git-manager-seeded-child-patch-");
+      const repoDir = path.join(rootDir, "repo");
+      const childDir = path.join(rootDir, "child");
+      yield* makeDirectory(repoDir);
+      yield* initRepo(repoDir);
+
+      fs.writeFileSync(path.join(repoDir, "README.md"), "hello\nparent wip\n");
+      fs.writeFileSync(path.join(repoDir, "context.txt"), "parent context\n");
+      yield* runGit(repoDir, ["worktree", "add", "-b", "child-agent", childDir, "HEAD"]);
+      yield* (yield* GitCore).seedWorktreeFromSnapshot({
+        sourceCwd: repoDir,
+        targetCwd: childDir,
+      });
+
+      fs.writeFileSync(path.join(childDir, "README.md"), "hello\nparent wip\nchild edit\n");
+      fs.writeFileSync(path.join(childDir, "child.txt"), "child-only\n");
+
+      const parentThreadId = asThreadId("parent-thread");
+      const childThreadId = asThreadId("child-thread");
+      const taskId = "task-1";
+      const teamTask = {
+        id: taskId,
+        parentThreadId,
+        childThreadId,
+        title: "Seeded child task",
+        task: "Edit files",
+        roleLabel: null,
+        kind: "coding",
+        modelSelection: { provider: "codex", model: "gpt-5.5" },
+        modelSelectionMode: "coordinator-selected",
+        modelSelectionReason: "Test",
+        workspaceMode: "worktree",
+        resolvedWorkspaceMode: "worktree",
+        setupMode: "skip",
+        resolvedSetupMode: "skip",
+        status: "completed",
+        latestSummary: null,
+        errorText: null,
+        createdAt: new Date().toISOString(),
+        startedAt: null,
+        completedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as const;
+      const parentThread = {
+        id: parentThreadId,
+        projectId: "project-1",
+        worktreePath: null,
+        teamTasks: [teamTask],
+      } as unknown as OrchestrationThread;
+      const childThread = {
+        id: childThreadId,
+        projectId: "project-1",
+        worktreePath: childDir,
+        teamParent: {
+          parentThreadId,
+          taskId,
+          roleLabel: null,
+        },
+      } as unknown as OrchestrationThread;
+
+      const { manager } = yield* makeManager({
+        projectionSnapshotQuery: {
+          getSnapshot: () => Effect.die("getSnapshot should not be called in this test"),
+          getShellSnapshot: () => Effect.die("getShellSnapshot should not be called in this test"),
+          getCounts: () => Effect.die("getCounts should not be called in this test"),
+          getActiveProjectByWorkspaceRoot: () =>
+            Effect.die("getActiveProjectByWorkspaceRoot should not be called in this test"),
+          getProjectShellById: () =>
+            Effect.die("getProjectShellById should not be called in this test"),
+          getFirstActiveThreadIdByProjectId: () =>
+            Effect.die("getFirstActiveThreadIdByProjectId should not be called in this test"),
+          getThreadShellById: () =>
+            Effect.die("getThreadShellById should not be called in this test"),
+          getThreadDetailById: (threadId) =>
+            Effect.succeed(
+              threadId === parentThreadId
+                ? Option.some(parentThread)
+                : threadId === childThreadId
+                  ? Option.some(childThread)
+                  : Option.none(),
+            ),
+          getThreadCheckpointContext: (threadId) =>
+            Effect.succeed(
+              threadId === parentThreadId
+                ? Option.some({
+                    threadId: parentThreadId,
+                    projectId: "project-1" as never,
+                    workspaceRoot: repoDir,
+                    worktreePath: null,
+                    checkpoints: [],
+                  })
+                : Option.none(),
+            ),
+          getTeamTaskTrace: () => Effect.die("getTeamTaskTrace should not be called in this test"),
+        },
+      });
+      const preview = yield* manager.previewWorktreePatch({
+        parentThreadId,
+        taskId,
+      });
+      expect(preview.status).toBe("has_changes");
+      if (preview.status !== "has_changes") {
+        throw new Error("Expected seeded child preview to have changes.");
+      }
+      expect(preview.files.map((file) => file.path).toSorted()).toEqual(["README.md", "child.txt"]);
+
+      const result = yield* manager.applyWorktreePatch({
+        parentThreadId,
+        taskId,
+        expectedPatchHash: preview.patchHash,
+      });
+
+      expect(result.status).toBe("applied");
+      expect(fs.readFileSync(path.join(repoDir, "README.md"), "utf8")).toBe(
+        "hello\nparent wip\nchild edit\n",
+      );
+      expect(fs.readFileSync(path.join(repoDir, "context.txt"), "utf8")).toBe("parent context\n");
+      expect(fs.readFileSync(path.join(repoDir, "child.txt"), "utf8")).toBe("child-only\n");
+    }),
+  );
+
+  it.effect("rejects shared team child patch preview even when the child has a worktree path", () =>
+    Effect.gen(function* () {
+      const rootDir = yield* makeTempDir("t3code-git-manager-shared-child-");
+      const repoDir = path.join(rootDir, "repo");
+      yield* makeDirectory(repoDir);
+
+      const parentThreadId = asThreadId("parent-thread");
+      const childThreadId = asThreadId("child-thread");
+      const taskId = "task-1";
+      const teamTask = {
+        id: taskId,
+        parentThreadId,
+        childThreadId,
+        title: "Shared child task",
+        task: "Edit files",
+        roleLabel: null,
+        kind: "coding",
+        modelSelection: { provider: "codex", model: "gpt-5.5" },
+        modelSelectionMode: "coordinator-selected",
+        modelSelectionReason: "Test",
+        workspaceMode: "shared",
+        resolvedWorkspaceMode: "shared",
+        setupMode: "skip",
+        resolvedSetupMode: "skip",
+        source: "dynamo",
+        childThreadMaterialized: true,
+        status: "completed",
+        latestSummary: null,
+        errorText: null,
+        createdAt: new Date().toISOString(),
+        startedAt: null,
+        completedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as const;
+      const parentThread = {
+        id: parentThreadId,
+        projectId: "project-1",
+        worktreePath: repoDir,
+        teamTasks: [teamTask],
+      } as unknown as OrchestrationThread;
+      const childThread = {
+        id: childThreadId,
+        projectId: "project-1",
+        worktreePath: repoDir,
+        teamParent: {
+          parentThreadId,
+          taskId,
+          roleLabel: null,
+        },
+      } as unknown as OrchestrationThread;
+
+      const { manager } = yield* makeManager({
+        projectionSnapshotQuery: {
+          getSnapshot: () => Effect.die("getSnapshot should not be called in this test"),
+          getShellSnapshot: () => Effect.die("getShellSnapshot should not be called in this test"),
+          getCounts: () => Effect.die("getCounts should not be called in this test"),
+          getActiveProjectByWorkspaceRoot: () =>
+            Effect.die("getActiveProjectByWorkspaceRoot should not be called in this test"),
+          getProjectShellById: () =>
+            Effect.die("getProjectShellById should not be called in this test"),
+          getFirstActiveThreadIdByProjectId: () =>
+            Effect.die("getFirstActiveThreadIdByProjectId should not be called in this test"),
+          getThreadShellById: () =>
+            Effect.die("getThreadShellById should not be called in this test"),
+          getThreadDetailById: (threadId) =>
+            Effect.succeed(
+              threadId === parentThreadId
+                ? Option.some(parentThread)
+                : threadId === childThreadId
+                  ? Option.some(childThread)
+                  : Option.none(),
+            ),
+          getThreadCheckpointContext: () =>
+            Effect.die("getThreadCheckpointContext should not be called in this test"),
+          getTeamTaskTrace: () => Effect.die("getTeamTaskTrace should not be called in this test"),
+        },
+      });
+
+      const error = yield* manager
+        .previewWorktreePatch({
+          parentThreadId,
+          taskId,
+        })
+        .pipe(Effect.flip);
+
+      expect(error.message).toContain("This child agent did not run in an isolated worktree.");
+    }),
+  );
+
+  it.effect("rejects team child patch preview when parent and child paths are the same", () =>
+    Effect.gen(function* () {
+      const rootDir = yield* makeTempDir("t3code-git-manager-same-path-child-");
+      const repoDir = path.join(rootDir, "repo");
+      yield* makeDirectory(repoDir);
+
+      const parentThreadId = asThreadId("parent-thread");
+      const childThreadId = asThreadId("child-thread");
+      const taskId = "task-1";
+      const teamTask = {
+        id: taskId,
+        parentThreadId,
+        childThreadId,
+        title: "Child task",
+        task: "Edit files",
+        roleLabel: null,
+        kind: "coding",
+        modelSelection: { provider: "codex", model: "gpt-5.5" },
+        modelSelectionMode: "coordinator-selected",
+        modelSelectionReason: "Test",
+        workspaceMode: "worktree",
+        resolvedWorkspaceMode: "worktree",
+        setupMode: "skip",
+        resolvedSetupMode: "skip",
+        source: "dynamo",
+        childThreadMaterialized: true,
+        status: "completed",
+        latestSummary: null,
+        errorText: null,
+        createdAt: new Date().toISOString(),
+        startedAt: null,
+        completedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as const;
+      const parentThread = {
+        id: parentThreadId,
+        projectId: "project-1",
+        worktreePath: repoDir,
+        teamTasks: [teamTask],
+      } as unknown as OrchestrationThread;
+      const childThread = {
+        id: childThreadId,
+        projectId: "project-1",
+        worktreePath: repoDir,
+        teamParent: {
+          parentThreadId,
+          taskId,
+          roleLabel: null,
+        },
+      } as unknown as OrchestrationThread;
+
+      const { manager } = yield* makeManager({
+        projectionSnapshotQuery: {
+          getSnapshot: () => Effect.die("getSnapshot should not be called in this test"),
+          getShellSnapshot: () => Effect.die("getShellSnapshot should not be called in this test"),
+          getCounts: () => Effect.die("getCounts should not be called in this test"),
+          getActiveProjectByWorkspaceRoot: () =>
+            Effect.die("getActiveProjectByWorkspaceRoot should not be called in this test"),
+          getProjectShellById: () =>
+            Effect.die("getProjectShellById should not be called in this test"),
+          getFirstActiveThreadIdByProjectId: () =>
+            Effect.die("getFirstActiveThreadIdByProjectId should not be called in this test"),
+          getThreadShellById: () =>
+            Effect.die("getThreadShellById should not be called in this test"),
+          getThreadDetailById: (threadId) =>
+            Effect.succeed(
+              threadId === parentThreadId
+                ? Option.some(parentThread)
+                : threadId === childThreadId
+                  ? Option.some(childThread)
+                  : Option.none(),
+            ),
+          getThreadCheckpointContext: (threadId) =>
+            Effect.succeed(
+              threadId === parentThreadId
+                ? Option.some({
+                    threadId: parentThreadId,
+                    projectId: "project-1" as never,
+                    workspaceRoot: repoDir,
+                    worktreePath: repoDir,
+                    checkpoints: [],
+                  })
+                : Option.none(),
+            ),
+          getTeamTaskTrace: () => Effect.die("getTeamTaskTrace should not be called in this test"),
+        },
+      });
+
+      const error = yield* manager
+        .previewWorktreePatch({
+          parentThreadId,
+          taskId,
+        })
+        .pipe(Effect.flip);
+
+      expect(error.message).toContain(
+        "This child agent shares the coordinator workspace and cannot be reviewed as an isolated worktree.",
+      );
+    }),
+  );
+
+  it.effect("keeps the specific native provider error for non-materialized tasks", () =>
+    Effect.gen(function* () {
+      const parentThreadId = asThreadId("parent-thread");
+      const childThreadId = asThreadId("child-thread");
+      const taskId = "task-1";
+      const teamTask = {
+        id: taskId,
+        parentThreadId,
+        childThreadId,
+        title: "Native child task",
+        task: "Edit files",
+        roleLabel: null,
+        kind: "coding",
+        modelSelection: { provider: "codex", model: "gpt-5.5" },
+        modelSelectionMode: "coordinator-selected",
+        modelSelectionReason: "Test",
+        workspaceMode: "shared",
+        resolvedWorkspaceMode: "shared",
+        setupMode: "skip",
+        resolvedSetupMode: "skip",
+        source: "native-provider",
+        childThreadMaterialized: false,
+        status: "completed",
+        latestSummary: null,
+        errorText: null,
+        createdAt: new Date().toISOString(),
+        startedAt: null,
+        completedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as const;
+      const parentThread = {
+        id: parentThreadId,
+        projectId: "project-1",
+        worktreePath: null,
+        teamTasks: [teamTask],
+      } as unknown as OrchestrationThread;
+
+      const { manager } = yield* makeManager({
+        projectionSnapshotQuery: {
+          getSnapshot: () => Effect.die("getSnapshot should not be called in this test"),
+          getShellSnapshot: () => Effect.die("getShellSnapshot should not be called in this test"),
+          getCounts: () => Effect.die("getCounts should not be called in this test"),
+          getActiveProjectByWorkspaceRoot: () =>
+            Effect.die("getActiveProjectByWorkspaceRoot should not be called in this test"),
+          getProjectShellById: () =>
+            Effect.die("getProjectShellById should not be called in this test"),
+          getFirstActiveThreadIdByProjectId: () =>
+            Effect.die("getFirstActiveThreadIdByProjectId should not be called in this test"),
+          getThreadShellById: () =>
+            Effect.die("getThreadShellById should not be called in this test"),
+          getThreadDetailById: (threadId) =>
+            Effect.succeed(threadId === parentThreadId ? Option.some(parentThread) : Option.none()),
+          getThreadCheckpointContext: () =>
+            Effect.die("getThreadCheckpointContext should not be called in this test"),
+          getTeamTaskTrace: () => Effect.die("getTeamTaskTrace should not be called in this test"),
+        },
+      });
+
+      const error = yield* manager
+        .previewWorktreePatch({
+          parentThreadId,
+          taskId,
+        })
+        .pipe(Effect.flip);
+
+      expect(error.message).toContain(
+        "Native provider subagents do not have Dynamo-managed worktrees.",
+      );
+    }),
+  );
+
   it.effect("status includes PR metadata when branch already has an open PR", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");

@@ -376,6 +376,8 @@ export default function GitActionsControl({
     !activeServerThread &&
     activeDraftThread?.envMode === "worktree" &&
     activeDraftThread.worktreePath === null;
+  const activeThreadWorktreePath =
+    activeServerThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null;
 
   useEffect(() => {
     if (isGitActionRunning || isSelectingWorktreeBase) {
@@ -384,6 +386,7 @@ export default function GitActionsControl({
 
     const branchUpdate = resolveLiveThreadBranchUpdate({
       threadBranch: activeServerThread?.branch ?? activeDraftThread?.branch ?? null,
+      threadWorktreePath: activeThreadWorktreePath,
       gitStatus: gitStatusForActions,
     });
     if (!branchUpdate) {
@@ -394,6 +397,7 @@ export default function GitActionsControl({
   }, [
     activeServerThread?.branch,
     activeDraftThread?.branch,
+    activeThreadWorktreePath,
     gitStatusForActions,
     isGitActionRunning,
     isSelectingWorktreeBase,
