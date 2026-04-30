@@ -25,6 +25,7 @@ import {
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
 import { projectEvent } from "./projector.ts";
+import { normalizeSessionActiveTurn } from "./turnLifecycle.ts";
 import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
 import type { ProjectionBoardCardRepositoryShape } from "../persistence/Services/ProjectionBoardCards.ts";
 import { isMaterializedDynamoTeamTask } from "../team/teamTaskGuards.ts";
@@ -1559,6 +1560,25 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const normalizedSessionActiveTurn = normalizeSessionActiveTurn({
+        status: command.session.status,
+        activeTurnId: command.session.activeTurnId,
+      });
+      const session =
+        normalizedSessionActiveTurn.activeTurnId === command.session.activeTurnId
+          ? command.session
+          : {
+              ...command.session,
+              activeTurnId: normalizedSessionActiveTurn.activeTurnId,
+            };
+      if (session.activeTurnId !== command.session.activeTurnId) {
+        yield* Effect.logWarning("orchestration.session.invalid-active-turn-normalized", {
+          threadId: command.threadId,
+          status: command.session.status,
+          receivedActiveTurnId: command.session.activeTurnId,
+          commandId: command.commandId,
+        });
+      }
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1570,7 +1590,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.session-set",
         payload: {
           threadId: command.threadId,
-          session: command.session,
+          session,
         },
       };
     }

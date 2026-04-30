@@ -222,4 +222,50 @@ describe("deriveBoardColumns", () => {
     expect(result.find((column) => column.kind === "review")?.items).toHaveLength(1);
     expect(result.find((column) => column.kind === "done")?.items).toHaveLength(1);
   });
+
+  it("does not keep a final session with a stale running latest turn in progress", () => {
+    const thread = makeThread({
+      id: "thread-stale-running" as ThreadId,
+      session: {
+        ...settledSession(),
+        activeTurnId: "turn-stale-running" as TurnId,
+      },
+      latestTurn: {
+        turnId: "turn-stale-running" as TurnId,
+        state: "running",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT_ID,
+      cards: [],
+      threads: [thread],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((column) => column.kind === "in-progress")?.items).toHaveLength(0);
+  });
+
+  it("keeps pending user-input threads actionable even when session is final", () => {
+    const thread = makeThread({
+      id: "thread-pending-input" as ThreadId,
+      session: settledSession(),
+      hasPendingUserInput: true,
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT_ID,
+      cards: [],
+      threads: [thread],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((column) => column.kind === "in-progress")?.items).toHaveLength(1);
+  });
 });

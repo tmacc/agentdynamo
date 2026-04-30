@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { ThreadId } from "@t3tools/contracts";
 
 import { toPersistenceSqlError } from "../../persistence/Errors.ts";
 import {
@@ -208,8 +209,100 @@ const makeProjectionMaintenance = Effect.gen(function* () {
           ),
         );
 
+  const repairStaleLatestTurnPointers: ProjectionMaintenanceShape["repairStaleLatestTurnPointers"] =
+    () =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`DROP TABLE IF EXISTS temp_stale_latest_turn_repairs`;
+
+            yield* sql`
+              CREATE TEMP TABLE temp_stale_latest_turn_repairs AS
+              SELECT
+                candidate.thread_id,
+                candidate.turn_id,
+                COALESCE(candidate.started_at, candidate.requested_at) AS candidate_order_time
+              FROM projection_turns AS candidate
+              JOIN projection_threads AS thread
+                ON thread.thread_id = candidate.thread_id
+              LEFT JOIN projection_turns AS current_latest
+                ON current_latest.thread_id = thread.thread_id
+               AND current_latest.turn_id = thread.latest_turn_id
+              WHERE candidate.turn_id IS NOT NULL
+                AND candidate.state IN ('completed', 'interrupted', 'error')
+                AND COALESCE(candidate.started_at, candidate.requested_at) IS NOT NULL
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM projection_thread_sessions AS session
+                  WHERE session.thread_id = candidate.thread_id
+                    AND session.status IN ('starting', 'running', 'recovering')
+                )
+                AND (
+                  thread.latest_turn_id IS NULL
+                  OR (
+                    COALESCE(current_latest.started_at, current_latest.requested_at) IS NOT NULL
+                    AND COALESCE(candidate.started_at, candidate.requested_at) >
+                      COALESCE(current_latest.started_at, current_latest.requested_at)
+                  )
+                )
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM projection_turns AS other
+                  WHERE other.thread_id = candidate.thread_id
+                    AND other.turn_id IS NOT NULL
+                    AND other.state IN ('completed', 'interrupted', 'error')
+                    AND COALESCE(other.started_at, other.requested_at) IS NOT NULL
+                    AND (
+                      COALESCE(other.started_at, other.requested_at) >
+                        COALESCE(candidate.started_at, candidate.requested_at)
+                      OR (
+                        COALESCE(other.started_at, other.requested_at) =
+                          COALESCE(candidate.started_at, candidate.requested_at)
+                        AND other.turn_id > candidate.turn_id
+                      )
+                    )
+                )
+            `;
+
+            const repairedRows = yield* sql<{ readonly threadId: string }>`
+              SELECT thread_id AS "threadId"
+              FROM temp_stale_latest_turn_repairs
+              ORDER BY thread_id ASC
+            `;
+            const repairedThreadIds = repairedRows.map((row) => ThreadId.make(row.threadId));
+
+            yield* sql`
+              UPDATE projection_threads
+              SET latest_turn_id = (
+                SELECT repair.turn_id
+                FROM temp_stale_latest_turn_repairs AS repair
+                WHERE repair.thread_id = projection_threads.thread_id
+                LIMIT 1
+              )
+              WHERE EXISTS (
+                SELECT 1
+                FROM temp_stale_latest_turn_repairs AS repair
+                WHERE repair.thread_id = projection_threads.thread_id
+              )
+            `;
+
+            yield* sql`DROP TABLE IF EXISTS temp_stale_latest_turn_repairs`;
+
+            return {
+              repairedThreadIds,
+              repairedThreadCount: repairedThreadIds.length,
+            };
+          }),
+        )
+        .pipe(
+          Effect.mapError(
+            toPersistenceSqlError("ProjectionMaintenance.repairStaleLatestTurnPointers"),
+          ),
+        );
+
   return {
     repairLegacyAssistantCompletedTurns,
+    repairStaleLatestTurnPointers,
   } satisfies ProjectionMaintenanceShape;
 });
 

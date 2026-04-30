@@ -20,6 +20,7 @@ import {
   hasActionableProposedPlan,
   hasToolActivityForTurn,
   isActiveTurnInProgress,
+  isInvalidFinalSessionWithActiveTurn,
   isLatestTurnSettled,
 } from "./session-logic";
 
@@ -1478,6 +1479,29 @@ describe("isActiveTurnInProgress", () => {
       isActiveTurnInProgress({
         orchestrationStatus: "ready",
         activeTurnId: TurnId.make("turn-1"),
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isInvalidFinalSessionWithActiveTurn", () => {
+  it("flags final statuses that still carry stale active turn ids", () => {
+    expect(
+      isInvalidFinalSessionWithActiveTurn({
+        orchestrationStatus: "ready",
+        activeTurnId: TurnId.make("turn-stale"),
+      }),
+    ).toBe(true);
+    expect(
+      isInvalidFinalSessionWithActiveTurn({
+        orchestrationStatus: "error",
+        activeTurnId: TurnId.make("turn-stale"),
+      }),
+    ).toBe(true);
+    expect(
+      isInvalidFinalSessionWithActiveTurn({
+        orchestrationStatus: "recovering",
+        activeTurnId: TurnId.make("turn-active"),
       }),
     ).toBe(false);
   });

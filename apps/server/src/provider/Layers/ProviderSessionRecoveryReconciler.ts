@@ -8,10 +8,15 @@ import {
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
-import { Cause, Effect, Exit, Layer } from "effect";
+import { Cause, Effect, Exit, Layer, Option } from "effect";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
+import {
+  isActiveSessionStatus,
+  isFinalProjectionTurnState,
+} from "../../orchestration/turnLifecycle.ts";
 import {
   ProviderSessionRecoveryReconciler,
   type ProviderSessionRecoveryReconcilerShape,
@@ -42,7 +47,7 @@ function statusFromProviderSession(session: ProviderSession): OrchestrationSessi
 }
 
 function isActiveOrchestrationStatus(status: OrchestrationSessionStatus): boolean {
-  return status === "starting" || status === "running" || status === "recovering";
+  return isActiveSessionStatus(status);
 }
 
 function providerNameOrNull(value: string | null): ProviderSession["provider"] | null {
@@ -98,6 +103,7 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
   const directory = yield* ProviderSessionDirectory;
   const providerService = yield* ProviderService;
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionTurnRepository = yield* ProjectionTurnRepository;
 
   const dispatchSessionSet = (input: {
     readonly commandId: string;
@@ -231,30 +237,39 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
         }
 
         yield* Effect.gen(function* () {
-          const activeTurnId =
-            readPersistedActiveTurnId(binding.runtimePayload) ??
-            thread.session?.activeTurnId ??
-            null;
+          const projectionActiveTurnId =
+            thread.session && isActiveOrchestrationStatus(thread.session.status)
+              ? (thread.session.activeTurnId ?? null)
+              : null;
+          const persistedActiveTurnId = readPersistedActiveTurnId(binding.runtimePayload);
+          const hasInvalidFinalActiveTurn =
+            thread.session?.activeTurnId !== null &&
+            thread.session?.activeTurnId !== undefined &&
+            !isActiveOrchestrationStatus(thread.session.status);
+          const activeTurnId = projectionActiveTurnId;
           const shouldRecover =
             binding.status === "starting" ||
             binding.status === "running" ||
             binding.status === "recovering" ||
-            activeTurnId !== null;
+            projectionActiveTurnId !== null ||
+            persistedActiveTurnId !== null;
 
           if (!shouldRecover) {
             return;
           }
-          handledThreadIds.add(binding.threadId);
+          if (!hasInvalidFinalActiveTurn) {
+            handledThreadIds.add(binding.threadId);
+          }
 
           const now = new Date().toISOString();
-          if (activeTurnId !== null) {
+          if (projectionActiveTurnId !== null) {
             yield* dispatchSessionSet({
-              commandId: `recovery:session-recovering:${binding.threadId}:${activeTurnId}`,
+              commandId: `recovery:session-recovering:${binding.threadId}:${projectionActiveTurnId}`,
               threadId: binding.threadId,
               status: "recovering",
               providerName: binding.provider,
               runtimeMode: binding.runtimeMode ?? thread.runtimeMode,
-              activeTurnId,
+              activeTurnId: projectionActiveTurnId,
               lastError: null,
               now,
             }).pipe(Effect.ignore);
@@ -300,6 +315,15 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
                 lastError: detail,
               });
             }
+            if (activeTurnId === null && persistedActiveTurnId !== null) {
+              yield* persistTerminalBinding({
+                threadId: binding.threadId,
+                provider: binding.provider,
+                runtimeMode: binding.runtimeMode ?? thread.runtimeMode,
+                status: "stopped",
+                lastError: "Provider recovery is unavailable; stale active turn state was cleared.",
+              });
+            }
             return;
           }
           const recovered = yield* Effect.exit(
@@ -311,7 +335,7 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
             const recoveredStatus = statusFromProviderSession(session);
             const recoveredActiveTurnId = session.activeTurnId ?? null;
             if (
-              activeTurnId !== null &&
+              projectionActiveTurnId !== null &&
               (recoveredActiveTurnId === null || !isActiveOrchestrationStatus(recoveredStatus))
             ) {
               const settledAt = new Date().toISOString();
@@ -321,9 +345,9 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
                   ? (session.lastError ?? "Provider recovery failed")
                   : "Provider recovery returned without an active turn; active work was interrupted.";
               yield* dispatchTurnComplete({
-                commandId: `recovery:turn-complete:${binding.threadId}:${activeTurnId}:${turnState}`,
+                commandId: `recovery:turn-complete:${binding.threadId}:${projectionActiveTurnId}:${turnState}`,
                 threadId: binding.threadId,
-                turnId: activeTurnId,
+                turnId: projectionActiveTurnId,
                 state: turnState,
                 errorText: detail,
                 now: settledAt,
@@ -336,7 +360,7 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
                 now: settledAt,
               });
               yield* dispatchSessionSet({
-                commandId: `recovery:session-final:${binding.threadId}:${activeTurnId}:${
+                commandId: `recovery:session-final:${binding.threadId}:${projectionActiveTurnId}:${
                   recoveredStatus === "error" ? "error" : "stopped"
                 }`,
                 threadId: binding.threadId,
@@ -361,6 +385,9 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
               recoveredActiveTurnId !== null && isActiveOrchestrationStatus(recoveredStatus)
                 ? recoveredActiveTurnId
                 : null;
+            if (finalActiveTurnId !== null) {
+              handledThreadIds.add(binding.threadId);
+            }
             yield* dispatchSessionSet({
               commandId: `recovery:session-final:${binding.threadId}:${
                 finalActiveTurnId ?? "none"
@@ -372,7 +399,18 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
               activeTurnId: finalActiveTurnId,
               lastError: session.lastError ?? null,
               now: new Date().toISOString(),
-            }).pipe(Effect.ignore);
+            });
+            if (persistedActiveTurnId !== null && finalActiveTurnId === null) {
+              yield* persistTerminalBinding({
+                threadId: binding.threadId,
+                provider: session.provider,
+                runtimeMode: session.runtimeMode,
+                status: recoveredStatus === "error" ? "error" : "stopped",
+                lastError:
+                  session.lastError ??
+                  "Provider recovery cleared stale persisted active turn state.",
+              });
+            }
             if (finalActiveTurnId !== null) {
               const recoveredAt = new Date().toISOString();
               yield* Effect.forEach(
@@ -457,7 +495,7 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
             lastError: errorText,
             now: failedAt,
           });
-          if (activeTurnId !== null) {
+          if (activeTurnId !== null || persistedActiveTurnId !== null) {
             yield* persistTerminalBinding({
               threadId: binding.threadId,
               provider: binding.provider,
@@ -483,7 +521,9 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
         if (
           !session ||
           session.activeTurnId === null ||
-          (session.status !== "ready" &&
+          (session.status !== "idle" &&
+            session.status !== "ready" &&
+            session.status !== "interrupted" &&
             session.status !== "stopped" &&
             session.status !== "error") ||
           handledThreadIds.has(thread.id) ||
@@ -499,14 +539,23 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
           }
           const repairedAt = new Date().toISOString();
           const detail = `Recovered invalid ${session.status} session with stale active turn; active work was interrupted.`;
-          yield* dispatchTurnComplete({
-            commandId: `repair:turn-complete:${thread.id}:${activeTurnId}:interrupted`,
+          const existingTurn = yield* projectionTurnRepository.getByTurnId({
             threadId: thread.id,
             turnId: activeTurnId,
-            state: "interrupted",
-            errorText: detail,
-            now: repairedAt,
           });
+          if (
+            Option.isNone(existingTurn) ||
+            !isFinalProjectionTurnState(existingTurn.value.state)
+          ) {
+            yield* dispatchTurnComplete({
+              commandId: `repair:turn-complete:${thread.id}:${activeTurnId}:interrupted`,
+              threadId: thread.id,
+              turnId: activeTurnId,
+              state: "interrupted",
+              errorText: detail,
+              now: repairedAt,
+            });
+          }
           yield* dispatchSessionSet({
             commandId: `repair:session-clear-active:${thread.id}:${activeTurnId}:${session.status}`,
             threadId: thread.id,

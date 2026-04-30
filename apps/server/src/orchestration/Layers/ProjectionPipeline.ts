@@ -2021,6 +2021,23 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           ),
       ),
       Effect.tap(() =>
+        projectionMaintenance.repairStaleLatestTurnPointers().pipe(
+          Effect.tap(({ repairedThreadCount }) =>
+            repairedThreadCount > 0
+              ? Effect.logInfo("orchestration.projection.stale-latest-turns-repaired").pipe(
+                  Effect.annotateLogs({ repairedThreadCount }),
+                )
+              : Effect.void,
+          ),
+          Effect.tap(({ repairedThreadIds }) =>
+            Effect.forEach(repairedThreadIds, refreshThreadShellSummary, {
+              concurrency: 1,
+              discard: true,
+            }),
+          ),
+        ),
+      ),
+      Effect.tap(() =>
         Effect.logDebug("orchestration projection pipeline bootstrapped").pipe(
           Effect.annotateLogs({ projectors: projectors.length }),
         ),

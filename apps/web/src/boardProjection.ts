@@ -6,7 +6,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 
-import { isActiveTurnInProgress, isLatestTurnSettled } from "./session-logic";
+import { isActiveTurnInProgress, isLatestTurnSettled, isSessionActive } from "./session-logic";
 import { resolveThreadPr, type ThreadPr } from "./components/ThreadStatusIndicators";
 import type { SidebarThreadSummary } from "./types";
 
@@ -107,6 +107,7 @@ export function isThreadInProgress(thread: SidebarThreadSummary): boolean {
   if (thread.archivedAt !== null) return false;
   if (isActiveTurnInProgress(thread.session)) return true;
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return true;
+  if (thread.session && !isSessionActive(thread.session)) return false;
   return thread.latestTurn?.state === "running";
 }
 

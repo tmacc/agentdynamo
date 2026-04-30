@@ -37,6 +37,7 @@ import {
 import { resolveEnvironmentHttpUrl } from "./environments/runtime";
 import { sanitizeThreadErrorMessage } from "./rpc/transportError";
 import { getThreadFromEnvironmentState } from "./threadDerivation";
+import { isSessionActive } from "./session-logic";
 
 export interface EnvironmentState {
   projectIds: ProjectId[];
@@ -143,11 +144,18 @@ function mapProjectScripts(scripts: ReadonlyArray<Project["scripts"][number]>): 
 }
 
 function mapSession(session: OrchestrationSession): ThreadSession {
+  const orchestrationStatus = session.status;
+  const activeTurnId = isSessionActive({
+    orchestrationStatus,
+    activeTurnId: session.activeTurnId ?? undefined,
+  })
+    ? (session.activeTurnId ?? undefined)
+    : undefined;
   return {
     provider: toLegacyProvider(session.providerName),
     status: toLegacySessionStatus(session.status),
-    orchestrationStatus: session.status,
-    activeTurnId: session.activeTurnId ?? undefined,
+    orchestrationStatus,
+    activeTurnId,
     createdAt: session.updatedAt,
     updatedAt: session.updatedAt,
     ...(session.lastError ? { lastError: session.lastError } : {}),

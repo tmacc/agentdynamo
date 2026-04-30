@@ -965,6 +965,71 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/provider/Layers/ProviderSessionRecoveryReconciler.test.ts` in `apps/server`.
   - Run `bun run test src/store.test.ts` in `apps/web`.
 
+### 2026-04-30 - Invalid active session state hardening
+
+- `Status`: active
+- `Area`: orchestration | provider recovery | provider runtime ingestion | web store
+- `User-visible impact`: Threads cannot get stuck in a contradictory final/working state after restart or provider lifecycle races. The composer, stop button, sidebar, board, and provider lock treat `idle/ready/interrupted/stopped/error + activeTurnId` as invalid final state instead of active work.
+- `Why this patch exists`: Logs showed durable `thread.session-set` events with `status=ready` and a stale `activeTurnId`. That corrupts session truth and can leave the UI in a permanent sending/working state even after projections are fully caught up.
+- `Key files`:
+  - `apps/server/src/orchestration/turnLifecycle.ts`
+  - `apps/server/src/orchestration/decider.ts`
+  - `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`
+  - `apps/server/src/provider/Layers/ProviderSessionRecoveryReconciler.ts`
+  - `apps/web/src/session-logic.ts`
+  - `apps/web/src/store.ts`
+  - `apps/web/src/components/Sidebar.tsx`
+- `Important invariants`:
+  - Active session statuses are `starting`, `running`, and `recovering`; only those may carry a non-null `activeTurnId`.
+  - Final/non-active session statuses are `idle`, `ready`, `interrupted`, `stopped`, and `error`; the decider normalizes these to `activeTurnId: null` before event persistence.
+  - Coarse provider `session.state.changed -> ready` notifications must not clear active work or publish `ready + activeTurnId`; active turn settlement remains owned by `thread.turn-completed`, explicit interruption, or recovery repair.
+  - Provider directory `runtimePayload.activeTurnId` is recovery evidence only. It must not be re-emitted as orchestration session state unless provider recovery confirms an active turn.
+  - Startup recovery repairs invalid final sessions with stale active turns and clears provider directory active payload/resume cursor after durable orchestration repair succeeds.
+- `Merge hotspots`:
+  - `thread.session.set` decider handling
+  - provider runtime lifecycle status mapping
+  - provider recovery reconciler active-turn source precedence and invalid-session repair
+  - web active-session helpers and any UI checks that read `activeTurnId` directly
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Run `bun run test src/orchestration/decider.session.test.ts` in `apps/server`.
+  - Run `bun run test src/orchestration/Layers/ProviderRuntimeIngestion.test.ts` in `apps/server`.
+  - Run `bun run test src/provider/Layers/ProviderSessionRecoveryReconciler.test.ts` in `apps/server`.
+  - Run `bun run test src/session-logic.test.ts` in `apps/web`.
+  - Run `bun run test src/store.test.ts` in `apps/web`.
+
+### 2026-04-30 - Active-turn terminal consistency and stale latest repair
+
+- `Status`: active
+- `Area`: provider runtime ingestion | provider recovery | projection | web board
+- `User-visible impact`: Provider terminal/error events cannot leave a turn row running while clearing the session to final/null. Startup repair avoids writing false interrupted events for already-final historical turns, projection bootstrap repairs stale latest-turn pointers to newer final work, and board state no longer stays in progress because of a final session with a stale running latest turn.
+- `Why this patch exists`: Follow-up recovery testing found remaining paths where coarse provider `error`/`stopped`/`runtime.error` events could clear active session state without first committing `thread.turn-completed`, and invalid-session repair only checked the latest turn instead of the exact stale `activeTurnId`.
+- `Key files`:
+  - `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`
+  - `apps/server/src/provider/Layers/ProviderSessionRecoveryReconciler.ts`
+  - `apps/server/src/orchestration/Services/ProjectionMaintenance.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionMaintenance.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`
+  - `apps/web/src/boardProjection.ts`
+- `Important invariants`:
+  - Active-turn terminal provider state must dispatch `thread.turn.complete` before any final `thread.session.set`.
+  - Coarse provider `ready` remains non-authoritative and must preserve active work.
+  - Stale provider terminal events for a different turn must not clear current session lifecycle.
+  - Invalid-session startup repair loads the exact stale turn row; final rows are not re-completed as interrupted.
+  - Stale latest pointer maintenance is bootstrap-only, dispatches no events, excludes active sessions, and promotes only already-final turns with strictly newer `startedAt ?? requestedAt`.
+  - Board in-progress state treats final sessions as final even when a stale latest turn is still marked running, while preserving pending approvals/user input.
+- `Merge hotspots`:
+  - Provider lifecycle handling around `session.state.changed`, `session.exited`, and `runtime.error`
+  - Recovery reconciler invalid-session repair dependencies
+  - Projection maintenance bootstrap ordering
+  - Board/sidebar in-progress derivation
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Run `bun run test src/orchestration/Layers/ProviderRuntimeIngestion.test.ts` in `apps/server`.
+  - Run `bun run test src/provider/Layers/ProviderSessionRecoveryReconciler.test.ts` in `apps/server`.
+  - Run `bun run test src/orchestration/Layers/ProjectionPipeline.test.ts` in `apps/server`.
+  - Run `bun run test src/boardProjection.test.ts` in `apps/web`.
+
 ## Upstream-Touching Patch Entry Template
 
 Use this template for future bugfixes or behavioral patches that modify upstream-derived code:

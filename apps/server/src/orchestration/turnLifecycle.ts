@@ -1,5 +1,36 @@
-export function isRuntimeActiveStatus(status: string | null | undefined): boolean {
+import type { OrchestrationSessionStatus, TurnId } from "@t3tools/contracts";
+
+export function isActiveSessionStatus(status: string | null | undefined): boolean {
   return status === "starting" || status === "running" || status === "recovering";
+}
+
+export const isRuntimeActiveStatus = isActiveSessionStatus;
+
+export function isFinalSessionStatus(status: string | null | undefined): boolean {
+  return (
+    status === "idle" ||
+    status === "ready" ||
+    status === "interrupted" ||
+    status === "stopped" ||
+    status === "error"
+  );
+}
+
+export function requiresNullActiveTurnId(status: string | null | undefined): boolean {
+  return isFinalSessionStatus(status);
+}
+
+export function normalizeSessionActiveTurn(input: {
+  readonly status: OrchestrationSessionStatus;
+  readonly activeTurnId: TurnId | null;
+}): {
+  readonly status: OrchestrationSessionStatus;
+  readonly activeTurnId: TurnId | null;
+} {
+  return {
+    status: input.status,
+    activeTurnId: requiresNullActiveTurnId(input.status) ? null : input.activeTurnId,
+  };
 }
 
 export function turnOrderingTime(

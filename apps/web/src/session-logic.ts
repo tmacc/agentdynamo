@@ -148,6 +148,10 @@ export function isActiveTurnInProgress(session: SessionActivityState | null): bo
   return isSessionActive(session) && session?.activeTurnId != null;
 }
 
+export function isInvalidFinalSessionWithActiveTurn(session: SessionActivityState | null): boolean {
+  return session?.activeTurnId != null && !isSessionActive(session);
+}
+
 export function isLatestTurnSettled(
   latestTurn: LatestTurnTiming | null,
   session: SessionActivityState | null,
