@@ -142,6 +142,7 @@ describe("ProviderSessionRecoveryReconciler", () => {
           status: "ready",
           runtimeMode: "approval-required",
           threadId,
+          resumeCursor: { cursor: "resume" },
           createdAt: now,
           updatedAt: now,
         }),
@@ -225,7 +226,7 @@ describe("ProviderSessionRecoveryReconciler", () => {
         provider: "codex",
         runtimeMode: "approval-required",
         status: "stopped",
-        resumeCursor: null,
+        resumeCursor: { cursor: "resume" },
         runtimePayload: expect.objectContaining({
           activeTurnId: null,
           lastRuntimeEvent: "provider.recovery.finalized",
@@ -361,7 +362,6 @@ describe("ProviderSessionRecoveryReconciler", () => {
       expect.objectContaining({
         threadId: successfulThreadId,
         status: "stopped",
-        resumeCursor: null,
       }),
     );
     expect(directoryUpserts).not.toContainEqual(

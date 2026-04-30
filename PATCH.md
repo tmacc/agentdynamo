@@ -46,6 +46,8 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Important invariants`:
   - `thread.turn-completed` is the authoritative final turn signal. Assistant message completion and checkpoint capture must not settle a running or recovering turn.
   - `recovering` is a first-class session/runtime status and counts as active when paired with an `activeTurnId`.
+  - Provider runtime directory rows distinguish idle resumable sessions from running work: `ready` preserves the resume cursor, while terminal recovery clears stale `runtimePayload.activeTurnId` without dropping a usable cursor after successful idle recovery.
+  - Provider service shutdown snapshots active runtime state but does not mark all sessions stopped; explicit user stop/reaper flows remain the authority for intentional termination.
   - Websocket subscription snapshots must be followed by persisted event replay from the snapshot sequence, then queued live events, with duplicate/lower sequences ignored.
   - Startup provider recovery commands use deterministic command ids so repeated reconciliation is idempotent.
   - Provider-native subagent traces stay read-only/non-materialized; after restart, active traces may receive a lifecycle item noting possible live trace loss.

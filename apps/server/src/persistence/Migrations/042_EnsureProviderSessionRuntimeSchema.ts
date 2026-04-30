@@ -62,7 +62,7 @@ export const ensureProviderSessionRuntimeSchema = Effect.gen(function* () {
       ? "COALESCE(NULLIF(runtime_mode, ''), 'full-access')"
       : "'full-access'";
     const statusExpression = columnExists(columns, "status")
-      ? "CASE WHEN status IN ('starting', 'running', 'recovering', 'stopped', 'error') THEN status ELSE 'stopped' END"
+      ? "CASE WHEN status IN ('starting', 'ready', 'running', 'recovering', 'stopped', 'error') THEN status ELSE 'stopped' END"
       : "'stopped'";
     const lastSeenAtExpression = columnExists(columns, "last_seen_at")
       ? columnExists(columns, "updated_at")

@@ -198,6 +198,8 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
     readonly runtimeMode: RuntimeMode;
     readonly status: "stopped" | "error";
     readonly lastError: string | null;
+    readonly preserveResumeCursor?: boolean;
+    readonly resumeCursor?: unknown;
   }) =>
     directory
       .upsert({
@@ -205,7 +207,11 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
         provider: input.provider,
         runtimeMode: input.runtimeMode,
         status: input.status,
-        resumeCursor: null,
+        ...(input.preserveResumeCursor
+          ? input.resumeCursor !== undefined
+            ? { resumeCursor: input.resumeCursor }
+            : {}
+          : { resumeCursor: null }),
         runtimePayload: {
           activeTurnId: null,
           lastError: input.lastError,
@@ -437,6 +443,8 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
                 runtimeMode: session.runtimeMode,
                 status: recoveredStatus === "error" ? "error" : "stopped",
                 lastError: detail,
+                preserveResumeCursor: recoveredStatus !== "error" && recoveredActiveTurnId === null,
+                resumeCursor: session.resumeCursor,
               });
               return;
             }

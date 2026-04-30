@@ -21,6 +21,7 @@ import {
   ProviderStopSessionInput,
   type ProviderRuntimeEvent,
   type ProviderSession,
+  type ProviderSessionRuntimeStatus,
 } from "@t3tools/contracts";
 import { Effect, Layer, Option, PubSub, Schema, SchemaIssue, Stream } from "effect";
 
@@ -83,18 +84,36 @@ const decodeInputOrValidationError = <S extends Schema.Top>(input: {
     ),
   );
 
-function toRuntimeStatus(session: ProviderSession): "starting" | "running" | "stopped" | "error" {
+function toRuntimeStatus(session: ProviderSession): ProviderSessionRuntimeStatus {
   switch (session.status) {
     case "connecting":
       return "starting";
+    case "ready":
+      return "ready";
     case "error":
       return "error";
     case "closed":
       return "stopped";
-    case "ready":
     case "running":
     default:
       return "running";
+  }
+}
+
+function toRuntimeStatusFromSessionState(state: string): ProviderSessionRuntimeStatus {
+  switch (state) {
+    case "starting":
+      return "starting";
+    case "ready":
+      return "ready";
+    case "running":
+    case "waiting":
+      return "running";
+    case "error":
+      return "error";
+    case "stopped":
+    default:
+      return "stopped";
   }
 }
 
@@ -139,6 +158,16 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readPersistedActiveTurnId(
+  runtimePayload: ProviderRuntimeBinding["runtimePayload"],
+): string | null {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return null;
+  }
+  const raw = "activeTurnId" in runtimePayload ? runtimePayload.activeTurnId : null;
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
 }
 
 const makeProviderService = Effect.fn("makeProviderService")(function* (
@@ -187,13 +216,153 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       runtimePayload: toRuntimePayloadFromSession(session, extra),
     });
 
+  const persistRuntimeEventState = Effect.fn("persistRuntimeEventState")(function* (
+    event: ProviderRuntimeEvent,
+  ) {
+    const bindingOption = yield* directory
+      .getBinding(event.threadId)
+      .pipe(Effect.orElseSucceed(() => Option.none<ProviderRuntimeBinding>()));
+    const binding = Option.getOrUndefined(bindingOption);
+    const activeTurnId = readPersistedActiveTurnId(binding?.runtimePayload);
+    const runtimeMode = binding?.runtimeMode ?? "full-access";
+    const basePayload = {
+      lastRuntimeEvent: event.type,
+      lastRuntimeEventAt: event.createdAt,
+    };
+
+    switch (event.type) {
+      case "turn.started": {
+        yield* directory.upsert({
+          threadId: event.threadId,
+          provider: event.provider,
+          runtimeMode,
+          status: "running",
+          runtimePayload: {
+            ...basePayload,
+            activeTurnId: event.turnId ?? activeTurnId,
+          },
+        });
+        return;
+      }
+      case "turn.completed": {
+        if (activeTurnId !== null && event.turnId !== undefined && activeTurnId !== event.turnId) {
+          yield* directory.upsert({
+            threadId: event.threadId,
+            provider: event.provider,
+            runtimeMode,
+            status: binding?.status ?? "running",
+            runtimePayload: basePayload,
+          });
+          return;
+        }
+        yield* directory.upsert({
+          threadId: event.threadId,
+          provider: event.provider,
+          runtimeMode,
+          status: "ready",
+          runtimePayload: {
+            ...basePayload,
+            activeTurnId: null,
+            lastError: null,
+          },
+        });
+        return;
+      }
+      case "turn.aborted": {
+        if (activeTurnId !== null && event.turnId !== undefined && activeTurnId !== event.turnId) {
+          yield* directory.upsert({
+            threadId: event.threadId,
+            provider: event.provider,
+            runtimeMode,
+            status: binding?.status ?? "running",
+            runtimePayload: basePayload,
+          });
+          return;
+        }
+        yield* directory.upsert({
+          threadId: event.threadId,
+          provider: event.provider,
+          runtimeMode,
+          status: "stopped",
+          runtimePayload: {
+            ...basePayload,
+            activeTurnId: null,
+          },
+        });
+        return;
+      }
+      case "session.state.changed": {
+        const status = toRuntimeStatusFromSessionState(event.payload.state);
+        const readyWhileActive = status === "ready" && activeTurnId !== null;
+        yield* directory.upsert({
+          threadId: event.threadId,
+          provider: event.provider,
+          runtimeMode,
+          status: readyWhileActive ? (binding?.status ?? "running") : status,
+          runtimePayload: {
+            ...basePayload,
+            ...(status === "error" || status === "stopped"
+              ? {
+                  activeTurnId: null,
+                  lastError:
+                    status === "error" ? (event.payload.reason ?? "Provider session error") : null,
+                }
+              : {}),
+          },
+        });
+        return;
+      }
+      case "session.exited":
+        yield* directory.upsert({
+          threadId: event.threadId,
+          provider: event.provider,
+          runtimeMode,
+          status: "stopped",
+          runtimePayload: {
+            ...basePayload,
+            activeTurnId: null,
+          },
+        });
+        return;
+      case "runtime.error":
+        yield* directory.upsert({
+          threadId: event.threadId,
+          provider: event.provider,
+          runtimeMode,
+          status: "error",
+          runtimePayload: {
+            ...basePayload,
+            activeTurnId: null,
+            lastError: event.payload.message,
+          },
+        });
+        return;
+      default:
+        return;
+    }
+  });
+
   const providers = yield* registry.listProviders();
   const adapters = yield* Effect.forEach(providers, (provider) => registry.getByProvider(provider));
   const processRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
     increment(providerRuntimeEventsTotal, {
       provider: event.provider,
       eventType: event.type,
-    }).pipe(Effect.andThen(publishRuntimeEvent(event)));
+    }).pipe(
+      Effect.andThen(
+        persistRuntimeEventState(event).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("provider.runtime-state.persist-failed", {
+              threadId: event.threadId,
+              provider: event.provider,
+              eventType: event.type,
+              cause,
+            }),
+          ),
+        ),
+      ),
+      Effect.andThen(publishRuntimeEvent(event)),
+    );
 
   yield* Effect.forEach(adapters, (adapter) =>
     Stream.runForEach(adapter.streamEvents, processRuntimeEvent).pipe(Effect.forkScoped),
@@ -755,43 +924,25 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     );
   });
 
-  const runStopAll = Effect.fn("runStopAll")(function* () {
-    const threadIds = yield* directory.listThreadIds();
+  const persistShutdownSnapshot = Effect.fn("persistShutdownSnapshot")(function* () {
     const activeSessions = yield* Effect.forEach(adapters, (adapter) =>
       adapter.listSessions(),
     ).pipe(Effect.map((sessionsByAdapter) => sessionsByAdapter.flatMap((sessions) => sessions)));
     yield* Effect.forEach(activeSessions, (session) =>
       upsertSessionBinding(session, session.threadId, {
-        lastRuntimeEvent: "provider.stopAll",
+        lastRuntimeEvent: "provider.shutdown.snapshot",
         lastRuntimeEventAt: new Date().toISOString(),
       }),
     ).pipe(Effect.asVoid);
-    yield* Effect.forEach(adapters, (adapter) => adapter.stopAll()).pipe(Effect.asVoid);
-    yield* Effect.forEach(threadIds, (threadId) =>
-      directory.getProvider(threadId).pipe(
-        Effect.flatMap((provider) =>
-          directory.upsert({
-            threadId,
-            provider,
-            status: "stopped",
-            runtimePayload: {
-              activeTurnId: null,
-              lastRuntimeEvent: "provider.stopAll",
-              lastRuntimeEventAt: new Date().toISOString(),
-            },
-          }),
-        ),
-      ),
-    ).pipe(Effect.asVoid);
-    yield* analytics.record("provider.sessions.stopped_all", {
-      sessionCount: threadIds.length,
+    yield* analytics.record("provider.sessions.shutdown_snapshot", {
+      sessionCount: activeSessions.length,
     });
     yield* analytics.flush;
   });
 
   yield* Effect.addFinalizer(() =>
-    Effect.catch(runStopAll(), (cause) =>
-      Effect.logWarning("failed to stop provider service", { cause }),
+    Effect.catch(persistShutdownSnapshot(), (cause) =>
+      Effect.logWarning("failed to persist provider service shutdown snapshot", { cause }),
     ),
   );
 
