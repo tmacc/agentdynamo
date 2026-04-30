@@ -20,6 +20,7 @@ import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScr
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
+import { usePrimaryEnvironmentId } from "../../environments/primary";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -85,6 +86,9 @@ export const ChatHeader = memo(function ChatHeader({
     view?: "board";
   };
   const boardOpen = search.view === "board";
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const isRemoteEnvironment =
+    primaryEnvironmentId !== null && activeThreadEnvironmentId !== primaryEnvironmentId;
 
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
@@ -122,7 +126,7 @@ export const ChatHeader = memo(function ChatHeader({
             onDisableWorktreeSetup={onDisableWorktreeSetup}
           />
         )}
-        {activeProjectName && (
+        {activeProjectName && !isRemoteEnvironment && (
           <OpenInPicker
             keybindings={keybindings}
             availableEditors={availableEditors}
