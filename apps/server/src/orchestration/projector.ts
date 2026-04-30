@@ -38,6 +38,7 @@ import {
   ThreadTurnCompletedPayload,
   ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
+import { shouldPromoteCompletedTurn } from "./turnLifecycle.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
@@ -59,6 +60,10 @@ function turnCompletionStateToLatestTurnState(
 
 function isActiveSessionStatus(status: OrchestrationSession["status"]) {
   return status === "starting" || status === "running" || status === "recovering";
+}
+
+function isFinalLatestTurnState(state: "running" | "completed" | "interrupted" | "error") {
+  return state === "completed" || state === "interrupted" || state === "error";
 }
 
 function updateThread(
@@ -841,22 +846,40 @@ export function projectEvent(
           return nextBase;
         }
 
-        const shouldPromote =
-          thread.latestTurn === null ||
-          thread.latestTurn.turnId === payload.turnId ||
-          (thread.session !== null &&
-            thread.session.activeTurnId === payload.turnId &&
-            isActiveSessionStatus(thread.session.status));
+        const candidateIsCurrentLatest = thread.latestTurn?.turnId === payload.turnId;
+        const candidateIsActive =
+          thread.session !== null &&
+          thread.session.activeTurnId === payload.turnId &&
+          isActiveSessionStatus(thread.session.status);
+        const candidateTiming = candidateIsCurrentLatest
+          ? thread.latestTurn
+          : candidateIsActive
+            ? { requestedAt: payload.completedAt, startedAt: payload.completedAt }
+            : null;
+        const shouldPromote = shouldPromoteCompletedTurn({
+          currentLatestTurnId: thread.latestTurn?.turnId ?? null,
+          candidateTurnId: payload.turnId,
+          activeTurnId: thread.session?.activeTurnId ?? null,
+          activeSessionStatus: thread.session?.status ?? null,
+          candidateExists: candidateIsCurrentLatest || candidateIsActive,
+          candidateTiming,
+          currentLatestTiming: thread.latestTurn,
+        });
         if (!shouldPromote) {
           return nextBase;
         }
+        const existingFinal =
+          candidateIsCurrentLatest && isFinalLatestTurnState(thread.latestTurn.state);
+        const nextState = existingFinal
+          ? thread.latestTurn.state
+          : turnCompletionStateToLatestTurnState(payload.state);
 
         return {
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             latestTurn: {
               turnId: payload.turnId,
-              state: turnCompletionStateToLatestTurnState(payload.state),
+              state: nextState,
               requestedAt:
                 thread.latestTurn?.turnId === payload.turnId
                   ? thread.latestTurn.requestedAt
@@ -865,7 +888,10 @@ export function projectEvent(
                 thread.latestTurn?.turnId === payload.turnId
                   ? (thread.latestTurn.startedAt ?? payload.completedAt)
                   : payload.completedAt,
-              completedAt: payload.completedAt,
+              completedAt:
+                existingFinal && thread.latestTurn.completedAt !== null
+                  ? thread.latestTurn.completedAt
+                  : payload.completedAt,
               assistantMessageId:
                 thread.latestTurn?.turnId === payload.turnId
                   ? (thread.latestTurn.assistantMessageId ?? payload.assistantMessageId)

@@ -890,6 +890,81 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/serverSettings.test.ts` in `apps/server`.
   - Run `bun fmt`, `bun lint`, and `bun typecheck` at the repo root.
 
+### 2026-04-29 - Recovery replay hardening follow-up
+
+- `Status`: active
+- `Area`: provider | orchestration | projection | websocket | team
+- `User-visible impact`: Rebuilding projections from pre-`thread.turn-completed` event logs no longer leaves old completed assistant turns stuck as running. Board project subscriptions preserve gap events across reconnects, provider recovery terminal repairs clear stale directory state, and duplicate provider completions cannot rewrite an already-final turn outcome.
+- `Why this patch exists`: The fork’s replay-safe recovery model relies on durable turn settlement and projection cursors. Follow-up review found compatibility and cleanup gaps around legacy logs, board-specific replay cursors, stale provider runtime bindings, duplicated latest-turn promotion logic, and deterministic team summary command IDs.
+- `Key files`:
+  - `apps/server/src/orchestration/turnLifecycle.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionMaintenance.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`
+  - `apps/server/src/orchestration/projector.ts`
+  - `apps/server/src/board/Layers/ProjectionBoardSnapshotQuery.ts`
+  - `apps/server/src/ws.ts`
+  - `apps/server/src/provider/Layers/ProviderSessionRecoveryReconciler.ts`
+  - `apps/server/src/provider/Layers/ProviderSessionDirectory.ts`
+  - `apps/server/src/team/Layers/TeamTaskReactor.ts`
+- `Important invariants`:
+  - Live assistant message completion is still not authoritative for active turn settlement. Legacy assistant completion repair runs only after projection bootstrap and dispatches no orchestration events.
+  - Final projection turn states are sticky. Late duplicate completions may fill missing assistant/completion metadata but must not downgrade or replace `completed`, `interrupted`, or `error`.
+  - SQL and in-memory projections share latest-turn promotion rules: same turn, active session turn, null latest with known candidate, or strictly newer turn timing only.
+  - Board project subscriptions read card/dismissed-ghost snapshots and projector cursors transactionally, emit snapshot, then replay events before queued live events with per-family sequence dedupe.
+  - Terminal recovery cleanup must clear provider directory `runtimePayload.activeTurnId` and `resumeCursor` after orchestration turn/session repair succeeds.
+  - Dynamo team summary repair command IDs use a stable hash of summary content, not summary length.
+- `Merge hotspots`:
+  - Projection bootstrap and `thread.turn-completed` projector handling
+  - Board WebSocket subscription setup and board snapshot query service
+  - Provider recovery terminal branches and provider directory merge semantics
+  - Team task `syncAll()` deterministic command IDs
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Run `bun run test src/orchestration/Layers/ProjectionPipeline.test.ts` in `apps/server`.
+  - Run `bun run test src/orchestration/projector.test.ts` in `apps/server`.
+  - Run `bun run test src/server.test.ts` in `apps/server`.
+  - Run `bun run test src/provider/Layers/ProviderSessionRecoveryReconciler.test.ts` in `apps/server`.
+  - Run `bun run test src/provider/Layers/ProviderSessionDirectory.test.ts` in `apps/server`.
+  - Run `bun run test src/team/Layers/TeamTaskReactor.test.ts` in `apps/server`.
+
+### 2026-04-29 - Replay and recovery correctness hardening
+
+- `Status`: active
+- `Area`: orchestration | websocket | projection | provider recovery | web store
+- `User-visible impact`: Reconnect/reload catches up from projection snapshots through a finite high-watermark without dropping gap events or getting stuck chasing a moving event log. Projection rebuilds replay every persisted event past the old 1,000-event cap. Late provider completions for old turns can update known historical turns, but cannot make the current thread look ready/error/interrupted or hide active controls for a different running turn.
+- `Why this patch exists`: The replay-safe recovery model needs explicit live subscription acquisition before snapshot/high-watermark capture, complete projection bootstrap replay, active-turn-only provider lifecycle finalization, and per-thread recovery isolation so one bad recovered session does not block the rest.
+- `Key files`:
+  - `apps/server/src/persistence/Layers/OrchestrationEventStore.ts`
+  - `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`
+  - `apps/server/src/orchestration/subscriptions.ts`
+  - `apps/server/src/ws.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`
+  - `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`
+  - `apps/server/src/provider/Layers/ProviderSessionRecoveryReconciler.ts`
+  - `apps/web/src/store.ts`
+- `Important invariants`:
+  - `readEvents` and the array-returning replay RPC remain bounded; complete catch-up uses `readEventsRange` to a captured inclusive high-watermark.
+  - WebSocket subscriptions acquire the live PubSub subscription before loading snapshots, emit the snapshot first, replay persisted events through the captured high-watermark, then drain/live-stream queued events with sequence dedupe.
+  - Projection bootstrap captures `bootstrapToSequence` once and replays every projector through that finite sequence before legacy repair runs.
+  - Provider final events only clear/final-status the session when they match the active session turn. Known stale completions may settle historical rows but must not mutate current session lifecycle.
+  - Pending turn-start metadata is consumed only by active-turn creation paths, not by stale historical completions.
+  - Recovery reconciler failures are isolated per binding/thread; provider directory terminal cleanup runs only after durable turn/session repair succeeds.
+- `Merge hotspots`:
+  - Event store replay APIs and `OrchestrationEngine` service shape/test doubles
+  - Orchestration subscription construction in `subscriptions.ts` and board `subscribeProject`
+  - Projection bootstrap and pending turn metadata handling
+  - Provider runtime ingestion lifecycle guards
+  - Provider recovery reconciler terminal branches and logging
+  - Web store handling for live/replayed `thread.turn-completed`
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Run `bun run test src/persistence/Layers/OrchestrationEventStore.test.ts` in `apps/server`.
+  - Run `bun run test src/orchestration/Layers/ProjectionPipeline.test.ts` in `apps/server`.
+  - Run `bun run test src/orchestration/Layers/ProviderRuntimeIngestion.test.ts` in `apps/server`.
+  - Run `bun run test src/server.test.ts` in `apps/server`.
+  - Run `bun run test src/provider/Layers/ProviderSessionRecoveryReconciler.test.ts` in `apps/server`.
+  - Run `bun run test src/store.test.ts` in `apps/web`.
+
 ## Upstream-Touching Patch Entry Template
 
 Use this template for future bugfixes or behavioral patches that modify upstream-derived code:

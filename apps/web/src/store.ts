@@ -1601,7 +1601,23 @@ function applyEnvironmentOrchestrationEvent(
 
     case "thread.turn-completed":
       return updateThreadState(state, event.payload.threadId, (thread) => {
+        if (
+          thread.session !== null &&
+          isActiveOrchestrationStatus(thread.session.orchestrationStatus) &&
+          thread.session.activeTurnId !== null &&
+          thread.session.activeTurnId !== event.payload.turnId
+        ) {
+          return thread;
+        }
         if (thread.latestTurn !== null && thread.latestTurn.turnId !== event.payload.turnId) {
+          return thread;
+        }
+        if (
+          thread.latestTurn === null &&
+          (thread.session === null ||
+            thread.session.activeTurnId === null ||
+            thread.session.activeTurnId !== event.payload.turnId)
+        ) {
           return thread;
         }
         return {

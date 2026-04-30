@@ -983,6 +983,44 @@ describe("incremental orchestration updates", () => {
     expect(threadsOf(next)[0]?.messages).toHaveLength(1);
   });
 
+  it("ignores stale turn completions while a different active turn is running", () => {
+    const state = makeState(
+      makeThread({
+        session: {
+          status: "running",
+          provider: "codex",
+          activeTurnId: TurnId.make("turn-2"),
+          createdAt: "2026-02-27T00:00:02.000Z",
+          orchestrationStatus: "running",
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+        latestTurn: {
+          turnId: TurnId.make("turn-2"),
+          state: "running",
+          requestedAt: "2026-02-27T00:00:02.000Z",
+          startedAt: "2026-02-27T00:00:03.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.turn-completed", {
+        threadId: ThreadId.make("thread-1"),
+        turnId: TurnId.make("turn-1"),
+        state: "completed",
+        assistantMessageId: MessageId.make("assistant-turn-1"),
+        completedAt: "2026-02-27T00:00:04.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(next)[0]?.latestTurn).toEqual(threadsOf(state)[0]?.latestTurn);
+    expect(threadsOf(next)[0]?.session).toEqual(threadsOf(state)[0]?.session);
+  });
+
   it("does not regress latestTurn when an older turn diff completes late", () => {
     const state = makeState(
       makeThread({

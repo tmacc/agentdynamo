@@ -4,6 +4,7 @@ import {
   type OrchestrationThread,
   type OrchestrationSessionStatus,
   type ProviderSession,
+  type RuntimeMode,
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -185,6 +186,37 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
       { concurrency: 1, discard: true },
     ).pipe(Effect.ignore);
 
+  const persistTerminalBinding = (input: {
+    readonly threadId: ThreadId;
+    readonly provider: ProviderSession["provider"];
+    readonly runtimeMode: RuntimeMode;
+    readonly status: "stopped" | "error";
+    readonly lastError: string | null;
+  }) =>
+    directory
+      .upsert({
+        threadId: input.threadId,
+        provider: input.provider,
+        runtimeMode: input.runtimeMode,
+        status: input.status,
+        resumeCursor: null,
+        runtimePayload: {
+          activeTurnId: null,
+          lastError: input.lastError,
+          lastRuntimeEvent: "provider.recovery.finalized",
+          lastRuntimeEventAt: new Date().toISOString(),
+        },
+      })
+      .pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("provider.session.recovery.directory-terminal-update-failed", {
+            threadId: input.threadId,
+            status: input.status,
+            cause,
+          }),
+        ),
+      );
+
   const reconcileNow: ProviderSessionRecoveryReconcilerShape["reconcileNow"] = () =>
     Effect.gen(function* () {
       const readModel = yield* orchestrationEngine.getReadModel();
@@ -198,216 +230,252 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
           continue;
         }
 
-        const activeTurnId =
-          readPersistedActiveTurnId(binding.runtimePayload) ?? thread.session?.activeTurnId ?? null;
-        const shouldRecover =
-          binding.status === "starting" ||
-          binding.status === "running" ||
-          binding.status === "recovering" ||
-          activeTurnId !== null;
+        yield* Effect.gen(function* () {
+          const activeTurnId =
+            readPersistedActiveTurnId(binding.runtimePayload) ??
+            thread.session?.activeTurnId ??
+            null;
+          const shouldRecover =
+            binding.status === "starting" ||
+            binding.status === "running" ||
+            binding.status === "recovering" ||
+            activeTurnId !== null;
 
-        if (!shouldRecover) {
-          continue;
-        }
-        handledThreadIds.add(binding.threadId);
+          if (!shouldRecover) {
+            return;
+          }
+          handledThreadIds.add(binding.threadId);
 
-        const now = new Date().toISOString();
-        if (activeTurnId !== null) {
-          yield* dispatchSessionSet({
-            commandId: `recovery:session-recovering:${binding.threadId}:${activeTurnId}`,
-            threadId: binding.threadId,
-            status: "recovering",
-            providerName: binding.provider,
-            runtimeMode: binding.runtimeMode ?? thread.runtimeMode,
-            activeTurnId,
-            lastError: null,
-            now,
-          }).pipe(Effect.ignore);
-        }
-
-        if (!providerService.recoverSession) {
-          yield* Effect.logWarning("provider.session.recovery.unavailable", {
-            threadId: binding.threadId,
-          });
+          const now = new Date().toISOString();
           if (activeTurnId !== null) {
-            const interruptedAt = new Date().toISOString();
-            const detail = "Provider recovery is unavailable; active work was interrupted.";
-            yield* dispatchTurnComplete({
-              commandId: `recovery:turn-complete:${binding.threadId}:${activeTurnId}:interrupted`,
-              threadId: binding.threadId,
-              turnId: activeTurnId,
-              state: "interrupted",
-              errorText: detail,
-              now: interruptedAt,
-            }).pipe(Effect.ignore);
-            yield* settleNativeProviderTasks({
-              thread,
-              threadId: binding.threadId,
-              state: "interrupted",
-              detail,
-              now: interruptedAt,
-            });
             yield* dispatchSessionSet({
-              commandId: `recovery:session-final:${binding.threadId}:${activeTurnId}:stopped`,
+              commandId: `recovery:session-recovering:${binding.threadId}:${activeTurnId}`,
               threadId: binding.threadId,
-              status: "stopped",
+              status: "recovering",
               providerName: binding.provider,
               runtimeMode: binding.runtimeMode ?? thread.runtimeMode,
-              activeTurnId: null,
-              lastError: detail,
-              now: interruptedAt,
+              activeTurnId,
+              lastError: null,
+              now,
             }).pipe(Effect.ignore);
           }
-          continue;
-        }
-        const recovered = yield* Effect.exit(
-          providerService.recoverSession({ threadId: binding.threadId }),
-        );
 
-        if (Exit.isSuccess(recovered)) {
-          const session = recovered.value;
-          const recoveredStatus = statusFromProviderSession(session);
-          const recoveredActiveTurnId = session.activeTurnId ?? null;
-          if (
-            activeTurnId !== null &&
-            (recoveredActiveTurnId === null || !isActiveOrchestrationStatus(recoveredStatus))
-          ) {
-            const settledAt = new Date().toISOString();
-            const turnState = recoveredStatus === "error" ? "failed" : "interrupted";
-            const detail =
-              recoveredStatus === "error"
-                ? (session.lastError ?? "Provider recovery failed")
-                : "Provider recovery returned without an active turn; active work was interrupted.";
+          if (!providerService.recoverSession) {
+            yield* Effect.logWarning("provider.session.recovery.unavailable", {
+              threadId: binding.threadId,
+            });
+            if (activeTurnId !== null) {
+              const interruptedAt = new Date().toISOString();
+              const detail = "Provider recovery is unavailable; active work was interrupted.";
+              yield* dispatchTurnComplete({
+                commandId: `recovery:turn-complete:${binding.threadId}:${activeTurnId}:interrupted`,
+                threadId: binding.threadId,
+                turnId: activeTurnId,
+                state: "interrupted",
+                errorText: detail,
+                now: interruptedAt,
+              });
+              yield* settleNativeProviderTasks({
+                thread,
+                threadId: binding.threadId,
+                state: "interrupted",
+                detail,
+                now: interruptedAt,
+              });
+              yield* dispatchSessionSet({
+                commandId: `recovery:session-final:${binding.threadId}:${activeTurnId}:stopped`,
+                threadId: binding.threadId,
+                status: "stopped",
+                providerName: binding.provider,
+                runtimeMode: binding.runtimeMode ?? thread.runtimeMode,
+                activeTurnId: null,
+                lastError: detail,
+                now: interruptedAt,
+              });
+              yield* persistTerminalBinding({
+                threadId: binding.threadId,
+                provider: binding.provider,
+                runtimeMode: binding.runtimeMode ?? thread.runtimeMode,
+                status: "stopped",
+                lastError: detail,
+              });
+            }
+            return;
+          }
+          const recovered = yield* Effect.exit(
+            providerService.recoverSession({ threadId: binding.threadId }),
+          );
+
+          if (Exit.isSuccess(recovered)) {
+            const session = recovered.value;
+            const recoveredStatus = statusFromProviderSession(session);
+            const recoveredActiveTurnId = session.activeTurnId ?? null;
+            if (
+              activeTurnId !== null &&
+              (recoveredActiveTurnId === null || !isActiveOrchestrationStatus(recoveredStatus))
+            ) {
+              const settledAt = new Date().toISOString();
+              const turnState = recoveredStatus === "error" ? "failed" : "interrupted";
+              const detail =
+                recoveredStatus === "error"
+                  ? (session.lastError ?? "Provider recovery failed")
+                  : "Provider recovery returned without an active turn; active work was interrupted.";
+              yield* dispatchTurnComplete({
+                commandId: `recovery:turn-complete:${binding.threadId}:${activeTurnId}:${turnState}`,
+                threadId: binding.threadId,
+                turnId: activeTurnId,
+                state: turnState,
+                errorText: detail,
+                now: settledAt,
+              });
+              yield* settleNativeProviderTasks({
+                thread,
+                threadId: binding.threadId,
+                state: turnState,
+                detail,
+                now: settledAt,
+              });
+              yield* dispatchSessionSet({
+                commandId: `recovery:session-final:${binding.threadId}:${activeTurnId}:${
+                  recoveredStatus === "error" ? "error" : "stopped"
+                }`,
+                threadId: binding.threadId,
+                status: recoveredStatus === "error" ? "error" : "stopped",
+                providerName: session.provider,
+                runtimeMode: session.runtimeMode,
+                activeTurnId: null,
+                lastError: detail,
+                now: settledAt,
+              });
+              yield* persistTerminalBinding({
+                threadId: binding.threadId,
+                provider: session.provider,
+                runtimeMode: session.runtimeMode,
+                status: recoveredStatus === "error" ? "error" : "stopped",
+                lastError: detail,
+              });
+              return;
+            }
+
+            const finalActiveTurnId =
+              recoveredActiveTurnId !== null && isActiveOrchestrationStatus(recoveredStatus)
+                ? recoveredActiveTurnId
+                : null;
+            yield* dispatchSessionSet({
+              commandId: `recovery:session-final:${binding.threadId}:${
+                finalActiveTurnId ?? "none"
+              }:${recoveredStatus}`,
+              threadId: binding.threadId,
+              status: recoveredStatus,
+              providerName: session.provider,
+              runtimeMode: session.runtimeMode,
+              activeTurnId: finalActiveTurnId,
+              lastError: session.lastError ?? null,
+              now: new Date().toISOString(),
+            }).pipe(Effect.ignore);
+            if (finalActiveTurnId !== null) {
+              const recoveredAt = new Date().toISOString();
+              yield* Effect.forEach(
+                (thread.teamTasks ?? []).filter(
+                  (task) =>
+                    task.source === "native-provider" &&
+                    !task.childThreadMaterialized &&
+                    !isFinalTeamTaskStatus(task.status),
+                ),
+                (task) =>
+                  orchestrationEngine.dispatch({
+                    type: "thread.team-task.native-trace.upsert-item",
+                    commandId: deterministicCommandId(
+                      `recovery:native-trace:${binding.threadId}:${task.id}:restart-gap`,
+                    ),
+                    parentThreadId: thread.id,
+                    taskId: task.id,
+                    item: {
+                      id: NativeSubagentTraceItemId.make(`recovery:${task.id}:restart-gap`),
+                      parentThreadId: thread.id,
+                      taskId: task.id,
+                      provider: binding.provider,
+                      providerThreadId: null,
+                      providerTurnId: String(finalActiveTurnId),
+                      providerItemId: "restart-gap",
+                      providerToolUseId: null,
+                      kind: "lifecycle",
+                      status: "completed",
+                      title: "Recovered after restart",
+                      detail:
+                        "Some live provider trace events may be unavailable after the app restarted.",
+                      text: null,
+                      toolName: null,
+                      inputSummary: null,
+                      outputSummary: null,
+                      sequence: Math.max(0, Date.parse(recoveredAt) || 0),
+                      createdAt: recoveredAt,
+                      updatedAt: recoveredAt,
+                      completedAt: recoveredAt,
+                    },
+                    createdAt: recoveredAt,
+                  }),
+                { concurrency: 1, discard: true },
+              ).pipe(Effect.ignore);
+            }
+            return;
+          }
+
+          const errorText = recoveryFailureText(recovered.cause);
+          const failureKind = classifyRecoveryFailure(recovered.cause);
+          const isInterruptedRecovery =
+            failureKind === "missing-resume-state" || failureKind === "unsupported-resume";
+          const finalStatus: OrchestrationSessionStatus =
+            activeTurnId === null ? "error" : isInterruptedRecovery ? "stopped" : "error";
+          const turnState =
+            activeTurnId === null ? null : isInterruptedRecovery ? "interrupted" : "failed";
+          const failedAt = new Date().toISOString();
+          if (activeTurnId !== null && turnState !== null) {
             yield* dispatchTurnComplete({
               commandId: `recovery:turn-complete:${binding.threadId}:${activeTurnId}:${turnState}`,
               threadId: binding.threadId,
               turnId: activeTurnId,
               state: turnState,
-              errorText: detail,
-              now: settledAt,
-            }).pipe(Effect.ignore);
+              errorText,
+              now: failedAt,
+            });
             yield* settleNativeProviderTasks({
               thread,
               threadId: binding.threadId,
               state: turnState,
-              detail,
-              now: settledAt,
+              detail: errorText,
+              now: failedAt,
             });
-            yield* dispatchSessionSet({
-              commandId: `recovery:session-final:${binding.threadId}:${activeTurnId}:${
-                recoveredStatus === "error" ? "error" : "stopped"
-              }`,
-              threadId: binding.threadId,
-              status: recoveredStatus === "error" ? "error" : "stopped",
-              providerName: session.provider,
-              runtimeMode: session.runtimeMode,
-              activeTurnId: null,
-              lastError: detail,
-              now: settledAt,
-            }).pipe(Effect.ignore);
-            continue;
           }
-
-          const finalActiveTurnId =
-            recoveredActiveTurnId !== null && isActiveOrchestrationStatus(recoveredStatus)
-              ? recoveredActiveTurnId
-              : null;
           yield* dispatchSessionSet({
-            commandId: `recovery:session-final:${binding.threadId}:${
-              finalActiveTurnId ?? "none"
-            }:${recoveredStatus}`,
+            commandId: `recovery:session-final:${binding.threadId}:${activeTurnId ?? "none"}:${finalStatus}`,
             threadId: binding.threadId,
-            status: recoveredStatus,
-            providerName: session.provider,
-            runtimeMode: session.runtimeMode,
-            activeTurnId: finalActiveTurnId,
-            lastError: session.lastError ?? null,
-            now: new Date().toISOString(),
-          }).pipe(Effect.ignore);
-          if (finalActiveTurnId !== null) {
-            const recoveredAt = new Date().toISOString();
-            yield* Effect.forEach(
-              (thread.teamTasks ?? []).filter(
-                (task) =>
-                  task.source === "native-provider" &&
-                  !task.childThreadMaterialized &&
-                  !isFinalTeamTaskStatus(task.status),
-              ),
-              (task) =>
-                orchestrationEngine.dispatch({
-                  type: "thread.team-task.native-trace.upsert-item",
-                  commandId: deterministicCommandId(
-                    `recovery:native-trace:${binding.threadId}:${task.id}:restart-gap`,
-                  ),
-                  parentThreadId: thread.id,
-                  taskId: task.id,
-                  item: {
-                    id: NativeSubagentTraceItemId.make(`recovery:${task.id}:restart-gap`),
-                    parentThreadId: thread.id,
-                    taskId: task.id,
-                    provider: binding.provider,
-                    providerThreadId: null,
-                    providerTurnId: String(finalActiveTurnId),
-                    providerItemId: "restart-gap",
-                    providerToolUseId: null,
-                    kind: "lifecycle",
-                    status: "completed",
-                    title: "Recovered after restart",
-                    detail:
-                      "Some live provider trace events may be unavailable after the app restarted.",
-                    text: null,
-                    toolName: null,
-                    inputSummary: null,
-                    outputSummary: null,
-                    sequence: Math.max(0, Date.parse(recoveredAt) || 0),
-                    createdAt: recoveredAt,
-                    updatedAt: recoveredAt,
-                    completedAt: recoveredAt,
-                  },
-                  createdAt: recoveredAt,
-                }),
-              { concurrency: 1, discard: true },
-            ).pipe(Effect.ignore);
-          }
-          continue;
-        }
-
-        const errorText = recoveryFailureText(recovered.cause);
-        const failureKind = classifyRecoveryFailure(recovered.cause);
-        const isInterruptedRecovery =
-          failureKind === "missing-resume-state" || failureKind === "unsupported-resume";
-        const finalStatus: OrchestrationSessionStatus =
-          activeTurnId === null ? "error" : isInterruptedRecovery ? "stopped" : "error";
-        const turnState =
-          activeTurnId === null ? null : isInterruptedRecovery ? "interrupted" : "failed";
-        const failedAt = new Date().toISOString();
-        if (activeTurnId !== null && turnState !== null) {
-          yield* dispatchTurnComplete({
-            commandId: `recovery:turn-complete:${binding.threadId}:${activeTurnId}:${turnState}`,
-            threadId: binding.threadId,
-            turnId: activeTurnId,
-            state: turnState,
-            errorText,
-            now: failedAt,
-          }).pipe(Effect.ignore);
-          yield* settleNativeProviderTasks({
-            thread,
-            threadId: binding.threadId,
-            state: turnState,
-            detail: errorText,
+            status: finalStatus,
+            providerName: binding.provider,
+            runtimeMode: binding.runtimeMode ?? thread.runtimeMode,
+            activeTurnId: null,
+            lastError: errorText,
             now: failedAt,
           });
-        }
-        yield* dispatchSessionSet({
-          commandId: `recovery:session-final:${binding.threadId}:${activeTurnId ?? "none"}:${finalStatus}`,
-          threadId: binding.threadId,
-          status: finalStatus,
-          providerName: binding.provider,
-          runtimeMode: binding.runtimeMode ?? thread.runtimeMode,
-          activeTurnId: null,
-          lastError: errorText,
-          now: failedAt,
-        }).pipe(Effect.ignore);
+          if (activeTurnId !== null) {
+            yield* persistTerminalBinding({
+              threadId: binding.threadId,
+              provider: binding.provider,
+              runtimeMode: binding.runtimeMode ?? thread.runtimeMode,
+              status: finalStatus === "stopped" ? "stopped" : "error",
+              lastError: errorText,
+            });
+          }
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("provider.session.recovery.binding-failed", {
+              threadId: binding.threadId,
+              provider: binding.provider,
+              status: binding.status,
+              cause,
+            }),
+          ),
+        );
       }
 
       for (const thread of readModel.threads) {
@@ -424,26 +492,50 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
         ) {
           continue;
         }
-        const repairedAt = new Date().toISOString();
-        const detail = `Recovered invalid ${session.status} session with stale active turn; active work was interrupted.`;
-        yield* dispatchTurnComplete({
-          commandId: `repair:turn-complete:${thread.id}:${session.activeTurnId}:interrupted`,
-          threadId: thread.id,
-          turnId: session.activeTurnId,
-          state: "interrupted",
-          errorText: detail,
-          now: repairedAt,
-        }).pipe(Effect.ignore);
-        yield* dispatchSessionSet({
-          commandId: `repair:session-clear-active:${thread.id}:${session.activeTurnId}:${session.status}`,
-          threadId: thread.id,
-          status: session.status,
-          providerName: providerNameOrNull(session.providerName),
-          runtimeMode: session.runtimeMode,
-          activeTurnId: null,
-          lastError: session.lastError ?? detail,
-          now: repairedAt,
-        }).pipe(Effect.ignore);
+        yield* Effect.gen(function* () {
+          const activeTurnId = session.activeTurnId;
+          if (activeTurnId === null) {
+            return;
+          }
+          const repairedAt = new Date().toISOString();
+          const detail = `Recovered invalid ${session.status} session with stale active turn; active work was interrupted.`;
+          yield* dispatchTurnComplete({
+            commandId: `repair:turn-complete:${thread.id}:${activeTurnId}:interrupted`,
+            threadId: thread.id,
+            turnId: activeTurnId,
+            state: "interrupted",
+            errorText: detail,
+            now: repairedAt,
+          });
+          yield* dispatchSessionSet({
+            commandId: `repair:session-clear-active:${thread.id}:${activeTurnId}:${session.status}`,
+            threadId: thread.id,
+            status: session.status,
+            providerName: providerNameOrNull(session.providerName),
+            runtimeMode: session.runtimeMode,
+            activeTurnId: null,
+            lastError: session.lastError ?? detail,
+            now: repairedAt,
+          });
+          const providerName = providerNameOrNull(session.providerName);
+          if (providerName !== null) {
+            yield* persistTerminalBinding({
+              threadId: thread.id,
+              provider: providerName,
+              runtimeMode: session.runtimeMode,
+              status: session.status === "error" ? "error" : "stopped",
+              lastError: session.lastError ?? detail,
+            });
+          }
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("provider.session.recovery.invalid-session-repair-failed", {
+              threadId: thread.id,
+              status: session.status,
+              cause,
+            }),
+          ),
+        );
       }
     }).pipe(
       Effect.catchCause((cause) =>

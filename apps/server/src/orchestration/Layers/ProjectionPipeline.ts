@@ -48,10 +48,17 @@ import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
 import { ServerConfig } from "../../config.ts";
+import { ProjectionMaintenanceLive } from "./ProjectionMaintenance.ts";
 import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
+import { ProjectionMaintenance } from "../Services/ProjectionMaintenance.ts";
+import {
+  isFinalProjectionTurnState,
+  isRuntimeActiveStatus,
+  shouldPromoteCompletedTurn,
+} from "../turnLifecycle.ts";
 import {
   attachmentRelativePath,
   parseAttachmentIdFromRelativePath,
@@ -79,29 +86,12 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
 type ProjectorName =
   (typeof ORCHESTRATION_PROJECTOR_NAMES)[keyof typeof ORCHESTRATION_PROJECTOR_NAMES];
 
-function isRuntimeActiveStatus(status: string) {
-  return status === "starting" || status === "running" || status === "recovering";
-}
-
 function turnCompletionStateToProjectionState(
   state: "completed" | "failed" | "interrupted" | "cancelled",
 ): ProjectionTurn["state"] {
   if (state === "failed") return "error";
   if (state === "interrupted" || state === "cancelled") return "interrupted";
   return "completed";
-}
-
-function turnOrderingTime(turn: Pick<ProjectionTurn, "requestedAt" | "startedAt">): string | null {
-  return turn.startedAt ?? turn.requestedAt ?? null;
-}
-
-function isStrictlyNewerTurn(
-  candidate: Pick<ProjectionTurn, "requestedAt" | "startedAt"> | null,
-  currentLatest: Pick<ProjectionTurn, "requestedAt" | "startedAt"> | null,
-): boolean {
-  const candidateTime = candidate ? turnOrderingTime(candidate) : null;
-  const latestTime = currentLatest ? turnOrderingTime(currentLatest) : null;
-  return candidateTime !== null && latestTime !== null && candidateTime > latestTime;
 }
 
 interface ProjectorDefinition {
@@ -497,6 +487,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
     const projectionBoardCardRepository = yield* ProjectionBoardCardRepository;
     const projectionBoardDismissedGhostRepository = yield* ProjectionBoardDismissedGhostRepository;
+    const projectionMaintenance = yield* ProjectionMaintenance;
 
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -796,18 +787,19 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                   threadId: event.payload.threadId,
                   turnId: existingRow.value.latestTurnId,
                 });
-          const isActiveSessionTurn =
-            Option.isSome(existingSession) &&
-            existingSession.value.activeTurnId === event.payload.turnId &&
-            isRuntimeActiveStatus(existingSession.value.status);
-          const shouldPromote =
-            (existingRow.value.latestTurnId === null && Option.isSome(eventTurn)) ||
-            existingRow.value.latestTurnId === event.payload.turnId ||
-            isActiveSessionTurn ||
-            isStrictlyNewerTurn(
-              Option.isSome(eventTurn) ? eventTurn.value : null,
-              Option.isSome(currentLatestTurn) ? currentLatestTurn.value : null,
-            );
+          const shouldPromote = shouldPromoteCompletedTurn({
+            currentLatestTurnId: existingRow.value.latestTurnId,
+            candidateTurnId: event.payload.turnId,
+            activeTurnId: Option.isSome(existingSession)
+              ? existingSession.value.activeTurnId
+              : null,
+            activeSessionStatus: Option.isSome(existingSession)
+              ? existingSession.value.status
+              : null,
+            candidateExists: Option.isSome(eventTurn),
+            candidateTiming: Option.isSome(eventTurn) ? eventTurn.value : null,
+            currentLatestTiming: Option.isSome(currentLatestTurn) ? currentLatestTurn.value : null,
+          });
           if (!shouldPromote) {
             return;
           }
@@ -1396,26 +1388,36 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             turnId: event.payload.turnId,
           });
           const nextState = turnCompletionStateToProjectionState(event.payload.state);
-          const pendingTurnStart = yield* projectionTurnRepository.getPendingTurnStartByThreadId({
+          const existingThread = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
           });
+          const existingSession = yield* projectionThreadSessionRepository.getByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const isActiveSessionTurn =
+            Option.isSome(existingSession) &&
+            existingSession.value.activeTurnId === event.payload.turnId &&
+            isRuntimeActiveStatus(existingSession.value.status);
+          const mayConsumePendingTurnStart = isActiveSessionTurn && Option.isNone(existingTurn);
+          const pendingTurnStart = mayConsumePendingTurnStart
+            ? yield* projectionTurnRepository.getPendingTurnStartByThreadId({
+                threadId: event.payload.threadId,
+              })
+            : Option.none();
           if (Option.isSome(existingTurn)) {
+            const existingFinal = isFinalProjectionTurnState(existingTurn.value.state);
             yield* projectionTurnRepository.upsertByTurnId({
               ...existingTurn.value,
               assistantMessageId:
                 existingTurn.value.assistantMessageId ?? event.payload.assistantMessageId,
-              state: nextState,
-              completedAt: event.payload.completedAt,
+              state: existingFinal ? existingTurn.value.state : nextState,
+              completedAt: existingFinal
+                ? (existingTurn.value.completedAt ?? event.payload.completedAt)
+                : event.payload.completedAt,
               startedAt: existingTurn.value.startedAt ?? event.payload.completedAt,
               requestedAt: existingTurn.value.requestedAt ?? event.payload.completedAt,
             });
           } else {
-            const existingThread = yield* projectionThreadRepository.getById({
-              threadId: event.payload.threadId,
-            });
-            const existingSession = yield* projectionThreadSessionRepository.getByThreadId({
-              threadId: event.payload.threadId,
-            });
             const commandId = event.commandId === null ? "" : String(event.commandId);
             const isRecoveryOrRepairCompletion =
               commandId.startsWith("recovery:turn-complete:") ||
@@ -1458,10 +1460,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               checkpointStatus: null,
               checkpointFiles: [],
             });
+            if (mayConsumePendingTurnStart) {
+              yield* projectionTurnRepository.deletePendingTurnStartByThreadId({
+                threadId: event.payload.threadId,
+              });
+            }
           }
-          yield* projectionTurnRepository.deletePendingTurnStartByThreadId({
-            threadId: event.payload.threadId,
-          });
           return;
         }
 
@@ -1957,7 +1961,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       );
     });
 
-    const bootstrapProjector = (projector: ProjectorDefinition) =>
+    const bootstrapProjector = (projector: ProjectorDefinition, bootstrapToSequence: number) =>
       projectionStateRepository
         .getByProjector({
           projector: projector.name,
@@ -1965,9 +1969,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         .pipe(
           Effect.flatMap((stateRow) =>
             Stream.runForEach(
-              eventStore.readFromSequence(
-                Option.isSome(stateRow) ? stateRow.value.lastAppliedSequence : 0,
-              ),
+              eventStore.readRange({
+                fromSequenceExclusive: Option.isSome(stateRow)
+                  ? stateRow.value.lastAppliedSequence
+                  : 0,
+                toSequenceInclusive: bootstrapToSequence,
+              }),
               (event) => runProjectorForEvent(projector, event),
             ),
           ),
@@ -1986,15 +1993,33 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         ),
       );
 
-    const bootstrap: OrchestrationProjectionPipelineShape["bootstrap"] = Effect.forEach(
-      projectors,
-      bootstrapProjector,
-      { concurrency: 1 },
-    ).pipe(
+    const bootstrap: OrchestrationProjectionPipelineShape["bootstrap"] = Effect.gen(function* () {
+      const bootstrapToSequence = yield* eventStore.getLatestSequence();
+      yield* Effect.forEach(
+        projectors,
+        (projector) => bootstrapProjector(projector, bootstrapToSequence),
+        {
+          concurrency: 1,
+        },
+      );
+    }).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
       Effect.provideService(ServerConfig, serverConfig),
       Effect.asVoid,
+      Effect.tap(() =>
+        projectionMaintenance
+          .repairLegacyAssistantCompletedTurns()
+          .pipe(
+            Effect.tap(({ repairedTurnCount, promotedLatestCount }) =>
+              repairedTurnCount > 0 || promotedLatestCount > 0
+                ? Effect.logInfo("orchestration.projection.legacy-assistant-turns-repaired").pipe(
+                    Effect.annotateLogs({ repairedTurnCount, promotedLatestCount }),
+                  )
+                : Effect.void,
+            ),
+          ),
+      ),
       Effect.tap(() =>
         Effect.logDebug("orchestration projection pipeline bootstrapped").pipe(
           Effect.annotateLogs({ projectors: projectors.length }),
@@ -2030,4 +2055,5 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionBoardCardRepositoryLive),
   Layer.provideMerge(ProjectionBoardDismissedGhostRepositoryLive),
   Layer.provideMerge(ProjectionStateRepositoryLive),
+  Layer.provideMerge(ProjectionMaintenanceLive),
 );

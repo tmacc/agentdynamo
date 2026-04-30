@@ -46,6 +46,25 @@ export interface OrchestrationEventStoreShape {
   ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
 
   /**
+   * Read the latest assigned global event sequence.
+   *
+   * @returns Effect containing 0 when the store is empty, otherwise MAX(sequence).
+   */
+  readonly getLatestSequence: () => Effect.Effect<number, OrchestrationEventStoreError>;
+
+  /**
+   * Replay events inside a finite inclusive range.
+   *
+   * @param input.fromSequenceExclusive - Lower sequence cursor (exclusive).
+   * @param input.toSequenceInclusive - Upper sequence cursor (inclusive).
+   * @returns Stream containing ordered events in the requested range.
+   */
+  readonly readRange: (input: {
+    readonly fromSequenceExclusive: number;
+    readonly toSequenceInclusive: number;
+  }) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
+
+  /**
    * Read all events from the beginning of the stream.
    *
    * @returns Stream containing all stored events.

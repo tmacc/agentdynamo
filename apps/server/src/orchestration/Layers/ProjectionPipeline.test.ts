@@ -171,6 +171,67 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   );
 });
 
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-bootstrap-range-")))(
+  "OrchestrationProjectionPipeline bootstrap range replay",
+  (it) => {
+    it.effect("bootstraps every projector beyond the default 1000 event replay limit", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const now = new Date().toISOString();
+        const eventCount = 1_025;
+
+        yield* Effect.forEach(
+          Array.from({ length: eventCount }, (_, index) => index + 1),
+          (index) =>
+            eventStore.append({
+              type: "project.created",
+              eventId: EventId.make(`evt-bootstrap-range-${index}`),
+              aggregateKind: "project",
+              aggregateId: ProjectId.make(`project-bootstrap-range-${index}`),
+              occurredAt: now,
+              commandId: CommandId.make(`cmd-bootstrap-range-${index}`),
+              causationEventId: null,
+              correlationId: CommandId.make(`cmd-bootstrap-range-${index}`),
+              metadata: {},
+              payload: {
+                projectId: ProjectId.make(`project-bootstrap-range-${index}`),
+                title: `Bootstrap Range Project ${index}`,
+                workspaceRoot: `/tmp/bootstrap-range-${index}`,
+                defaultModelSelection: null,
+                scripts: [],
+                createdAt: now,
+                updatedAt: now,
+              },
+            }),
+          { concurrency: 1 },
+        );
+
+        yield* projectionPipeline.bootstrap;
+
+        const projectRows = yield* sql<{ readonly count: number }>`
+          SELECT COUNT(*) AS count
+          FROM projection_projects
+        `;
+        assert.equal(projectRows[0]?.count, eventCount);
+
+        const stateRows = yield* sql<{
+          readonly lastAppliedSequence: number;
+        }>`
+          SELECT last_applied_sequence AS "lastAppliedSequence"
+          FROM projection_state
+          ORDER BY projector ASC
+        `;
+        assert.equal(stateRows.length, Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length);
+        for (const row of stateRows) {
+          assert.equal(row.lastAppliedSequence, eventCount);
+        }
+      }),
+    );
+  },
+);
+
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
   "OrchestrationProjectionPipeline",
   (it) => {
@@ -2162,6 +2223,211 @@ it.effect("restores pending turn-start metadata across projection pipeline resta
       ),
     ),
   ),
+);
+
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-legacy-turn-repair-")))(
+  "OrchestrationProjectionPipeline legacy turn repair",
+  (it) => {
+    it.effect("repairs legacy final assistant turns only after bootstrap", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const threadId = ThreadId.make("thread-legacy-repair");
+        const turnId = TurnId.make("turn-legacy-repair");
+        const messageId = MessageId.make("message-legacy-repair");
+        const projectId = ProjectId.make("project-legacy-repair");
+        const startedAt = "2026-02-26T15:00:00.000Z";
+        const completedAt = "2026-02-26T15:00:10.000Z";
+
+        yield* eventStore.append({
+          type: "project.created",
+          eventId: EventId.make("evt-legacy-repair-1"),
+          aggregateKind: "project",
+          aggregateId: projectId,
+          occurredAt: startedAt,
+          commandId: CommandId.make("cmd-legacy-repair-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-legacy-repair-1"),
+          metadata: {},
+          payload: {
+            projectId,
+            title: "Legacy Repair",
+            workspaceRoot: "/tmp/legacy-repair",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: startedAt,
+            updatedAt: startedAt,
+          },
+        });
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.make("evt-legacy-repair-2"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: startedAt,
+          commandId: CommandId.make("cmd-legacy-repair-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-legacy-repair-2"),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId,
+            title: "Legacy Thread",
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: startedAt,
+            updatedAt: startedAt,
+          },
+        });
+        yield* eventStore.append({
+          type: "thread.turn-start-requested",
+          eventId: EventId.make("evt-legacy-repair-3"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: startedAt,
+          commandId: CommandId.make("cmd-legacy-repair-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-legacy-repair-3"),
+          metadata: {},
+          payload: {
+            threadId,
+            messageId: MessageId.make("message-legacy-user"),
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt: startedAt,
+          },
+        });
+        yield* eventStore.append({
+          type: "thread.message-sent",
+          eventId: EventId.make("evt-legacy-repair-4"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: completedAt,
+          commandId: CommandId.make("cmd-legacy-repair-4"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-legacy-repair-4"),
+          metadata: {},
+          payload: {
+            threadId,
+            messageId,
+            role: "assistant",
+            text: "Legacy final response",
+            turnId,
+            streaming: false,
+            createdAt: completedAt,
+            updatedAt: completedAt,
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const turnRows = yield* sql<{
+          readonly state: string;
+          readonly assistantMessageId: string | null;
+          readonly completedAt: string | null;
+        }>`
+          SELECT
+            state,
+            assistant_message_id AS "assistantMessageId",
+            completed_at AS "completedAt"
+          FROM projection_turns
+          WHERE thread_id = ${threadId}
+            AND turn_id = ${turnId}
+        `;
+        assert.deepEqual(turnRows, [
+          {
+            state: "completed",
+            assistantMessageId: "message-legacy-repair",
+            completedAt,
+          },
+        ]);
+
+        const threadRows = yield* sql<{ readonly latestTurnId: string | null }>`
+          SELECT latest_turn_id AS "latestTurnId"
+          FROM projection_threads
+          WHERE thread_id = ${threadId}
+        `;
+        assert.deepEqual(threadRows, [{ latestTurnId: "turn-legacy-repair" }]);
+      }),
+    );
+
+    it.effect("preserves final turn state when duplicate completions arrive", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const threadId = ThreadId.make("thread-sticky-final");
+        const turnId = TurnId.make("turn-sticky-final");
+        const completedAt = "2026-02-26T16:00:00.000Z";
+        const failedAt = "2026-02-26T16:01:00.000Z";
+
+        yield* eventStore.append({
+          type: "thread.turn-completed",
+          eventId: EventId.make("evt-sticky-final-1"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: completedAt,
+          commandId: CommandId.make(`recovery:turn-complete:${threadId}:${turnId}:completed`),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-sticky-final-1"),
+          metadata: {},
+          payload: {
+            threadId,
+            turnId,
+            state: "completed",
+            assistantMessageId: MessageId.make("message-sticky-final"),
+            completedAt,
+          },
+        });
+        yield* eventStore.append({
+          type: "thread.turn-completed",
+          eventId: EventId.make("evt-sticky-final-2"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: failedAt,
+          commandId: CommandId.make(`recovery:turn-complete:${threadId}:${turnId}:failed`),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-sticky-final-2"),
+          metadata: {},
+          payload: {
+            threadId,
+            turnId,
+            state: "failed",
+            assistantMessageId: null,
+            completedAt: failedAt,
+            errorText: "late duplicate failure",
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const turnRows = yield* sql<{
+          readonly state: string;
+          readonly completedAt: string | null;
+          readonly assistantMessageId: string | null;
+        }>`
+          SELECT
+            state,
+            completed_at AS "completedAt",
+            assistant_message_id AS "assistantMessageId"
+          FROM projection_turns
+          WHERE thread_id = ${threadId}
+            AND turn_id = ${turnId}
+        `;
+        assert.deepEqual(turnRows, [
+          {
+            state: "completed",
+            completedAt,
+            assistantMessageId: "message-sticky-final",
+          },
+        ]);
+      }),
+    );
+  },
 );
 
 const engineLayer = it.layer(

@@ -16,7 +16,7 @@ import type {
   OrchestrationReadModel,
 } from "@t3tools/contracts";
 import { Context } from "effect";
-import type { Effect, Stream } from "effect";
+import type { Effect, PubSub, Scope, Stream } from "effect";
 
 import type { OrchestrationDispatchError } from "../Errors.ts";
 import type { OrchestrationEventStoreError } from "../../persistence/Errors.ts";
@@ -43,6 +43,19 @@ export interface OrchestrationEngineShape {
   ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
 
   /**
+   * Read the latest assigned global event sequence.
+   */
+  readonly getLatestSequence: () => Effect.Effect<number, OrchestrationEventStoreError, never>;
+
+  /**
+   * Replay persisted orchestration events inside a finite inclusive range.
+   */
+  readonly readEventsRange: (input: {
+    readonly fromSequenceExclusive: number;
+    readonly toSequenceInclusive: number;
+  }) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
+
+  /**
    * Dispatch a validated orchestration command.
    *
    * @param command - Valid orchestration command.
@@ -61,6 +74,15 @@ export interface OrchestrationEngineShape {
    * This is a hot runtime stream (new events only), not a historical replay.
    */
   readonly streamDomainEvents: Stream.Stream<OrchestrationEvent>;
+
+  /**
+   * Acquire a hot domain-event subscription synchronously in the caller scope.
+   */
+  readonly subscribeDomainEvents: () => Effect.Effect<
+    PubSub.Subscription<OrchestrationEvent>,
+    never,
+    Scope.Scope
+  >;
 }
 
 /**

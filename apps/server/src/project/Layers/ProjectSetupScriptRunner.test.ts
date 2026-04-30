@@ -55,8 +55,11 @@ describe("ProjectSetupScriptRunner", () => {
               Layer.succeed(OrchestrationEngineService, {
                 getReadModel: () => Effect.succeed(emptySnapshot([])),
                 readEvents: () => Stream.empty,
+                getLatestSequence: () => Effect.succeed(0),
+                readEventsRange: () => Stream.empty,
                 dispatch: () => Effect.die(new Error("unused")),
                 streamDomainEvents: Stream.empty,
+                subscribeDomainEvents: () => Effect.die(new Error("unused")),
               }),
             ),
             Layer.provideMerge(
@@ -143,8 +146,11 @@ describe("ProjectSetupScriptRunner", () => {
                     ),
                   ),
                 readEvents: () => Stream.empty,
+                getLatestSequence: () => Effect.succeed(0),
+                readEventsRange: () => Stream.empty,
                 dispatch: () => Effect.die(new Error("unused")),
                 streamDomainEvents: Stream.empty,
+                subscribeDomainEvents: () => Effect.die(new Error("unused")),
               }),
             ),
             Layer.provideMerge(
@@ -224,8 +230,11 @@ describe("ProjectSetupScriptRunner", () => {
                     ]),
                   ),
                 readEvents: () => Stream.empty,
+                getLatestSequence: () => Effect.succeed(0),
+                readEventsRange: () => Stream.empty,
                 dispatch: () => Effect.die(new Error("unused")),
                 streamDomainEvents: Stream.empty,
+                subscribeDomainEvents: () => Effect.die(new Error("unused")),
               }),
             ),
             Layer.provideMerge(

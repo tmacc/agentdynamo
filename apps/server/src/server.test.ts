@@ -67,6 +67,10 @@ import {
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
 import {
+  ProjectionBoardSnapshotQuery,
+  type ProjectionBoardSnapshotQueryShape,
+} from "./board/Services/ProjectionBoardSnapshotQuery.ts";
+import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "./orchestration/Services/OrchestrationEngine.ts";
@@ -88,10 +92,6 @@ import {
   ProjectionBoardDismissedGhostRepository,
   type ProjectionBoardDismissedGhostRepositoryShape,
 } from "./persistence/Services/ProjectionBoardDismissedGhosts.ts";
-import {
-  ProjectionStateRepository,
-  type ProjectionStateRepositoryShape,
-} from "./persistence/Services/ProjectionState.ts";
 import {
   ProviderRegistry,
   type ProviderRegistryShape,
@@ -363,9 +363,9 @@ const buildAppUnderTest = (options?: {
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     threadForkDispatcher?: Partial<ThreadForkDispatcherShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
+    projectionBoardSnapshotQuery?: Partial<ProjectionBoardSnapshotQueryShape>;
     projectionBoardCardRepository?: Partial<ProjectionBoardCardRepositoryShape>;
     projectionBoardDismissedGhostRepository?: Partial<ProjectionBoardDismissedGhostRepositoryShape>;
-    projectionStateRepository?: Partial<ProjectionStateRepositoryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
@@ -598,6 +598,19 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
+        Layer.mock(ProjectionBoardSnapshotQuery)({
+          getProjectSnapshot: () =>
+            Effect.succeed({
+              cards: [],
+              dismissedGhosts: [],
+              cardSequence: 0,
+              dismissedGhostSequence: 0,
+              snapshotSequence: 0,
+            }),
+          ...options?.layers?.projectionBoardSnapshotQuery,
+        }),
+      ),
+      Layer.provide(
         Layer.mock(ProjectionBoardCardRepository)({
           upsert: () => Effect.void,
           getById: () => Effect.succeed(Option.none()),
@@ -613,15 +626,6 @@ const buildAppUnderTest = (options?: {
           listByProject: () => Effect.succeed([]),
           delete: () => Effect.void,
           ...options?.layers?.projectionBoardDismissedGhostRepository,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ProjectionStateRepository)({
-          upsert: () => Effect.void,
-          getByProjector: () => Effect.succeed(Option.none()),
-          listAll: () => Effect.succeed([]),
-          minLastAppliedSequence: () => Effect.succeed(null),
-          ...options?.layers?.projectionStateRepository,
         }),
       ),
     );

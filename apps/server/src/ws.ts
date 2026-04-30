@@ -50,6 +50,7 @@ import { GitManager } from "./git/Services/GitManager.ts";
 import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster.ts";
 import { Keybindings } from "./keybindings.ts";
 import { Open, resolveAvailableEditors } from "./open.ts";
+import { ProjectionBoardSnapshotQuery } from "./board/Services/ProjectionBoardSnapshotQuery.ts";
 import { enqueueAndExecuteForkThread } from "./orchestration/forkThreadExecution.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine.ts";
@@ -58,7 +59,6 @@ import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnap
 import { ThreadForkDispatcher } from "./orchestration/Services/ThreadForkDispatcher.ts";
 import { ProjectionBoardCardRepository } from "./persistence/Services/ProjectionBoardCards.ts";
 import { ProjectionBoardDismissedGhostRepository } from "./persistence/Services/ProjectionBoardDismissedGhosts.ts";
-import { ProjectionStateRepository } from "./persistence/Services/ProjectionState.ts";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -126,8 +126,7 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
 }
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
-const BOARD_CARDS_PROJECTOR = "projection.board-cards";
-const BOARD_DISMISSED_GHOSTS_PROJECTOR = "projection.board-dismissed-ghosts";
+const BOARD_REPLAY_WARNING_THRESHOLD = 500;
 
 function isBoardCardEvent(event: OrchestrationEvent): boolean {
   return (
@@ -195,11 +194,11 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+      const projectionBoardSnapshotQuery = yield* ProjectionBoardSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngineService;
       const projectionBoardCardRepository = yield* ProjectionBoardCardRepository;
       const projectionBoardDismissedGhostRepository =
         yield* ProjectionBoardDismissedGhostRepository;
-      const projectionStateRepository = yield* ProjectionStateRepository;
       const checkpointDiffQuery = yield* CheckpointDiffQuery;
       const keybindings = yield* Keybindings;
       const open = yield* Open;
@@ -943,24 +942,12 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             Effect.succeed(
               Stream.unwrap(
                 Effect.gen(function* () {
-                  const liveQueue = yield* Queue.unbounded<OrchestrationEvent>();
-                  yield* orchestrationEngine.streamDomainEvents.pipe(
-                    Stream.runForEach((event) => Queue.offer(liveQueue, event)),
-                    Effect.forkScoped,
-                  );
-                  const [cards, dismissedGhosts, cardState, dismissedGhostState] =
-                    yield* Effect.all([
-                      projectionBoardCardRepository.listByProject({ projectId: input.projectId }),
-                      projectionBoardDismissedGhostRepository.listByProject({
-                        projectId: input.projectId,
-                      }),
-                      projectionStateRepository.getByProjector({
-                        projector: BOARD_CARDS_PROJECTOR,
-                      }),
-                      projectionStateRepository.getByProjector({
-                        projector: BOARD_DISMISSED_GHOSTS_PROJECTOR,
-                      }),
-                    ]).pipe(
+                  const liveSubscription = yield* orchestrationEngine.subscribeDomainEvents();
+                  const snapshot = yield* projectionBoardSnapshotQuery
+                    .getProjectSnapshot({
+                      projectId: input.projectId,
+                    })
+                    .pipe(
                       Effect.mapError(
                         (cause) =>
                           new BoardSubscribeProjectError({
@@ -969,17 +956,21 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                           }),
                       ),
                     );
-                  const cardSequence = Option.match(cardState, {
-                    onNone: () => 0,
-                    onSome: (state) => state.lastAppliedSequence,
-                  });
-                  const dismissedGhostSequence = Option.match(dismissedGhostState, {
-                    onNone: () => 0,
-                    onSome: (state) => state.lastAppliedSequence,
-                  });
-                  const snapshotSequence = Math.min(cardSequence, dismissedGhostSequence);
-                  const lastCardSequence = yield* Ref.make(cardSequence);
-                  const lastDismissedGhostSequence = yield* Ref.make(dismissedGhostSequence);
+                  const replayToSequence = yield* orchestrationEngine.getLatestSequence().pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new BoardSubscribeProjectError({
+                          message: `Failed to capture board replay cursor for project ${input.projectId}`,
+                          cause,
+                        }),
+                    ),
+                  );
+                  const lastCardSequence = yield* Ref.make(snapshot.cardSequence);
+                  const lastDismissedGhostSequence = yield* Ref.make(
+                    snapshot.dismissedGhostSequence,
+                  );
+                  const replayCount = yield* Ref.make(0);
+                  const latestReplaySequence = yield* Ref.make(snapshot.snapshotSequence);
                   const toBoardStreamEvent = (
                     event: OrchestrationEvent,
                   ): Effect.Effect<Option.Option<BoardStreamEvent>> => {
@@ -1011,8 +1002,12 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                         Option.isSome(event) ? Stream.succeed(event.value) : Stream.empty,
                       ),
                     );
-                  const replayStream = mapBoardEvents(
-                    orchestrationEngine.readEvents(snapshotSequence).pipe(
+                  const replayEvents = orchestrationEngine
+                    .readEventsRange({
+                      fromSequenceExclusive: snapshot.snapshotSequence,
+                      toSequenceInclusive: replayToSequence,
+                    })
+                    .pipe(
                       Stream.mapError(
                         (cause) =>
                           new BoardSubscribeProjectError({
@@ -1020,21 +1015,43 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                             cause,
                           }),
                       ),
-                    ),
-                  );
-                  const liveStream = mapBoardEvents(Stream.fromQueue(liveQueue));
+                      Stream.tap((event) =>
+                        Effect.gen(function* () {
+                          yield* Ref.update(replayCount, (count) => count + 1);
+                          yield* Ref.set(latestReplaySequence, event.sequence);
+                        }),
+                      ),
+                      Stream.onEnd(
+                        Effect.gen(function* () {
+                          const count = yield* Ref.get(replayCount);
+                          if (count > BOARD_REPLAY_WARNING_THRESHOLD) {
+                            yield* Effect.logWarning("board.subscription.large-replay", {
+                              projectId: input.projectId,
+                              snapshotSequence: snapshot.snapshotSequence,
+                              replayToSequence,
+                              cardSequence: snapshot.cardSequence,
+                              dismissedGhostSequence: snapshot.dismissedGhostSequence,
+                              replayCount: count,
+                              latestSequence: yield* Ref.get(latestReplaySequence),
+                            });
+                          }
+                        }),
+                      ),
+                    );
+                  const replayStream = mapBoardEvents(replayEvents);
+                  const liveStream = mapBoardEvents(Stream.fromSubscription(liveSubscription));
 
                   return Stream.concat(
                     Stream.make({
                       kind: "snapshot" as const,
-                      cards,
-                      dismissedGhosts,
-                      snapshotSequence,
+                      cards: snapshot.cards,
+                      dismissedGhosts: snapshot.dismissedGhosts,
+                      snapshotSequence: snapshot.snapshotSequence,
                     }),
-                    Stream.merge(replayStream, liveStream),
+                    Stream.concat(replayStream, liveStream),
                   );
                 }),
-              ),
+              ) as Stream.Stream<BoardStreamEvent, BoardSubscribeProjectError>,
             ),
             { "rpc.aggregate": "board" },
           ),

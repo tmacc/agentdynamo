@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   CommandId,
   type OrchestrationTeamTask,
@@ -12,6 +14,8 @@ import { TeamTaskReactor, type TeamTaskReactorShape } from "../Services/TeamTask
 const commandId = (tag: string): CommandId =>
   CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 const deterministicCommandId = (tag: string): CommandId => CommandId.make(`recovery:${tag}`);
+const stableSummaryHash = (summary: string): string =>
+  createHash("sha256").update(summary).digest("hex").slice(0, 16);
 
 function latestAssistantSummary(thread: {
   readonly messages: ReadonlyArray<{
@@ -129,7 +133,7 @@ const makeTeamTaskReactor = Effect.gen(function* () {
     if (nextSummary !== null && nextSummary !== task.latestSummary) {
       yield* orchestrationEngine.dispatch({
         type: "thread.team-task.update-summary",
-        commandId: makeCommandId(`summary:${String(nextSummary.length)}`),
+        commandId: makeCommandId(`summary:${stableSummaryHash(nextSummary)}`),
         parentThreadId: parentThread.id,
         taskId: task.id,
         latestSummary: nextSummary,

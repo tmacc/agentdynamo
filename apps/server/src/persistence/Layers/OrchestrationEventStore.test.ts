@@ -116,4 +116,67 @@ layer("OrchestrationEventStore", (it) => {
       }
     }),
   );
+
+  it.effect(
+    "reads finite ranges past the default replay limit while keeping readFromSequence bounded",
+    () =>
+      Effect.gen(function* () {
+        const eventStore = yield* OrchestrationEventStore;
+        const now = new Date().toISOString();
+        const eventCount = 1_105;
+        const startSequence = yield* eventStore.getLatestSequence();
+
+        yield* Effect.forEach(
+          Array.from({ length: eventCount }, (_, index) => index + 1),
+          (index) =>
+            eventStore.append({
+              type: "project.created",
+              eventId: EventId.make(`evt-store-range-${index}`),
+              aggregateKind: "project",
+              aggregateId: ProjectId.make(`project-range-${index}`),
+              occurredAt: now,
+              commandId: CommandId.make(`cmd-store-range-${index}`),
+              causationEventId: null,
+              correlationId: CommandId.make(`cmd-store-range-${index}`),
+              metadata: {},
+              payload: {
+                projectId: ProjectId.make(`project-range-${index}`),
+                title: `Range Project ${index}`,
+                workspaceRoot: `/tmp/project-range-${index}`,
+                defaultModelSelection: null,
+                scripts: [],
+                createdAt: now,
+                updatedAt: now,
+              },
+            }),
+          { concurrency: 1 },
+        );
+
+        const latestSequence = yield* eventStore.getLatestSequence();
+        assert.equal(latestSequence, startSequence + eventCount);
+
+        const boundedReplay = yield* Stream.runCollect(
+          eventStore.readFromSequence(startSequence),
+        ).pipe(Effect.map((chunk) => Array.from(chunk)));
+        assert.equal(boundedReplay.length, 1_000);
+
+        const rangeReplay = yield* Stream.runCollect(
+          eventStore.readRange({
+            fromSequenceExclusive: startSequence + 100,
+            toSequenceInclusive: latestSequence,
+          }),
+        ).pipe(Effect.map((chunk) => Array.from(chunk)));
+        assert.equal(rangeReplay.length, eventCount - 100);
+        assert.equal(rangeReplay[0]?.sequence, startSequence + 101);
+        assert.equal(rangeReplay[rangeReplay.length - 1]?.sequence, latestSequence);
+
+        const emptyRange = yield* Stream.runCollect(
+          eventStore.readRange({
+            fromSequenceExclusive: startSequence + 500,
+            toSequenceInclusive: startSequence + 500,
+          }),
+        );
+        assert.equal(emptyRange.length, 0);
+      }),
+  );
 });

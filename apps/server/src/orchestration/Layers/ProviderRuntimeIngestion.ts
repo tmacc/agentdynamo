@@ -1820,7 +1820,6 @@ const make = Effect.gen(function* () {
 
       const conflictsWithActiveTurn =
         activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
-      const missingTurnForActiveTurn = activeTurnId !== null && eventTurnId === undefined;
 
       const canApplyProviderSessionLifecycle = (() => {
         if (!STRICT_PROVIDER_LIFECYCLE_GUARD) {
@@ -1835,17 +1834,17 @@ const make = Effect.gen(function* () {
           case "turn.started":
             return !conflictsWithActiveTurn;
           case "turn.completed":
-            if (conflictsWithActiveTurn || missingTurnForActiveTurn) {
-              return false;
-            }
-            // Only the active turn may close the lifecycle state.
-            if (activeTurnId !== null && eventTurnId !== undefined) {
-              return sameId(activeTurnId, eventTurnId);
-            }
-            // If no active turn is tracked, accept completion scoped to this thread.
-            return true;
+            return (
+              activeTurnId !== null &&
+              eventTurnId !== undefined &&
+              sameId(activeTurnId, eventTurnId)
+            );
           case "turn.aborted":
-            return !conflictsWithActiveTurn && !missingTurnForActiveTurn;
+            return (
+              activeTurnId !== null &&
+              eventTurnId !== undefined &&
+              sameId(activeTurnId, eventTurnId)
+            );
           default:
             return true;
         }
@@ -1892,6 +1891,23 @@ const make = Effect.gen(function* () {
         event.type === "turn.started" && canApplyProviderSessionLifecycle
           ? yield* getSourceProposedPlanReferenceForAcceptedTurnStart(thread.id, eventTurnId)
           : null;
+      if (
+        isProviderFinalTurnEvent(event) &&
+        canSettleProviderTurn &&
+        !canApplyProviderSessionLifecycle
+      ) {
+        yield* Effect.logWarning(
+          "provider runtime final turn event settled without session lifecycle",
+          {
+            eventId: event.eventId,
+            eventType: event.type,
+            threadId: thread.id,
+            eventTurnId: eventTurnId ?? null,
+            activeTurnId,
+            latestTurnId: thread.latestTurn?.turnId ?? null,
+          },
+        );
+      }
 
       if (
         event.type === "session.started" ||

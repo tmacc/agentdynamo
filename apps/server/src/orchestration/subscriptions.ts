@@ -1,5 +1,5 @@
 import type { OrchestrationEvent } from "@t3tools/contracts";
-import { Effect, Option, Queue, Ref, Stream } from "effect";
+import { Effect, Option, Ref, Stream } from "effect";
 
 import type { OrchestrationEngineShape } from "./Services/OrchestrationEngine.ts";
 import type { ReplaySafeSubscriptionInput } from "./Services/OrchestrationSubscriptionService.ts";
@@ -12,14 +12,15 @@ export function replaySafeOrchestrationStream<Snapshot, Item, E, R>(
 ) {
   return Stream.unwrap(
     Effect.gen(function* () {
-      const liveQueue = yield* Queue.unbounded<OrchestrationEvent>();
-      yield* orchestrationEngine.streamDomainEvents.pipe(
-        Stream.runForEach((event) => Queue.offer(liveQueue, event)),
-        Effect.forkScoped,
-      );
+      const liveSubscription = yield* orchestrationEngine.subscribeDomainEvents();
 
       const { snapshot, snapshotSequence } = yield* input.loadSnapshot;
+      const replayToSequence = yield* orchestrationEngine
+        .getLatestSequence()
+        .pipe(Effect.mapError(input.mapReplayError));
       const lastEmittedSequence = yield* Ref.make(snapshotSequence);
+      const replayCount = yield* Ref.make(0);
+      const latestReplaySequence = yield* Ref.make(snapshotSequence);
 
       const toSubscriptionItem = (event: OrchestrationEvent) =>
         input
@@ -36,22 +37,6 @@ export function replaySafeOrchestrationStream<Snapshot, Item, E, R>(
             ),
           );
 
-      const replayEvents = yield* orchestrationEngine
-        .readEvents(snapshotSequence)
-        .pipe(Stream.mapError(input.mapReplayError), Stream.runCollect);
-      const replayCount = replayEvents.length;
-      if (replayCount > REPLAY_WARNING_THRESHOLD) {
-        yield* Effect.logWarning("orchestration.subscription.large-replay", {
-          subscriptionName: input.subscriptionName,
-          snapshotSequence,
-          replayCount,
-          latestSequence:
-            replayEvents.length === 0
-              ? snapshotSequence
-              : replayEvents[replayEvents.length - 1]?.sequence,
-        });
-      }
-
       const mapEvents = <E2, R2>(
         stream: Stream.Stream<OrchestrationEvent, E2, R2>,
       ): Stream.Stream<unknown, E2, R2> =>
@@ -62,11 +47,40 @@ export function replaySafeOrchestrationStream<Snapshot, Item, E, R>(
           ),
         ) as Stream.Stream<unknown, E2, R2>;
 
+      const replayEvents = orchestrationEngine
+        .readEventsRange({
+          fromSequenceExclusive: snapshotSequence,
+          toSequenceInclusive: replayToSequence,
+        })
+        .pipe(
+          Stream.mapError(input.mapReplayError),
+          Stream.tap((event) =>
+            Effect.gen(function* () {
+              yield* Ref.update(replayCount, (count) => count + 1);
+              yield* Ref.set(latestReplaySequence, event.sequence);
+            }),
+          ),
+          Stream.onEnd(
+            Effect.gen(function* () {
+              const count = yield* Ref.get(replayCount);
+              if (count > REPLAY_WARNING_THRESHOLD) {
+                yield* Effect.logWarning("orchestration.subscription.large-replay", {
+                  subscriptionName: input.subscriptionName,
+                  snapshotSequence,
+                  replayToSequence,
+                  replayCount: count,
+                  latestSequence: yield* Ref.get(latestReplaySequence),
+                });
+              }
+            }),
+          ),
+        );
+
       return Stream.concat(
         Stream.make(input.snapshotItem(snapshot)),
         Stream.concat(
-          mapEvents(Stream.fromIterable(replayEvents)),
-          mapEvents(Stream.fromQueue(liveQueue)),
+          mapEvents(replayEvents),
+          mapEvents(Stream.fromSubscription(liveSubscription)),
         ),
       );
     }) as any,
