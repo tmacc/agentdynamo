@@ -341,6 +341,7 @@ export function resolveThreadBranchUpdate(
 
 export function resolveLiveThreadBranchUpdate(input: {
   threadBranch: string | null;
+  threadWorktreePath?: string | null;
   gitStatus: GitStatusResult | null;
 }): { branch: string | null } | null {
   if (!input.gitStatus) {
@@ -352,6 +353,17 @@ export function resolveLiveThreadBranchUpdate(input: {
   }
 
   if (input.threadBranch === input.gitStatus.branch) {
+    return null;
+  }
+
+  if (
+    input.threadBranch !== null &&
+    input.gitStatus.branch !== null &&
+    input.threadWorktreePath !== null &&
+    input.threadWorktreePath !== undefined &&
+    isTemporaryWorktreeBranch(input.threadBranch) &&
+    !isTemporaryWorktreeBranch(input.gitStatus.branch)
+  ) {
     return null;
   }
 

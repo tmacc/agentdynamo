@@ -59,10 +59,13 @@ import {
   readClientSettings,
   readSavedEnvironmentRegistry,
   readSavedEnvironmentSecret,
+  readSavedPromptStorageWithRecovery,
   removeSavedEnvironmentSecret,
+  removeSavedPromptStorage,
   writeClientSettings,
   writeSavedEnvironmentRegistry,
   writeSavedEnvironmentSecret,
+  writeSavedPromptStorage,
 } from "./clientPersistence.ts";
 import {
   isBackendReadinessAborted,
@@ -108,6 +111,9 @@ const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_APP_BRANDING_CHANNEL = "desktop:get-app-branding";
 const GET_LOCAL_ENVIRONMENT_BOOTSTRAP_CHANNEL = "desktop:get-local-environment-bootstrap";
+const GET_SAVED_PROMPT_STORAGE_CHANNEL = "desktop:get-saved-prompt-storage";
+const SET_SAVED_PROMPT_STORAGE_CHANNEL = "desktop:set-saved-prompt-storage";
+const REMOVE_SAVED_PROMPT_STORAGE_CHANNEL = "desktop:remove-saved-prompt-storage";
 const GET_CLIENT_SETTINGS_CHANNEL = "desktop:get-client-settings";
 const SET_CLIENT_SETTINGS_CHANNEL = "desktop:set-client-settings";
 const GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL = "desktop:get-saved-environment-registry";
@@ -124,6 +130,7 @@ const BASE_DIR =
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
 const CLIENT_SETTINGS_PATH = Path.join(STATE_DIR, "client-settings.json");
+const SAVED_PROMPTS_PATH = Path.join(STATE_DIR, "saved-prompts.json");
 const SAVED_ENVIRONMENT_REGISTRY_PATH = Path.join(STATE_DIR, "saved-environments.json");
 const DESKTOP_SCHEME = APP_PROTOCOL;
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
@@ -143,6 +150,10 @@ const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
+
+function messageFromUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 const SERVER_SETTINGS_PATH = Path.join(STATE_DIR, "settings.json");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -1583,6 +1594,43 @@ function registerIpcHandlers(): void {
       wsBaseUrl: backendWsUrl || null,
       bootstrapToken: backendBootstrapToken || undefined,
     } as const;
+  });
+
+  ipcMain.removeAllListeners(GET_SAVED_PROMPT_STORAGE_CHANNEL);
+  ipcMain.on(GET_SAVED_PROMPT_STORAGE_CHANNEL, (event) => {
+    try {
+      event.returnValue = readSavedPromptStorageWithRecovery(SAVED_PROMPTS_PATH);
+    } catch (error) {
+      event.returnValue = { status: "error", message: messageFromUnknownError(error) };
+    }
+  });
+
+  ipcMain.removeAllListeners(SET_SAVED_PROMPT_STORAGE_CHANNEL);
+  ipcMain.on(SET_SAVED_PROMPT_STORAGE_CHANNEL, (event, rawValue: unknown) => {
+    try {
+      if (typeof rawValue !== "string") {
+        event.returnValue = {
+          status: "error",
+          message: "Invalid saved prompt storage payload.",
+        };
+        return;
+      }
+
+      writeSavedPromptStorage(SAVED_PROMPTS_PATH, rawValue);
+      event.returnValue = { status: "ok" };
+    } catch (error) {
+      event.returnValue = { status: "error", message: messageFromUnknownError(error) };
+    }
+  });
+
+  ipcMain.removeAllListeners(REMOVE_SAVED_PROMPT_STORAGE_CHANNEL);
+  ipcMain.on(REMOVE_SAVED_PROMPT_STORAGE_CHANNEL, (event) => {
+    try {
+      removeSavedPromptStorage(SAVED_PROMPTS_PATH);
+      event.returnValue = { status: "ok" };
+    } catch (error) {
+      event.returnValue = { status: "error", message: messageFromUnknownError(error) };
+    }
   });
 
   ipcMain.removeHandler(GET_CLIENT_SETTINGS_CHANNEL);

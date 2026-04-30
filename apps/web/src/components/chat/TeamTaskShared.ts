@@ -1,14 +1,16 @@
 import type { OrchestrationTeamTask, ProviderKind } from "@t3tools/contracts";
 import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
+import {
+  isDedicatedDynamoTeamWorktreeTask,
+  isMaterializedDynamoTeamTask,
+} from "@t3tools/shared/team-task-workspace";
+
+export { isDedicatedDynamoTeamWorktreeTask, isMaterializedDynamoTeamTask };
 
 export const TEAM_TASK_ACTIVE_STATUSES = new Set(["queued", "starting", "running", "waiting"]);
 
 export function isActiveTeamTask(task: OrchestrationTeamTask): boolean {
   return TEAM_TASK_ACTIVE_STATUSES.has(task.status);
-}
-
-export function isMaterializedDynamoTeamTask(task: OrchestrationTeamTask): boolean {
-  return (task.source ?? "dynamo") === "dynamo" && task.childThreadMaterialized === true;
 }
 
 export const isDynamoManagedTeamTask = isMaterializedDynamoTeamTask;

@@ -275,6 +275,18 @@ const SUBSCRIPTION_TYPE_KEYS = [
 const SUBSCRIPTION_CONTAINER_KEYS = ["account", "subscription", "user", "billing"] as const;
 const AUTH_METHOD_KEYS = ["authMethod", "auth_method"] as const;
 const AUTH_METHOD_CONTAINER_KEYS = ["auth", "account", "session"] as const;
+const ACCOUNT_LABEL_KEYS = [
+  "email",
+  "emailAddress",
+  "email_address",
+  "accountEmail",
+  "account_email",
+  "userEmail",
+  "user_email",
+  "username",
+  "login",
+] as const;
+const ACCOUNT_LABEL_CONTAINER_KEYS = ["auth", "account", "session", "user", "profile"] as const;
 
 /** Lift an unknown value into `Option<string>` if it is a non-empty string. */
 const asNonEmptyString = (v: unknown): Option.Option<string> =>
@@ -332,6 +344,27 @@ function findAuthMethod(value: unknown): Option.Option<string> {
   );
 }
 
+function findAccountLabel(value: unknown): Option.Option<string> {
+  if (globalThis.Array.isArray(value)) {
+    return Option.firstSomeOf(value.map(findAccountLabel));
+  }
+
+  return asRecord(value).pipe(
+    Option.flatMap((record) => {
+      const direct = Option.firstSomeOf(
+        ACCOUNT_LABEL_KEYS.map((key) => asNonEmptyString(record[key])),
+      );
+      if (Option.isSome(direct)) return direct;
+
+      return Option.firstSomeOf(
+        ACCOUNT_LABEL_CONTAINER_KEYS.map((key) =>
+          asRecord(record[key]).pipe(Option.flatMap(findAccountLabel)),
+        ),
+      );
+    }),
+  );
+}
+
 /**
  * Try to extract a subscription type from the `claude auth status` JSON
  * output. This is a zero-cost operation on data we already have.
@@ -348,6 +381,19 @@ function extractClaudeAuthMethodFromOutput(result: CommandResult): string | unde
   const parsed = decodeUnknownJson(result.stdout.trim());
   if (Result.isFailure(parsed)) return undefined;
   return Option.getOrUndefined(findAuthMethod(parsed.success));
+}
+
+function extractClaudeAccountLabelFromOutput(result: CommandResult): string | undefined {
+  const parsed = decodeUnknownJson(result.stdout.trim());
+  if (Result.isSuccess(parsed)) {
+    const jsonLabel = Option.getOrUndefined(findAccountLabel(parsed.success))?.trim();
+    if (jsonLabel) return jsonLabel;
+  }
+
+  const textMatch = `${result.stdout}\n${result.stderr}`.match(
+    /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/iu,
+  );
+  return textMatch?.[0];
 }
 
 function toTitleCaseWords(value: string): string {
@@ -687,10 +733,12 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 
   let subscriptionType: string | undefined;
   let authMethod: string | undefined;
+  let accountLabel: string | undefined;
 
   if (Result.isSuccess(authProbe) && Option.isSome(authProbe.success)) {
     subscriptionType = extractSubscriptionTypeFromOutput(authProbe.success.value);
     authMethod = extractClaudeAuthMethodFromOutput(authProbe.success.value);
+    accountLabel = extractClaudeAccountLabelFromOutput(authProbe.success.value);
   }
 
   if (!subscriptionType && resolveSubscriptionType) {
@@ -752,6 +800,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       auth: {
         ...parsed.auth,
         ...(authMetadata ? authMetadata : {}),
+        ...(parsed.auth.status === "authenticated" && accountLabel ? { accountLabel } : {}),
       },
       ...(parsed.message
         ? { message: parsed.message }

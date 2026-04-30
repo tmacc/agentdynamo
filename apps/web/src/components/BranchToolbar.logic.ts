@@ -14,6 +14,7 @@ export interface EnvironmentOption {
 
 export const EnvMode = Schema.Literals(["local", "worktree"]);
 export type EnvMode = typeof EnvMode.Type;
+export const DEFAULT_NEW_WORKTREE_BASE_BRANCH = "main";
 
 const GENERIC_LOCAL_ENVIRONMENT_LABELS = new Set(["local", "local environment"]);
 
@@ -54,6 +55,23 @@ export function resolveLockedWorkspaceLabel(activeWorktreePath: string | null): 
   return activeWorktreePath ? "Worktree" : "Local checkout";
 }
 
+export function resolveEnvModeLocked(input: {
+  envLocked: boolean;
+  activeWorktreePath: string | null;
+}): boolean {
+  return input.envLocked || input.activeWorktreePath !== null;
+}
+
+export function isPendingWorktreeBaseMode(input: {
+  effectiveEnvMode: EnvMode;
+  envLocked: boolean;
+  activeWorktreePath: string | null;
+}): boolean {
+  return (
+    input.effectiveEnvMode === "worktree" && !input.envLocked && input.activeWorktreePath === null
+  );
+}
+
 export function resolveEffectiveEnvMode(input: {
   activeWorktreePath: string | null;
   hasServerThread: boolean;
@@ -82,6 +100,39 @@ export function resolveDraftEnvModeAfterBranchChange(input: {
     return "worktree";
   }
   return "local";
+}
+
+export function resolveDraftContextForEnvModeChange(input: {
+  mode: EnvMode;
+  currentGitBranch: string | null;
+  currentThreadBranch: string | null;
+  currentWorktreePath: string | null;
+}): {
+  envMode: EnvMode;
+  branch?: string | null;
+  worktreePath?: string | null;
+} {
+  if (input.currentWorktreePath !== null) {
+    return {
+      envMode: "worktree",
+      branch: input.currentGitBranch ?? input.currentThreadBranch,
+      worktreePath: input.currentWorktreePath,
+    };
+  }
+
+  if (input.mode === "worktree") {
+    return {
+      envMode: "worktree",
+      branch: DEFAULT_NEW_WORKTREE_BASE_BRANCH,
+      worktreePath: null,
+    };
+  }
+
+  return {
+    envMode: "local",
+    branch: input.currentGitBranch,
+    worktreePath: null,
+  };
 }
 
 export function resolveBranchToolbarValue(input: {

@@ -162,6 +162,9 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
   return {
     getAppBranding: () => null,
     getLocalEnvironmentBootstrap: () => null,
+    getSavedPromptStorage: () => ({ status: "missing" }),
+    setSavedPromptStorage: () => ({ status: "ok" }),
+    removeSavedPromptStorage: () => ({ status: "ok" }),
     getClientSettings: async () => null,
     setClientSettings: async () => undefined,
     getSavedEnvironmentRegistry: async () => [],

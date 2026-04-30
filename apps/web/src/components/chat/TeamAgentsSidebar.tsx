@@ -22,6 +22,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "~/lib/utils";
 import {
   isActiveTeamTask,
+  isDedicatedDynamoTeamWorktreeTask,
   isMaterializedDynamoTeamTask,
   isNativeProviderTeamTask,
   teamTaskModelLabel,
@@ -52,7 +53,7 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
   activeThreadId: ThreadId;
   tasks: ReadonlyArray<TeamTaskInlineView>;
   timestampFormat: TimestampFormat;
-  mode?: "sheet" | "sidebar";
+  mode?: "dock" | "sheet" | "sidebar";
   onOpenThread: (threadId: ThreadId) => void;
   onCancelTask: (taskId: TeamTaskId) => void;
   onReviewTaskChanges: (task: OrchestrationTeamTask) => void;
@@ -71,6 +72,7 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
           mode === "sidebar"
             ? "h-full w-[360px] shrink-0 border-l border-border/70"
             : "h-full w-full",
+          mode === "dock" && "bg-transparent",
         )}
       >
         <NativeSubagentTracePanel
@@ -90,6 +92,7 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
         mode === "sidebar"
           ? "h-full w-[360px] shrink-0 border-l border-border/70"
           : "h-full w-full",
+        mode === "dock" && "bg-transparent",
       )}
     >
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/60 px-3">
@@ -189,6 +192,7 @@ const AgentCard = memo(function AgentCard({
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[task.modelSelection.provider];
   const isActive = isActiveTeamTask(task);
   const isMaterializedDynamo = isMaterializedDynamoTeamTask(task);
+  const isDedicatedDynamoWorktree = isDedicatedDynamoTeamWorktreeTask(task);
   const isNativeProvider = isNativeProviderTeamTask(task);
   const hasActions = isMaterializedDynamo;
 
@@ -252,7 +256,7 @@ const AgentCard = memo(function AgentCard({
             Inspect activity
           </Button>
         ) : null}
-        {childWorktreePath && !isActive && isMaterializedDynamo ? (
+        {childWorktreePath && !isActive && isDedicatedDynamoWorktree ? (
           <Button size="xs" variant="ghost" onClick={() => onReviewTaskChanges(task)}>
             <CheckIcon className="size-3" />
             Review & apply

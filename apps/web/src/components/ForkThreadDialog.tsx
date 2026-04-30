@@ -1,6 +1,7 @@
 import type {
   EnvironmentId,
   MessageId,
+  OrchestrationForkThreadInput,
   OrchestrationThreadShell,
   ThreadId,
 } from "@t3tools/contracts";
@@ -32,6 +33,39 @@ interface ForkThreadDialogProps {
   onForked: (thread: OrchestrationThreadShell) => Promise<void> | void;
 }
 
+export function buildForkThreadInput(input: {
+  readonly sourceThreadId: ThreadId;
+  readonly sourceUserMessageId: MessageId;
+  readonly mode: "local" | "worktree";
+  readonly baseBranch: string | null;
+}): OrchestrationForkThreadInput {
+  return {
+    sourceThreadId: input.sourceThreadId,
+    sourceUserMessageId: input.sourceUserMessageId,
+    mode: input.mode,
+    ...(input.mode === "worktree" && input.baseBranch ? { baseBranch: input.baseBranch } : {}),
+  };
+}
+
+export function buildForkThreadModeOptions(baseBranch: string | null) {
+  return [
+    {
+      value: "local" as const,
+      label: "Local",
+      description: "Create the fork in the project cwd.",
+      disabled: false,
+    },
+    {
+      value: "worktree" as const,
+      label: "Worktree",
+      description: baseBranch
+        ? `Create a new worktree from ${baseBranch}.`
+        : "Create a new worktree from the source checkout.",
+      disabled: false,
+    },
+  ] as const;
+}
+
 export function ForkThreadDialog({
   open,
   environmentId,
@@ -58,26 +92,7 @@ export function ForkThreadDialog({
     setIsPending(false);
   }, [defaultMode, open]);
 
-  const options = useMemo(
-    () =>
-      [
-        {
-          value: "local" as const,
-          label: "Local",
-          description: "Create the fork in the project cwd.",
-          disabled: false,
-        },
-        {
-          value: "worktree" as const,
-          label: "Worktree",
-          description: baseBranch
-            ? `Create a new worktree from ${baseBranch}.`
-            : "Select a base branch first.",
-          disabled: !baseBranch,
-        },
-      ] as const,
-    [baseBranch],
-  );
+  const options = useMemo(() => buildForkThreadModeOptions(baseBranch), [baseBranch]);
 
   const handleSubmit = async () => {
     const api = readEnvironmentApi(environmentId);
@@ -85,20 +100,17 @@ export function ForkThreadDialog({
       setError("Environment API is unavailable.");
       return;
     }
-    if (mode === "worktree" && !baseBranch) {
-      setError("Select a base branch before creating a worktree fork.");
-      return;
-    }
-
     setIsPending(true);
     setError(null);
     try {
-      const result = await api.orchestration.forkThread({
-        sourceThreadId,
-        sourceUserMessageId,
-        mode,
-        ...(mode === "worktree" && baseBranch ? { baseBranch } : {}),
-      });
+      const result = await api.orchestration.forkThread(
+        buildForkThreadInput({
+          sourceThreadId,
+          sourceUserMessageId,
+          mode,
+          baseBranch,
+        }),
+      );
       await onForked(result.thread);
       onOpenChange(false);
     } catch (cause) {
@@ -167,12 +179,7 @@ export function ForkThreadDialog({
           >
             Cancel
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={isPending || (mode === "worktree" && !baseBranch)}
-            onClick={() => void handleSubmit()}
-          >
+          <Button type="button" size="sm" disabled={isPending} onClick={() => void handleSubmit()}>
             Create Fork
           </Button>
         </DialogFooter>

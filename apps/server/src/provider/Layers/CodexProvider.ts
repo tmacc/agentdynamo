@@ -85,6 +85,13 @@ function codexAccountAuthLabel(account: CodexSchema.V2GetAccountResponse["accoun
   }
 }
 
+function codexAccountLabel(account: CodexSchema.V2GetAccountResponse["account"]) {
+  if (!account) return undefined;
+  if (account.type === "apiKey") return undefined;
+  const email = account.email.trim();
+  return email.length > 0 ? email : undefined;
+}
+
 function mapCodexModelCapabilities(
   model: CodexSchema.V2ModelListResponse__Model,
 ): ModelCapabilities {
@@ -329,10 +336,12 @@ function accountProbeStatus(account: CodexAppServerProviderSnapshot["account"]):
   readonly message?: string;
 } {
   const authLabel = codexAccountAuthLabel(account.account);
+  const accountLabel = codexAccountLabel(account.account);
   const auth = {
     status: account.account ? ("authenticated" as const) : ("unknown" as const),
     ...(account.account?.type ? { type: account.account?.type } : {}),
     ...(authLabel ? { label: authLabel } : {}),
+    ...(accountLabel ? { accountLabel } : {}),
   } satisfies ServerProvider["auth"];
 
   if (account.account) {

@@ -15,6 +15,7 @@ describe("ServerProvider", () => {
       status: "ready",
       auth: {
         status: "authenticated",
+        accountLabel: "user@example.com",
       },
       checkedAt: "2026-04-10T00:00:00.000Z",
       models: [],
@@ -22,5 +23,6 @@ describe("ServerProvider", () => {
 
     expect(parsed.slashCommands).toEqual([]);
     expect(parsed.skills).toEqual([]);
+    expect(parsed.auth.accountLabel).toBe("user@example.com");
   });
 });

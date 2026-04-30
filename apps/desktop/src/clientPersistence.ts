@@ -3,6 +3,7 @@ import * as Path from "node:path";
 
 import {
   ClientSettingsSchema,
+  type DesktopStorageReadResult,
   type ClientSettings,
   type PersistedSavedEnvironmentRecord,
 } from "@t3tools/contracts";
@@ -39,11 +40,42 @@ function readJsonFile<T>(filePath: string): T | null {
 }
 
 function writeJsonFile(filePath: string, value: unknown): void {
+  writeTextFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writeTextFile(filePath: string, value: string): void {
   const directory = Path.dirname(filePath);
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   FS.mkdirSync(directory, { recursive: true });
-  FS.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  FS.writeFileSync(tempPath, value, "utf8");
   FS.renameSync(tempPath, filePath);
+}
+
+function removeFile(filePath: string): void {
+  try {
+    FS.rmSync(filePath, { force: true });
+  } catch (error) {
+    if (isNodeErrorWithCode(error) && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+}
+
+function isNodeErrorWithCode(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function makeCorruptBackupPath(filePath: string): string {
+  const directory = Path.dirname(filePath);
+  const extension = Path.extname(filePath) || ".json";
+  const basename = Path.basename(filePath, extension);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return Path.join(directory, `${basename}.corrupt-${timestamp}${extension}`);
 }
 
 function isPersistedSavedEnvironmentStorageRecord(
@@ -101,6 +133,75 @@ export function readClientSettings(settingsPath: string): ClientSettings | null 
 
 export function writeClientSettings(settingsPath: string, settings: ClientSettings): void {
   writeJsonFile(settingsPath, { settings } satisfies ClientSettingsDocument);
+}
+
+export function readSavedPromptStorageWithRecovery(storagePath: string): DesktopStorageReadResult {
+  let raw: string;
+  try {
+    raw = FS.readFileSync(storagePath, "utf8");
+  } catch (error) {
+    if (isNodeErrorWithCode(error) && error.code === "ENOENT") {
+      return { status: "missing" };
+    }
+    return { status: "error", message: errorMessage(error) };
+  }
+
+  try {
+    JSON.parse(raw);
+    return { status: "ok", value: raw };
+  } catch (error) {
+    const message = errorMessage(error);
+    const backupPath = makeCorruptBackupPath(storagePath);
+    try {
+      FS.renameSync(storagePath, backupPath);
+      return { status: "corrupt", message, backupPath };
+    } catch {
+      return { status: "corrupt", message };
+    }
+  }
+}
+
+function preserveExistingCorruptSavedPromptStorageBeforeWrite(storagePath: string): void {
+  let raw: string;
+  try {
+    raw = FS.readFileSync(storagePath, "utf8");
+  } catch (error) {
+    if (isNodeErrorWithCode(error) && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    JSON.parse(raw);
+  } catch {
+    const backupPath = makeCorruptBackupPath(storagePath);
+    try {
+      FS.renameSync(storagePath, backupPath);
+    } catch (renameError) {
+      throw new Error(
+        `Failed to preserve corrupt saved prompt storage before write: ${errorMessage(
+          renameError,
+        )}`,
+        { cause: renameError },
+      );
+    }
+  }
+}
+
+export function writeSavedPromptStorage(storagePath: string, value: string): void {
+  try {
+    JSON.parse(value);
+  } catch {
+    throw new Error("Invalid saved prompt storage payload.");
+  }
+
+  preserveExistingCorruptSavedPromptStorageBeforeWrite(storagePath);
+  writeTextFile(storagePath, value);
+}
+
+export function removeSavedPromptStorage(storagePath: string): void {
+  removeFile(storagePath);
 }
 
 export function readSavedEnvironmentRegistry(

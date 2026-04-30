@@ -90,6 +90,7 @@ interface TerminalStartInput {
   cols: number;
   rows: number;
   env?: Record<string, string>;
+  initialCommand?: string;
 }
 
 interface TerminalSessionState {
@@ -114,6 +115,7 @@ interface TerminalSessionState {
   unsubscribeExit: (() => void) | null;
   hasRunningSubprocess: boolean;
   runtimeEnv: Record<string, string> | null;
+  initialCommand: string | null;
 }
 
 interface PersistHistoryRequest {
@@ -252,6 +254,51 @@ function windowsCmdPath(env: NodeJS.ProcessEnv): string {
 function formatShellCandidate(candidate: ShellCandidate): string {
   if (!candidate.args || candidate.args.length === 0) return candidate.shell;
   return `${candidate.shell} ${candidate.args.join(" ")}`;
+}
+
+function shellCandidateForInitialCommand(
+  candidate: ShellCandidate,
+  initialCommand: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+): ShellCandidate {
+  if (!initialCommand) return candidate;
+
+  const shellName =
+    platform === "win32"
+      ? path.win32.basename(candidate.shell).toLowerCase()
+      : path.basename(candidate.shell).toLowerCase();
+
+  if (platform === "win32") {
+    if (shellName === "cmd.exe" || shellName === "cmd") {
+      return {
+        shell: candidate.shell,
+        args: ["/d", "/s", "/c", initialCommand],
+      };
+    }
+    return {
+      shell: candidate.shell,
+      args: [...(candidate.args ?? []), "-Command", initialCommand],
+    };
+  }
+
+  if (shellName === "zsh") {
+    return {
+      shell: candidate.shell,
+      args: ["-i", "-o", "nopromptsp", "-c", initialCommand],
+    };
+  }
+
+  if (shellName === "bash") {
+    return {
+      shell: candidate.shell,
+      args: ["-i", "-c", initialCommand],
+    };
+  }
+
+  return {
+    shell: candidate.shell,
+    args: ["-c", initialCommand],
+  };
 }
 
 function uniqueShellCandidates(candidates: Array<ShellCandidate | null>): ShellCandidate[] {
@@ -1322,10 +1369,15 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         );
       }
 
+      const spawnCandidate = shellCandidateForInitialCommand(
+        candidate,
+        session.initialCommand ?? undefined,
+        platform,
+      );
       const attempt = yield* Effect.result(
         options.ptyAdapter.spawn({
-          shell: candidate.shell,
-          ...(candidate.args ? { args: candidate.args } : {}),
+          shell: spawnCandidate.shell,
+          ...(spawnCandidate.args ? { args: spawnCandidate.args } : {}),
           cwd: session.cwd,
           cols: session.cols,
           rows: session.rows,
@@ -1367,6 +1419,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         session.worktreePath = input.worktreePath ?? null;
         session.cols = input.cols;
         session.rows = input.rows;
+        session.initialCommand = input.initialCommand ?? null;
         session.exitCode = null;
         session.exitSignal = null;
         session.hasRunningSubprocess = false;
@@ -1651,6 +1704,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
               unsubscribeExit: null,
               hasRunningSubprocess: false,
               runtimeEnv: normalizedRuntimeEnv(input.env),
+              initialCommand: input.initialCommand ?? null,
             };
 
             const createdSession = session;
@@ -1671,6 +1725,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
                 cols,
                 rows,
                 ...(input.env ? { env: input.env } : {}),
+                ...(input.initialCommand ? { initialCommand: input.initialCommand } : {}),
               },
               "started",
             );
@@ -1678,17 +1733,28 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
           }
 
           const liveSession = existing.value;
+          const inputHasInitialCommand = Object.hasOwn(input, "initialCommand");
+          const requestedInitialCommand = inputHasInitialCommand
+            ? (input.initialCommand ?? null)
+            : undefined;
+          const attachingToCommandSession =
+            liveSession.initialCommand !== null && !inputHasInitialCommand;
           const nextRuntimeEnv = normalizedRuntimeEnv(input.env);
           const currentRuntimeEnv = liveSession.runtimeEnv;
           const targetCols = input.cols ?? liveSession.cols;
           const targetRows = input.rows ?? liveSession.rows;
-          const runtimeEnvChanged = !Equal.equals(currentRuntimeEnv, nextRuntimeEnv);
+          const runtimeEnvChanged =
+            !attachingToCommandSession && !Equal.equals(currentRuntimeEnv, nextRuntimeEnv);
+          const cwdChanged = !attachingToCommandSession && liveSession.cwd !== input.cwd;
+          const initialCommandChanged =
+            inputHasInitialCommand && liveSession.initialCommand !== requestedInitialCommand;
 
-          if (liveSession.cwd !== input.cwd || runtimeEnvChanged) {
+          if (cwdChanged || runtimeEnvChanged || initialCommandChanged) {
             yield* stopProcess(liveSession);
             liveSession.cwd = input.cwd;
             liveSession.worktreePath = input.worktreePath ?? null;
             liveSession.runtimeEnv = nextRuntimeEnv;
+            liveSession.initialCommand = requestedInitialCommand ?? null;
             liveSession.history = "";
             liveSession.pendingHistoryControlSequence = "";
             liveSession.pendingProcessEvents = [];
@@ -1700,7 +1766,11 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
               liveSession.history,
             );
           } else if (liveSession.status === "exited" || liveSession.status === "error") {
+            if (attachingToCommandSession) {
+              return snapshot(liveSession);
+            }
             liveSession.runtimeEnv = nextRuntimeEnv;
+            liveSession.initialCommand = requestedInitialCommand ?? null;
             liveSession.worktreePath = input.worktreePath ?? null;
             liveSession.history = "";
             liveSession.pendingHistoryControlSequence = "";
@@ -1725,6 +1795,9 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
                 cols: targetCols,
                 rows: targetRows,
                 ...(input.env ? { env: input.env } : {}),
+                ...(liveSession.initialCommand
+                  ? { initialCommand: liveSession.initialCommand }
+                  : {}),
               },
               "started",
             );
@@ -1830,6 +1903,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
               unsubscribeExit: null,
               hasRunningSubprocess: false,
               runtimeEnv: normalizedRuntimeEnv(input.env),
+              initialCommand: null,
             };
             const createdSession = session;
             yield* modifyManagerState((state) => {
@@ -1844,6 +1918,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
             session.cwd = input.cwd;
             session.worktreePath = input.worktreePath ?? null;
             session.runtimeEnv = normalizedRuntimeEnv(input.env);
+            session.initialCommand = null;
           }
 
           const cols = input.cols ?? session.cols;

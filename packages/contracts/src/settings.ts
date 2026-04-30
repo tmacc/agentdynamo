@@ -123,9 +123,13 @@ export const ObservabilitySettings = Schema.Struct({
 });
 export type ObservabilitySettings = typeof ObservabilitySettings.Type;
 
+export const DEFAULT_MAX_ACTIVE_TEAM_CHILDREN = 10;
+
 export const TeamAgentsSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  maxActiveChildren: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(3))),
+  maxActiveChildren: NonNegativeInt.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_MAX_ACTIVE_TEAM_CHILDREN)),
+  ),
   coordinatorToolsOnTopLevelThreads: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),

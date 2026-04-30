@@ -1001,6 +1001,147 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
     }),
   );
 
+  it.effect(
+    "spawns initial commands as shell startup commands instead of writing into the PTY",
+    () =>
+      Effect.gen(function* () {
+        if (process.platform === "win32") return;
+        const { manager, ptyAdapter } = yield* createManager(5, {
+          shellResolver: () => "/bin/zsh",
+        });
+
+        yield* manager.open(openInput({ initialCommand: "echo setup-ready" }));
+
+        const spawnInput = ptyAdapter.spawnInputs[0];
+        const fakeProcess = ptyAdapter.processes[0];
+        expect(spawnInput).toBeDefined();
+        expect(fakeProcess).toBeDefined();
+        if (!spawnInput || !fakeProcess) return;
+
+        expect(spawnInput.shell).toBe("/bin/zsh");
+        expect(spawnInput.args).toEqual(["-i", "-o", "nopromptsp", "-c", "echo setup-ready"]);
+        expect(fakeProcess.writes).toEqual([]);
+      }),
+  );
+
+  it.effect("attaches to running command sessions without replacing them", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter, getEvents } = yield* createManager(5, {
+        shellResolver: () => "/bin/zsh",
+      });
+
+      yield* manager.open(
+        openInput({
+          env: { DYNAMO_WORKTREE_ENV_FILE: "/tmp/worktree.env" },
+          initialCommand: "echo setup-ready",
+        }),
+      );
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+      process.emitData("installing\n");
+      yield* waitFor(
+        Effect.map(getEvents, (events) =>
+          events.some((event) => event.type === "output" && event.data === "installing\n"),
+        ),
+      );
+
+      const snapshot = yield* manager.open(
+        openInput({
+          cols: 120,
+          rows: 30,
+          env: { DYNAMO_PROJECT_ROOT: "/repo" },
+        }),
+      );
+
+      assert.equal(snapshot.status, "running");
+      assert.equal(snapshot.history, "installing\n");
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+      expect(process.killed).toBe(false);
+      expect(process.resizeCalls).toEqual([{ cols: 120, rows: 30 }]);
+      expect(process.writes).toEqual([]);
+    }),
+  );
+
+  it.effect("attaches to exited command sessions without clearing logs or spawning a shell", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter, getEvents } = yield* createManager(5, {
+        shellResolver: () => "/bin/zsh",
+      });
+
+      yield* manager.open(openInput({ initialCommand: "echo setup-ready" }));
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+      process.emitData("setup complete\n");
+      process.emitExit({ exitCode: 0, signal: 0 });
+      yield* waitFor(
+        Effect.map(getEvents, (events) => events.some((event) => event.type === "exited")),
+      );
+
+      const snapshot = yield* manager.open(openInput({ env: { DYNAMO_PROJECT_ROOT: "/repo" } }));
+
+      assert.equal(snapshot.status, "exited");
+      assert.equal(snapshot.history, "setup complete\n");
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+    }),
+  );
+
+  it.effect("replaces command sessions when a different initial command is explicit", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter, getEvents } = yield* createManager(5, {
+        shellResolver: () => "/bin/zsh",
+      });
+
+      yield* manager.open(openInput({ initialCommand: "echo first" }));
+      const firstProcess = ptyAdapter.processes[0];
+      expect(firstProcess).toBeDefined();
+      if (!firstProcess) return;
+      firstProcess.emitData("old output\n");
+      yield* waitFor(
+        Effect.map(getEvents, (events) =>
+          events.some((event) => event.type === "output" && event.data === "old output\n"),
+        ),
+      );
+
+      const snapshot = yield* manager.open(openInput({ initialCommand: "echo second" }));
+
+      assert.equal(snapshot.status, "running");
+      assert.equal(snapshot.history, "");
+      expect(ptyAdapter.spawnInputs).toHaveLength(2);
+      expect(ptyAdapter.spawnInputs[1]?.args).toEqual([
+        "-i",
+        "-o",
+        "nopromptsp",
+        "-c",
+        "echo second",
+      ]);
+      yield* waitFor(Effect.sync(() => firstProcess.killed));
+    }),
+  );
+
+  it.effect("uses PowerShell startup command flags for Windows initial commands", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        platform: "win32",
+        shellResolver: () => "pwsh.exe",
+        env: {
+          PATH: "C:\\Windows\\System32",
+          SystemRoot: "C:\\Windows",
+        },
+      });
+
+      yield* manager.open(openInput({ initialCommand: "Write-Output setup-ready" }));
+
+      const spawnInput = ptyAdapter.spawnInputs[0];
+      expect(spawnInput).toBeDefined();
+      if (!spawnInput) return;
+
+      expect(spawnInput.shell).toBe("pwsh.exe");
+      expect(spawnInput.args).toEqual(["-NoLogo", "-Command", "Write-Output setup-ready"]);
+    }),
+  );
+
   it.effect("bridges PTY callbacks back into Effect-managed event streaming", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter, getEvents } = yield* createManager(5, {

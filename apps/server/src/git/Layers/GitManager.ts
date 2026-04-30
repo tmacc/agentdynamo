@@ -53,6 +53,7 @@ import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScr
 import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { isDedicatedDynamoTeamWorktreeTask } from "../../team/teamTaskGuards.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
 import {
   decodeGitHubPullRequestListJson,
@@ -716,6 +717,12 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         "Native provider subagents do not have Dynamo-managed worktrees.",
       );
     }
+    if (!isDedicatedDynamoTeamWorktreeTask(task)) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "This child agent did not run in an isolated worktree.",
+      );
+    }
 
     const childThreadOption = yield* projectionSnapshotQuery
       .getThreadDetailById(task.childThreadId)
@@ -754,6 +761,15 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     }
     const parentCwd = parentThread.worktreePath ?? parentCheckpointContext.value.workspaceRoot;
     const childCwd = childThread.worktreePath;
+    const parentCanonicalPath = canonicalizeExistingPath(parentCwd);
+    const childCanonicalPath = canonicalizeExistingPath(childCwd);
+
+    if (parentCanonicalPath === childCanonicalPath) {
+      return yield* gitManagerError(
+        "GitManager.applyWorktreePatch",
+        "This child agent shares the coordinator workspace and cannot be reviewed as an isolated worktree.",
+      );
+    }
 
     const [parentCommonDir, childCommonDir] = yield* Effect.all(
       [resolveGitCommonDir(parentCwd), resolveGitCommonDir(childCwd)],
@@ -768,7 +784,8 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
     const parentHeadSha = yield* resolveHeadSha(parentCwd);
     const childHeadSha = yield* resolveHeadSha(childCwd);
-    const baseSha = yield* resolveMergeBase(childCwd, parentHeadSha);
+    const seedMetadata = yield* gitCore.readWorktreeSeedMetadata(childCwd);
+    const baseSha = seedMetadata?.seedTreeSha ?? (yield* resolveMergeBase(childCwd, parentHeadSha));
     const childPatch = yield* buildChildWorktreePatch(childCwd, baseSha);
     const patchHash = hashPatch(childPatch.patch);
 
@@ -777,10 +794,13 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       childCwd,
       baseSha,
       childHeadSha,
+      seedMetadata,
       patch: childPatch.patch,
       files: childPatch.files,
       patchHash,
-      includesCommittedChanges: childHeadSha !== baseSha,
+      includesCommittedChanges: seedMetadata
+        ? childHeadSha !== seedMetadata.baseHeadSha
+        : childHeadSha !== baseSha,
     };
   });
 
@@ -2011,7 +2031,15 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         maxOutputBytes: 2 * 1024 * 1024,
         truncateOutputAtMaxBytes: false,
       });
-      if (parentStatus.stdout.trim().length > 0) {
+      if (context.seedMetadata) {
+        const parentSnapshotTree = yield* gitCore.createWorktreeSnapshotTree(context.parentCwd);
+        if (parentSnapshotTree !== context.seedMetadata.seedTreeSha) {
+          return yield* gitManagerError(
+            "GitManager.applyWorktreePatch",
+            "The coordinator worktree changed since this child agent was spawned. Review the latest diff before applying child agent changes.",
+          );
+        }
+      } else if (parentStatus.stdout.trim().length > 0) {
         return yield* gitManagerError(
           "GitManager.applyWorktreePatch",
           "The coordinator worktree has local changes. Commit, stash, or discard them before applying child agent changes.",
