@@ -490,9 +490,164 @@ describe("ProviderSessionRecoveryReconciler", () => {
         session: expect.objectContaining({
           status: "ready",
           activeTurnId: null,
+          lastError: null,
         }),
       }),
     );
+    expect(directoryUpserts).toContainEqual(
+      expect.objectContaining({
+        threadId,
+        status: "stopped",
+        resumeCursor: null,
+        runtimePayload: expect.objectContaining({
+          activeTurnId: null,
+          lastError: null,
+        }),
+      }),
+    );
+  });
+
+  it("repairs invalid final active state before provider recovery can publish a final session", async () => {
+    const staleTurnId = TurnId.make("turn-invalid-repair-before-recovery");
+    const base = makeReadModel();
+    const baseThread = base.threads[0]!;
+    const readModel: OrchestrationReadModel = {
+      ...base,
+      threads: [
+        {
+          ...baseThread,
+          latestTurn: {
+            ...baseThread.latestTurn!,
+            turnId: staleTurnId,
+            state: "running",
+            completedAt: null,
+          },
+          session: {
+            ...baseThread.session!,
+            status: "ready",
+            activeTurnId: staleTurnId,
+          },
+        },
+      ],
+    };
+    const dispatched: OrchestrationCommand[] = [];
+    const directoryUpserts: ProviderRuntimeBinding[] = [];
+    let recoverSessionCalled = false;
+    const runningStaleTurn: ProjectionTurnById = {
+      threadId,
+      turnId: staleTurnId,
+      pendingMessageId: null,
+      sourceProposedPlanThreadId: null,
+      sourceProposedPlanId: null,
+      assistantMessageId: null,
+      state: "running",
+      requestedAt: now,
+      startedAt: now,
+      completedAt: null,
+      checkpointTurnCount: null,
+      checkpointRef: null,
+      checkpointStatus: null,
+      checkpointFiles: [],
+    };
+    const engine: OrchestrationEngineShape = {
+      getReadModel: () => Effect.succeed(readModel),
+      readEvents: () => Stream.empty,
+      getLatestSequence: () => Effect.succeed(0),
+      readEventsRange: () => Stream.empty,
+      dispatch: (command) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: () => Effect.die("unused"),
+    };
+    const providerService: ProviderServiceShape = {
+      startSession: () => Effect.die("unused"),
+      sendTurn: () => Effect.die("unused"),
+      interruptTurn: () => Effect.die("unused"),
+      respondToRequest: () => Effect.die("unused"),
+      respondToUserInput: () => Effect.die("unused"),
+      stopSession: () => Effect.die("unused"),
+      recoverSession: () =>
+        Effect.sync(() => {
+          recoverSessionCalled = true;
+          return {
+            provider: "codex" as const,
+            status: "ready" as const,
+            runtimeMode: "approval-required" as const,
+            threadId,
+            createdAt: now,
+            updatedAt: now,
+          };
+        }),
+      listSessions: () => Effect.succeed([]),
+      getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
+      rollbackConversation: () => Effect.die("unused"),
+      streamEvents: Stream.empty,
+    };
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const reconciler = yield* ProviderSessionRecoveryReconciler;
+        yield* reconciler.reconcileNow();
+      }).pipe(
+        Effect.provide(
+          ProviderSessionRecoveryReconcilerLive.pipe(
+            Layer.provide(Layer.succeed(OrchestrationEngineService, engine)),
+            Layer.provide(Layer.succeed(ProviderService, providerService)),
+            Layer.provide(
+              Layer.succeed(
+                ProjectionTurnRepository,
+                makeProjectionTurnRepositoryStub(({ turnId: lookupTurnId }) =>
+                  Effect.succeed(
+                    lookupTurnId === staleTurnId
+                      ? Option.some(runningStaleTurn)
+                      : Option.none<ProjectionTurnById>(),
+                  ),
+                ),
+              ),
+            ),
+            Layer.provide(
+              Layer.succeed(ProviderSessionDirectory, {
+                upsert: (binding) =>
+                  Effect.sync(() => {
+                    directoryUpserts.push(binding);
+                  }),
+                getProvider: () => Effect.succeed("codex"),
+                getBinding: () => Effect.succeed(Option.none()),
+                listThreadIds: () => Effect.succeed([]),
+                listBindings: () =>
+                  Effect.succeed([
+                    {
+                      threadId,
+                      provider: "codex",
+                      status: "running",
+                      runtimeMode: "approval-required",
+                      runtimePayload: { activeTurnId: staleTurnId },
+                      resumeCursor: { cursor: "invalid-final" },
+                      lastSeenAt: now,
+                    },
+                  ]),
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    const turnCompleteIndex = dispatched.findIndex(
+      (command) => command.type === "thread.turn.complete" && command.turnId === staleTurnId,
+    );
+    const sessionClearIndex = dispatched.findIndex(
+      (command) =>
+        command.type === "thread.session.set" &&
+        command.session.status === "ready" &&
+        command.session.activeTurnId === null,
+    );
+    expect(recoverSessionCalled).toBe(false);
+    expect(turnCompleteIndex).toBeGreaterThanOrEqual(0);
+    expect(sessionClearIndex).toBeGreaterThan(turnCompleteIndex);
     expect(directoryUpserts).toContainEqual(
       expect.objectContaining({
         threadId,

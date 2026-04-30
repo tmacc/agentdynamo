@@ -1001,8 +1001,8 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 ### 2026-04-30 - Active-turn terminal consistency and stale latest repair
 
 - `Status`: active
-- `Area`: provider runtime ingestion | provider recovery | projection | web board
-- `User-visible impact`: Provider terminal/error events cannot leave a turn row running while clearing the session to final/null. Startup repair avoids writing false interrupted events for already-final historical turns, projection bootstrap repairs stale latest-turn pointers to newer final work, and board state no longer stays in progress because of a final session with a stale running latest turn.
+- `Area`: provider runtime ingestion | provider recovery | projection | web store | web board
+- `User-visible impact`: Provider terminal/error events cannot leave a turn row running while clearing the session to final/null. Startup repair avoids writing false interrupted events for already-final historical turns, projection bootstrap repairs stale latest-turn pointers and legacy assistant-completed turns without moving thread sorting metadata backward, and board/store state no longer stays in progress because of a stale or missing active-turn id.
 - `Why this patch exists`: Follow-up recovery testing found remaining paths where coarse provider `error`/`stopped`/`runtime.error` events could clear active session state without first committing `thread.turn-completed`, and invalid-session repair only checked the latest turn instead of the exact stale `activeTurnId`.
 - `Key files`:
   - `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`
@@ -1010,24 +1010,33 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/server/src/orchestration/Services/ProjectionMaintenance.ts`
   - `apps/server/src/orchestration/Layers/ProjectionMaintenance.ts`
   - `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`
+  - `apps/web/src/session-logic.ts`
+  - `apps/web/src/store.ts`
   - `apps/web/src/boardProjection.ts`
 - `Important invariants`:
   - Active-turn terminal provider state must dispatch `thread.turn.complete` before any final `thread.session.set`.
   - Coarse provider `ready` remains non-authoritative and must preserve active work.
   - Stale provider terminal events for a different turn must not clear current session lifecycle.
   - Invalid-session startup repair loads the exact stale turn row; final rows are not re-completed as interrupted.
+  - Legacy assistant completion repair is bootstrap-only and may update `projection_threads.updated_at` to assistant message completion time only when that moves the thread forward.
   - Stale latest pointer maintenance is bootstrap-only, dispatches no events, excludes active sessions, and promotes only already-final turns with strictly newer `startedAt ?? requestedAt`.
-  - Board in-progress state treats final sessions as final even when a stale latest turn is still marked running, while preserving pending approvals/user input.
+  - When stale latest pointer maintenance promotes a repaired latest turn, `projection_threads.updated_at` is moved forward to `completedAt ?? startedAt ?? requestedAt` but never moved backward.
+  - Web active-turn reads normalize optional `activeTurnId`; `undefined` and `null` both mean no concrete active turn, and stale completion guards only block when a different concrete active turn is in progress.
+  - Board in-progress state requires a concrete active turn for session-backed active work and ignores stale running latest-turn state for `starting`/`recovering` sessions with no active turn, while preserving pending approvals/user input.
 - `Merge hotspots`:
   - Provider lifecycle handling around `session.state.changed`, `session.exited`, and `runtime.error`
   - Recovery reconciler invalid-session repair dependencies
   - Projection maintenance bootstrap ordering
+  - Web session helpers and `thread.turn-completed` reducer guards
   - Board/sidebar in-progress derivation
 - `Verification`:
   - Run `bun fmt`, `bun lint`, and `bun typecheck`.
   - Run `bun run test src/orchestration/Layers/ProviderRuntimeIngestion.test.ts` in `apps/server`.
   - Run `bun run test src/provider/Layers/ProviderSessionRecoveryReconciler.test.ts` in `apps/server`.
   - Run `bun run test src/orchestration/Layers/ProjectionPipeline.test.ts` in `apps/server`.
+  - Run `bun run test src/orchestration/Layers/ProjectionSnapshotQuery.test.ts` in `apps/server`.
+  - Run `bun run test src/session-logic.test.ts` in `apps/web`.
+  - Run `bun run test src/store.test.ts` in `apps/web`.
   - Run `bun run test src/boardProjection.test.ts` in `apps/web`.
 
 ## Upstream-Touching Patch Entry Template

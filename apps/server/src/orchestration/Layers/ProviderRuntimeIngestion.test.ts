@@ -2583,6 +2583,184 @@ describe("ProviderRuntimeIngestion", () => {
     expect(clearingSession).toBeDefined();
   });
 
+  it("flushes buffered assistant text before settling active turn on runtime.error", async () => {
+    const harness = await createHarness();
+    const turnId = asTurnId("turn-runtime-error-buffered");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-runtime-error-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-runtime-error-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-runtime-error-buffered"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "partial answer before failure",
+      },
+    });
+    await harness.drain();
+    const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
+    const midThread = midReadModel.threads.find((entry) => entry.id === asThreadId("thread-1"));
+    expect(
+      midThread?.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-runtime-error-buffered",
+      ),
+    ).toBe(false);
+
+    harness.emit({
+      type: "runtime.error",
+      eventId: asEventId("evt-runtime-error-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: {
+        message: "runtime failed after partial text",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "error" &&
+        entry.latestTurn?.state === "error" &&
+        entry.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:item-runtime-error-buffered" && !message.streaming,
+        ),
+    );
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-runtime-error-buffered",
+    );
+    expect(message?.text).toBe("partial answer before failure");
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const messageCompleted = events.find(
+      (event) =>
+        event.type === "thread.message-sent" &&
+        event.payload.messageId === asMessageId("assistant:item-runtime-error-buffered") &&
+        event.payload.streaming === false,
+    );
+    const turnCompleted = events.find(
+      (event) => event.type === "thread.turn-completed" && event.payload.turnId === turnId,
+    );
+    expect(messageCompleted).toBeDefined();
+    expect(turnCompleted).toEqual(
+      expect.objectContaining({
+        type: "thread.turn-completed",
+        payload: expect.objectContaining({
+          assistantMessageId: asMessageId("assistant:item-runtime-error-buffered"),
+        }),
+      }),
+    );
+    expect(messageCompleted!.sequence).toBeLessThan(turnCompleted!.sequence);
+  });
+
+  it("flushes buffered assistant text before settling aborted turns", async () => {
+    const harness = await createHarness();
+    const turnId = asTurnId("turn-aborted-buffered");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-aborted-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-aborted-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-aborted-buffered"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "partial answer before abort",
+      },
+    });
+    await harness.drain();
+
+    harness.emit({
+      type: "turn.aborted",
+      eventId: asEventId("evt-turn-aborted-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: {
+        reason: "user interrupted",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "interrupted" &&
+        entry.latestTurn?.state === "interrupted" &&
+        entry.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:item-aborted-buffered" && !message.streaming,
+        ),
+    );
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-aborted-buffered",
+    );
+    expect(message?.text).toBe("partial answer before abort");
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const messageCompleted = events.find(
+      (event) =>
+        event.type === "thread.message-sent" &&
+        event.payload.messageId === asMessageId("assistant:item-aborted-buffered") &&
+        event.payload.streaming === false,
+    );
+    const turnCompleted = events.find(
+      (event) => event.type === "thread.turn-completed" && event.payload.turnId === turnId,
+    );
+    expect(messageCompleted).toBeDefined();
+    expect(turnCompleted).toEqual(
+      expect.objectContaining({
+        type: "thread.turn-completed",
+        payload: expect.objectContaining({
+          assistantMessageId: asMessageId("assistant:item-aborted-buffered"),
+        }),
+      }),
+    );
+    expect(messageCompleted!.sequence).toBeLessThan(turnCompleted!.sequence);
+  });
+
   it("records runtime.error activities from the typed payload message", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

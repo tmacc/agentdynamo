@@ -2346,12 +2346,162 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-legacy-turn-rep
           },
         ]);
 
-        const threadRows = yield* sql<{ readonly latestTurnId: string | null }>`
-          SELECT latest_turn_id AS "latestTurnId"
+        const threadRows = yield* sql<{
+          readonly latestTurnId: string | null;
+          readonly updatedAt: string;
+        }>`
+          SELECT
+            latest_turn_id AS "latestTurnId",
+            updated_at AS "updatedAt"
           FROM projection_threads
           WHERE thread_id = ${threadId}
         `;
-        assert.deepEqual(threadRows, [{ latestTurnId: "turn-legacy-repair" }]);
+        assert.deepEqual(threadRows, [
+          {
+            latestTurnId: "turn-legacy-repair",
+            updatedAt: completedAt,
+          },
+        ]);
+      }),
+    );
+
+    it.effect("does not move thread updated_at backward during legacy assistant repair", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const threadId = ThreadId.make("thread-legacy-repair-newer-update");
+        const turnId = TurnId.make("turn-legacy-repair-newer-update");
+        const messageId = MessageId.make("message-legacy-repair-newer-update");
+        const projectId = ProjectId.make("project-legacy-repair-newer-update");
+        const startedAt = "2026-02-26T15:10:00.000Z";
+        const completedAt = "2026-02-26T15:10:10.000Z";
+        const newerSessionAt = "2026-02-26T15:11:00.000Z";
+
+        yield* eventStore.append({
+          type: "project.created",
+          eventId: EventId.make("evt-legacy-repair-newer-update-1"),
+          aggregateKind: "project",
+          aggregateId: projectId,
+          occurredAt: startedAt,
+          commandId: CommandId.make("cmd-legacy-repair-newer-update-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-legacy-repair-newer-update-1"),
+          metadata: {},
+          payload: {
+            projectId,
+            title: "Legacy Repair Newer Update",
+            workspaceRoot: "/tmp/legacy-repair-newer-update",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: startedAt,
+            updatedAt: startedAt,
+          },
+        });
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.make("evt-legacy-repair-newer-update-2"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: startedAt,
+          commandId: CommandId.make("cmd-legacy-repair-newer-update-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-legacy-repair-newer-update-2"),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId,
+            title: "Legacy Thread Newer Update",
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: startedAt,
+            updatedAt: startedAt,
+          },
+        });
+        yield* eventStore.append({
+          type: "thread.turn-start-requested",
+          eventId: EventId.make("evt-legacy-repair-newer-update-3"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: startedAt,
+          commandId: CommandId.make("cmd-legacy-repair-newer-update-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-legacy-repair-newer-update-3"),
+          metadata: {},
+          payload: {
+            threadId,
+            messageId: MessageId.make("message-legacy-user-newer-update"),
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt: startedAt,
+          },
+        });
+        yield* eventStore.append({
+          type: "thread.message-sent",
+          eventId: EventId.make("evt-legacy-repair-newer-update-4"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: completedAt,
+          commandId: CommandId.make("cmd-legacy-repair-newer-update-4"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-legacy-repair-newer-update-4"),
+          metadata: {},
+          payload: {
+            threadId,
+            messageId,
+            role: "assistant",
+            text: "Legacy final response",
+            turnId,
+            streaming: false,
+            createdAt: completedAt,
+            updatedAt: completedAt,
+          },
+        });
+        yield* eventStore.append({
+          type: "thread.session-set",
+          eventId: EventId.make("evt-legacy-repair-newer-update-5"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: newerSessionAt,
+          commandId: CommandId.make("cmd-legacy-repair-newer-update-5"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-legacy-repair-newer-update-5"),
+          metadata: {},
+          payload: {
+            threadId,
+            session: {
+              threadId,
+              status: "ready",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: newerSessionAt,
+            },
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const threadRows = yield* sql<{
+          readonly latestTurnId: string | null;
+          readonly updatedAt: string;
+        }>`
+          SELECT
+            latest_turn_id AS "latestTurnId",
+            updated_at AS "updatedAt"
+          FROM projection_threads
+          WHERE thread_id = ${threadId}
+        `;
+        assert.deepEqual(threadRows, [
+          {
+            latestTurnId: "turn-legacy-repair-newer-update",
+            updatedAt: newerSessionAt,
+          },
+        ]);
       }),
     );
 
@@ -2442,7 +2592,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-legacy-turn-rep
           const createdAt = "2026-02-26T17:00:00.000Z";
           const oldAt = "2026-02-26T17:01:00.000Z";
           const newerAt = "2026-02-26T17:02:00.000Z";
-          const readyAt = "2026-02-26T17:03:00.000Z";
+          const readyAt = "2026-02-26T17:01:30.000Z";
 
           yield* eventStore.append({
             type: "project.created",
@@ -2574,12 +2724,187 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-legacy-turn-rep
 
           yield* projectionPipeline.bootstrap;
 
-          const threadRows = yield* sql<{ readonly latestTurnId: string | null }>`
-          SELECT latest_turn_id AS "latestTurnId"
-          FROM projection_threads
-          WHERE thread_id = ${threadId}
-        `;
-          assert.deepEqual(threadRows, [{ latestTurnId: "turn-stale-latest-newer" }]);
+          const threadRows = yield* sql<{
+            readonly latestTurnId: string | null;
+            readonly updatedAt: string;
+          }>`
+            SELECT
+              latest_turn_id AS "latestTurnId",
+              updated_at AS "updatedAt"
+            FROM projection_threads
+            WHERE thread_id = ${threadId}
+          `;
+          assert.deepEqual(threadRows, [
+            {
+              latestTurnId: "turn-stale-latest-newer",
+              updatedAt: newerAt,
+            },
+          ]);
+        }),
+    );
+
+    it.effect(
+      "does not move thread updated_at backward when stale latest repair promotes a final turn",
+      () =>
+        Effect.gen(function* () {
+          const projectionPipeline = yield* OrchestrationProjectionPipeline;
+          const eventStore = yield* OrchestrationEventStore;
+          const sql = yield* SqlClient.SqlClient;
+          const threadId = ThreadId.make("thread-stale-latest-repair-newer-update");
+          const projectId = ProjectId.make("project-stale-latest-repair-newer-update");
+          const oldTurnId = TurnId.make("turn-stale-latest-old-newer-update");
+          const newerTurnId = TurnId.make("turn-stale-latest-newer-newer-update");
+          const createdAt = "2026-02-26T18:00:00.000Z";
+          const oldAt = "2026-02-26T18:01:00.000Z";
+          const newerAt = "2026-02-26T18:02:00.000Z";
+          const readyAt = "2026-02-26T18:03:00.000Z";
+
+          yield* eventStore.append({
+            type: "project.created",
+            eventId: EventId.make("evt-stale-latest-repair-newer-update-1"),
+            aggregateKind: "project",
+            aggregateId: projectId,
+            occurredAt: createdAt,
+            commandId: CommandId.make("cmd-stale-latest-repair-newer-update-1"),
+            causationEventId: null,
+            correlationId: CorrelationId.make("cmd-stale-latest-repair-newer-update-1"),
+            metadata: {},
+            payload: {
+              projectId,
+              title: "Stale Latest Repair Newer Update",
+              workspaceRoot: "/tmp/stale-latest-repair-newer-update",
+              defaultModelSelection: null,
+              scripts: [],
+              createdAt,
+              updatedAt: createdAt,
+            },
+          });
+          yield* eventStore.append({
+            type: "thread.created",
+            eventId: EventId.make("evt-stale-latest-repair-newer-update-2"),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: createdAt,
+            commandId: CommandId.make("cmd-stale-latest-repair-newer-update-2"),
+            causationEventId: null,
+            correlationId: CorrelationId.make("cmd-stale-latest-repair-newer-update-2"),
+            metadata: {},
+            payload: {
+              threadId,
+              projectId,
+              title: "Stale Latest Thread Newer Update",
+              modelSelection: { provider: "codex", model: "gpt-5-codex" },
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              createdAt,
+              updatedAt: createdAt,
+            },
+          });
+          yield* eventStore.append({
+            type: "thread.turn-completed",
+            eventId: EventId.make("evt-stale-latest-repair-newer-update-3"),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: newerAt,
+            commandId: CommandId.make(
+              `recovery:turn-complete:${threadId}:${newerTurnId}:completed`,
+            ),
+            causationEventId: null,
+            correlationId: CorrelationId.make("cmd-stale-latest-repair-newer-update-3"),
+            metadata: {},
+            payload: {
+              threadId,
+              turnId: newerTurnId,
+              state: "completed",
+              assistantMessageId: null,
+              completedAt: newerAt,
+            },
+          });
+          yield* eventStore.append({
+            type: "thread.session-set",
+            eventId: EventId.make("evt-stale-latest-repair-newer-update-4"),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: oldAt,
+            commandId: CommandId.make("cmd-stale-latest-repair-newer-update-4"),
+            causationEventId: null,
+            correlationId: CorrelationId.make("cmd-stale-latest-repair-newer-update-4"),
+            metadata: {},
+            payload: {
+              threadId,
+              session: {
+                threadId,
+                status: "running",
+                providerName: "codex",
+                runtimeMode: "full-access",
+                activeTurnId: oldTurnId,
+                lastError: null,
+                updatedAt: oldAt,
+              },
+            },
+          });
+          yield* eventStore.append({
+            type: "thread.turn-completed",
+            eventId: EventId.make("evt-stale-latest-repair-newer-update-5"),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: oldAt,
+            commandId: CommandId.make(`recovery:turn-complete:${threadId}:${oldTurnId}:completed`),
+            causationEventId: null,
+            correlationId: CorrelationId.make("cmd-stale-latest-repair-newer-update-5"),
+            metadata: {},
+            payload: {
+              threadId,
+              turnId: oldTurnId,
+              state: "completed",
+              assistantMessageId: null,
+              completedAt: oldAt,
+            },
+          });
+          yield* eventStore.append({
+            type: "thread.session-set",
+            eventId: EventId.make("evt-stale-latest-repair-newer-update-6"),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: readyAt,
+            commandId: CommandId.make("cmd-stale-latest-repair-newer-update-6"),
+            causationEventId: null,
+            correlationId: CorrelationId.make("cmd-stale-latest-repair-newer-update-6"),
+            metadata: {},
+            payload: {
+              threadId,
+              session: {
+                threadId,
+                status: "ready",
+                providerName: "codex",
+                runtimeMode: "full-access",
+                activeTurnId: null,
+                lastError: null,
+                updatedAt: readyAt,
+              },
+            },
+          });
+
+          yield* projectionPipeline.bootstrap;
+
+          const threadRows = yield* sql<{
+            readonly latestTurnId: string | null;
+            readonly updatedAt: string;
+          }>`
+            SELECT
+              latest_turn_id AS "latestTurnId",
+              updated_at AS "updatedAt"
+            FROM projection_threads
+            WHERE thread_id = ${threadId}
+          `;
+          assert.deepEqual(threadRows, [
+            {
+              latestTurnId: "turn-stale-latest-newer-newer-update",
+              updatedAt: readyAt,
+            },
+          ]);
         }),
     );
   },

@@ -37,7 +37,7 @@ import {
 import { resolveEnvironmentHttpUrl } from "./environments/runtime";
 import { sanitizeThreadErrorMessage } from "./rpc/transportError";
 import { getThreadFromEnvironmentState } from "./threadDerivation";
-import { isSessionActive } from "./session-logic";
+import { activeSessionTurnId, isSessionActive } from "./session-logic";
 
 export interface EnvironmentState {
   projectIds: ProjectId[];
@@ -911,10 +911,6 @@ function turnCompletionStateToLatestTurnState(
   return "completed" as const;
 }
 
-function isActiveOrchestrationStatus(status: OrchestrationSessionStatus): boolean {
-  return status === "starting" || status === "running" || status === "recovering";
-}
-
 function compareActivities(
   left: Thread["activities"][number],
   right: Thread["activities"][number],
@@ -1609,23 +1605,14 @@ function applyEnvironmentOrchestrationEvent(
 
     case "thread.turn-completed":
       return updateThreadState(state, event.payload.threadId, (thread) => {
-        if (
-          thread.session !== null &&
-          isActiveOrchestrationStatus(thread.session.orchestrationStatus) &&
-          thread.session.activeTurnId !== null &&
-          thread.session.activeTurnId !== event.payload.turnId
-        ) {
+        const sessionActiveTurnId = activeSessionTurnId(thread.session);
+        if (sessionActiveTurnId !== null && sessionActiveTurnId !== event.payload.turnId) {
           return thread;
         }
         if (thread.latestTurn !== null && thread.latestTurn.turnId !== event.payload.turnId) {
           return thread;
         }
-        if (
-          thread.latestTurn === null &&
-          (thread.session === null ||
-            thread.session.activeTurnId === null ||
-            thread.session.activeTurnId !== event.payload.turnId)
-        ) {
+        if (thread.latestTurn === null && sessionActiveTurnId !== event.payload.turnId) {
           return thread;
         }
         return {
@@ -1678,8 +1665,7 @@ function applyEnvironmentOrchestrationEvent(
                 previous: thread.latestTurn,
                 turnId: event.payload.turnId,
                 state:
-                  thread.session?.activeTurnId === event.payload.turnId &&
-                  isActiveOrchestrationStatus(thread.session.orchestrationStatus)
+                  activeSessionTurnId(thread.session) === event.payload.turnId
                     ? "running"
                     : thread.latestTurn?.completedAt != null
                       ? thread.latestTurn.state
@@ -1687,8 +1673,7 @@ function applyEnvironmentOrchestrationEvent(
                 requestedAt: thread.latestTurn?.requestedAt ?? event.payload.completedAt,
                 startedAt: thread.latestTurn?.startedAt ?? event.payload.completedAt,
                 completedAt:
-                  thread.session?.activeTurnId === event.payload.turnId &&
-                  isActiveOrchestrationStatus(thread.session.orchestrationStatus)
+                  activeSessionTurnId(thread.session) === event.payload.turnId
                     ? (thread.latestTurn?.completedAt ?? null)
                     : (thread.latestTurn?.completedAt ?? event.payload.completedAt),
                 assistantMessageId:

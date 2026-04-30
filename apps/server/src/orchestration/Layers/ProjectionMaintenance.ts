@@ -133,7 +133,8 @@ const makeProjectionMaintenance = Effect.gen(function* () {
               SELECT
                 repair.thread_id,
                 repair.turn_id,
-                repair.candidate_order_time
+                repair.candidate_order_time,
+                repair.message_updated_at AS repair_updated_at
               FROM temp_legacy_assistant_turn_repairs AS repair
               JOIN projection_threads AS thread
                 ON thread.thread_id = repair.thread_id
@@ -181,15 +182,21 @@ const makeProjectionMaintenance = Effect.gen(function* () {
                   WHERE promotion.thread_id = projection_threads.thread_id
                   LIMIT 1
                 ),
-                updated_at = COALESCE(
-                  (
-                    SELECT promotion.candidate_order_time
+                updated_at = CASE
+                  WHEN (
+                    SELECT promotion.repair_updated_at
                     FROM temp_legacy_assistant_turn_promotions AS promotion
                     WHERE promotion.thread_id = projection_threads.thread_id
                     LIMIT 1
-                  ),
-                  updated_at
-                )
+                  ) > updated_at
+                  THEN (
+                    SELECT promotion.repair_updated_at
+                    FROM temp_legacy_assistant_turn_promotions AS promotion
+                    WHERE promotion.thread_id = projection_threads.thread_id
+                    LIMIT 1
+                  )
+                  ELSE updated_at
+                END
               WHERE EXISTS (
                 SELECT 1
                 FROM temp_legacy_assistant_turn_promotions AS promotion
@@ -221,7 +228,12 @@ const makeProjectionMaintenance = Effect.gen(function* () {
               SELECT
                 candidate.thread_id,
                 candidate.turn_id,
-                COALESCE(candidate.started_at, candidate.requested_at) AS candidate_order_time
+                COALESCE(candidate.started_at, candidate.requested_at) AS candidate_order_time,
+                COALESCE(
+                  candidate.completed_at,
+                  candidate.started_at,
+                  candidate.requested_at
+                ) AS repair_updated_at
               FROM projection_turns AS candidate
               JOIN projection_threads AS thread
                 ON thread.thread_id = candidate.thread_id
@@ -273,12 +285,28 @@ const makeProjectionMaintenance = Effect.gen(function* () {
 
             yield* sql`
               UPDATE projection_threads
-              SET latest_turn_id = (
-                SELECT repair.turn_id
-                FROM temp_stale_latest_turn_repairs AS repair
-                WHERE repair.thread_id = projection_threads.thread_id
-                LIMIT 1
-              )
+              SET
+                latest_turn_id = (
+                  SELECT repair.turn_id
+                  FROM temp_stale_latest_turn_repairs AS repair
+                  WHERE repair.thread_id = projection_threads.thread_id
+                  LIMIT 1
+                ),
+                updated_at = CASE
+                  WHEN (
+                    SELECT repair.repair_updated_at
+                    FROM temp_stale_latest_turn_repairs AS repair
+                    WHERE repair.thread_id = projection_threads.thread_id
+                    LIMIT 1
+                  ) > updated_at
+                  THEN (
+                    SELECT repair.repair_updated_at
+                    FROM temp_stale_latest_turn_repairs AS repair
+                    WHERE repair.thread_id = projection_threads.thread_id
+                    LIMIT 1
+                  )
+                  ELSE updated_at
+                END
               WHERE EXISTS (
                 SELECT 1
                 FROM temp_stale_latest_turn_repairs AS repair

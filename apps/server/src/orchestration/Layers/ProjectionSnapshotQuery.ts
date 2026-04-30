@@ -584,20 +584,22 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Result: ProjectionLatestTurnDbRowSchema,
     execute: () =>
       sql`
-        SELECT
-          thread_id AS "threadId",
-          turn_id AS "turnId",
-          state,
-          requested_at AS "requestedAt",
-          started_at AS "startedAt",
-          completed_at AS "completedAt",
-          assistant_message_id AS "assistantMessageId",
-          source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
-          source_proposed_plan_id AS "sourceProposedPlanId"
-        FROM projection_turns
-        WHERE turn_id IS NOT NULL
-        ORDER BY thread_id ASC, requested_at DESC, turn_id DESC
-      `,
+	        SELECT
+	          turns.thread_id AS "threadId",
+	          turns.turn_id AS "turnId",
+	          turns.state,
+	          turns.requested_at AS "requestedAt",
+	          turns.started_at AS "startedAt",
+	          turns.completed_at AS "completedAt",
+	          turns.assistant_message_id AS "assistantMessageId",
+	          turns.source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
+	          turns.source_proposed_plan_id AS "sourceProposedPlanId"
+	        FROM projection_threads threads
+	        JOIN projection_turns turns
+	          ON turns.thread_id = threads.thread_id
+	          AND turns.turn_id = threads.latest_turn_id
+	        ORDER BY turns.thread_id ASC
+	      `,
   });
 
   const listProjectionStateRows = SqlSchema.findAll({

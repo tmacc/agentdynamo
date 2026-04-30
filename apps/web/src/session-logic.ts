@@ -144,8 +144,12 @@ export function isSessionActive(session: SessionActivityState | null): boolean {
   );
 }
 
+export function activeSessionTurnId(session: SessionActivityState | null): TurnId | null {
+  return isSessionActive(session) ? (session?.activeTurnId ?? null) : null;
+}
+
 export function isActiveTurnInProgress(session: SessionActivityState | null): boolean {
-  return isSessionActive(session) && session?.activeTurnId != null;
+  return activeSessionTurnId(session) !== null;
 }
 
 export function isInvalidFinalSessionWithActiveTurn(session: SessionActivityState | null): boolean {
@@ -168,7 +172,7 @@ export function deriveActiveWorkStartedAt(
   session: SessionActivityState | null,
   sendStartedAt: string | null,
 ): string | null {
-  const runningTurnId = isSessionActive(session) ? (session?.activeTurnId ?? null) : null;
+  const runningTurnId = activeSessionTurnId(session);
   if (runningTurnId !== null) {
     if (latestTurn?.turnId === runningTurnId) {
       return latestTurn.startedAt ?? sendStartedAt;

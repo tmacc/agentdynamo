@@ -1823,15 +1823,44 @@ const make = Effect.gen(function* () {
     readonly now: string;
     readonly commandTag: string;
   }) {
+    const assistantMessageIds = yield* getAssistantMessageIdsForTurn(
+      input.thread.id,
+      input.activeTurnId,
+    );
+    yield* Effect.forEach(
+      assistantMessageIds,
+      (assistantMessageId) =>
+        finalizeAssistantMessage({
+          event: input.event,
+          threadId: input.thread.id,
+          messageId: assistantMessageId,
+          turnId: input.activeTurnId,
+          createdAt: input.now,
+          commandTag: `${input.commandTag}-assistant-complete-finalize`,
+          finalDeltaCommandTag: `${input.commandTag}-assistant-delta-finalize`,
+          hasProjectedMessage: input.thread.messages.some(
+            (entry) => entry.id === assistantMessageId,
+          ),
+        }),
+      { concurrency: 1 },
+    ).pipe(Effect.asVoid);
     yield* clearAssistantMessageIdsForTurn(input.thread.id, input.activeTurnId);
     yield* clearAssistantSegmentStateForTurn(input.thread.id, input.activeTurnId);
+    yield* finalizeBufferedProposedPlan({
+      event: input.event,
+      threadId: input.thread.id,
+      threadProposedPlans: input.thread.proposedPlans,
+      planId: proposedPlanIdForTurn(input.thread.id, input.activeTurnId),
+      turnId: input.activeTurnId,
+      updatedAt: input.now,
+    });
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.complete",
       commandId: providerCommandId(input.event, `${input.commandTag}-turn-complete`),
       threadId: input.thread.id,
       turnId: input.activeTurnId,
       state: input.turnState,
-      assistantMessageId: null,
+      assistantMessageId: Array.from(assistantMessageIds).at(-1) ?? null,
       completedAt: input.now,
       errorText: input.errorText,
       createdAt: input.now,
@@ -2359,8 +2388,35 @@ const make = Effect.gen(function* () {
         const turnId = toTurnId(event.turnId);
         if (turnId && canSettleProviderTurn) {
           const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
+          yield* Effect.forEach(
+            assistantMessageIds,
+            (assistantMessageId) =>
+              finalizeAssistantMessage({
+                event,
+                threadId: thread.id,
+                messageId: assistantMessageId,
+                turnId,
+                createdAt: now,
+                commandTag: "assistant-complete-abort-finalize",
+                finalDeltaCommandTag: "assistant-delta-abort-finalize",
+                hasProjectedMessage: thread.messages.some(
+                  (entry) => entry.id === assistantMessageId,
+                ),
+              }),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
           yield* clearAssistantMessageIdsForTurn(thread.id, turnId);
           yield* clearAssistantSegmentStateForTurn(thread.id, turnId);
+
+          yield* finalizeBufferedProposedPlan({
+            event,
+            threadId: thread.id,
+            threadProposedPlans: thread.proposedPlans,
+            planId: proposedPlanIdForTurn(thread.id, turnId),
+            turnId,
+            updatedAt: now,
+          });
+
           yield* orchestrationEngine.dispatch({
             type: "thread.turn.complete",
             commandId: providerCommandId(event, "thread-turn-aborted"),

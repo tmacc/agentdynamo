@@ -223,6 +223,57 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
         ),
       );
 
+  const repairInvalidThreadSession = (input: {
+    readonly thread: OrchestrationThread;
+    readonly providerName: ProviderSession["provider"] | null;
+    readonly runtimeMode: RuntimeMode;
+  }) =>
+    Effect.gen(function* () {
+      const session = input.thread.session;
+      const activeTurnId = session?.activeTurnId ?? null;
+      if (session === null || activeTurnId === null) {
+        return;
+      }
+      const repairedAt = new Date().toISOString();
+      const detail = `Recovered invalid ${session.status} session with stale active turn; active work was interrupted.`;
+      const existingTurn = yield* projectionTurnRepository.getByTurnId({
+        threadId: input.thread.id,
+        turnId: activeTurnId,
+      });
+      const shouldCompleteStaleTurn =
+        Option.isNone(existingTurn) || !isFinalProjectionTurnState(existingTurn.value.state);
+      const lastError = session.lastError ?? (shouldCompleteStaleTurn ? detail : null);
+      if (shouldCompleteStaleTurn) {
+        yield* dispatchTurnComplete({
+          commandId: `repair:turn-complete:${input.thread.id}:${activeTurnId}:interrupted`,
+          threadId: input.thread.id,
+          turnId: activeTurnId,
+          state: "interrupted",
+          errorText: detail,
+          now: repairedAt,
+        });
+      }
+      yield* dispatchSessionSet({
+        commandId: `repair:session-clear-active:${input.thread.id}:${activeTurnId}:${session.status}`,
+        threadId: input.thread.id,
+        status: session.status,
+        providerName: input.providerName,
+        runtimeMode: input.runtimeMode,
+        activeTurnId: null,
+        lastError,
+        now: repairedAt,
+      });
+      if (input.providerName !== null) {
+        yield* persistTerminalBinding({
+          threadId: input.thread.id,
+          provider: input.providerName,
+          runtimeMode: input.runtimeMode,
+          status: session.status === "error" ? "error" : "stopped",
+          lastError,
+        });
+      }
+    });
+
   const reconcileNow: ProviderSessionRecoveryReconcilerShape["reconcileNow"] = () =>
     Effect.gen(function* () {
       const readModel = yield* orchestrationEngine.getReadModel();
@@ -255,6 +306,15 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
             persistedActiveTurnId !== null;
 
           if (!shouldRecover) {
+            return;
+          }
+          if (hasInvalidFinalActiveTurn) {
+            yield* repairInvalidThreadSession({
+              thread,
+              providerName: binding.provider,
+              runtimeMode: binding.runtimeMode ?? thread.session?.runtimeMode ?? thread.runtimeMode,
+            });
+            handledThreadIds.add(binding.threadId);
             return;
           }
           if (!hasInvalidFinalActiveTurn) {
@@ -532,50 +592,10 @@ const makeProviderSessionRecoveryReconciler = Effect.gen(function* () {
         ) {
           continue;
         }
-        yield* Effect.gen(function* () {
-          const activeTurnId = session.activeTurnId;
-          if (activeTurnId === null) {
-            return;
-          }
-          const repairedAt = new Date().toISOString();
-          const detail = `Recovered invalid ${session.status} session with stale active turn; active work was interrupted.`;
-          const existingTurn = yield* projectionTurnRepository.getByTurnId({
-            threadId: thread.id,
-            turnId: activeTurnId,
-          });
-          if (
-            Option.isNone(existingTurn) ||
-            !isFinalProjectionTurnState(existingTurn.value.state)
-          ) {
-            yield* dispatchTurnComplete({
-              commandId: `repair:turn-complete:${thread.id}:${activeTurnId}:interrupted`,
-              threadId: thread.id,
-              turnId: activeTurnId,
-              state: "interrupted",
-              errorText: detail,
-              now: repairedAt,
-            });
-          }
-          yield* dispatchSessionSet({
-            commandId: `repair:session-clear-active:${thread.id}:${activeTurnId}:${session.status}`,
-            threadId: thread.id,
-            status: session.status,
-            providerName: providerNameOrNull(session.providerName),
-            runtimeMode: session.runtimeMode,
-            activeTurnId: null,
-            lastError: session.lastError ?? detail,
-            now: repairedAt,
-          });
-          const providerName = providerNameOrNull(session.providerName);
-          if (providerName !== null) {
-            yield* persistTerminalBinding({
-              threadId: thread.id,
-              provider: providerName,
-              runtimeMode: session.runtimeMode,
-              status: session.status === "error" ? "error" : "stopped",
-              lastError: session.lastError ?? detail,
-            });
-          }
+        yield* repairInvalidThreadSession({
+          thread,
+          providerName: providerNameOrNull(session.providerName),
+          runtimeMode: session.runtimeMode,
         }).pipe(
           Effect.catchCause((cause) =>
             Effect.logWarning("provider.session.recovery.invalid-session-repair-failed", {
