@@ -6,17 +6,25 @@ import type {
 } from "@t3tools/contracts";
 
 export const PROJECT_INTELLIGENCE_SECTION_IDS: ReadonlyArray<ProjectIntelligenceSectionId> = [
-  "overview",
-  "loaded-context",
-  "tools",
+  "context-inspector",
   "providers",
-  "memory",
   "runtime",
-  "code-stats",
   "warnings",
 ];
 
-export const DEFAULT_PROJECT_INTELLIGENCE_SECTION: ProjectIntelligenceSectionId = "overview";
+export const DEFAULT_PROJECT_INTELLIGENCE_SECTION: ProjectIntelligenceSectionId =
+  "context-inspector";
+
+// Old section ids that have been folded into the inspector. URLs/bookmarks
+// referencing these get redirected to context-inspector instead of
+// rejected.
+const LEGACY_SECTION_REDIRECTS: Record<string, ProjectIntelligenceSectionId> = {
+  overview: "context-inspector",
+  "loaded-context": "context-inspector",
+  tools: "context-inspector",
+  memory: "context-inspector",
+  "code-stats": "runtime",
+};
 
 export interface ProjectIntelligenceRouteSearch {
   intel?: ProjectIntelligenceViewMode | undefined;
@@ -42,9 +50,10 @@ function normalizeViewMode(value: unknown): ProjectIntelligenceViewMode | undefi
 
 function normalizeSection(value: unknown): ProjectIntelligenceSectionId | undefined {
   if (typeof value !== "string") return undefined;
-  return (PROJECT_INTELLIGENCE_SECTION_IDS as readonly string[]).includes(value)
-    ? (value as ProjectIntelligenceSectionId)
-    : undefined;
+  if ((PROJECT_INTELLIGENCE_SECTION_IDS as readonly string[]).includes(value)) {
+    return value as ProjectIntelligenceSectionId;
+  }
+  return LEGACY_SECTION_REDIRECTS[value];
 }
 
 export function parseProjectIntelligenceRouteSearch(

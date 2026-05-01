@@ -1,8 +1,12 @@
 import type {
   ProjectGetIntelligenceInput,
   ProjectGetIntelligenceResult,
+  ProjectGetSurfaceOverridesInput,
+  ProjectGetSurfaceOverridesResult,
   ProjectReadIntelligenceSurfaceInput,
   ProjectReadIntelligenceSurfaceResult,
+  ProjectSetSurfaceEnabledInput,
+  ProjectSetSurfaceEnabledResult,
 } from "@t3tools/contracts";
 import { Context, Schema, type Effect } from "effect";
 
@@ -22,6 +26,12 @@ export interface ProjectIntelligenceResolverShape {
   readonly readSurface: (
     input: ProjectReadIntelligenceSurfaceInput,
   ) => Effect.Effect<ProjectReadIntelligenceSurfaceResult, ProjectIntelligenceResolverError>;
+  readonly getSurfaceOverrides: (
+    input: ProjectGetSurfaceOverridesInput,
+  ) => Effect.Effect<ProjectGetSurfaceOverridesResult, ProjectIntelligenceResolverError>;
+  readonly setSurfaceEnabled: (
+    input: ProjectSetSurfaceEnabledInput,
+  ) => Effect.Effect<ProjectSetSurfaceEnabledResult, ProjectIntelligenceResolverError>;
 }
 
 export class ProjectIntelligenceResolver extends Context.Service<

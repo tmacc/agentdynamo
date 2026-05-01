@@ -1,4 +1,4 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type {
   ProjectIntelligenceHealth,
   ProjectIntelligenceOwner,
@@ -22,12 +22,8 @@ import {
 import {
   applySurfaceFilter,
   buildFilterOptions,
-  countSurfacesByKind,
-  groupSurfacesBySection,
-  isLoadedContextSurface,
-  isMemorySurface,
+  isInspectorSurface,
   isRuntimeSurface,
-  isToolSurface,
   SECTION_DESCRIPTIONS,
   SECTION_LABELS,
   sortSurfacesByHealth,
@@ -40,12 +36,12 @@ import { ProjectIntelligenceCodeStats } from "./ProjectIntelligenceCodeStats";
 import { ProjectIntelligenceEmptyState } from "./ProjectIntelligenceEmptyState";
 import { ProjectIntelligenceFilters } from "./ProjectIntelligenceFilters";
 import { ProjectIntelligenceHeader } from "./ProjectIntelligenceHeader";
-import { ProjectIntelligenceOverview } from "./ProjectIntelligenceOverview";
 import { ProjectIntelligenceProviderHealth } from "./ProjectIntelligenceProviderHealth";
 import { ProjectIntelligenceSectionNav } from "./ProjectIntelligenceSectionNav";
 import { ProjectIntelligenceSurfaceDetail } from "./ProjectIntelligenceSurfaceDetail";
 import { ProjectIntelligenceSurfaceTable } from "./ProjectIntelligenceSurfaceTable";
 import { ProjectIntelligenceWarnings } from "./ProjectIntelligenceWarnings";
+import { ContextInspectorSection } from "./sections/ContextInspectorSection";
 
 export interface ProjectIntelligencePanelProps {
   viewMode: ProjectIntelligenceViewMode;
@@ -56,6 +52,14 @@ export interface ProjectIntelligencePanelProps {
   section: ProjectIntelligenceSectionId;
   surfaceId: ProjectIntelligenceSurfaceId | null;
   canSwitchToThread: boolean;
+  /** Optional thread id used by the context inspector for additive overrides. */
+  threadId?: ThreadId | null | undefined;
+  /** Numeric context-window max for the inspector headline. */
+  contextMaxTokens?: number | undefined;
+  /** Active model descriptor for the inspector model pill. */
+  contextActiveModel?: { providerLabel: string; modelLabel: string } | undefined;
+  /** Click handler for the model pill in project view (opens a picker). */
+  contextOnPickModel?: (() => void) | undefined;
   onClose: () => void;
   onSelectSection: (section: ProjectIntelligenceSectionId) => void;
   onSelectSurface: (surfaceId: ProjectIntelligenceSurfaceId | null) => void;
@@ -133,12 +137,8 @@ export function ProjectIntelligencePanel(props: ProjectIntelligencePanelProps) {
 
   const sectionScopedSurfaces = useMemo(() => {
     switch (props.section) {
-      case "loaded-context":
-        return filteredSurfaces.filter(isLoadedContextSurface);
-      case "tools":
-        return filteredSurfaces.filter(isToolSurface);
-      case "memory":
-        return filteredSurfaces.filter(isMemorySurface);
+      case "context-inspector":
+        return filteredSurfaces.filter(isInspectorSurface);
       case "runtime":
         return filteredSurfaces.filter(isRuntimeSurface);
       default:
@@ -146,26 +146,22 @@ export function ProjectIntelligencePanel(props: ProjectIntelligencePanelProps) {
     }
   }, [filteredSurfaces, props.section]);
 
-  const grouped = useMemo(() => groupSurfacesBySection(allSurfaces), [allSurfaces]);
+  const inspectorCount = useMemo(
+    () => allSurfaces.filter(isInspectorSurface).length,
+    [allSurfaces],
+  );
+  const runtimeCount = useMemo(
+    () => allSurfaces.filter(isRuntimeSurface).length,
+    [allSurfaces],
+  );
   const countsBySection = useMemo<Partial<Record<ProjectIntelligenceSectionId, number>>>(
     () => ({
-      "loaded-context": grouped.loadedContext.length,
-      tools: grouped.tools.length,
-      memory: grouped.memory.length,
-      runtime: grouped.runtime.length,
+      "context-inspector": inspectorCount,
+      runtime: runtimeCount,
       providers: providers.length,
       warnings: warnings.length,
-      "code-stats": codeStats ? 1 : 0,
     }),
-    [
-      codeStats,
-      grouped.loadedContext.length,
-      grouped.memory.length,
-      grouped.runtime.length,
-      grouped.tools.length,
-      providers.length,
-      warnings.length,
-    ],
+    [inspectorCount, providers.length, runtimeCount, warnings.length],
   );
 
   const errorCount = warnings.filter((warning) => warning.severity === "error").length;
@@ -176,11 +172,7 @@ export function ProjectIntelligencePanel(props: ProjectIntelligencePanelProps) {
     return allSurfaces.find((surface) => surface.id === props.surfaceId) ?? null;
   }, [allSurfaces, props.surfaceId]);
 
-  const showFilters =
-    props.section === "tools" ||
-    props.section === "loaded-context" ||
-    props.section === "memory" ||
-    props.section === "runtime";
+  const showFilters = props.section === "runtime";
 
   const handleClearFilters = useCallback(() => {
     setSearchText("");
@@ -262,8 +254,19 @@ export function ProjectIntelligencePanel(props: ProjectIntelligencePanelProps) {
               filteredSurfaces={sectionScopedSurfaces}
               selectedSurfaceId={props.surfaceId}
               onSelectSurface={props.onSelectSurface}
-              onNavigateSection={props.onSelectSection}
-              kindCount={countSurfacesByKind(allSurfaces).length}
+              viewMode={props.viewMode}
+              environmentId={props.environmentId}
+              projectCwd={props.projectCwd}
+              threadId={props.threadId ?? null}
+              {...(props.contextMaxTokens !== undefined
+                ? { contextMaxTokens: props.contextMaxTokens }
+                : {})}
+              {...(props.contextActiveModel
+                ? { contextActiveModel: props.contextActiveModel }
+                : {})}
+              {...(props.contextOnPickModel
+                ? { contextOnPickModel: props.contextOnPickModel }
+                : {})}
             />
           </ScrollArea>
         )}
@@ -334,25 +337,31 @@ interface SectionContentProps {
   filteredSurfaces: ReadonlyArray<ProjectIntelligenceSurfaceSummary>;
   selectedSurfaceId: ProjectIntelligenceSurfaceId | null;
   onSelectSurface: (surfaceId: ProjectIntelligenceSurfaceId | null) => void;
-  onNavigateSection: (section: ProjectIntelligenceSectionId) => void;
-  kindCount: number;
+  viewMode: ProjectIntelligenceViewMode;
+  environmentId: EnvironmentId | null;
+  projectCwd: string;
+  threadId: ThreadId | null;
+  contextMaxTokens?: number;
+  contextActiveModel?: { providerLabel: string; modelLabel: string };
+  contextOnPickModel?: () => void;
 }
 
 function SectionContent(props: SectionContentProps) {
   const description = SECTION_DESCRIPTIONS[props.section] ?? "";
-  if (props.section === "overview") {
+  if (props.section === "context-inspector") {
     return (
-      <div>
-        <SectionDescriptor description={description} />
-        <ProjectIntelligenceOverview
-          surfaces={props.allSurfaces}
-          providers={props.providers}
-          warnings={props.warnings}
-          {...(props.codeStats ? { codeStats: props.codeStats } : {})}
-          onNavigateSection={props.onNavigateSection}
-          onSelectSurface={(id) => props.onSelectSurface(id)}
-        />
-      </div>
+      <ContextInspectorSection
+        environmentId={props.environmentId}
+        projectCwd={props.projectCwd}
+        viewMode={props.viewMode === "thread" ? "thread" : "project"}
+        threadId={props.threadId}
+        surfaces={props.allSurfaces}
+        {...(props.contextMaxTokens !== undefined
+          ? { maxTokens: props.contextMaxTokens }
+          : {})}
+        {...(props.contextActiveModel ? { activeModel: props.contextActiveModel } : {})}
+        {...(props.contextOnPickModel ? { onPickModel: props.contextOnPickModel } : {})}
+      />
     );
   }
   if (props.section === "providers") {
@@ -374,16 +383,8 @@ function SectionContent(props: SectionContentProps) {
       </div>
     );
   }
-  if (props.section === "code-stats") {
-    return (
-      <div>
-        <SectionDescriptor description={description} />
-        <ProjectIntelligenceCodeStats
-          {...(props.codeStats ? { codeStats: props.codeStats } : {})}
-        />
-      </div>
-    );
-  }
+  // runtime section: project scripts + worktree setup + authored-source code
+  // statistics rolled together (the previous standalone "Code Stats" section).
   const heading = SECTION_LABELS[props.section] ?? props.section;
   const surfaces = sortSurfacesByHealth(props.filteredSurfaces);
   return (
@@ -400,6 +401,11 @@ function SectionContent(props: SectionContentProps) {
             : "Adjust filters or search to find surfaces in this section."
         }
       />
+      {props.codeStats ? (
+        <div className="mt-4 border-t border-border/40 pt-3">
+          <ProjectIntelligenceCodeStats codeStats={props.codeStats} />
+        </div>
+      ) : null}
     </div>
   );
 }

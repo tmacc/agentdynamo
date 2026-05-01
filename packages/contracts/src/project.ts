@@ -164,13 +164,9 @@ export const ProjectIntelligenceViewMode = Schema.Literals(["project", "thread"]
 export type ProjectIntelligenceViewMode = typeof ProjectIntelligenceViewMode.Type;
 
 export const ProjectIntelligenceSectionId = Schema.Literals([
-  "overview",
-  "loaded-context",
-  "tools",
+  "context-inspector",
   "providers",
-  "memory",
   "runtime",
-  "code-stats",
   "warnings",
 ]);
 export type ProjectIntelligenceSectionId = typeof ProjectIntelligenceSectionId.Type;
@@ -350,6 +346,65 @@ export type ProjectReadIntelligenceSurfaceResult = typeof ProjectReadIntelligenc
 
 export class ProjectReadIntelligenceSurfaceError extends Schema.TaggedErrorClass<ProjectReadIntelligenceSurfaceError>()(
   "ProjectReadIntelligenceSurfaceError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+// Persisted at `<projectCwd>/.t3code/project-context.json` when any user override is present.
+// `enabledOverrides` flips the `enabled` flag that surfaceDiscovery would otherwise infer from
+// disk state. Absence of an entry means "use the discovery default."
+export const PROJECT_CONTEXT_OVERRIDES_FILE_VERSION = 1;
+export const PROJECT_CONTEXT_OVERRIDES_RELATIVE_PATH = ".t3code/project-context.json";
+
+export const ProjectContextOverridesFile = Schema.Struct({
+  version: Schema.Literals([PROJECT_CONTEXT_OVERRIDES_FILE_VERSION]),
+  enabledOverrides: Schema.Record(ProjectIntelligenceSurfaceId, Schema.Boolean).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+});
+export type ProjectContextOverridesFile = typeof ProjectContextOverridesFile.Type;
+
+export const ProjectGetSurfaceOverridesInput = Schema.Struct({
+  projectCwd: TrimmedNonEmptyString,
+});
+export type ProjectGetSurfaceOverridesInput = typeof ProjectGetSurfaceOverridesInput.Type;
+
+export const ProjectGetSurfaceOverridesResult = Schema.Struct({
+  projectCwd: TrimmedNonEmptyString,
+  enabledOverrides: Schema.Record(ProjectIntelligenceSurfaceId, Schema.Boolean).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+});
+export type ProjectGetSurfaceOverridesResult = typeof ProjectGetSurfaceOverridesResult.Type;
+
+export class ProjectGetSurfaceOverridesError extends Schema.TaggedErrorClass<ProjectGetSurfaceOverridesError>()(
+  "ProjectGetSurfaceOverridesError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export const ProjectSetSurfaceEnabledInput = Schema.Struct({
+  projectCwd: TrimmedNonEmptyString,
+  surfaceId: ProjectIntelligenceSurfaceId,
+  // `null` clears the override (revert to discovery default); `true` / `false` pins it.
+  enabled: Schema.NullOr(Schema.Boolean),
+});
+export type ProjectSetSurfaceEnabledInput = typeof ProjectSetSurfaceEnabledInput.Type;
+
+export const ProjectSetSurfaceEnabledResult = Schema.Struct({
+  projectCwd: TrimmedNonEmptyString,
+  enabledOverrides: Schema.Record(ProjectIntelligenceSurfaceId, Schema.Boolean).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+});
+export type ProjectSetSurfaceEnabledResult = typeof ProjectSetSurfaceEnabledResult.Type;
+
+export class ProjectSetSurfaceEnabledError extends Schema.TaggedErrorClass<ProjectSetSurfaceEnabledError>()(
+  "ProjectSetSurfaceEnabledError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),

@@ -1457,7 +1457,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                       intelEnvironmentId: member.environmentId,
                       intelProjectCwd: member.cwd,
                       intelEffectiveCwd: undefined,
-                      intelSection: "overview",
+                      intelSection: "context-inspector",
                       intelSurfaceId: undefined,
                     }),
                   })
@@ -1525,7 +1525,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         const clicked = await api.contextMenu.show(
           [
             buildTargetedItem("open-board", "Open board"),
-            buildTargetedItem("inspect-intelligence", "Inspect agent context"),
+            buildTargetedItem("inspect-intelligence", "Inspect project context"),
             buildTargetedItem("rename", "Rename project"),
             buildTargetedItem("grouping", "Project grouping…"),
             buildTargetedItem("copy-path", "Copy Project Path"),

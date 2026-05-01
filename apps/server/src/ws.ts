@@ -22,9 +22,11 @@ import {
   ORCHESTRATION_WS_METHODS,
   ProjectApplyWorktreeSetupError,
   ProjectGetIntelligenceError,
+  ProjectGetSurfaceOverridesError,
   ProjectScanWorktreeSetupError,
   ProjectReadIntelligenceSurfaceError,
   ProjectSearchEntriesError,
+  ProjectSetSurfaceEnabledError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   FilesystemBrowseError,
@@ -1119,6 +1121,34 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               Effect.mapError(
                 (cause) =>
                   new ProjectReadIntelligenceSurfaceError({
+                    message: cause.detail,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "project" },
+          ),
+        [WS_METHODS.projectsGetSurfaceOverrides]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsGetSurfaceOverrides,
+            projectIntelligenceResolver.getSurfaceOverrides(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectGetSurfaceOverridesError({
+                    message: cause.detail,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "project" },
+          ),
+        [WS_METHODS.projectsSetSurfaceEnabled]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsSetSurfaceEnabled,
+            projectIntelligenceResolver.setSurfaceEnabled(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectSetSurfaceEnabledError({
                     message: cause.detail,
                     cause,
                   }),

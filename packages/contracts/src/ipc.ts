@@ -41,10 +41,14 @@ import type {
   ProjectApplyWorktreeSetupResult,
   ProjectGetIntelligenceInput,
   ProjectGetIntelligenceResult,
+  ProjectGetSurfaceOverridesInput,
+  ProjectGetSurfaceOverridesResult,
   ProjectScanWorktreeSetupInput,
   ProjectScanWorktreeSetupResult,
   ProjectReadIntelligenceSurfaceInput,
   ProjectReadIntelligenceSurfaceResult,
+  ProjectSetSurfaceEnabledInput,
+  ProjectSetSurfaceEnabledResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -296,6 +300,12 @@ export interface EnvironmentApi {
     readIntelligenceSurface: (
       input: ProjectReadIntelligenceSurfaceInput,
     ) => Promise<ProjectReadIntelligenceSurfaceResult>;
+    getSurfaceOverrides: (
+      input: ProjectGetSurfaceOverridesInput,
+    ) => Promise<ProjectGetSurfaceOverridesResult>;
+    setSurfaceEnabled: (
+      input: ProjectSetSurfaceEnabledInput,
+    ) => Promise<ProjectSetSurfaceEnabledResult>;
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;

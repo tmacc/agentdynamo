@@ -14,12 +14,14 @@ const wideContext: ChatRightPanelContext = {
   compact: false,
   canDockPanels: true,
   canShowAgents: true,
+  canShowContext: true,
 };
 
 const narrowContext: ChatRightPanelContext = {
   compact: false,
   canDockPanels: false,
   canShowAgents: true,
+  canShowContext: true,
 };
 
 describe("right panel state helpers", () => {

@@ -108,6 +108,8 @@ import {
   openRightPanel,
   RIGHT_PANEL_AGENTS_DEFAULT_WIDTH,
   RIGHT_PANEL_AGENTS_WIDTH_STORAGE_KEY,
+  RIGHT_PANEL_CONTEXT_DEFAULT_WIDTH,
+  RIGHT_PANEL_CONTEXT_WIDTH_STORAGE_KEY,
   RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY,
   RIGHT_PANEL_MIN_CHAT_WIDTH,
   RIGHT_PANEL_PLAN_DEFAULT_WIDTH,
@@ -166,6 +168,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
+import { ChatContextSidebar } from "./chat/ChatContextSidebar";
 import { TeamAgentsSidebar } from "./chat/TeamAgentsSidebar";
 import type { TeamTaskInlineView } from "./chat/TeamTaskInlineBlock";
 import {
@@ -841,14 +844,23 @@ export default function ChatView(props: ChatViewProps) {
     RIGHT_PANEL_AGENTS_DEFAULT_WIDTH,
     Schema.Finite,
   );
+  const [storedContextPanelWidth, setStoredContextPanelWidth] = useLocalStorage(
+    RIGHT_PANEL_CONTEXT_WIDTH_STORAGE_KEY,
+    RIGHT_PANEL_CONTEXT_DEFAULT_WIDTH,
+    Schema.Finite,
+  );
   const planPanelWidth = clampRightPanelWidth(storedPlanPanelWidth, {
     defaultWidth: RIGHT_PANEL_PLAN_DEFAULT_WIDTH,
   });
   const agentsPanelWidth = clampRightPanelWidth(storedAgentsPanelWidth, {
     defaultWidth: RIGHT_PANEL_AGENTS_DEFAULT_WIDTH,
   });
+  const contextPanelWidth = clampRightPanelWidth(storedContextPanelWidth, {
+    defaultWidth: RIGHT_PANEL_CONTEXT_DEFAULT_WIDTH,
+  });
   const planSidebarOpen = rightPanelState.openPanels.includes("plan");
   const agentsSidebarOpen = rightPanelState.openPanels.includes("agents");
+  const contextSidebarOpen = rightPanelState.openPanels.includes("context");
   const [teamPatchReview, setTeamPatchReview] = useState<{
     task: OrchestrationTeamTask;
     preview: GitPreviewWorktreePatchResult;
@@ -1040,6 +1052,8 @@ export default function ChatView(props: ChatViewProps) {
     teamRootThread !== undefined &&
     settings.teamAgents.enabled;
   const canShowAgentsPanel = showAgentsToggle && teamRootThread !== undefined;
+  // Context panel needs a resolved project on the active thread (drafts have none).
+  const canShowContextPanel = Boolean(activeThread?.projectId);
   const canDockRightPanels =
     rightPanelLayoutWidth >= RIGHT_PANEL_MIN_CHAT_WIDTH + planPanelWidth + agentsPanelWidth;
   const rightPanelContext = useMemo<ChatRightPanelContext>(
@@ -1047,8 +1061,9 @@ export default function ChatView(props: ChatViewProps) {
       compact: shouldUseRightPanelSheet,
       canDockPanels: canDockRightPanels,
       canShowAgents: canShowAgentsPanel,
+      canShowContext: canShowContextPanel,
     }),
-    [canDockRightPanels, canShowAgentsPanel, shouldUseRightPanelSheet],
+    [canDockRightPanels, canShowAgentsPanel, canShowContextPanel, shouldUseRightPanelSheet],
   );
   const rightPanelContextRef = useRef(rightPanelContext);
   rightPanelContextRef.current = rightPanelContext;
@@ -2241,6 +2256,12 @@ export default function ChatView(props: ChatViewProps) {
   }, [rightPanelContext]);
   const closeAgentsSidebar = useCallback(() => {
     setRightPanelState((state) => closeRightPanel(state, "agents"));
+  }, []);
+  const toggleContextSidebar = useCallback(() => {
+    setRightPanelState((state) => toggleRightPanel(state, "context", rightPanelContext));
+  }, [rightPanelContext]);
+  const closeContextSidebar = useCallback(() => {
+    setRightPanelState((state) => closeRightPanel(state, "context"));
   }, []);
 
   const persistThreadSettingsForNextTurn = useCallback(
@@ -3731,6 +3752,28 @@ export default function ChatView(props: ChatViewProps) {
       ),
     });
   }
+  if (contextSidebarOpen && canShowContextPanel) {
+    dockPanels.push({
+      id: "context",
+      label: "Context",
+      width: contextPanelWidth,
+      defaultWidth: RIGHT_PANEL_CONTEXT_DEFAULT_WIDTH,
+      onWidthChange: setStoredContextPanelWidth,
+      children: (
+        <ChatContextSidebar
+          environmentId={environmentId}
+          projectCwd={activeProject?.cwd ?? null}
+          effectiveCwd={activeWorkspaceRoot ?? null}
+          projectTitle={activeProject?.name ?? null}
+          threadId={activeThread.id}
+          threadModelSelection={activeThread.modelSelection ?? null}
+          threadActivities={activeThread.activities ?? null}
+          providers={providerStatuses as ServerProvider[]}
+          onClose={closeContextSidebar}
+        />
+      ),
+    });
+  }
   if (agentsSidebarOpen && canShowAgentsPanel && teamRootThread) {
     dockPanels.push({
       id: "agents",
@@ -3821,6 +3864,9 @@ export default function ChatView(props: ChatViewProps) {
           }}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
+          onToggleContext={toggleContextSidebar}
+          contextOpen={contextSidebarOpen}
+          contextAvailable={canShowContextPanel}
         />
       </header>
 
@@ -4078,6 +4124,10 @@ export default function ChatView(props: ChatViewProps) {
               closeAgentsSidebar();
               return;
             }
+            if (compactRightPanelId === "context") {
+              closeContextSidebar();
+              return;
+            }
             closePlanSidebar();
           }}
         >
@@ -4107,6 +4157,19 @@ export default function ChatView(props: ChatViewProps) {
               onCancelTask={cancelTeamTask}
               onReviewTaskChanges={reviewTeamTaskChanges}
               onClose={closeAgentsSidebar}
+            />
+          ) : null}
+          {compactRightPanelId === "context" ? (
+            <ChatContextSidebar
+              environmentId={environmentId}
+              projectCwd={activeProject?.cwd ?? null}
+              effectiveCwd={activeWorkspaceRoot ?? null}
+              projectTitle={activeProject?.name ?? null}
+              threadId={activeThread.id}
+              threadModelSelection={activeThread.modelSelection ?? null}
+              threadActivities={activeThread.activities ?? null}
+              providers={providerStatuses as ServerProvider[]}
+              onClose={closeContextSidebar}
             />
           ) : null}
         </RightPanelSheet>

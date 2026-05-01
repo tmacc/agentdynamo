@@ -77,6 +77,9 @@ import {
   ProjectGetIntelligenceError,
   ProjectGetIntelligenceInput,
   ProjectGetIntelligenceResult,
+  ProjectGetSurfaceOverridesError,
+  ProjectGetSurfaceOverridesInput,
+  ProjectGetSurfaceOverridesResult,
   ProjectScanWorktreeSetupError,
   ProjectScanWorktreeSetupInput,
   ProjectScanWorktreeSetupResult,
@@ -86,6 +89,9 @@ import {
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
+  ProjectSetSurfaceEnabledError,
+  ProjectSetSurfaceEnabledInput,
+  ProjectSetSurfaceEnabledResult,
   ProjectWriteFileError,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
@@ -122,6 +128,8 @@ export const WS_METHODS = {
   projectsApplyWorktreeSetup: "projects.applyWorktreeSetup",
   projectsGetIntelligence: "projects.getIntelligence",
   projectsReadIntelligenceSurface: "projects.readIntelligenceSurface",
+  projectsGetSurfaceOverrides: "projects.getSurfaceOverrides",
+  projectsSetSurfaceEnabled: "projects.setSurfaceEnabled",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -236,6 +244,21 @@ export const WsProjectsReadIntelligenceSurfaceRpc = Rpc.make(
     error: ProjectReadIntelligenceSurfaceError,
   },
 );
+
+export const WsProjectsGetSurfaceOverridesRpc = Rpc.make(
+  WS_METHODS.projectsGetSurfaceOverrides,
+  {
+    payload: ProjectGetSurfaceOverridesInput,
+    success: ProjectGetSurfaceOverridesResult,
+    error: ProjectGetSurfaceOverridesError,
+  },
+);
+
+export const WsProjectsSetSurfaceEnabledRpc = Rpc.make(WS_METHODS.projectsSetSurfaceEnabled, {
+  payload: ProjectSetSurfaceEnabledInput,
+  success: ProjectSetSurfaceEnabledResult,
+  error: ProjectSetSurfaceEnabledError,
+});
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: OpenInEditorInput,
@@ -507,6 +530,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsApplyWorktreeSetupRpc,
   WsProjectsGetIntelligenceRpc,
   WsProjectsReadIntelligenceSurfaceRpc,
+  WsProjectsGetSurfaceOverridesRpc,
+  WsProjectsSetSurfaceEnabledRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsSubscribeGitStatusRpc,

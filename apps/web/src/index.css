@@ -126,6 +126,29 @@
     --warning: var(--color-amber-500);
     --warning-foreground: var(--color-amber-400);
   }
+
+  /* Context Inspector — category swatch + dot grid colors. */
+  --inspector-cat-system: oklch(0.6 0.04 260);
+  --inspector-cat-skills: oklch(0.7 0.16 280);
+  --inspector-cat-agents: oklch(0.74 0.16 145);
+  --inspector-cat-memory: oklch(0.78 0.13 220);
+  --inspector-cat-mcp: oklch(0.78 0.16 70);
+  --inspector-cat-free: --alpha(var(--color-black) / 6%);
+  --inspector-accent: oklch(0.78 0.18 130);
+  --inspector-accent-soft: --alpha(oklch(0.78 0.18 130) / 12%);
+  --inspector-accent-line: --alpha(oklch(0.78 0.18 130) / 38%);
+
+  @variant dark {
+    --inspector-cat-system: oklch(0.7 0.04 260);
+    --inspector-cat-skills: oklch(0.74 0.18 280);
+    --inspector-cat-agents: oklch(0.78 0.18 145);
+    --inspector-cat-memory: oklch(0.82 0.14 220);
+    --inspector-cat-mcp: oklch(0.82 0.18 70);
+    --inspector-cat-free: --alpha(var(--color-white) / 5%);
+    --inspector-accent: oklch(0.82 0.2 130);
+    --inspector-accent-soft: --alpha(oklch(0.82 0.2 130) / 14%);
+    --inspector-accent-line: --alpha(oklch(0.82 0.2 130) / 42%);
+  }
 }
 
 body {

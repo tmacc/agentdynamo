@@ -1,0 +1,2060 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Agent Sidebar — Redesign</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-deep: hsl(220 13% 6%);
+        --bg-1: hsl(220 11% 8.5%);
+        --bg-2: hsl(220 10% 11%);
+        --bg-3: hsl(220 10% 14%);
+        --bg-pop: hsl(220 10% 13%);
+
+        --hair: hsla(220 10% 100% / 0.06);
+        --line: hsla(220 10% 100% / 0.09);
+        --line-strong: hsla(220 10% 100% / 0.16);
+
+        --t1: hsl(220 6% 96%);
+        --t2: hsl(220 6% 78%);
+        --t3: hsl(220 6% 56%);
+        --t4: hsl(220 6% 40%);
+        --t5: hsl(220 6% 28%);
+
+        --accent: hsl(82 92% 60%);
+        --accent-soft: hsla(82 92% 60% / 0.12);
+        --accent-line: hsla(82 92% 60% / 0.4);
+
+        --warn: hsl(38 92% 62%);
+        --warn-soft: hsla(38 92% 62% / 0.1);
+        --error: hsl(8 88% 65%);
+        --error-soft: hsla(8 88% 65% / 0.1);
+        --info: hsl(195 80% 65%);
+        --done: hsl(160 30% 60%);
+
+        /* category palette (used only inside context viz) */
+        --c-system: hsl(28 92% 62%);
+        --c-tools: hsl(48 95% 62%);
+        --c-agents: hsl(135 55% 60%);
+        --c-memory: hsl(195 80% 60%);
+        --c-skills: hsl(265 75% 70%);
+        --c-msgs: hsl(330 75% 67%);
+        --c-free: hsla(220 8% 100% / 0.04);
+
+        --radius-sm: 4px;
+        --radius: 6px;
+        --radius-lg: 10px;
+
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+        --sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg-deep);
+        color: var(--t1);
+        font-family: var(--sans);
+        font-feature-settings: "ss01", "ss02", "cv11";
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        min-height: 100vh;
+      }
+
+      body {
+        background:
+          radial-gradient(1200px 600px at 20% -10%, hsla(220 30% 30% / 0.18), transparent 60%),
+          radial-gradient(900px 500px at 95% 110%, hsla(82 60% 40% / 0.06), transparent 60%),
+          var(--bg-deep);
+        background-attachment: fixed;
+      }
+
+      .mono {
+        font-family: var(--mono);
+        font-feature-settings: "tnum", "calt", "ss02";
+      }
+
+      /* page chrome */
+      .page {
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 36px 28px 80px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 28px;
+      }
+
+      .brandmark {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--t2);
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        font-weight: 600;
+      }
+
+      .brandmark .dot {
+        width: 6px;
+        height: 6px;
+        background: var(--accent);
+        border-radius: 1px;
+        box-shadow: 0 0 8px var(--accent-line);
+      }
+
+      .brandmark .meta {
+        color: var(--t4);
+        font-weight: 500;
+        letter-spacing: 0.14em;
+      }
+
+      .legend {
+        display: flex;
+        gap: 22px;
+        font-size: 11px;
+        color: var(--t4);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .legend b {
+        color: var(--t2);
+        font-weight: 600;
+      }
+
+      /* app frame */
+      .frame {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr 360px;
+        background: var(--bg-1);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow:
+          0 1px 0 hsla(220 10% 100% / 0.04) inset,
+          0 30px 60px hsla(220 30% 0% / 0.4);
+        min-height: 760px;
+      }
+
+      /* fake chat surface (just for context) */
+      .chat {
+        padding: 24px 28px;
+        border-right: 1px solid var(--line);
+        background:
+          repeating-linear-gradient(
+            0deg,
+            transparent 0 39px,
+            hsla(220 10% 100% / 0.012) 39px 40px
+          ),
+          var(--bg-1);
+        color: var(--t3);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .chat .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--hair);
+      }
+
+      .chat .crumb {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--t3);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+      }
+
+      .chat .crumb .sep {
+        color: var(--t5);
+      }
+
+      .chat .crumb b {
+        color: var(--t1);
+        font-weight: 600;
+      }
+
+      .chat .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--t4);
+      }
+
+      .chat .header-actions .pill {
+        padding: 4px 9px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+      }
+
+      .turns {
+        margin-top: 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 26px;
+      }
+
+      .turn {
+        display: grid;
+        grid-template-columns: 28px 1fr;
+        gap: 14px;
+      }
+
+      .turn .who {
+        font-family: var(--mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--t4);
+        margin-top: 4px;
+      }
+
+      .turn .who.user {
+        color: var(--accent);
+      }
+
+      .turn .body {
+        color: var(--t2);
+        font-size: 13.5px;
+        line-height: 1.65;
+        max-width: 64ch;
+      }
+
+      .turn .body .heading {
+        color: var(--t1);
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+
+      .turn .body code {
+        font-family: var(--mono);
+        font-size: 12px;
+        padding: 1px 5px;
+        background: var(--bg-3);
+        border: 1px solid var(--hair);
+        border-radius: 3px;
+        color: var(--t2);
+      }
+
+      .turn .body .tool {
+        margin-top: 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--t4);
+        padding: 4px 8px;
+        background: var(--bg-2);
+        border: 1px solid var(--hair);
+        border-radius: 4px;
+      }
+
+      .turn .body .tool .ok {
+        color: var(--done);
+      }
+
+      /* ──────────── SIDEBAR ──────────── */
+
+      .sidebar {
+        background: var(--bg-1);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .sb-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 16px 12px;
+        border-bottom: 1px solid var(--hair);
+      }
+
+      .sb-head .title {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+
+      .sb-head .title h2 {
+        margin: 0;
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--t2);
+        font-weight: 700;
+      }
+
+      .sb-head .title .count {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--t4);
+        letter-spacing: 0.04em;
+      }
+
+      .sb-head .title .count b {
+        color: var(--accent);
+        font-weight: 500;
+      }
+
+      .icon-btn {
+        appearance: none;
+        background: transparent;
+        border: 1px solid transparent;
+        color: var(--t4);
+        width: 24px;
+        height: 24px;
+        display: inline-grid;
+        place-items: center;
+        border-radius: 4px;
+        cursor: pointer;
+        transition:
+          border-color 120ms ease,
+          color 120ms ease,
+          background 120ms ease;
+      }
+
+      .icon-btn:hover {
+        color: var(--t1);
+        border-color: var(--line);
+        background: var(--bg-2);
+      }
+
+      .icon-btn:focus-visible {
+        outline: none;
+        color: var(--t1);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px hsla(82 92% 60% / 0.18);
+      }
+
+      .icon-btn svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .sb-actions {
+        display: flex;
+        gap: 4px;
+      }
+
+      .sb-scroll {
+        flex: 1;
+        overflow-y: auto;
+        padding: 14px 14px 28px;
+      }
+
+      .sb-scroll::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .sb-scroll::-webkit-scrollbar-thumb {
+        background: var(--line);
+        border-radius: 3px;
+      }
+
+      /* ── CONTEXT INSTRUMENT ── (the new piece) */
+
+      .context-card {
+        background:
+          linear-gradient(180deg, hsla(220 10% 100% / 0.012), transparent 40%),
+          var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 14px 14px 12px;
+        margin-bottom: 14px;
+      }
+
+      .ctx-row1 {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+
+      .ctx-label {
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--t4);
+        font-weight: 600;
+      }
+
+      .ctx-model {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--t4);
+        letter-spacing: 0.02em;
+      }
+
+      .ctx-numbers {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        margin-bottom: 14px;
+      }
+
+      .ctx-pct {
+        font-family: var(--mono);
+        font-size: 40px;
+        font-weight: 700;
+        color: var(--t1);
+        letter-spacing: -0.045em;
+        line-height: 0.95;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .ctx-pct .sym {
+        font-size: 14px;
+        color: var(--t5);
+        margin-left: 2px;
+        font-weight: 500;
+      }
+
+      .ctx-tokens {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--t3);
+        font-feature-settings: "tnum";
+        letter-spacing: 0.02em;
+      }
+
+      .ctx-tokens .slash {
+        color: var(--t5);
+        margin: 0 5px;
+      }
+
+      .ctx-tokens .total {
+        color: var(--t4);
+      }
+
+      /* dot grid — 25 cols × 8 rows = 200 cells, 0.5% each, square LED-like cells */
+      .dotgrid {
+        display: grid;
+        grid-template-columns: repeat(25, 1fr);
+        gap: 2.5px;
+        margin-bottom: 14px;
+      }
+
+      .dot {
+        aspect-ratio: 1 / 1;
+        border-radius: 1px;
+        background: var(--c-free);
+        position: relative;
+        transition: background-color 320ms cubic-bezier(0.2, 0.7, 0.3, 1);
+      }
+
+      .dot.system {
+        background: var(--c-system);
+      }
+      .dot.tools {
+        background: var(--c-tools);
+      }
+      .dot.agents {
+        background: var(--c-agents);
+      }
+      .dot.memory {
+        background: var(--c-memory);
+      }
+      .dot.skills {
+        background: var(--c-skills);
+      }
+      .dot.messages {
+        background: var(--c-msgs);
+      }
+      .dot.free {
+        background: var(--c-free);
+      }
+
+      /* ── savings pill (visible when toggles deviate from default) ── */
+      .savings-pill {
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 14px 0 10px;
+        padding: 7px 10px;
+        background: hsla(82 92% 60% / 0.06);
+        border: 1px solid hsla(82 92% 60% / 0.32);
+        border-radius: 5px;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--accent);
+        letter-spacing: 0.02em;
+      }
+
+      .savings-pill.show {
+        display: flex;
+      }
+
+      .savings-pill .saved {
+        font-weight: 500;
+        font-feature-settings: "tnum";
+      }
+
+      .savings-pill .saved .meta {
+        color: hsla(82 92% 60% / 0.55);
+        margin-left: 6px;
+        font-weight: 400;
+      }
+
+      .savings-pill .revert {
+        appearance: none;
+        background: transparent;
+        border: 1px solid hsla(82 92% 60% / 0.3);
+        color: var(--accent);
+        font-family: var(--mono);
+        font-size: 9.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        padding: 3px 7px;
+        border-radius: 3px;
+        cursor: pointer;
+        transition:
+          border-color 120ms ease,
+          background 120ms ease;
+      }
+
+      .savings-pill .revert:hover {
+        border-color: var(--accent);
+        background: hsla(82 92% 60% / 0.1);
+      }
+
+      /* ── category accordion (replaces legend-list) ── */
+      .cat-list {
+        display: flex;
+        flex-direction: column;
+        margin-top: 4px;
+      }
+
+      .cat {
+        border-top: 1px dashed var(--hair);
+      }
+      .cat:last-child {
+        border-bottom: 1px dashed var(--hair);
+      }
+
+      .cat-header {
+        display: grid;
+        grid-template-columns: 8px 1fr auto auto 12px;
+        gap: 10px;
+        align-items: center;
+        padding: 9px 2px;
+        background: transparent;
+        border: none;
+        width: 100%;
+        text-align: left;
+        cursor: pointer;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--t3);
+        letter-spacing: 0.02em;
+        transition: color 120ms ease;
+      }
+
+      .cat-header:hover .name {
+        color: var(--t1);
+      }
+
+      .cat-header:focus-visible {
+        outline: 1px solid var(--accent-line);
+        outline-offset: 2px;
+        border-radius: 3px;
+      }
+
+      /* Locked categories still expand; only their items refuse toggles.
+         Keep cursor and caret behavior identical to unlocked. */
+
+      .cat-header .swatch {
+        width: 8px;
+        height: 8px;
+        border-radius: 1px;
+        transition: opacity 200ms ease;
+      }
+
+      .cat-header .name {
+        color: var(--t2);
+        white-space: nowrap;
+        transition: color 120ms ease;
+      }
+
+      .cat-header .tok {
+        color: var(--t4);
+        font-feature-settings: "tnum";
+        text-align: right;
+        min-width: 52px;
+      }
+
+      .cat-header .pct {
+        color: var(--t3);
+        font-feature-settings: "tnum";
+        text-align: right;
+        min-width: 44px;
+      }
+
+      .cat-header .caret {
+        color: var(--t5);
+        text-align: center;
+        font-size: 9px;
+        line-height: 1;
+        transition:
+          transform 200ms ease,
+          color 120ms ease;
+      }
+
+      .cat-header:hover .caret {
+        color: var(--t2);
+      }
+
+      .cat[data-open="true"] .cat-header .caret {
+        transform: rotate(90deg);
+        color: var(--t1);
+      }
+
+      /* Locked categories show the caret; the lock semantic lives on the items inside. */
+
+      .cat[data-disabled="true"] .cat-header .name,
+      .cat[data-disabled="true"] .cat-header .tok,
+      .cat[data-disabled="true"] .cat-header .pct {
+        color: var(--t4);
+      }
+
+      .cat[data-disabled="true"] .cat-header .swatch {
+        opacity: 0.25;
+      }
+
+      /* item list inside expanded category */
+      .cat-items {
+        display: none;
+        flex-direction: column;
+        padding: 2px 0 8px 0;
+        margin-left: 18px;
+        border-left: 1px dashed var(--hair);
+      }
+
+      .cat[data-open="true"] .cat-items {
+        display: flex;
+      }
+
+      .item-row {
+        display: grid;
+        grid-template-columns: 11px 1fr auto;
+        gap: 9px;
+        align-items: center;
+        padding: 5px 7px 5px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: background 100ms ease;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--t3);
+      }
+
+      .item-row:hover {
+        background: var(--bg-3);
+      }
+
+      .item-row:focus-visible {
+        outline: 1px solid var(--accent-line);
+        outline-offset: -1px;
+        background: var(--bg-3);
+      }
+
+      .item-row.locked {
+        cursor: default;
+      }
+      .item-row.locked:hover {
+        background: transparent;
+      }
+
+      .item-row .indicator {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        border: 1px solid var(--cat-color, var(--t2));
+        background: var(--cat-color, var(--t2));
+        transition:
+          background 140ms ease,
+          border-color 140ms ease,
+          opacity 140ms ease;
+      }
+
+      .item-row.off .indicator {
+        background: transparent;
+        border-color: var(--t5);
+      }
+
+      .item-row.locked .indicator {
+        border: none;
+        background: transparent;
+        color: var(--t4);
+        position: relative;
+      }
+
+      .item-row.locked .indicator::after {
+        content: "";
+        position: absolute;
+        inset: 1.5px 2.5px 0 2.5px;
+        border: 1px solid var(--t4);
+        border-bottom: none;
+        border-radius: 4px 4px 0 0;
+      }
+      .item-row.locked .indicator::before {
+        content: "";
+        position: absolute;
+        inset: 4px 0 0 0;
+        background: var(--t4);
+        border-radius: 1px;
+      }
+
+      .item-row .item-name {
+        color: var(--t2);
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-feature-settings: normal;
+      }
+
+      .item-row.off .item-name {
+        color: var(--t4);
+        text-decoration: line-through;
+        text-decoration-color: hsla(82 92% 60% / 0.45);
+        text-decoration-thickness: 1px;
+      }
+
+      .item-row.locked .item-name {
+        color: var(--t3);
+      }
+
+      .item-row .item-meta {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-feature-settings: "tnum";
+        color: var(--t4);
+        white-space: nowrap;
+        font-size: 10px;
+      }
+
+      .item-row.off .item-meta .tok-count {
+        text-decoration: line-through;
+        text-decoration-color: var(--t5);
+      }
+
+      .item-row .tag {
+        font-size: 8.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        padding: 1.5px 4px;
+        border-radius: 2px;
+        line-height: 1;
+      }
+
+      .item-row .tag.in-use {
+        color: var(--accent);
+        background: hsla(82 92% 60% / 0.18);
+        border: 1px solid hsla(82 92% 60% / 0.32);
+        font-weight: 600;
+      }
+
+      .item-row .tag.unused {
+        color: var(--t4);
+        background: hsla(220 10% 100% / 0.04);
+        border: 1px solid var(--hair);
+      }
+
+      /* bulk actions inside an open category */
+      .cat-bulk {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        padding: 6px 0 4px 18px;
+        margin-top: 2px;
+      }
+
+      .bulk-btn {
+        appearance: none;
+        background: transparent;
+        border: 1px solid var(--hair);
+        color: var(--t4);
+        font-family: var(--mono);
+        font-size: 9.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        padding: 3px 7px;
+        border-radius: 3px;
+        cursor: pointer;
+        transition:
+          color 120ms ease,
+          border-color 120ms ease,
+          background 120ms ease;
+      }
+
+      .bulk-btn:hover {
+        color: var(--t1);
+        border-color: var(--line);
+        background: var(--bg-3);
+      }
+
+      .bulk-btn:focus-visible {
+        outline: none;
+        border-color: var(--accent);
+        color: var(--t1);
+        box-shadow: 0 0 0 2px hsla(82 92% 60% / 0.18);
+      }
+
+      .ctx-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px dashed var(--hair);
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--t4);
+      }
+
+      .ctx-foot .compact-flag {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .ctx-foot .compact-flag::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--info);
+      }
+
+      .ctx-foot .toggle {
+        appearance: none;
+        background: transparent;
+        border: none;
+        color: var(--t3);
+        font-family: var(--mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .ctx-foot .toggle:hover {
+        color: var(--t1);
+      }
+
+      .ctx-foot .toggle .arrow {
+        display: inline-block;
+        margin-left: 4px;
+        transform: translateY(-1px);
+      }
+
+      /* ── AGENTS LIST ── */
+
+      .group-label {
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--t5);
+        font-weight: 600;
+        padding: 14px 4px 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .group-label .rule {
+        flex: 1;
+        height: 1px;
+        background: var(--hair);
+        margin: 0 10px;
+      }
+
+      .group-label .num {
+        font-family: var(--mono);
+        font-weight: 500;
+        color: var(--t4);
+        letter-spacing: 0.02em;
+      }
+
+      .agent {
+        position: relative;
+        display: grid;
+        grid-template-columns: 18px 1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 11px 11px 11px 11px;
+        border: 1px solid var(--hair);
+        border-radius: 6px;
+        background: var(--bg-2);
+        margin-bottom: 6px;
+        cursor: pointer;
+        overflow: hidden;
+        transition:
+          border-color 140ms ease,
+          background 140ms ease;
+      }
+
+      /* top-edge progress strip — replaces inline micro-bar */
+      .agent .ctxstrip {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 1px;
+        background: var(--t3);
+        opacity: 0.85;
+      }
+
+      .agent .ctxstrip.warn {
+        background: var(--warn);
+      }
+      .agent .ctxstrip.danger {
+        background: var(--error);
+      }
+
+      .agent:hover {
+        border-color: var(--line);
+        background: var(--bg-3);
+      }
+
+      .agent:focus-visible {
+        outline: 1px solid var(--accent);
+        outline-offset: 2px;
+        border-color: var(--accent-line);
+      }
+
+      .agent.active {
+        border-color: var(--accent-line);
+        background: linear-gradient(180deg, var(--accent-soft), transparent 60%), var(--bg-2);
+      }
+
+      .agent.active::before {
+        content: "";
+        position: absolute;
+        left: -1px;
+        top: 8px;
+        bottom: 8px;
+        width: 2px;
+        background: var(--accent);
+        border-radius: 2px;
+        box-shadow: 0 0 6px var(--accent-line);
+      }
+
+      .agent.coordinator {
+        border-color: var(--line);
+        background:
+          linear-gradient(180deg, hsla(220 10% 100% / 0.025), transparent 50%),
+          var(--bg-2);
+      }
+
+      /* provider mark: just a glyph in provider color, no tile */
+      .agent .ico {
+        width: 18px;
+        height: 18px;
+        display: grid;
+        place-items: center;
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0;
+        color: var(--t3);
+        align-self: start;
+        margin-top: 1px;
+      }
+
+      .agent .ico.claude {
+        color: hsl(28 90% 70%);
+      }
+      .agent .ico.codex {
+        color: hsl(195 80% 72%);
+      }
+      .agent .ico.gemini {
+        color: hsl(265 75% 78%);
+      }
+      .agent .ico.coord {
+        color: var(--accent);
+      }
+
+      .agent .core {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .agent .name-row {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .agent .name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--t1);
+        letter-spacing: -0.005em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex-shrink: 1;
+        min-width: 0;
+      }
+
+      .agent .role {
+        font-family: var(--mono);
+        font-size: 9.5px;
+        color: var(--t4);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        flex-shrink: 0;
+      }
+
+      .agent .task {
+        font-size: 11.5px;
+        color: var(--t3);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.4;
+      }
+
+      .agent .meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+      }
+
+      .micro-stat {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--t4);
+        font-feature-settings: "tnum";
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+      }
+
+      .micro-stat .sep {
+        color: var(--t5);
+        margin: 0 5px;
+      }
+
+      .micro-stat .ctx-tag {
+        color: var(--t3);
+      }
+      .micro-stat .ctx-tag.warn {
+        color: var(--warn);
+      }
+      .micro-stat .ctx-tag.danger {
+        color: var(--error);
+      }
+
+      .agent .status {
+        align-self: start;
+        margin-top: 4px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-family: var(--mono);
+        font-size: 9.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--t3);
+      }
+
+      .status .led {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--t4);
+        flex-shrink: 0;
+      }
+
+      .status.running .led {
+        background: var(--accent);
+        box-shadow: 0 0 4px hsla(82 92% 60% / 0.5);
+      }
+
+      /* Only the coordinator's LED pulses — child agents stay solid lime so the panel doesn't strobe */
+      .agent.coordinator .status.running .led {
+        animation: pulse 1.8s infinite;
+      }
+
+      .status.running {
+        color: var(--accent);
+      }
+
+      .status.queued .led {
+        background: var(--info);
+      }
+      .status.queued {
+        color: var(--info);
+      }
+
+      .status.done .led {
+        background: var(--done);
+      }
+      .status.done {
+        color: var(--done);
+      }
+
+      .status.failed .led {
+        background: var(--error);
+      }
+      .status.failed {
+        color: var(--error);
+      }
+
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 hsla(82 92% 60% / 0.5);
+        }
+        70% {
+          box-shadow: 0 0 0 6px hsla(82 92% 60% / 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 hsla(82 92% 60% / 0);
+        }
+      }
+
+      /* hover-revealed quick actions */
+      .agent .hover-actions {
+        position: absolute;
+        right: 8px;
+        top: 8px;
+        display: none;
+        gap: 4px;
+      }
+
+      .agent:hover .hover-actions {
+        display: flex;
+      }
+
+      .agent .hover-actions .icon-btn {
+        background: var(--bg-3);
+      }
+
+      .agent.failed {
+        border-color: hsla(8 88% 65% / 0.25);
+        background: linear-gradient(180deg, hsla(8 88% 65% / 0.04), transparent 50%), var(--bg-2);
+      }
+
+      .agent.failed .err {
+        font-size: 11px;
+        color: var(--error);
+        margin-top: 4px;
+        font-family: var(--mono);
+      }
+
+      /* footer status strip */
+      .sb-foot {
+        border-top: 1px solid var(--hair);
+        padding: 10px 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--t4);
+        letter-spacing: 0.02em;
+      }
+
+      .sb-foot .live {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .sb-foot .live::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--accent);
+        animation: pulse 1.6s infinite;
+      }
+
+      /* ── annotation overlay ── */
+
+      .annotations {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .anno {
+        position: absolute;
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--t4);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+
+      .anno .leader {
+        height: 1px;
+        background: var(--line-strong);
+      }
+
+      .anno.left .leader {
+        order: 2;
+        width: 60px;
+      }
+
+      .anno.right .leader {
+        width: 60px;
+      }
+
+      .anno .label {
+        background: var(--bg-pop);
+        border: 1px solid var(--line);
+        padding: 4px 8px;
+        border-radius: 3px;
+        color: var(--t2);
+      }
+
+      /* the design notes panel below */
+      .notes {
+        margin-top: 36px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 18px;
+      }
+
+      .note {
+        background: var(--bg-1);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 18px 18px 16px;
+      }
+
+      .note .num {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--t5);
+        margin-bottom: 8px;
+        letter-spacing: 0.04em;
+      }
+
+      .note h3 {
+        margin: 0 0 8px;
+        font-size: 13px;
+        color: var(--t1);
+        font-weight: 600;
+        letter-spacing: -0.005em;
+      }
+
+      .note p {
+        margin: 0;
+        font-size: 12.5px;
+        color: var(--t3);
+        line-height: 1.55;
+      }
+
+      .note .accent {
+        color: var(--accent);
+      }
+
+      /* responsive trim */
+      @media (max-width: 1100px) {
+        .frame {
+          grid-template-columns: 1fr;
+        }
+        .chat {
+          display: none;
+        }
+        .notes {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .notes {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* Below 420px the inspector tightens so the headline + footer don't wrap. */
+      @media (max-width: 420px) {
+        .context-card {
+          padding: 12px 12px 10px;
+        }
+        .ctx-pct {
+          font-size: 32px;
+          letter-spacing: -0.04em;
+        }
+        .ctx-foot {
+          flex-wrap: wrap;
+          gap: 4px 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <div class="brandmark">
+          <span class="dot"></span>
+          <span>T3 Code</span>
+          <span class="meta">/ Sidebar — Field Instrument v1</span>
+        </div>
+        <div class="legend">
+          <span><b>1</b> Context Inspector</span>
+          <span><b>2</b> Coordinator</span>
+          <span><b>3</b> Child agents</span>
+        </div>
+      </header>
+
+      <section class="frame">
+        <!-- Fake chat surface (just to anchor the sidebar in context) -->
+        <article class="chat">
+          <div class="header">
+            <div class="crumb">
+              <span>worktrees</span>
+              <span class="sep">/</span>
+              <span>AgentDynamo2</span>
+              <span class="sep">/</span>
+              <b>t3code-83f3c121</b>
+            </div>
+            <div class="header-actions">
+              <span class="pill">main ↑ 4</span>
+              <span class="pill">opus 4.7 · 1m</span>
+            </div>
+          </div>
+
+          <div class="turns">
+            <div class="turn">
+              <div class="who user">You</div>
+              <div class="body">
+                Spin up two parallel research threads — one on the worktree helper API and one on the
+                terminal reattach flow. Then wire them into the coordinator and start a draft PR.
+              </div>
+            </div>
+
+            <div class="turn">
+              <div class="who">A.</div>
+              <div class="body">
+                <div class="heading">Spawning two child agents in parallel</div>
+                Both will operate on isolated worktrees off
+                <code>t3code/83f3c121</code>. I'll fold their summaries back into this thread when
+                they return.
+                <div class="tool">
+                  <span>team_spawn_child</span>
+                  <span class="ok">→ ok · 2 children</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="turn">
+              <div class="who">A.</div>
+              <div class="body">
+                Drafting the integration patch while the research children run. The compose hook will
+                need a small change to surface the new
+                <code>worktreePath</code> field — flagging it for the implement-mobile child to pick
+                up.
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- The redesigned sidebar -->
+        <aside class="sidebar">
+          <div class="sb-head">
+            <div class="title">
+              <h2>Agents</h2>
+              <span class="count"><b>2</b> running · 4 total</span>
+            </div>
+            <div class="sb-actions">
+              <button class="icon-btn" aria-label="Filter">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                  <path d="M2 4h12M4 8h8M6 12h4" stroke-linecap="round" />
+                </svg>
+              </button>
+              <button class="icon-btn" aria-label="Collapse">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                  <path d="M10 3 L5 8 L10 13" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="sb-scroll">
+            <!-- 1. CONTEXT INSTRUMENT -->
+            <section class="context-card" aria-label="Coordinator context usage">
+              <div class="ctx-row1">
+                <span class="ctx-label">Context</span>
+                <span class="ctx-model">opus-4.7 · 1M ctx</span>
+              </div>
+
+              <div class="ctx-numbers" aria-live="polite" aria-atomic="true">
+                <span class="ctx-pct mono">18<span class="sym">%</span></span>
+                <span class="ctx-tokens mono"
+                  >187.4K<span class="slash">/</span><span class="total">1.0M</span></span
+                >
+              </div>
+
+              <!-- 5 rows × 40 cols = 200 dots = 0.5% each -->
+              <div class="dotgrid" id="dotgrid"></div>
+
+              <!-- Savings pill: visible only when toggles deviate from default -->
+              <div class="savings-pill" id="savingsPill" aria-live="polite">
+                <span class="saved">
+                  −<span id="savedTokens">0</span> reclaimed
+                  <span class="meta">(<span id="savedCount">0</span> off · <span id="savedPct">0%</span>)</span>
+                </span>
+                <button class="revert" type="button" id="revertBtn">Revert</button>
+              </div>
+
+              <!-- Category accordion (populated by JS) -->
+              <div class="cat-list" id="catList"></div>
+
+              <div class="ctx-foot">
+                <span class="compact-flag">auto-compacts at 92%</span>
+                <button class="toggle" type="button">
+                  Collapse<span class="arrow">▴</span>
+                </button>
+              </div>
+            </section>
+
+            <!-- 2. COORDINATOR -->
+            <div class="group-label">
+              <span>This thread</span>
+              <span class="rule"></span>
+              <span class="num">01</span>
+            </div>
+
+            <article class="agent coordinator active" tabindex="0">
+              <div class="ico coord">◆</div>
+              <div class="core">
+                <div class="name-row">
+                  <span class="name">Coordinator</span>
+                  <span class="role">opus-4.7</span>
+                </div>
+                <div class="task">Adding worktree support &amp; terminal reattach</div>
+              </div>
+              <span class="status running">
+                <span class="led"></span>
+                Live
+              </span>
+            </article>
+
+            <!-- 3. CHILD AGENTS -->
+            <div class="group-label">
+              <span>Child agents</span>
+              <span class="rule"></span>
+              <span class="num">04</span>
+            </div>
+
+            <article class="agent" tabindex="0">
+              <span class="ctxstrip" style="width: 42%"></span>
+              <div class="ico claude">C</div>
+              <div class="core">
+                <div class="name-row">
+                  <span class="name">research-worktree-api</span>
+                  <span class="role">sonnet 4.6</span>
+                </div>
+                <div class="task">Map Windows worktree helper surface area</div>
+                <div class="meta">
+                  <span class="micro-stat"><span class="ctx-tag">CTX 42%</span><span class="sep">·</span>4m12s</span>
+                </div>
+              </div>
+              <span class="status running">
+                <span class="led"></span>
+                Run
+              </span>
+              <div class="hover-actions">
+                <button class="icon-btn" aria-label="Open thread">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                    <path d="M6 3h7v7M13 3 6 10" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M11 9v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h3" stroke-linecap="round" />
+                  </svg>
+                </button>
+              </div>
+            </article>
+
+            <article class="agent" tabindex="0">
+              <span class="ctxstrip warn" style="width: 76%"></span>
+              <div class="ico codex">X</div>
+              <div class="core">
+                <div class="name-row">
+                  <span class="name">implement-mobile-flow</span>
+                  <span class="role">codex 1</span>
+                </div>
+                <div class="task">Wire compose hook to surface worktreePath</div>
+                <div class="meta">
+                  <span class="micro-stat"><span class="ctx-tag warn">CTX 76%</span><span class="sep">·</span>11m04s</span>
+                </div>
+              </div>
+              <span class="status running">
+                <span class="led"></span>
+                Run
+              </span>
+              <div class="hover-actions">
+                <button class="icon-btn" aria-label="Open thread">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                    <path d="M6 3h7v7M13 3 6 10" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            </article>
+
+            <article class="agent" tabindex="0">
+              <span class="ctxstrip" style="width: 18%; opacity: 0.35"></span>
+              <div class="ico claude">C</div>
+              <div class="core">
+                <div class="name-row">
+                  <span class="name">draft-release-notes</span>
+                  <span class="role">haiku 4.5</span>
+                </div>
+                <div class="task">Summarize PR #28 + #30 for changelog</div>
+                <div class="meta">
+                  <span class="micro-stat">+84 −12<span class="sep">·</span>2 files<span class="sep">·</span>27s</span>
+                </div>
+              </div>
+              <span class="status done">
+                <span class="led"></span>
+                Done
+              </span>
+              <div class="hover-actions">
+                <button class="icon-btn" aria-label="Review">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                    <path d="M3 8l3 3 7-7" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            </article>
+
+            <article class="agent failed" tabindex="0">
+              <div class="ico gemini">G</div>
+              <div class="core">
+                <div class="name-row">
+                  <span class="name">migrate-keybindings</span>
+                  <span class="role">gemini 2.5</span>
+                </div>
+                <div class="task">Move legacy chord defs into new schema</div>
+                <div class="err">missing dep · @t3tools/keybindings@workspace</div>
+              </div>
+              <span class="status failed">
+                <span class="led"></span>
+                Fail
+              </span>
+              <div class="hover-actions">
+                <button class="icon-btn" aria-label="Retry">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                    <path d="M3 8a5 5 0 1 0 1.5-3.5L3 6" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M3 3v3h3" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            </article>
+          </div>
+
+          <footer class="sb-foot">
+            <span class="live">Live · 2 streaming</span>
+            <span>t+<span id="liveTicker" class="mono">00:14:08.4</span></span>
+          </footer>
+        </aside>
+      </section>
+
+      <section class="notes">
+        <div class="note">
+          <div class="num">01 · CONTEXT INSPECTOR</div>
+          <h3>From fingerprint to scalpel.</h3>
+          <p>
+            The 200-cell grid is a live readout, not a static viz. Expand any category to see its
+            constituent items — every tool, sub-agent, memory file, skill — each with its own token
+            cost. Toggle them off and the dots, headline, per-cat totals, and savings pill all
+            re-tween in &lt;400ms. Locked rows (system prompt, message history) wear a small lock
+            glyph; in-use items pulse an
+            <span class="accent">in-use</span> tag so you know not to disable an active tool. Bulk
+            actions live inside each open category.
+          </p>
+        </div>
+        <div class="note">
+          <div class="num">02 · COORDINATOR PROMINENCE</div>
+          <h3>Anchor the current thread.</h3>
+          <p>
+            Coordinator gets a dedicated section header and a left accent bar — it's where the user
+            <em>is</em>, not just another item in a list. Diamond glyph + accent color makes it
+            unmistakable across modes (sidebar / dock / sheet).
+          </p>
+        </div>
+        <div class="note">
+          <div class="num">03 · DISTILLED CARDS</div>
+          <h3>Two lines, not seven.</h3>
+          <p>
+            Each agent fits in a clean grid: provider glyph · name + model · current task · live
+            status LED. A 1px top-edge strip on the card itself shows context fill — warming to
+            amber past 70%, coral past 90%. Timestamps, mode flags, diff stats, and action buttons
+            hide behind hover — surfacing only when wanted.
+          </p>
+        </div>
+        <div class="note">
+          <div class="num">04 · STATUS AS A SIGNAL</div>
+          <h3>Lime means living.</h3>
+          <p>
+            One accent (electric lime) is reserved exclusively for active state — pulsing LED on
+            running agents, glow on the active thread, beat in the footer. Errors warm to coral,
+            done agents go cool. The eye knows where to look without reading.
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      // ─────────────────────────────────────────────────────────────────
+      // CONTEXT INSPECTOR
+      // Each category contains discrete items. Toggling an item updates
+      // the dot grid, the headline, the per-cat totals, and the savings
+      // pill — all live.
+      // ─────────────────────────────────────────────────────────────────
+
+      const MAX_TOKENS = 1_000_000;
+      const TOTAL_DOTS = 200; // 0.5% per dot
+
+      const CATS = [
+        {
+          id: "system",
+          name: "System",
+          color: "var(--c-system)",
+          items: [
+            { id: "system.prompt", name: "Anthropic system prompt", tokens: 9200, locked: true },
+          ],
+        },
+        {
+          id: "tools",
+          name: "Tools",
+          color: "var(--c-tools)",
+          items: [
+            { id: "tool.read", name: "Read", tokens: 1100, inUse: true },
+            { id: "tool.edit", name: "Edit", tokens: 980, inUse: true },
+            { id: "tool.bash", name: "Bash", tokens: 1850, inUse: true },
+            { id: "tool.grep", name: "Grep", tokens: 980 },
+            { id: "tool.glob", name: "Glob", tokens: 540 },
+            { id: "tool.write", name: "Write", tokens: 720 },
+            { id: "tool.task", name: "Task / Agent", tokens: 1450 },
+            { id: "tool.webfetch", name: "WebFetch", tokens: 720 },
+            { id: "tool.websearch", name: "WebSearch", tokens: 480 },
+            { id: "tool.notebook", name: "NotebookEdit", tokens: 620 },
+            { id: "tool.todowrite", name: "TodoWrite", tokens: 410 },
+            { id: "tool.skill", name: "Skill", tokens: 380 },
+            { id: "tool.scheduleWakeup", name: "ScheduleWakeup", tokens: 600 },
+            { id: "tool.toolsearch", name: "ToolSearch", tokens: 320 },
+            { id: "tool.exitplan", name: "ExitPlanMode", tokens: 280 },
+          ],
+        },
+        {
+          id: "agents",
+          name: "Sub-agents",
+          color: "var(--c-agents)",
+          items: [
+            { id: "ag.explore", name: "Explore", tokens: 320, inUse: true },
+            { id: "ag.general", name: "general-purpose", tokens: 280 },
+            { id: "ag.architect", name: "code-architect", tokens: 240 },
+            { id: "ag.explorer", name: "code-explorer", tokens: 240 },
+            { id: "ag.reviewer", name: "code-reviewer", tokens: 240 },
+            { id: "ag.critic", name: "design-critic", tokens: 380, inUse: true },
+            { id: "ag.plan", name: "Plan", tokens: 200 },
+            { id: "ag.statusline", name: "statusline-setup", tokens: 100 },
+          ],
+        },
+        {
+          id: "memory",
+          name: "Memory",
+          color: "var(--c-memory)",
+          items: [
+            { id: "mem.index", name: "MEMORY.md (index)", tokens: 220, locked: true },
+            { id: "mem.t3code", name: "project_t3code_overview.md", tokens: 1800, inUse: true },
+            { id: "mem.ideation", name: "reference_ideation_plans.md", tokens: 950 },
+            { id: "mem.style", name: "feedback_ideation_style.md", tokens: 830 },
+          ],
+        },
+        {
+          id: "skills",
+          name: "Skills",
+          color: "var(--c-skills)",
+          items: [
+            { id: "sk.frontend", name: "frontend-design", tokens: 1200, inUse: true },
+            { id: "sk.canon", name: "design-canon", tokens: 480, inUse: true },
+            { id: "sk.convex", name: "convex-helpers-guide", tokens: 380 },
+            { id: "sk.selfimprove", name: "self-improve", tokens: 240 },
+            { id: "sk.para", name: "para-memory-files", tokens: 320 },
+            { id: "sk.schedule", name: "schedule", tokens: 180 },
+          ],
+        },
+        {
+          id: "messages",
+          name: "Messages",
+          color: "var(--c-msgs)",
+          items: [
+            { id: "msg.history", name: "Conversation history (this session)", tokens: 157500, locked: true },
+          ],
+        },
+      ];
+
+      const disabled = new Set();
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      const grid = document.getElementById("dotgrid");
+      const pctEl = document.querySelector(".ctx-pct");
+      const tokEl = document.querySelector(".ctx-tokens");
+      const pillEl = document.getElementById("savingsPill");
+      const savedTokensEl = document.getElementById("savedTokens");
+      const savedCountEl = document.getElementById("savedCount");
+      const savedPctEl = document.getElementById("savedPct");
+      const catList = document.getElementById("catList");
+
+      function formatTokens(n) {
+        n = Math.round(n);
+        if (n >= 1_000_000) return (n / 1_000_000).toFixed(2).replace(/\.?0+$/, "") + "M";
+        if (n >= 100_000) return (n / 1000).toFixed(0) + "K";
+        if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
+        return String(n);
+      }
+
+      function formatPct(p) {
+        if (p < 0.1) return "<0.1%";
+        if (p < 10) return p.toFixed(1).replace(/\.0$/, "") + "%";
+        return Math.round(p) + "%";
+      }
+
+      // ─── Render category accordion ───
+      function renderAccordion() {
+        const html = CATS.map((cat) => {
+          const allItemsLocked = cat.items.every((i) => i.locked);
+          const itemsHtml = cat.items
+            .map((item) => {
+              const off = disabled.has(item.id);
+              const cls = ["item-row"];
+              if (off) cls.push("off");
+              if (item.locked) cls.push("locked");
+              const tagHtml = item.inUse
+                ? '<span class="tag in-use">in-use</span>'
+                : "";
+              const ariaRole = item.locked ? "" : 'role="switch"';
+              const ariaChecked = item.locked
+                ? ""
+                : `aria-checked="${off ? "false" : "true"}"`;
+              const tabidx = item.locked ? "" : 'tabindex="0"';
+              return `
+                <div class="${cls.join(" ")}" data-item="${item.id}" ${tabidx} ${ariaRole} ${ariaChecked} style="--cat-color: ${cat.color}">
+                  <span class="indicator" aria-hidden="true"></span>
+                  <span class="item-name">${item.name}</span>
+                  <span class="item-meta">${tagHtml}<span class="tok-count">${formatTokens(item.tokens)}</span></span>
+                </div>
+              `;
+            })
+            .join("");
+          const bulkHtml = !allItemsLocked
+            ? `
+              <div class="cat-bulk">
+                <button class="bulk-btn" data-cat="${cat.id}" data-action="all-off" type="button">Disable all</button>
+                <button class="bulk-btn" data-cat="${cat.id}" data-action="all-on" type="button">Enable all</button>
+              </div>
+            `
+            : "";
+          return `
+            <div class="cat" data-cat="${cat.id}" data-open="false" data-disabled="false">
+              <button class="cat-header" type="button" aria-expanded="false">
+                <span class="swatch" style="background: ${cat.color}"></span>
+                <span class="name">${cat.name}</span>
+                <span class="tok cat-tok">0</span>
+                <span class="pct cat-pct">0%</span>
+                <span class="caret" aria-hidden="true">▶</span>
+              </button>
+              <div class="cat-items" role="group">
+                ${itemsHtml}
+                ${bulkHtml}
+              </div>
+            </div>
+          `;
+        }).join("");
+        catList.innerHTML = html;
+      }
+
+      function buildInitialGrid() {
+        grid.innerHTML = "";
+        for (let i = 0; i < TOTAL_DOTS; i++) {
+          const d = document.createElement("span");
+          d.className = "dot free";
+          grid.appendChild(d);
+        }
+      }
+
+      function computeState() {
+        let activeTotal = 0;
+        let savedTotal = 0;
+        let savedCount = 0;
+        const catTotals = {};
+        for (const cat of CATS) {
+          let active = 0;
+          for (const item of cat.items) {
+            if (disabled.has(item.id)) {
+              savedTotal += item.tokens;
+              savedCount++;
+            } else {
+              active += item.tokens;
+            }
+          }
+          catTotals[cat.id] = active;
+          activeTotal += active;
+        }
+        return { activeTotal, savedTotal, savedCount, catTotals };
+      }
+
+      function applyDots(catTotals) {
+        const dotsPerCat = {};
+        let assigned = 0;
+        for (const cat of CATS) {
+          const tokens = catTotals[cat.id];
+          if (tokens === 0) {
+            dotsPerCat[cat.id] = 0;
+            continue;
+          }
+          let n = Math.round((tokens / MAX_TOKENS) * TOTAL_DOTS);
+          if (n === 0 && tokens > 0) n = 1;
+          dotsPerCat[cat.id] = n;
+          assigned += n;
+        }
+        // Trim from largest if rounding overshot
+        while (assigned > TOTAL_DOTS) {
+          const sorted = CATS
+            .map((c) => ({ id: c.id, n: dotsPerCat[c.id] }))
+            .sort((a, b) => b.n - a.n);
+          if (sorted[0].n <= 1) break;
+          dotsPerCat[sorted[0].id]--;
+          assigned--;
+        }
+
+        const dots = grid.querySelectorAll(".dot");
+        let cursor = 0;
+        for (const cat of CATS) {
+          const n = dotsPerCat[cat.id];
+          for (let i = 0; i < n && cursor < TOTAL_DOTS; i++, cursor++) {
+            dots[cursor].className = `dot ${cat.id}`;
+          }
+        }
+        for (; cursor < TOTAL_DOTS; cursor++) {
+          dots[cursor].className = "dot free";
+        }
+      }
+
+      let lastPct = 0;
+      let lastTokens = 0;
+      let pctRaf = null;
+
+      function updateHeadline(toPct, toTokens, animate) {
+        if (!animate || reduceMotion) {
+          lastPct = toPct;
+          lastTokens = toTokens;
+          pctEl.innerHTML = `${Math.round(toPct)}<span class="sym">%</span>`;
+          tokEl.innerHTML = `${formatTokens(toTokens)}<span class="slash">/</span><span class="total">1.0M</span>`;
+          return;
+        }
+        if (pctRaf) cancelAnimationFrame(pctRaf);
+        const fromPct = lastPct;
+        const fromTok = lastTokens;
+        const dur = 360;
+        const t0 = performance.now();
+        function step(now) {
+          const t = Math.min(1, (now - t0) / dur);
+          // Slight overshoot — the number lands with the same character
+          // as the dot stagger curve.
+          const e = 1 - Math.pow(1 - t, 3.5);
+          const p = fromPct + (toPct - fromPct) * e;
+          const tk = fromTok + (toTokens - fromTok) * e;
+          pctEl.innerHTML = `${Math.round(p)}<span class="sym">%</span>`;
+          tokEl.innerHTML = `${formatTokens(tk)}<span class="slash">/</span><span class="total">1.0M</span>`;
+          if (t < 1) {
+            pctRaf = requestAnimationFrame(step);
+          } else {
+            lastPct = toPct;
+            lastTokens = toTokens;
+            pctRaf = null;
+          }
+        }
+        pctRaf = requestAnimationFrame(step);
+      }
+
+      function update(animate = true) {
+        const state = computeState();
+        updateHeadline((state.activeTotal / MAX_TOKENS) * 100, state.activeTotal, animate);
+        applyDots(state.catTotals);
+
+        document.querySelectorAll(".cat").forEach((catEl) => {
+          const id = catEl.dataset.cat;
+          const tokens = state.catTotals[id];
+          const p = (tokens / MAX_TOKENS) * 100;
+          catEl.querySelector(".cat-tok").textContent = formatTokens(tokens);
+          catEl.querySelector(".cat-pct").textContent = formatPct(p);
+          const cat = CATS.find((c) => c.id === id);
+          const nonLocked = cat.items.filter((i) => !i.locked);
+          const allOff = nonLocked.length > 0 && nonLocked.every((i) => disabled.has(i.id));
+          catEl.dataset.disabled = allOff ? "true" : "false";
+        });
+
+        if (state.savedCount > 0) {
+          pillEl.classList.add("show");
+          savedTokensEl.textContent = formatTokens(state.savedTotal);
+          savedCountEl.textContent = state.savedCount;
+          savedPctEl.textContent = formatPct((state.savedTotal / MAX_TOKENS) * 100);
+        } else {
+          pillEl.classList.remove("show");
+        }
+      }
+
+      // ─── Wire interactions ───
+      catList.addEventListener("click", (e) => {
+        const header = e.target.closest(".cat-header");
+        if (header) {
+          // Locked categories still expand — only their items refuse toggles.
+          const cat = header.parentElement;
+          const open = cat.dataset.open !== "true";
+          cat.dataset.open = open ? "true" : "false";
+          header.setAttribute("aria-expanded", String(open));
+          return;
+        }
+        const item = e.target.closest(".item-row");
+        if (item && !item.classList.contains("locked")) {
+          const id = item.dataset.item;
+          const willEnable = disabled.has(id);
+          if (willEnable) {
+            disabled.delete(id);
+            item.classList.remove("off");
+          } else {
+            disabled.add(id);
+            item.classList.add("off");
+          }
+          item.setAttribute("aria-checked", willEnable ? "true" : "false");
+          update();
+          return;
+        }
+        const bulk = e.target.closest(".bulk-btn");
+        if (bulk) {
+          const catId = bulk.dataset.cat;
+          const action = bulk.dataset.action;
+          const cat = CATS.find((c) => c.id === catId);
+          cat.items.forEach((item) => {
+            if (item.locked) return;
+            if (action === "all-off") disabled.add(item.id);
+            else if (action === "all-on") disabled.delete(item.id);
+            const row = catList.querySelector(`[data-item="${item.id}"]`);
+            if (!row) return;
+            if (disabled.has(item.id)) {
+              row.classList.add("off");
+              row.setAttribute("aria-checked", "false");
+            } else {
+              row.classList.remove("off");
+              row.setAttribute("aria-checked", "true");
+            }
+          });
+          update();
+        }
+      });
+
+      catList.addEventListener("keydown", (e) => {
+        if (e.key !== " " && e.key !== "Enter") return;
+        const item = e.target.closest(".item-row");
+        if (item && !item.classList.contains("locked")) {
+          e.preventDefault();
+          item.click();
+        }
+      });
+
+      document.getElementById("revertBtn").addEventListener("click", () => {
+        disabled.clear();
+        catList.querySelectorAll(".item-row.off").forEach((r) => {
+          r.classList.remove("off");
+          r.setAttribute("aria-checked", "true");
+        });
+        update();
+      });
+
+      // ─── Boot ───
+      renderAccordion();
+      buildInitialGrid();
+      update(false); // initial paint without counter animation
+
+      // Open Tools by default so the toggle pattern is immediately visible
+      const toolsCat = catList.querySelector('.cat[data-cat="tools"]');
+      if (toolsCat) {
+        toolsCat.dataset.open = "true";
+        toolsCat.querySelector(".cat-header").setAttribute("aria-expanded", "true");
+      }
+
+      // Stagger the dot reveal — only after initial color is set.
+      if (!reduceMotion) {
+        const dots = grid.querySelectorAll(".dot");
+        dots.forEach((d, i) => {
+          d.style.opacity = "0";
+          d.style.transform = "scale(0.55)";
+          d.style.transition =
+            "opacity 220ms ease, transform 260ms cubic-bezier(.2,.7,.3,1.2), background-color 320ms cubic-bezier(.2,.7,.3,1)";
+          setTimeout(
+            () => {
+              d.style.opacity = "1";
+              d.style.transform = "scale(1)";
+            },
+            120 + i * 3,
+          );
+        });
+      }
+
+      // ─── Live elapsed ticker ───
+      const ticker = document.getElementById("liveTicker");
+      const tickerStart = Date.now() - (14 * 60 + 8) * 1000 - 400;
+      function pad(n, w = 2) {
+        return String(n).padStart(w, "0");
+      }
+      function tickerStep() {
+        const ms = Date.now() - tickerStart;
+        const totalCs = Math.floor(ms / 100);
+        const cs = totalCs % 10;
+        const totalSec = Math.floor(totalCs / 10);
+        const s = totalSec % 60;
+        const m = Math.floor(totalSec / 60) % 60;
+        const h = Math.floor(totalSec / 3600);
+        ticker.textContent = `${pad(h)}:${pad(m)}:${pad(s)}.${cs}`;
+      }
+      tickerStep();
+      setInterval(tickerStep, 100);
+    </script>
+  </body>
+</html>

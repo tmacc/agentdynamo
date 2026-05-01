@@ -522,7 +522,7 @@ function OpenCommandPaletteDialog() {
               intelEnvironmentId: project.environmentId,
               intelProjectCwd: project.cwd,
               intelEffectiveCwd: undefined,
-              intelSection: "overview",
+              intelSection: "context-inspector",
               intelSurfaceId: undefined,
             }),
           });
@@ -813,7 +813,7 @@ function OpenCommandPaletteDialog() {
             intelEnvironmentId: currentProjectEnvironmentId,
             intelProjectCwd: currentResolvedProjectCwd,
             intelEffectiveCwd: effectiveCwd ?? undefined,
-            intelSection: "overview",
+            intelSection: "context-inspector",
             intelSurfaceId: undefined,
           }),
         });

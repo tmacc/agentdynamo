@@ -4,13 +4,15 @@ export const RIGHT_PANEL_SHEET_CLASS_NAME =
 
 export const RIGHT_PANEL_PLAN_WIDTH_STORAGE_KEY = "chat_right_panel_plan_width";
 export const RIGHT_PANEL_AGENTS_WIDTH_STORAGE_KEY = "chat_right_panel_agents_width";
+export const RIGHT_PANEL_CONTEXT_WIDTH_STORAGE_KEY = "chat_right_panel_context_width";
 export const RIGHT_PANEL_PLAN_DEFAULT_WIDTH = 340;
 export const RIGHT_PANEL_AGENTS_DEFAULT_WIDTH = 360;
+export const RIGHT_PANEL_CONTEXT_DEFAULT_WIDTH = 400;
 export const RIGHT_PANEL_MIN_WIDTH = 280;
 export const RIGHT_PANEL_MAX_WIDTH = 560;
 export const RIGHT_PANEL_MIN_CHAT_WIDTH = 520;
 
-export type ChatRightPanelId = "plan" | "agents";
+export type ChatRightPanelId = "plan" | "context" | "agents";
 
 export type ChatRightPanelState = {
   openPanels: ChatRightPanelId[];
@@ -20,6 +22,7 @@ export type ChatRightPanelState = {
 export type ChatRightPanelContext = {
   compact: boolean;
   canShowAgents: boolean;
+  canShowContext: boolean;
   canDockPanels: boolean;
 };
 
@@ -28,7 +31,7 @@ export const EMPTY_CHAT_RIGHT_PANEL_STATE: ChatRightPanelState = {
   lastRequestedPanel: null,
 };
 
-const RIGHT_PANEL_ORDER: readonly ChatRightPanelId[] = ["plan", "agents"];
+const RIGHT_PANEL_ORDER: readonly ChatRightPanelId[] = ["plan", "context", "agents"];
 
 function orderRightPanels(panels: Iterable<ChatRightPanelId>): ChatRightPanelId[] {
   const panelSet = new Set(panels);
@@ -47,13 +50,17 @@ function pickSinglePanel(
   return fallbackPanel ? [fallbackPanel] : [];
 }
 
+function panelIsAvailable(panel: ChatRightPanelId, context: ChatRightPanelContext): boolean {
+  if (panel === "agents") return context.canShowAgents;
+  if (panel === "context") return context.canShowContext;
+  return true;
+}
+
 export function normalizeRightPanels(
   state: ChatRightPanelState,
   context: ChatRightPanelContext,
 ): ChatRightPanelState {
-  const availablePanels = state.openPanels.filter(
-    (panel) => panel !== "agents" || context.canShowAgents,
-  );
+  const availablePanels = state.openPanels.filter((panel) => panelIsAvailable(panel, context));
   const orderedPanels = orderRightPanels(availablePanels);
   const openPanels =
     context.compact || !context.canDockPanels
@@ -73,7 +80,7 @@ export function openRightPanel(
   panel: ChatRightPanelId,
   context: ChatRightPanelContext,
 ): ChatRightPanelState {
-  if (panel === "agents" && !context.canShowAgents) {
+  if (!panelIsAvailable(panel, context)) {
     return normalizeRightPanels(state, context);
   }
 

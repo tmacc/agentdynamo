@@ -13,24 +13,17 @@ import type {
 } from "@t3tools/contracts";
 
 export const SECTION_LABELS: Record<ProjectIntelligenceSectionId, string> = {
-  overview: "Overview",
-  "loaded-context": "Loaded Context",
-  tools: "Tools",
+  "context-inspector": "Context",
   providers: "Providers",
-  memory: "Memory",
   runtime: "Runtime",
-  "code-stats": "Code Stats",
   warnings: "Warnings",
 };
 
 export const SECTION_DESCRIPTIONS: Record<ProjectIntelligenceSectionId, string> = {
-  overview: "Quick health and inventory at a glance.",
-  "loaded-context": "Instructions and runtime configuration that influence default agent behavior.",
-  tools: "Skills, slash commands, custom agents, hooks, MCP servers, and other invocable surfaces.",
+  "context-inspector":
+    "What is loaded into the model's context, and what you can toggle off to reclaim tokens.",
   providers: "Provider health, authentication, models, and team capabilities.",
-  memory: "Project memory and separate memory stores discovered for this workspace.",
-  runtime: "Project scripts, worktree setup, and Dynamo runtime configuration.",
-  "code-stats": "Authored-source statistics for the resolved scan basis.",
+  runtime: "Project scripts, worktree setup, and authored-source code statistics.",
   warnings: "Actionable issues found while resolving project intelligence.",
 };
 
@@ -202,6 +195,93 @@ export function isRuntimeSurface(surface: ProjectIntelligenceSurfaceSummary): bo
 
 export function isMemorySurface(surface: ProjectIntelligenceSurfaceSummary): boolean {
   return MEMORY_KINDS.has(surface.kind);
+}
+
+// ─── Context Inspector ───
+// Categories shown in the context dot grid + accordion. "system" is locked
+// (always-loaded instructions like AGENTS.md / CLAUDE.md). The remaining four
+// are user-toggleable. Tools/slash-commands/hooks/plugins surface as a
+// read-only Capabilities block below the inspector — they are provider-managed
+// and not directly user-toggleable.
+
+export type InspectorCategoryId = "system" | "skills" | "agents" | "memory" | "mcp";
+
+export const INSPECTOR_KINDS: ReadonlyArray<ProjectIntelligenceSurfaceKind> = [
+  "instruction",
+  "skill",
+  "custom-agent",
+  "memory",
+  "mcp-server",
+];
+
+const INSPECTOR_KIND_SET = new Set<ProjectIntelligenceSurfaceKind>(INSPECTOR_KINDS);
+
+const KIND_TO_CATEGORY: Record<ProjectIntelligenceSurfaceKind, InspectorCategoryId | null> = {
+  instruction: "system",
+  skill: "skills",
+  "custom-agent": "agents",
+  memory: "memory",
+  "mcp-server": "mcp",
+  // Read-only / out of scope for the inspector dot grid:
+  "slash-command": null,
+  hook: null,
+  plugin: null,
+  settings: null,
+  "project-script": null,
+  "worktree-setup": null,
+  model: null,
+  "team-capability": null,
+  "runtime-config": null,
+};
+
+export const INSPECTOR_CATEGORY_ORDER: ReadonlyArray<InspectorCategoryId> = [
+  "system",
+  "skills",
+  "agents",
+  "memory",
+  "mcp",
+];
+
+export const INSPECTOR_CATEGORY_LABELS: Record<InspectorCategoryId, string> = {
+  system: "System",
+  skills: "Skills",
+  agents: "Sub-agents",
+  memory: "Memory",
+  mcp: "MCP servers",
+};
+
+// Category swatch colors. These correspond to CSS variables defined in
+// `index.css` (see --inspector-cat-*). Kept here so JS can reference them by id.
+export const INSPECTOR_CATEGORY_COLOR_VAR: Record<InspectorCategoryId, string> = {
+  system: "var(--inspector-cat-system)",
+  skills: "var(--inspector-cat-skills)",
+  agents: "var(--inspector-cat-agents)",
+  memory: "var(--inspector-cat-memory)",
+  mcp: "var(--inspector-cat-mcp)",
+};
+
+// Surface kinds that show up in the read-only Capabilities block below the
+// inspector. These are invocable surfaces that don't (typically) consume
+// permanent context tokens but are listed here so users see the full
+// capability set without a separate Tools tab.
+const CAPABILITY_KINDS = new Set<ProjectIntelligenceSurfaceKind>([
+  "slash-command",
+  "hook",
+  "plugin",
+]);
+
+export function isCapabilitySurface(surface: ProjectIntelligenceSurfaceSummary): boolean {
+  return CAPABILITY_KINDS.has(surface.kind);
+}
+
+export function isInspectorSurface(surface: ProjectIntelligenceSurfaceSummary): boolean {
+  return INSPECTOR_KIND_SET.has(surface.kind);
+}
+
+export function categorizeForInspector(
+  surface: ProjectIntelligenceSurfaceSummary,
+): InspectorCategoryId | null {
+  return KIND_TO_CATEGORY[surface.kind];
 }
 
 export interface ProjectIntelligenceSurfaceFilter {

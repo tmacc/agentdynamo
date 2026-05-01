@@ -79,6 +79,10 @@ export interface WsRpcClient {
     readonly readIntelligenceSurface: RpcUnaryMethod<
       typeof WS_METHODS.projectsReadIntelligenceSurface
     >;
+    readonly getSurfaceOverrides: RpcUnaryMethod<
+      typeof WS_METHODS.projectsGetSurfaceOverrides
+    >;
+    readonly setSurfaceEnabled: RpcUnaryMethod<typeof WS_METHODS.projectsSetSurfaceEnabled>;
   };
   readonly filesystem: {
     readonly browse: RpcUnaryMethod<typeof WS_METHODS.filesystemBrowse>;
@@ -189,6 +193,10 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.projectsGetIntelligence](input)),
       readIntelligenceSurface: (input) =>
         transport.request((client) => client[WS_METHODS.projectsReadIntelligenceSurface](input)),
+      getSurfaceOverrides: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsGetSurfaceOverrides](input)),
+      setSurfaceEnabled: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsSetSurfaceEnabled](input)),
     },
     filesystem: {
       browse: (input) => transport.request((client) => client[WS_METHODS.filesystemBrowse](input)),
