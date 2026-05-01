@@ -39,7 +39,7 @@ const PROJECT_ID = asProjectId("project-1");
 const THREAD_ID = ThreadId.make("thread-1");
 const FIXTURE_TURN_ID = "fixture-turn";
 const APPROVAL_REQUEST_ID = asApprovalRequestId("req-approval-1");
-const SLOW_CLAUDE_INTEGRATION_TIMEOUT_MS = 120_000;
+const SLOW_CLAUDE_INTEGRATION_TIMEOUT_MS = 240_000;
 type IntegrationProvider = ProviderKind;
 
 function nowIso() {

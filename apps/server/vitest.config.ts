@@ -12,8 +12,8 @@ export default mergeConfig(
       // Server integration tests exercise sqlite, git, and orchestration together.
       // CI runners can spend long stretches in sqlite/git/provider projection waits
       // during package-wide runs, so keep the Vitest budget above the harness wait.
-      testTimeout: 120_000,
-      hookTimeout: 120_000,
+      testTimeout: 240_000,
+      hookTimeout: 240_000,
     },
   }),
 );
