@@ -304,6 +304,7 @@ validationLayer("CodexAdapterLive validation", (it) => {
         env: {
           DYNAMO_TEAM_MCP_TOKEN: "token-1",
         },
+        providerInstanceId: ProviderInstanceId.make("codex"),
         teamCoordinatorTools: true,
         threadId: asThreadId("thread-team"),
         runtimeMode: "full-access",

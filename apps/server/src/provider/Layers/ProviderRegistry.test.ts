@@ -1162,7 +1162,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         Effect.gen(function* () {
           const status = yield* checkClaudeProviderStatus(
             defaultClaudeSettings,
-            claudeCapabilities({ subscriptionType: "maxplan" }),
+            claudeCapabilities({ email: "claude@example.com", subscriptionType: "maxplan" }),
           );
           assert.strictEqual(status.status, "ready");
           assert.strictEqual(status.auth.status, "authenticated");
@@ -1374,7 +1374,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         Effect.gen(function* () {
           const status = yield* checkClaudeProviderStatus(
             defaultClaudeSettings,
-            claudeCapabilities({ tokenSource: "ANTHROPIC_AUTH_TOKEN" }),
+            claudeCapabilities({
+              email: "key-owner@example.com",
+              tokenSource: "ANTHROPIC_AUTH_TOKEN",
+            }),
           );
           assert.strictEqual(status.status, "ready");
           assert.strictEqual(status.auth.status, "authenticated");

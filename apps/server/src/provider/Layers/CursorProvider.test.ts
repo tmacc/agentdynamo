@@ -624,7 +624,7 @@ describe("parseCursorAboutOutput", () => {
       status: "ready",
       auth: {
         status: "authenticated",
-        email: "jmarminge@gmail.com",
+        email: "fixture@example.com",
         type: "Team",
         label: "Cursor Team Subscription",
       },
