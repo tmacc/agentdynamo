@@ -72,3 +72,7 @@ Dynamo is not accepting broad external contributions yet. Small bug reports and 
 Need support or want to follow development? Join the [Discord](https://discord.gg/jn4EGJjrvv).
 
 Observability guide: [docs/observability.md](./docs/observability.md)
+
+## Credits
+
+Dynamo started as a fork of [T3 Code](https://github.com/pingdotgg/t3code) and owes its core agent-runtime architecture to that project. Thanks to the T3 Code team.
