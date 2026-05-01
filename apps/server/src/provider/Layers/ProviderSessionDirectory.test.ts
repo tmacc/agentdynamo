@@ -224,6 +224,62 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       }
     }));
 
+  it("preserves, clears, and replaces resume cursors explicitly", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const threadId = ThreadId.make("thread-resume-cursor");
+
+      yield* directory.upsert({
+        provider: "codex",
+        threadId,
+        resumeCursor: { cursor: "initial" },
+        runtimePayload: {
+          activeTurnId: "turn-1",
+          cwd: "/tmp/project",
+        },
+      });
+
+      yield* directory.upsert({
+        provider: "codex",
+        threadId,
+        runtimePayload: {
+          activeTurnId: null,
+        },
+      });
+      const preserved = yield* runtimeRepository.getByThreadId({ threadId });
+      assert.equal(Option.isSome(preserved), true);
+      if (Option.isSome(preserved)) {
+        assert.deepEqual(preserved.value.resumeCursor, { cursor: "initial" });
+        assert.deepEqual(preserved.value.runtimePayload, {
+          activeTurnId: null,
+          cwd: "/tmp/project",
+        });
+      }
+
+      yield* directory.upsert({
+        provider: "codex",
+        threadId,
+        resumeCursor: null,
+      });
+      const cleared = yield* runtimeRepository.getByThreadId({ threadId });
+      assert.equal(Option.isSome(cleared), true);
+      if (Option.isSome(cleared)) {
+        assert.equal(cleared.value.resumeCursor, null);
+      }
+
+      yield* directory.upsert({
+        provider: "codex",
+        threadId,
+        resumeCursor: { cursor: "replacement" },
+      });
+      const replaced = yield* runtimeRepository.getByThreadId({ threadId });
+      assert.equal(Option.isSome(replaced), true);
+      if (Option.isSome(replaced)) {
+        assert.deepEqual(replaced.value.resumeCursor, { cursor: "replacement" });
+      }
+    }));
+
   it("rehydrates persisted mappings across layer restart", () =>
     Effect.gen(function* () {
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "t3-provider-directory-"));

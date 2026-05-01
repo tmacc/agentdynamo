@@ -13,6 +13,7 @@ import {
 import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
 import { OpenLive } from "./open.ts";
+import { ProjectionBoardSnapshotQueryLive } from "./board/Layers/ProjectionBoardSnapshotQuery.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
 import { ServerLifecycleEventsLive } from "./serverLifecycleEvents.ts";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService.ts";
@@ -27,6 +28,7 @@ import { makeOpenCodeAdapterLive } from "./provider/Layers/OpenCodeAdapter.ts";
 import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRegistry.ts";
 import { makeProviderServiceLive } from "./provider/Layers/ProviderService.ts";
 import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper.ts";
+import { ProviderSessionRecoveryReconcilerLive } from "./provider/Layers/ProviderSessionRecoveryReconciler.ts";
 import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQuery.ts";
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore.ts";
 import { GitCoreLive } from "./git/Layers/GitCore.ts";
@@ -248,10 +250,10 @@ const AuthLayerLive = ServerAuthLive.pipe(
   Layer.provide(ServerSecretStoreLive),
 );
 
-const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
-  Layer.provideMerge(ProviderLayerLive),
-  Layer.provideMerge(OrchestrationLayerLive),
-);
+const ProviderRuntimeLayerLive = Layer.mergeAll(
+  ProviderSessionReaperLive,
+  ProviderSessionRecoveryReconcilerLive,
+).pipe(Layer.provideMerge(ProviderLayerLive), Layer.provideMerge(OrchestrationLayerLive));
 
 const ThreadForkLayerLive = ThreadForkDispatcherLive.pipe(
   Layer.provideMerge(ThreadForkMaterializerLive),
@@ -268,6 +270,7 @@ const RuntimeDependenciesCoreLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ProviderRuntimeLayerLive),
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(PersistenceLayerLive),
+  Layer.provideMerge(ProjectionBoardSnapshotQueryLive),
   Layer.provideMerge(KeybindingsLive),
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(ServerSettingsLive),

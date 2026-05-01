@@ -704,6 +704,8 @@ function makeManager(input?: {
           Effect.die("getThreadShellById should not be called in this test"),
         getThreadDetailById: () =>
           Effect.die("getThreadDetailById should not be called in this test"),
+        getThreadDetailSnapshotById: () =>
+          Effect.die("getThreadDetailSnapshotById should not be called in this test"),
         getTeamTaskTrace: () => Effect.die("getTeamTaskTrace should not be called in this test"),
       },
     ),
@@ -801,6 +803,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   ? Option.some(childThread)
                   : Option.none(),
             ),
+          getThreadDetailSnapshotById: () =>
+            Effect.die("getThreadDetailSnapshotById should not be called in this test"),
           getThreadCheckpointContext: (threadId) =>
             Effect.succeed(
               threadId === parentThreadId
@@ -918,6 +922,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   ? Option.some(childThread)
                   : Option.none(),
             ),
+          getThreadDetailSnapshotById: () =>
+            Effect.die("getThreadDetailSnapshotById should not be called in this test"),
           getThreadCheckpointContext: (threadId) =>
             Effect.succeed(
               threadId === parentThreadId
@@ -1030,6 +1036,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   ? Option.some(childThread)
                   : Option.none(),
             ),
+          getThreadDetailSnapshotById: () =>
+            Effect.die("getThreadDetailSnapshotById should not be called in this test"),
           getThreadCheckpointContext: () =>
             Effect.die("getThreadCheckpointContext should not be called in this test"),
           getTeamTaskTrace: () => Effect.die("getTeamTaskTrace should not be called in this test"),
@@ -1119,6 +1127,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   ? Option.some(childThread)
                   : Option.none(),
             ),
+          getThreadDetailSnapshotById: () =>
+            Effect.die("getThreadDetailSnapshotById should not be called in this test"),
           getThreadCheckpointContext: (threadId) =>
             Effect.succeed(
               threadId === parentThreadId
@@ -1200,6 +1210,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             Effect.die("getThreadShellById should not be called in this test"),
           getThreadDetailById: (threadId) =>
             Effect.succeed(threadId === parentThreadId ? Option.some(parentThread) : Option.none()),
+          getThreadDetailSnapshotById: () =>
+            Effect.die("getThreadDetailSnapshotById should not be called in this test"),
           getThreadCheckpointContext: () =>
             Effect.die("getThreadCheckpointContext should not be called in this test"),
           getTeamTaskTrace: () => Effect.die("getTeamTaskTrace should not be called in this test"),

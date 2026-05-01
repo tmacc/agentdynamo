@@ -6,7 +6,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 
-import { isLatestTurnSettled } from "./session-logic";
+import { isActiveTurnInProgress, isLatestTurnSettled } from "./session-logic";
 import { resolveThreadPr, type ThreadPr } from "./components/ThreadStatusIndicators";
 import type { SidebarThreadSummary } from "./types";
 
@@ -105,10 +105,9 @@ function byDoneAtDesc(a: SidebarThreadSummary, b: SidebarThreadSummary): number 
 
 export function isThreadInProgress(thread: SidebarThreadSummary): boolean {
   if (thread.archivedAt !== null) return false;
-  const orchestrationStatus = thread.session?.orchestrationStatus;
-  if (orchestrationStatus === "running") return true;
-  if (thread.session?.activeTurnId) return true;
+  if (isActiveTurnInProgress(thread.session)) return true;
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return true;
+  if (thread.session) return false;
   return thread.latestTurn?.state === "running";
 }
 

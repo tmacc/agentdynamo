@@ -90,6 +90,7 @@ import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
 
 import { useThreadActions } from "../hooks/useThreadActions";
+import { isActiveTurnInProgress } from "../session-logic";
 import {
   buildThreadRouteParams,
   resolveThreadRouteRef,
@@ -358,8 +359,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     cwd: thread.branch != null ? gitCwd : null,
   });
   const isHighlighted = isActive || isSelected;
-  const isThreadRunning =
-    thread.session?.status === "running" && thread.session.activeTurnId != null;
+  const isThreadRunning = isActiveTurnInProgress(thread.session);
   const threadStatus = resolveThreadStatusPill({
     thread: {
       ...thread,

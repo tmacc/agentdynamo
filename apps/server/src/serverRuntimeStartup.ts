@@ -33,6 +33,8 @@ import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 import { ServerAuth } from "./auth/Services/ServerAuth.ts";
 import { ProviderSessionReaper } from "./provider/Services/ProviderSessionReaper.ts";
+import { ProviderSessionRecoveryReconciler } from "./provider/Services/ProviderSessionRecoveryReconciler.ts";
+import { TeamTaskReactor } from "./team/Services/TeamTaskReactor.ts";
 import {
   formatHeadlessServeOutput,
   formatHostForUrl,
@@ -283,6 +285,8 @@ export const makeServerRuntimeStartup = Effect.gen(function* () {
   const keybindings = yield* Keybindings;
   const orchestrationReactor = yield* OrchestrationReactor;
   const providerSessionReaper = yield* ProviderSessionReaper;
+  const providerSessionRecoveryReconciler = yield* ProviderSessionRecoveryReconciler;
+  const teamTaskReactor = yield* TeamTaskReactor;
   const lifecycleEvents = yield* ServerLifecycleEvents;
   const serverSettings = yield* ServerSettingsService;
   const serverEnvironment = yield* ServerEnvironment;
@@ -332,6 +336,14 @@ export const makeServerRuntimeStartup = Effect.gen(function* () {
         yield* providerSessionReaper.start().pipe(Scope.provide(reactorScope));
       }),
     );
+
+    yield* Effect.logDebug("startup phase: reconciling provider runtime recovery");
+    yield* runStartupPhase(
+      "provider-recovery.reconcile",
+      providerSessionRecoveryReconciler.reconcileNow(),
+    );
+    yield* Effect.logDebug("startup phase: reconciling team tasks");
+    yield* runStartupPhase("team-tasks.sync", teamTaskReactor.syncAll?.() ?? Effect.void);
 
     const welcomeBase = yield* resolveWelcomeBase;
     const environment = yield* serverEnvironment.getDescriptor;

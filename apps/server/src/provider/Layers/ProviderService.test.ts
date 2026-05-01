@@ -512,14 +512,14 @@ it.effect(
         return session;
       }).pipe(Effect.provide(firstProviderLayer));
 
-      const persistedAfterStopAll = yield* Effect.gen(function* () {
+      const persistedAfterShutdownSnapshot = yield* Effect.gen(function* () {
         const repository = yield* ProviderSessionRuntimeRepository;
         return yield* repository.getByThreadId({ threadId: startedSession.threadId });
       }).pipe(Effect.provide(runtimeRepositoryLayer));
-      assert.equal(Option.isSome(persistedAfterStopAll), true);
-      if (Option.isSome(persistedAfterStopAll)) {
-        assert.equal(persistedAfterStopAll.value.status, "stopped");
-        assert.deepEqual(persistedAfterStopAll.value.resumeCursor, updatedResumeCursor);
+      assert.equal(Option.isSome(persistedAfterShutdownSnapshot), true);
+      if (Option.isSome(persistedAfterShutdownSnapshot)) {
+        assert.equal(persistedAfterShutdownSnapshot.value.status, "ready");
+        assert.deepEqual(persistedAfterShutdownSnapshot.value.resumeCursor, updatedResumeCursor);
       }
 
       const secondCodex = makeFakeCodexAdapter();
@@ -971,6 +971,57 @@ routing.layer("ProviderServiceLive routing", (it) => {
         }
       }
     }),
+  );
+
+  it.effect(
+    "marks provider runtime ready and preserves resume cursor when a running turn completes",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+        const threadId = asThreadId("thread-complete-runtime");
+        const turnId = asTurnId(`turn-${String(threadId)}`);
+
+        const session = yield* provider.startSession(threadId, {
+          provider: "codex",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        yield* provider.sendTurn({
+          threadId,
+          input: "hello",
+          attachments: [],
+        });
+        yield* sleep(50);
+
+        routing.codex.emit({
+          type: "turn.completed",
+          eventId: asEventId("evt-runtime-completed"),
+          provider: "codex",
+          createdAt: new Date().toISOString(),
+          threadId,
+          turnId,
+          status: "completed",
+        });
+        yield* sleep(50);
+
+        const completedRuntime = yield* runtimeRepository.getByThreadId({ threadId });
+        assert.equal(Option.isSome(completedRuntime), true);
+        if (Option.isSome(completedRuntime)) {
+          assert.equal(completedRuntime.value.status, "ready");
+          assert.deepEqual(completedRuntime.value.resumeCursor, session.resumeCursor);
+          const payload = completedRuntime.value.runtimePayload;
+          assert.equal(payload !== null && typeof payload === "object", true);
+          if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
+            const runtimePayload = payload as {
+              activeTurnId: string | null;
+              lastRuntimeEvent: string | null;
+            };
+            assert.equal(runtimePayload.activeTurnId, null);
+            assert.equal(runtimePayload.lastRuntimeEvent, "turn.completed");
+          }
+        }
+      }),
   );
 
   it.effect("reuses persisted resume cursor when startSession is called after a restart", () =>

@@ -162,6 +162,8 @@ function makeProjectionQuery(input: {
       Effect.die("getFirstActiveThreadIdByProjectId should not be called"),
     getThreadCheckpointContext: () => Effect.die("getThreadCheckpointContext should not be called"),
     getThreadDetailById: () => Effect.die("getThreadDetailById should not be called"),
+    getThreadDetailSnapshotById: () =>
+      Effect.die("getThreadDetailSnapshotById should not be called"),
     getTeamTaskTrace: () => Effect.die("getTeamTaskTrace should not be called"),
     getThreadShellById: (threadId) => {
       if (threadId === sourceThreadId) {
@@ -196,7 +198,10 @@ function makeEngine(commands: OrchestrationCommand[]): OrchestrationEngineShape 
   return {
     getReadModel: () => Effect.die("getReadModel should not be called"),
     readEvents: () => Stream.empty,
+    getLatestSequence: () => Effect.succeed(0),
+    readEventsRange: () => Stream.empty,
     streamDomainEvents: Stream.empty,
+    subscribeDomainEvents: () => Effect.die("subscribeDomainEvents should not be called"),
     dispatch: (command) =>
       Effect.sync(() => {
         commands.push(command);

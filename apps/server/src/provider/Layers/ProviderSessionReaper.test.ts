@@ -148,8 +148,11 @@ describe("ProviderSessionReaper", () => {
     const orchestrationEngine: OrchestrationEngineShape = {
       getReadModel: () => Effect.succeed(input.readModel),
       readEvents: () => Stream.empty,
+      getLatestSequence: () => Effect.succeed(input.readModel.snapshotSequence),
+      readEventsRange: () => Stream.empty,
       dispatch: () => unsupported(),
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: () => unsupported(),
     };
 
     const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(

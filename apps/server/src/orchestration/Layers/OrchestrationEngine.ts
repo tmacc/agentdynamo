@@ -134,8 +134,12 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       aggregateKind: aggregateRef.aggregateKind,
     } as const;
     const reconcileReadModelAfterDispatchFailure = Effect.gen(function* () {
+      const repairToSequence = yield* eventStore.getLatestSequence();
       const persistedEvents = yield* Stream.runCollect(
-        eventStore.readFromSequence(dispatchStartSequence),
+        eventStore.readRange({
+          fromSequenceExclusive: dispatchStartSequence,
+          toSequenceInclusive: repairToSequence,
+        }),
       ).pipe(Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)));
       if (persistedEvents.length === 0) {
         return;
@@ -332,6 +336,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const readEvents: OrchestrationEngineShape["readEvents"] = (fromSequenceExclusive) =>
     eventStore.readFromSequence(fromSequenceExclusive);
 
+  const getLatestSequence: OrchestrationEngineShape["getLatestSequence"] = () =>
+    eventStore.getLatestSequence();
+
+  const readEventsRange: OrchestrationEngineShape["readEventsRange"] = (input) =>
+    eventStore.readRange(input);
+
+  const subscribeDomainEvents: OrchestrationEngineShape["subscribeDomainEvents"] = () =>
+    PubSub.subscribe(eventPubSub);
+
   const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
     Effect.gen(function* () {
       const result = yield* Deferred.make<{ sequence: number }, OrchestrationDispatchError>();
@@ -342,12 +355,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   return {
     getReadModel,
     readEvents,
+    getLatestSequence,
+    readEventsRange,
     dispatch,
+    subscribeDomainEvents,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (wsServer, ProviderRuntimeIngestion, CheckpointReactor, etc.)
     // each independently receive all domain events.
     get streamDomainEvents(): OrchestrationEngineShape["streamDomainEvents"] {
-      return Stream.fromPubSub(eventPubSub);
+      return Stream.unwrap(subscribeDomainEvents().pipe(Effect.map(Stream.fromSubscription)));
     },
   } satisfies OrchestrationEngineShape;
 });

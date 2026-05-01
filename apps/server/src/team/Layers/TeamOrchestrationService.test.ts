@@ -227,7 +227,10 @@ async function makeRuntime(input: {
   const engine = {
     getReadModel: () => Effect.succeed(input.readModel),
     readEvents: () => Stream.empty,
+    getLatestSequence: () => Effect.succeed(input.readModel.snapshotSequence),
+    readEventsRange: () => Stream.empty,
     streamDomainEvents: Stream.empty,
+    subscribeDomainEvents: () => Effect.die("unused"),
     dispatch: (command: OrchestrationCommand) =>
       Effect.sync(() => {
         input.commands.push(command);

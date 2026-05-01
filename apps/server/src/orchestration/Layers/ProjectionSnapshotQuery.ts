@@ -24,6 +24,7 @@ import {
   type OrchestrationProject,
   type OrchestrationSession,
   type OrchestrationThreadActivity,
+  type OrchestrationThreadDetailSnapshot,
   type OrchestrationThreadShell,
   ModelSelection,
   ProjectId,
@@ -164,6 +165,7 @@ const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.nativeSubagentTrace,
   ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
   ORCHESTRATION_PROJECTOR_NAMES.threadSessions,
+  ORCHESTRATION_PROJECTOR_NAMES.threadTurns,
   ORCHESTRATION_PROJECTOR_NAMES.checkpoints,
 ] as const;
 
@@ -582,20 +584,22 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Result: ProjectionLatestTurnDbRowSchema,
     execute: () =>
       sql`
-        SELECT
-          thread_id AS "threadId",
-          turn_id AS "turnId",
-          state,
-          requested_at AS "requestedAt",
-          started_at AS "startedAt",
-          completed_at AS "completedAt",
-          assistant_message_id AS "assistantMessageId",
-          source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
-          source_proposed_plan_id AS "sourceProposedPlanId"
-        FROM projection_turns
-        WHERE turn_id IS NOT NULL
-        ORDER BY thread_id ASC, requested_at DESC, turn_id DESC
-      `,
+	        SELECT
+	          turns.thread_id AS "threadId",
+	          turns.turn_id AS "turnId",
+	          turns.state,
+	          turns.requested_at AS "requestedAt",
+	          turns.started_at AS "startedAt",
+	          turns.completed_at AS "completedAt",
+	          turns.assistant_message_id AS "assistantMessageId",
+	          turns.source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
+	          turns.source_proposed_plan_id AS "sourceProposedPlanId"
+	        FROM projection_threads threads
+	        JOIN projection_turns turns
+	          ON turns.thread_id = threads.thread_id
+	          AND turns.turn_id = threads.latest_turn_id
+	        ORDER BY turns.thread_id ASC
+	      `,
   });
 
   const listProjectionStateRows = SqlSchema.findAll({
@@ -1954,6 +1958,42 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       );
     });
 
+  const getThreadDetailSnapshotById: ProjectionSnapshotQueryShape["getThreadDetailSnapshotById"] = (
+    threadId,
+  ) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const [thread, stateRows] = yield* Effect.all([
+            getThreadDetailById(threadId),
+            listProjectionStateRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlError(
+                  "ProjectionSnapshotQuery.getThreadDetailSnapshotById:listState:query",
+                ),
+              ),
+            ),
+          ]);
+          if (Option.isNone(thread)) {
+            return Option.none<OrchestrationThreadDetailSnapshot>();
+          }
+          return Option.some({
+            snapshotSequence: computeSnapshotSequence(stateRows),
+            thread: thread.value,
+          });
+        }),
+      )
+      .pipe(
+        Effect.mapError((error) => {
+          if (isPersistenceError(error)) {
+            return error;
+          }
+          return toPersistenceSqlError(
+            "ProjectionSnapshotQuery.getThreadDetailSnapshotById:transaction",
+          )(error);
+        }),
+      );
+
   const getTeamTaskTrace: ProjectionSnapshotQueryShape["getTeamTaskTrace"] = (input) =>
     Effect.gen(function* () {
       const [items, stateRows] = yield* Effect.all([
@@ -1991,6 +2031,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadCheckpointContext,
     getThreadShellById,
     getThreadDetailById,
+    getThreadDetailSnapshotById,
     getTeamTaskTrace,
   } satisfies ProjectionSnapshotQueryShape;
 });

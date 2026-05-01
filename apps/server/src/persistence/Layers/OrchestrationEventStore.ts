@@ -13,7 +13,7 @@ import {
 } from "@t3tools/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer, Schema, Stream } from "effect";
+import { Effect, Layer, Option, Schema, Stream } from "effect";
 
 import {
   toPersistenceDecodeError,
@@ -60,6 +60,14 @@ const OrchestrationEventPersistedRowSchema = Schema.Struct({
 const ReadFromSequenceRequestSchema = Schema.Struct({
   sequenceExclusive: NonNegativeInt,
   limit: Schema.Number,
+});
+const ReadRangeRequestSchema = Schema.Struct({
+  sequenceExclusive: NonNegativeInt,
+  sequenceInclusive: NonNegativeInt,
+  limit: Schema.Number,
+});
+const LatestSequenceRowSchema = Schema.Struct({
+  sequence: NonNegativeInt,
 });
 const DEFAULT_READ_FROM_SEQUENCE_LIMIT = 1_000;
 const READ_PAGE_SIZE = 500;
@@ -178,6 +186,41 @@ const makeEventStore = Effect.gen(function* () {
       `,
   });
 
+  const readEventRowsInRange = SqlSchema.findAll({
+    Request: ReadRangeRequestSchema,
+    Result: OrchestrationEventPersistedRowSchema,
+    execute: (request) =>
+      sql`
+        SELECT
+          sequence,
+          event_id AS "eventId",
+          event_type AS "type",
+          aggregate_kind AS "aggregateKind",
+          stream_id AS "aggregateId",
+          occurred_at AS "occurredAt",
+          command_id AS "commandId",
+          causation_event_id AS "causationEventId",
+          correlation_id AS "correlationId",
+          payload_json AS "payload",
+          metadata_json AS "metadata"
+        FROM orchestration_events
+        WHERE sequence > ${request.sequenceExclusive}
+          AND sequence <= ${request.sequenceInclusive}
+        ORDER BY sequence ASC
+        LIMIT ${request.limit}
+      `,
+  });
+
+  const getLatestSequenceRow = SqlSchema.findOne({
+    Request: Schema.Void,
+    Result: LatestSequenceRowSchema,
+    execute: () =>
+      sql`
+        SELECT COALESCE(MAX(sequence), 0) AS "sequence"
+        FROM orchestration_events
+      `,
+  });
+
   const append: OrchestrationEventStoreShape["append"] = (event) =>
     appendEventRow({
       eventId: event.eventId,
@@ -205,6 +248,15 @@ const makeEventStore = Effect.gen(function* () {
       ),
     );
 
+  const decodeRows = (operation: string) => (rows: ReadonlyArray<unknown>) =>
+    Effect.forEach(rows, (row) =>
+      decodeEvent(row).pipe(
+        Effect.mapError(
+          toPersistenceDecodeError(`OrchestrationEventStore.${operation}:rowToEvent`),
+        ),
+      ),
+    );
+
   const readFromSequence: OrchestrationEventStoreShape["readFromSequence"] = (
     sequenceExclusive,
     limit = DEFAULT_READ_FROM_SEQUENCE_LIMIT,
@@ -228,15 +280,7 @@ const makeEventStore = Effect.gen(function* () {
               "OrchestrationEventStore.readFromSequence:decodeRows",
             ),
           ),
-          Effect.flatMap((rows) =>
-            Effect.forEach(rows, (row) =>
-              decodeEvent(row).pipe(
-                Effect.mapError(
-                  toPersistenceDecodeError("OrchestrationEventStore.readFromSequence:rowToEvent"),
-                ),
-              ),
-            ),
-          ),
+          Effect.flatMap(decodeRows("readFromSequence")),
         ),
       ).pipe(
         Stream.flatMap((events) => {
@@ -257,10 +301,65 @@ const makeEventStore = Effect.gen(function* () {
     return readPage(sequenceExclusive, normalizedLimit);
   };
 
+  const getLatestSequence: OrchestrationEventStoreShape["getLatestSequence"] = () =>
+    getLatestSequenceRow(undefined).pipe(
+      Effect.map((row) => row.sequence),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "OrchestrationEventStore.getLatestSequence:query",
+          "OrchestrationEventStore.getLatestSequence:decodeRow",
+        ),
+      ),
+    );
+
+  const readRange: OrchestrationEventStoreShape["readRange"] = ({
+    fromSequenceExclusive,
+    toSequenceInclusive,
+  }) => {
+    const start = Math.max(0, Math.floor(fromSequenceExclusive));
+    const end = Math.max(0, Math.floor(toSequenceInclusive));
+    if (end <= start) {
+      return Stream.empty;
+    }
+
+    return Stream.paginate(start, (cursor) =>
+      readEventRowsInRange({
+        sequenceExclusive: cursor,
+        sequenceInclusive: end,
+        limit: READ_PAGE_SIZE,
+      }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "OrchestrationEventStore.readRange:query",
+            "OrchestrationEventStore.readRange:decodeRows",
+          ),
+        ),
+        Effect.flatMap(decodeRows("readRange")),
+        Effect.map((events) => {
+          if (events.length === 0) {
+            return [[], Option.none<number>()] as const;
+          }
+          const nextCursor = events[events.length - 1]!.sequence;
+          const hasMore = events.length === READ_PAGE_SIZE && nextCursor < end;
+          return [events, hasMore ? Option.some(nextCursor) : Option.none<number>()] as const;
+        }),
+      ),
+    );
+  };
+
   return {
     append,
     readFromSequence,
-    readAll: () => readFromSequence(0, Number.MAX_SAFE_INTEGER),
+    getLatestSequence,
+    readRange,
+    readAll: () =>
+      Stream.unwrap(
+        getLatestSequence().pipe(
+          Effect.map((latestSequence) =>
+            readRange({ fromSequenceExclusive: 0, toSequenceInclusive: latestSequence }),
+          ),
+        ),
+      ),
   } satisfies OrchestrationEventStoreShape;
 });
 

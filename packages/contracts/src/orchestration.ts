@@ -296,6 +296,7 @@ export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
   "starting",
   "running",
+  "recovering",
   "ready",
   "interrupted",
   "stopped",
@@ -948,6 +949,26 @@ const ThreadTurnInterruptCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadTurnCompletionState = Schema.Literals([
+  "completed",
+  "failed",
+  "interrupted",
+  "cancelled",
+]);
+export type ThreadTurnCompletionState = typeof ThreadTurnCompletionState.Type;
+
+const ThreadTurnCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.turn.complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  turnId: TurnId,
+  state: ThreadTurnCompletionState,
+  assistantMessageId: Schema.NullOr(MessageId),
+  completedAt: IsoDateTime,
+  errorText: Schema.optional(Schema.String),
+  createdAt: IsoDateTime,
+});
+
 const ThreadApprovalRespondCommand = Schema.Struct({
   type: Schema.Literal("thread.approval.respond"),
   commandId: CommandId,
@@ -1225,6 +1246,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
   ThreadProposedPlanUpsertCommand,
+  ThreadTurnCompleteCommand,
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
@@ -1264,6 +1286,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.message-sent",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
+  "thread.turn-completed",
   "thread.approval-response-requested",
   "thread.user-input-response-requested",
   "thread.checkpoint-revert-requested",
@@ -1414,6 +1437,16 @@ export const ThreadTurnInterruptRequestedPayload = Schema.Struct({
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
+
+export const ThreadTurnCompletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+  state: ThreadTurnCompletionState,
+  assistantMessageId: Schema.NullOr(MessageId),
+  completedAt: IsoDateTime,
+  errorText: Schema.optional(Schema.String),
+});
+export type ThreadTurnCompletedPayload = typeof ThreadTurnCompletedPayload.Type;
 
 export const ThreadApprovalResponseRequestedPayload = Schema.Struct({
   threadId: ThreadId,
@@ -1661,6 +1694,11 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
+    type: Schema.Literal("thread.turn-completed"),
+    payload: ThreadTurnCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
     type: Schema.Literal("thread.approval-response-requested"),
     payload: ThreadApprovalResponseRequestedPayload,
   }),
@@ -1851,7 +1889,9 @@ export const ThreadTurnDiff = TurnCountRange.mapFields(
 
 export const ProviderSessionRuntimeStatus = Schema.Literals([
   "starting",
+  "ready",
   "running",
+  "recovering",
   "stopped",
   "error",
 ]);

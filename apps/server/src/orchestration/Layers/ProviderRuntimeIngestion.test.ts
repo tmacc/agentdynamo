@@ -330,6 +330,26 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("turn failed");
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const turnCompleted = events.find(
+      (event) =>
+        event.type === "thread.turn-completed" && event.payload.turnId === asTurnId("turn-1"),
+    );
+    const clearingSession = events.find(
+      (event) =>
+        event.type === "thread.session-set" &&
+        event.payload.session.status === "error" &&
+        event.payload.session.activeTurnId === null &&
+        event.sequence > (turnCompleted?.sequence ?? Number.MAX_SAFE_INTEGER),
+    );
+    expect(turnCompleted).toBeDefined();
+    expect(clearingSession).toBeDefined();
+    expect(turnCompleted!.sequence).toBeLessThan(clearingSession!.sequence);
   });
 
   it("applies provider session.state.changed transitions directly", async () => {
@@ -475,6 +495,219 @@ describe("ProviderRuntimeIngestion", () => {
       harness.engine,
       (thread) => thread.session?.status === "ready" && thread.session?.activeTurnId === null,
     );
+  });
+
+  it("does not clear active turn when provider reports coarse ready state mid-turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-ready-guard"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-ready-guard"),
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" && thread.session?.activeTurnId === "turn-ready-guard",
+    );
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-session-state-ready-midturn"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        state: "ready",
+      },
+    });
+
+    await harness.drain();
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(thread?.session?.status).toBe("running");
+    expect(thread?.session?.activeTurnId).toBe("turn-ready-guard");
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "thread.session-set",
+        payload: expect.objectContaining({
+          session: expect.objectContaining({
+            status: "ready",
+            activeTurnId: asTurnId("turn-ready-guard"),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("settles active turn before applying coarse provider error state", async () => {
+    const harness = await createHarness();
+    const turnId = asTurnId("turn-error-state");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-error-state"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
+    );
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-session-error-active-turn"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId,
+      createdAt: new Date().toISOString(),
+      payload: {
+        state: "error",
+        reason: "provider crashed",
+      },
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "error" &&
+        thread.session.activeTurnId === null &&
+        thread.latestTurn?.state === "error",
+    );
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const turnCompleted = events.find(
+      (event) => event.type === "thread.turn-completed" && event.payload.turnId === turnId,
+    );
+    const clearingSession = events.find(
+      (event) =>
+        event.type === "thread.session-set" &&
+        event.payload.session.status === "error" &&
+        event.payload.session.activeTurnId === null &&
+        event.sequence > (turnCompleted?.sequence ?? Number.MAX_SAFE_INTEGER),
+    );
+    expect(turnCompleted).toEqual(
+      expect.objectContaining({
+        type: "thread.turn-completed",
+        payload: expect.objectContaining({ turnId, state: "failed" }),
+      }),
+    );
+    expect(clearingSession).toBeDefined();
+  });
+
+  it("settles active turn before applying coarse provider stopped state", async () => {
+    const harness = await createHarness();
+    const turnId = asTurnId("turn-stopped-state");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-stopped-state"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
+    );
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-session-stopped-active-turn"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId,
+      createdAt: new Date().toISOString(),
+      payload: {
+        state: "stopped",
+      },
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "stopped" &&
+        thread.session.activeTurnId === null &&
+        thread.latestTurn?.state === "interrupted",
+    );
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const turnCompleted = events.find(
+      (event) => event.type === "thread.turn-completed" && event.payload.turnId === turnId,
+    );
+    const clearingSession = events.find(
+      (event) =>
+        event.type === "thread.session-set" &&
+        event.payload.session.status === "stopped" &&
+        event.payload.session.activeTurnId === null &&
+        event.sequence > (turnCompleted?.sequence ?? Number.MAX_SAFE_INTEGER),
+    );
+    expect(turnCompleted).toEqual(
+      expect.objectContaining({
+        type: "thread.turn-completed",
+        payload: expect.objectContaining({ turnId, state: "interrupted" }),
+      }),
+    );
+    expect(clearingSession).toBeDefined();
+  });
+
+  it("ignores stale coarse terminal state for a different turn", async () => {
+    const harness = await createHarness();
+    const activeTurnId = asTurnId("turn-active-terminal-guard");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-terminal-guard"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: activeTurnId,
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" && thread.session.activeTurnId === activeTurnId,
+    );
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-session-error-stale-turn"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-other-terminal-guard"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        state: "error",
+        reason: "stale provider error",
+      },
+    });
+
+    await harness.drain();
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === asThreadId("thread-1"));
+    expect(thread?.session?.status).toBe("running");
+    expect(thread?.session?.activeTurnId).toBe(activeTurnId);
   });
 
   it("accepts claude turn lifecycle when seeded thread id is a synthetic placeholder", async () => {
@@ -2283,11 +2516,249 @@ describe("ProviderRuntimeIngestion", () => {
       harness.engine,
       (entry) =>
         entry.session?.status === "error" &&
-        entry.session?.activeTurnId === "turn-3" &&
+        entry.session?.activeTurnId === null &&
         entry.session?.lastError === "runtime exploded",
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("runtime exploded");
+  });
+
+  it("settles active turn before applying runtime.error", async () => {
+    const harness = await createHarness();
+    const turnId = asTurnId("turn-runtime-error");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-runtime-error"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
+    );
+
+    harness.emit({
+      type: "runtime.error",
+      eventId: asEventId("evt-runtime-error-active-turn"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: {
+        message: "runtime exploded mid-turn",
+      },
+    });
+
+    await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "error" &&
+        entry.session.activeTurnId === null &&
+        entry.latestTurn?.state === "error",
+    );
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const turnCompleted = events.find(
+      (event) => event.type === "thread.turn-completed" && event.payload.turnId === turnId,
+    );
+    const clearingSession = events.find(
+      (event) =>
+        event.type === "thread.session-set" &&
+        event.payload.session.status === "error" &&
+        event.payload.session.activeTurnId === null &&
+        event.sequence > (turnCompleted?.sequence ?? Number.MAX_SAFE_INTEGER),
+    );
+    expect(turnCompleted).toEqual(
+      expect.objectContaining({
+        type: "thread.turn-completed",
+        payload: expect.objectContaining({ turnId, state: "failed" }),
+      }),
+    );
+    expect(clearingSession).toBeDefined();
+  });
+
+  it("flushes buffered assistant text before settling active turn on runtime.error", async () => {
+    const harness = await createHarness();
+    const turnId = asTurnId("turn-runtime-error-buffered");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-runtime-error-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-runtime-error-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-runtime-error-buffered"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "partial answer before failure",
+      },
+    });
+    await harness.drain();
+    const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
+    const midThread = midReadModel.threads.find((entry) => entry.id === asThreadId("thread-1"));
+    expect(
+      midThread?.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-runtime-error-buffered",
+      ),
+    ).toBe(false);
+
+    harness.emit({
+      type: "runtime.error",
+      eventId: asEventId("evt-runtime-error-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: {
+        message: "runtime failed after partial text",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "error" &&
+        entry.latestTurn?.state === "error" &&
+        entry.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:item-runtime-error-buffered" && !message.streaming,
+        ),
+    );
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-runtime-error-buffered",
+    );
+    expect(message?.text).toBe("partial answer before failure");
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const messageCompleted = events.find(
+      (event) =>
+        event.type === "thread.message-sent" &&
+        event.payload.messageId === asMessageId("assistant:item-runtime-error-buffered") &&
+        event.payload.streaming === false,
+    );
+    const turnCompleted = events.find(
+      (event) => event.type === "thread.turn-completed" && event.payload.turnId === turnId,
+    );
+    expect(messageCompleted).toBeDefined();
+    expect(turnCompleted).toEqual(
+      expect.objectContaining({
+        type: "thread.turn-completed",
+        payload: expect.objectContaining({
+          assistantMessageId: asMessageId("assistant:item-runtime-error-buffered"),
+        }),
+      }),
+    );
+    expect(messageCompleted!.sequence).toBeLessThan(turnCompleted!.sequence);
+  });
+
+  it("flushes buffered assistant text before settling aborted turns", async () => {
+    const harness = await createHarness();
+    const turnId = asTurnId("turn-aborted-buffered");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-aborted-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-aborted-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-aborted-buffered"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "partial answer before abort",
+      },
+    });
+    await harness.drain();
+
+    harness.emit({
+      type: "turn.aborted",
+      eventId: asEventId("evt-turn-aborted-buffered"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: {
+        reason: "user interrupted",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "interrupted" &&
+        entry.latestTurn?.state === "interrupted" &&
+        entry.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:item-aborted-buffered" && !message.streaming,
+        ),
+    );
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-aborted-buffered",
+    );
+    expect(message?.text).toBe("partial answer before abort");
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const messageCompleted = events.find(
+      (event) =>
+        event.type === "thread.message-sent" &&
+        event.payload.messageId === asMessageId("assistant:item-aborted-buffered") &&
+        event.payload.streaming === false,
+    );
+    const turnCompleted = events.find(
+      (event) => event.type === "thread.turn-completed" && event.payload.turnId === turnId,
+    );
+    expect(messageCompleted).toBeDefined();
+    expect(turnCompleted).toEqual(
+      expect.objectContaining({
+        type: "thread.turn-completed",
+        payload: expect.objectContaining({
+          assistantMessageId: asMessageId("assistant:item-aborted-buffered"),
+        }),
+      }),
+    );
+    expect(messageCompleted!.sequence).toBeLessThan(turnCompleted!.sequence);
   });
 
   it("records runtime.error activities from the typed payload message", async () => {
@@ -3220,7 +3691,7 @@ describe("ProviderRuntimeIngestion", () => {
       harness.engine,
       (entry) =>
         entry.session?.status === "error" &&
-        entry.session?.activeTurnId === "turn-after-failure" &&
+        entry.session?.activeTurnId === null &&
         entry.session?.lastError === "runtime still processed",
     );
     expect(thread.session?.status).toBe("error");

@@ -436,6 +436,15 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       if (threadDetail._tag === "Some") {
         assert.deepEqual(threadDetail.value, snapshot.threads[0]);
       }
+
+      const threadDetailSnapshot = yield* snapshotQuery.getThreadDetailSnapshotById(
+        ThreadId.make("thread-1"),
+      );
+      assert.equal(threadDetailSnapshot._tag, "Some");
+      if (threadDetailSnapshot._tag === "Some") {
+        assert.equal(threadDetailSnapshot.value.snapshotSequence, snapshot.snapshotSequence);
+        assert.deepEqual(threadDetailSnapshot.value.thread, snapshot.threads[0]);
+      }
     }),
   );
 
@@ -887,16 +896,18 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
-  it.effect("uses projection_threads.latest_turn_id for targeted thread latest turn queries", () =>
-    Effect.gen(function* () {
-      const snapshotQuery = yield* ProjectionSnapshotQuery;
-      const sql = yield* SqlClient.SqlClient;
+  it.effect(
+    "uses projection_threads.latest_turn_id for bulk and targeted latest turn queries",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
 
-      yield* sql`DELETE FROM projection_projects`;
-      yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_turns`;
+        yield* sql`DELETE FROM projection_projects`;
+        yield* sql`DELETE FROM projection_threads`;
+        yield* sql`DELETE FROM projection_turns`;
 
-      yield* sql`
+        yield* sql`
         INSERT INTO projection_projects (
           project_id,
           title,
@@ -919,7 +930,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
       `;
 
-      yield* sql`
+        yield* sql`
         INSERT INTO projection_threads (
           thread_id,
           project_id,
@@ -948,7 +959,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'default',
           NULL,
           NULL,
-          'turn-running',
+          'turn-completed',
           '2026-04-02T00:00:04.000Z',
           0,
           0,
@@ -960,7 +971,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
       `;
 
-      yield* sql`
+        yield* sql`
         INSERT INTO projection_turns (
           thread_id,
           turn_id,
@@ -1010,23 +1021,41 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             NULL,
             '[]'
           )
-      `;
+	      `;
 
-      const threadShell = yield* snapshotQuery.getThreadShellById(ThreadId.make("thread-1"));
-      assert.equal(threadShell._tag, "Some");
-      if (threadShell._tag === "Some") {
-        assert.equal(threadShell.value.latestTurn?.turnId, asTurnId("turn-running"));
-        assert.equal(threadShell.value.latestTurn?.state, "running");
-        assert.equal(threadShell.value.latestTurn?.startedAt, "2026-04-02T00:00:30.000Z");
-      }
+        const snapshot = yield* snapshotQuery.getSnapshot();
+        const snapshotThread = snapshot.threads.find(
+          (thread) => thread.id === ThreadId.make("thread-1"),
+        );
+        assert.ok(snapshotThread);
+        assert.equal(snapshotThread.latestTurn?.turnId, asTurnId("turn-completed"));
+        assert.equal(snapshotThread.latestTurn?.state, "completed");
+        assert.equal(snapshotThread.latestTurn?.startedAt, "2026-04-02T00:00:06.000Z");
 
-      const threadDetail = yield* snapshotQuery.getThreadDetailById(ThreadId.make("thread-1"));
-      assert.equal(threadDetail._tag, "Some");
-      if (threadDetail._tag === "Some") {
-        assert.equal(threadDetail.value.latestTurn?.turnId, asTurnId("turn-running"));
-        assert.equal(threadDetail.value.latestTurn?.state, "running");
-        assert.equal(threadDetail.value.latestTurn?.startedAt, "2026-04-02T00:00:30.000Z");
-      }
-    }),
+        const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
+        const shellSnapshotThread = shellSnapshot.threads.find(
+          (thread) => thread.id === ThreadId.make("thread-1"),
+        );
+        assert.ok(shellSnapshotThread);
+        assert.equal(shellSnapshotThread.latestTurn?.turnId, asTurnId("turn-completed"));
+        assert.equal(shellSnapshotThread.latestTurn?.state, "completed");
+        assert.equal(shellSnapshotThread.latestTurn?.startedAt, "2026-04-02T00:00:06.000Z");
+
+        const threadShell = yield* snapshotQuery.getThreadShellById(ThreadId.make("thread-1"));
+        assert.equal(threadShell._tag, "Some");
+        if (threadShell._tag === "Some") {
+          assert.equal(threadShell.value.latestTurn?.turnId, asTurnId("turn-completed"));
+          assert.equal(threadShell.value.latestTurn?.state, "completed");
+          assert.equal(threadShell.value.latestTurn?.startedAt, "2026-04-02T00:00:06.000Z");
+        }
+
+        const threadDetail = yield* snapshotQuery.getThreadDetailById(ThreadId.make("thread-1"));
+        assert.equal(threadDetail._tag, "Some");
+        if (threadDetail._tag === "Some") {
+          assert.equal(threadDetail.value.latestTurn?.turnId, asTurnId("turn-completed"));
+          assert.equal(threadDetail.value.latestTurn?.state, "completed");
+          assert.equal(threadDetail.value.latestTurn?.startedAt, "2026-04-02T00:00:06.000Z");
+        }
+      }),
   );
 });

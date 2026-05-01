@@ -963,6 +963,17 @@ describe("incremental orchestration updates", () => {
           },
           { sequence: 3 },
         ),
+        makeEvent(
+          "thread.turn-completed",
+          {
+            threadId: thread.id,
+            turnId: TurnId.make("turn-1"),
+            state: "completed",
+            assistantMessageId: MessageId.make("assistant-1"),
+            completedAt: "2026-02-27T00:00:04.000Z",
+          },
+          { sequence: 4 },
+        ),
       ],
       localEnvironmentId,
     );
@@ -970,6 +981,154 @@ describe("incremental orchestration updates", () => {
     expect(threadsOf(next)[0]?.session?.status).toBe("running");
     expect(threadsOf(next)[0]?.latestTurn?.state).toBe("completed");
     expect(threadsOf(next)[0]?.messages).toHaveLength(1);
+  });
+
+  it("ignores stale turn completions while a different active turn is running", () => {
+    const state = makeState(
+      makeThread({
+        session: {
+          status: "running",
+          provider: "codex",
+          activeTurnId: TurnId.make("turn-2"),
+          createdAt: "2026-02-27T00:00:02.000Z",
+          orchestrationStatus: "running",
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+        latestTurn: {
+          turnId: TurnId.make("turn-2"),
+          state: "running",
+          requestedAt: "2026-02-27T00:00:02.000Z",
+          startedAt: "2026-02-27T00:00:03.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.turn-completed", {
+        threadId: ThreadId.make("thread-1"),
+        turnId: TurnId.make("turn-1"),
+        state: "completed",
+        assistantMessageId: MessageId.make("assistant-turn-1"),
+        completedAt: "2026-02-27T00:00:04.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(next)[0]?.latestTurn).toEqual(threadsOf(state)[0]?.latestTurn);
+    expect(threadsOf(next)[0]?.session).toEqual(threadsOf(state)[0]?.session);
+  });
+
+  it("settles the current latest turn when an active session has no concrete active turn id", () => {
+    const turnId = TurnId.make("turn-1");
+    const state = makeState(
+      makeThread({
+        session: {
+          status: "running",
+          provider: "codex",
+          activeTurnId: undefined,
+          createdAt: "2026-02-27T00:00:02.000Z",
+          orchestrationStatus: "running",
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:02.000Z",
+          startedAt: "2026-02-27T00:00:03.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.turn-completed", {
+        threadId: ThreadId.make("thread-1"),
+        turnId,
+        state: "completed",
+        assistantMessageId: MessageId.make("assistant-turn-1"),
+        completedAt: "2026-02-27T00:00:04.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(next)[0]?.latestTurn).toMatchObject({
+      turnId,
+      state: "completed",
+      completedAt: "2026-02-27T00:00:04.000Z",
+    });
+  });
+
+  it("settles the current latest turn when recovering has no concrete active turn id", () => {
+    const turnId = TurnId.make("turn-1");
+    const state = makeState(
+      makeThread({
+        session: {
+          status: "recovering",
+          provider: "codex",
+          activeTurnId: undefined,
+          createdAt: "2026-02-27T00:00:02.000Z",
+          orchestrationStatus: "recovering",
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:02.000Z",
+          startedAt: "2026-02-27T00:00:03.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.turn-completed", {
+        threadId: ThreadId.make("thread-1"),
+        turnId,
+        state: "completed",
+        assistantMessageId: MessageId.make("assistant-turn-1"),
+        completedAt: "2026-02-27T00:00:04.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(next)[0]?.latestTurn?.state).toBe("completed");
+    expect(threadsOf(next)[0]?.latestTurn?.completedAt).toBe("2026-02-27T00:00:04.000Z");
+  });
+
+  it("ignores turn completions for a different latest turn without a matching active turn", () => {
+    const state = makeState(
+      makeThread({
+        latestTurn: {
+          turnId: TurnId.make("turn-2"),
+          state: "running",
+          requestedAt: "2026-02-27T00:00:02.000Z",
+          startedAt: "2026-02-27T00:00:03.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.turn-completed", {
+        threadId: ThreadId.make("thread-1"),
+        turnId: TurnId.make("turn-1"),
+        state: "completed",
+        assistantMessageId: MessageId.make("assistant-turn-1"),
+        completedAt: "2026-02-27T00:00:04.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(next)[0]?.latestTurn).toEqual(threadsOf(state)[0]?.latestTurn);
   });
 
   it("does not regress latestTurn when an older turn diff completes late", () => {
@@ -1003,6 +1162,52 @@ describe("incremental orchestration updates", () => {
 
     expect(threadsOf(next)[0]?.turnDiffSummaries).toHaveLength(1);
     expect(threadsOf(next)[0]?.latestTurn).toEqual(threadsOf(state)[0]?.latestTurn);
+  });
+
+  it("does not complete a turn from diff completion while the same concrete turn is active", () => {
+    const turnId = TurnId.make("turn-1");
+    const state = makeState(
+      makeThread({
+        session: {
+          status: "running",
+          provider: "codex",
+          activeTurnId: turnId,
+          createdAt: "2026-02-27T00:00:02.000Z",
+          orchestrationStatus: "running",
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:02.000Z",
+          startedAt: "2026-02-27T00:00:03.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.turn-diff-completed", {
+        threadId: ThreadId.make("thread-1"),
+        turnId,
+        checkpointTurnCount: 1,
+        checkpointRef: CheckpointRef.make("checkpoint-1"),
+        status: "ready",
+        files: [],
+        assistantMessageId: MessageId.make("assistant-1"),
+        completedAt: "2026-02-27T00:00:04.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(next)[0]?.turnDiffSummaries).toHaveLength(1);
+    expect(threadsOf(next)[0]?.latestTurn).toMatchObject({
+      turnId,
+      state: "running",
+      completedAt: null,
+    });
   });
 
   it("rebinds live turn diffs to the authoritative assistant message when it arrives later", () => {

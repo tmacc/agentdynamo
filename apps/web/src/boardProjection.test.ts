@@ -70,6 +70,30 @@ function runningSession(): ThreadSession {
   };
 }
 
+function recoveringSession(activeTurnId?: TurnId): ThreadSession {
+  return {
+    provider: "codex",
+    status: "recovering",
+    orchestrationStatus: "recovering",
+    activeTurnId,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function runningLatestTurn(
+  turnId: TurnId = "turn-1" as TurnId,
+): SidebarThreadSummary["latestTurn"] {
+  return {
+    turnId,
+    state: "running",
+    requestedAt: "2026-01-01T00:00:00.000Z",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    completedAt: null,
+    assistantMessageId: null,
+  };
+}
+
 function settledSession(): ThreadSession {
   return {
     provider: "codex",
@@ -221,5 +245,149 @@ describe("deriveBoardColumns", () => {
 
     expect(result.find((column) => column.kind === "review")?.items).toHaveLength(1);
     expect(result.find((column) => column.kind === "done")?.items).toHaveLength(1);
+  });
+
+  it("does not keep a final session with a stale running latest turn in progress", () => {
+    const thread = makeThread({
+      id: "thread-stale-running" as ThreadId,
+      session: {
+        ...settledSession(),
+        activeTurnId: "turn-stale-running" as TurnId,
+      },
+      latestTurn: {
+        turnId: "turn-stale-running" as TurnId,
+        state: "running",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT_ID,
+      cards: [],
+      threads: [thread],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((column) => column.kind === "in-progress")?.items).toHaveLength(0);
+  });
+
+  it("keeps recovering sessions with a concrete active turn in progress", () => {
+    const thread = makeThread({
+      id: "thread-recovering-active" as ThreadId,
+      session: recoveringSession("turn-recovering-active" as TurnId),
+      latestTurn: runningLatestTurn("turn-recovering-active" as TurnId),
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT_ID,
+      cards: [],
+      threads: [thread],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((column) => column.kind === "in-progress")?.items).toHaveLength(1);
+  });
+
+  it("does not keep recovering sessions without an active turn in progress from stale latest turn state", () => {
+    const thread = makeThread({
+      id: "thread-recovering-no-active" as ThreadId,
+      session: recoveringSession(undefined),
+      latestTurn: runningLatestTurn("turn-recovering-no-active" as TurnId),
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT_ID,
+      cards: [],
+      threads: [thread],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((column) => column.kind === "in-progress")?.items).toHaveLength(0);
+  });
+
+  it("does not keep starting sessions without an active turn in progress from stale latest turn state", () => {
+    const thread = makeThread({
+      id: "thread-starting-no-active" as ThreadId,
+      session: {
+        provider: "codex",
+        status: "connecting",
+        orchestrationStatus: "starting",
+        activeTurnId: undefined,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      latestTurn: runningLatestTurn("turn-starting-no-active" as TurnId),
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT_ID,
+      cards: [],
+      threads: [thread],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((column) => column.kind === "in-progress")?.items).toHaveLength(0);
+  });
+
+  it("keeps pending user-input threads actionable even when session is final", () => {
+    const thread = makeThread({
+      id: "thread-pending-input" as ThreadId,
+      session: settledSession(),
+      hasPendingUserInput: true,
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT_ID,
+      cards: [],
+      threads: [thread],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((column) => column.kind === "in-progress")?.items).toHaveLength(1);
+  });
+
+  it("keeps pending approval threads actionable even when recovering has no active turn", () => {
+    const thread = makeThread({
+      id: "thread-pending-approval-recovering" as ThreadId,
+      session: recoveringSession(undefined),
+      hasPendingApprovals: true,
+      latestTurn: runningLatestTurn("turn-pending-approval-recovering" as TurnId),
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT_ID,
+      cards: [],
+      threads: [thread],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((column) => column.kind === "in-progress")?.items).toHaveLength(1);
+  });
+
+  it("still treats no-session running latest turns as in progress", () => {
+    const thread = makeThread({
+      id: "thread-no-session-running" as ThreadId,
+      session: null,
+      latestTurn: runningLatestTurn("turn-no-session-running" as TurnId),
+    });
+
+    const result = deriveBoardColumns({
+      projectId: PROJECT_ID,
+      cards: [],
+      threads: [thread],
+      gitStatusByThreadId: new Map(),
+      dismissedGhostThreadIds: new Set(),
+    });
+
+    expect(result.find((column) => column.kind === "in-progress")?.items).toHaveLength(1);
   });
 });

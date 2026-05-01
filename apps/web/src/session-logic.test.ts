@@ -13,12 +13,16 @@ import {
   deriveActivePlanState,
   derivePendingApprovals,
   derivePendingUserInputs,
+  derivePhase,
   deriveTimelineEntries,
   deriveWorkLogEntries,
   findLatestProposedPlan,
   findSidebarProposedPlan,
   hasActionableProposedPlan,
   hasToolActivityForTurn,
+  activeSessionTurnId,
+  isActiveTurnInProgress,
+  isInvalidFinalSessionWithActiveTurn,
   isLatestTurnSettled,
 } from "./session-logic";
 
@@ -1433,6 +1437,15 @@ describe("isLatestTurnSettled", () => {
     ).toBe(false);
   });
 
+  it("returns false while a session is recovering an active turn", () => {
+    expect(
+      isLatestTurnSettled(latestTurn, {
+        orchestrationStatus: "recovering",
+        activeTurnId: TurnId.make("turn-1"),
+      }),
+    ).toBe(false);
+  });
+
   it("returns true once the session is no longer running that turn", () => {
     expect(
       isLatestTurnSettled(latestTurn, {
@@ -1452,6 +1465,90 @@ describe("isLatestTurnSettled", () => {
         },
         null,
       ),
+    ).toBe(false);
+  });
+});
+
+describe("isActiveTurnInProgress", () => {
+  it("requires an active orchestration status and active turn id", () => {
+    expect(
+      isActiveTurnInProgress({
+        orchestrationStatus: "recovering",
+        activeTurnId: TurnId.make("turn-1"),
+      }),
+    ).toBe(true);
+    expect(
+      isActiveTurnInProgress({
+        orchestrationStatus: "ready",
+        activeTurnId: TurnId.make("turn-1"),
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("activeSessionTurnId", () => {
+  it("returns a turn id only for active sessions with a concrete active turn", () => {
+    expect(
+      activeSessionTurnId({
+        orchestrationStatus: "running",
+        activeTurnId: TurnId.make("turn-1"),
+      }),
+    ).toBe(TurnId.make("turn-1"));
+    expect(
+      activeSessionTurnId({
+        orchestrationStatus: "recovering",
+        activeTurnId: TurnId.make("turn-2"),
+      }),
+    ).toBe(TurnId.make("turn-2"));
+    expect(
+      activeSessionTurnId({
+        orchestrationStatus: "recovering",
+        activeTurnId: undefined,
+      }),
+    ).toBeNull();
+    expect(
+      activeSessionTurnId({
+        orchestrationStatus: "ready",
+        activeTurnId: TurnId.make("turn-stale"),
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("derivePhase", () => {
+  it("treats recovering without an active turn as connecting", () => {
+    expect(
+      derivePhase({
+        provider: "codex",
+        status: "recovering",
+        activeTurnId: undefined,
+        createdAt: "2026-02-27T21:10:00.000Z",
+        updatedAt: "2026-02-27T21:10:00.000Z",
+        orchestrationStatus: "recovering",
+      }),
+    ).toBe("connecting");
+  });
+});
+
+describe("isInvalidFinalSessionWithActiveTurn", () => {
+  it("flags final statuses that still carry stale active turn ids", () => {
+    expect(
+      isInvalidFinalSessionWithActiveTurn({
+        orchestrationStatus: "ready",
+        activeTurnId: TurnId.make("turn-stale"),
+      }),
+    ).toBe(true);
+    expect(
+      isInvalidFinalSessionWithActiveTurn({
+        orchestrationStatus: "error",
+        activeTurnId: TurnId.make("turn-stale"),
+      }),
+    ).toBe(true);
+    expect(
+      isInvalidFinalSessionWithActiveTurn({
+        orchestrationStatus: "recovering",
+        activeTurnId: TurnId.make("turn-active"),
+      }),
     ).toBe(false);
   });
 });

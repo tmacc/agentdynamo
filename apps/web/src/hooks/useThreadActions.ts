@@ -22,6 +22,7 @@ import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useSettings } from "./useSettings";
+import { isActiveTurnInProgress } from "../session-logic";
 
 export function useThreadActions() {
   const sidebarThreadSortOrder = useSettings((settings) => settings.sidebarThreadSortOrder);
@@ -64,7 +65,7 @@ export function useThreadActions() {
       const resolved = resolveThreadTarget(target);
       if (!resolved) return;
       const { thread, threadRef } = resolved;
-      if (thread.session?.status === "running" && thread.session.activeTurnId != null) {
+      if (isActiveTurnInProgress(thread.session)) {
         throw new Error("Cannot archive a running thread.");
       }
 

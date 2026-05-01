@@ -12,6 +12,7 @@ import {
   type NativeSubagentTraceItemStatus,
   type OrchestrationCommand,
   type OrchestrationEvent,
+  type OrchestrationThread,
   type OrchestrationNativeSubagentTraceItem,
   type OrchestrationProposedPlanId,
   type OrchestrationTeamTask,
@@ -23,6 +24,7 @@ import {
   type ThreadTokenUsageSnapshot,
   TurnId,
   type OrchestrationThreadActivity,
+  type OrchestrationSessionStatus,
   type ProviderRuntimeEvent,
 } from "@t3tools/contracts";
 import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
@@ -39,6 +41,7 @@ import {
   type ProviderRuntimeIngestionShape,
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { isActiveSessionStatus } from "../turnLifecycle.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
@@ -866,6 +869,12 @@ function orchestrationSessionStatusFromRuntimeState(
     case "error":
       return "error";
   }
+}
+
+function isProviderFinalTurnEvent(
+  event: ProviderRuntimeEvent,
+): event is Extract<ProviderRuntimeEvent, { type: "turn.completed" | "turn.aborted" }> {
+  return event.type === "turn.completed" || event.type === "turn.aborted";
 }
 
 function requestKindFromCanonicalRequestType(
@@ -1802,6 +1811,80 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const finalizeActiveTurnFromProviderTerminalState = Effect.fn(
+    "finalizeActiveTurnFromProviderTerminalState",
+  )(function* (input: {
+    readonly event: ProviderRuntimeEvent;
+    readonly thread: OrchestrationThread;
+    readonly activeTurnId: TurnId;
+    readonly turnState: "failed" | "interrupted";
+    readonly sessionStatus: "error" | "stopped" | "interrupted";
+    readonly errorText: string;
+    readonly now: string;
+    readonly commandTag: string;
+  }) {
+    const assistantMessageIds = yield* getAssistantMessageIdsForTurn(
+      input.thread.id,
+      input.activeTurnId,
+    );
+    yield* Effect.forEach(
+      assistantMessageIds,
+      (assistantMessageId) =>
+        finalizeAssistantMessage({
+          event: input.event,
+          threadId: input.thread.id,
+          messageId: assistantMessageId,
+          turnId: input.activeTurnId,
+          createdAt: input.now,
+          commandTag: `${input.commandTag}-assistant-complete-finalize`,
+          finalDeltaCommandTag: `${input.commandTag}-assistant-delta-finalize`,
+          hasProjectedMessage: input.thread.messages.some(
+            (entry) => entry.id === assistantMessageId,
+          ),
+        }),
+      { concurrency: 1 },
+    ).pipe(Effect.asVoid);
+    yield* clearAssistantMessageIdsForTurn(input.thread.id, input.activeTurnId);
+    yield* clearAssistantSegmentStateForTurn(input.thread.id, input.activeTurnId);
+    yield* finalizeBufferedProposedPlan({
+      event: input.event,
+      threadId: input.thread.id,
+      threadProposedPlans: input.thread.proposedPlans,
+      planId: proposedPlanIdForTurn(input.thread.id, input.activeTurnId),
+      turnId: input.activeTurnId,
+      updatedAt: input.now,
+    });
+    yield* orchestrationEngine.dispatch({
+      type: "thread.turn.complete",
+      commandId: providerCommandId(input.event, `${input.commandTag}-turn-complete`),
+      threadId: input.thread.id,
+      turnId: input.activeTurnId,
+      state: input.turnState,
+      assistantMessageId: Array.from(assistantMessageIds).at(-1) ?? null,
+      completedAt: input.now,
+      errorText: input.errorText,
+      createdAt: input.now,
+    });
+    yield* orchestrationEngine.dispatch({
+      type: "thread.session.set",
+      commandId: providerCommandId(input.event, `${input.commandTag}-session-set`),
+      threadId: input.thread.id,
+      session: {
+        threadId: input.thread.id,
+        status: input.sessionStatus,
+        providerName: input.event.provider,
+        runtimeMode: input.thread.session?.runtimeMode ?? "full-access",
+        activeTurnId: null,
+        lastError:
+          input.sessionStatus === "error"
+            ? input.errorText
+            : (input.thread.session?.lastError ?? null),
+        updatedAt: input.now,
+      },
+      createdAt: input.now,
+    });
+  });
+
   const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
       const readModel = yield* orchestrationEngine.getReadModel();
@@ -1810,13 +1893,15 @@ const make = Effect.gen(function* () {
 
       const now = event.createdAt;
       const eventTurnId = toTurnId(event.turnId);
-      const activeTurnId = thread.session?.activeTurnId ?? null;
+      const activeSessionStatus = thread.session?.status ?? null;
+      const activeTurnId = isActiveSessionStatus(activeSessionStatus)
+        ? (thread.session?.activeTurnId ?? null)
+        : null;
 
       const conflictsWithActiveTurn =
         activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
-      const missingTurnForActiveTurn = activeTurnId !== null && eventTurnId === undefined;
 
-      const shouldApplyThreadLifecycle = (() => {
+      const canApplyProviderSessionLifecycle = (() => {
         if (!STRICT_PROVIDER_LIFECYCLE_GUARD) {
           return true;
         }
@@ -1829,39 +1914,95 @@ const make = Effect.gen(function* () {
           case "turn.started":
             return !conflictsWithActiveTurn;
           case "turn.completed":
-            if (conflictsWithActiveTurn || missingTurnForActiveTurn) {
-              return false;
-            }
-            // Only the active turn may close the lifecycle state.
-            if (activeTurnId !== null && eventTurnId !== undefined) {
-              return sameId(activeTurnId, eventTurnId);
-            }
-            // If no active turn is tracked, accept completion scoped to this thread.
-            return true;
+            return (
+              activeTurnId !== null &&
+              eventTurnId !== undefined &&
+              sameId(activeTurnId, eventTurnId)
+            );
+          case "turn.aborted":
+            return (
+              activeTurnId !== null &&
+              eventTurnId !== undefined &&
+              sameId(activeTurnId, eventTurnId)
+            );
           default:
             return true;
         }
       })();
+      const canSettleProviderTurn = isProviderFinalTurnEvent(event)
+        ? yield* Effect.gen(function* () {
+            if (!STRICT_PROVIDER_LIFECYCLE_GUARD) {
+              return eventTurnId !== undefined;
+            }
+            if (eventTurnId === undefined) {
+              yield* Effect.logWarning("provider runtime final turn event missing turn id", {
+                eventId: event.eventId,
+                eventType: event.type,
+                threadId: thread.id,
+                activeTurnId,
+              });
+              return false;
+            }
+            if (activeTurnId !== null && sameId(activeTurnId, eventTurnId)) {
+              return true;
+            }
+            if (thread.latestTurn?.turnId === eventTurnId) {
+              return true;
+            }
+            const existingTurn = yield* projectionTurnRepository.getByTurnId({
+              threadId: thread.id,
+              turnId: eventTurnId,
+            });
+            if (Option.isSome(existingTurn)) {
+              return true;
+            }
+            yield* Effect.logWarning("provider runtime final turn event ignored for unknown turn", {
+              eventId: event.eventId,
+              eventType: event.type,
+              threadId: thread.id,
+              eventTurnId,
+              activeTurnId,
+              latestTurnId: thread.latestTurn?.turnId ?? null,
+            });
+            return false;
+          })
+        : false;
       const acceptedTurnStartedSourcePlan =
-        event.type === "turn.started" && shouldApplyThreadLifecycle
+        event.type === "turn.started" && canApplyProviderSessionLifecycle
           ? yield* getSourceProposedPlanReferenceForAcceptedTurnStart(thread.id, eventTurnId)
           : null;
+      if (
+        isProviderFinalTurnEvent(event) &&
+        canSettleProviderTurn &&
+        !canApplyProviderSessionLifecycle
+      ) {
+        yield* Effect.logWarning(
+          "provider runtime final turn event settled without session lifecycle",
+          {
+            eventId: event.eventId,
+            eventType: event.type,
+            threadId: thread.id,
+            eventTurnId: eventTurnId ?? null,
+            activeTurnId,
+            latestTurnId: thread.latestTurn?.turnId ?? null,
+          },
+        );
+      }
 
       if (
         event.type === "session.started" ||
         event.type === "session.state.changed" ||
         event.type === "session.exited" ||
         event.type === "thread.started" ||
-        event.type === "turn.started" ||
-        event.type === "turn.completed"
+        event.type === "turn.started"
       ) {
         const nextActiveTurnId =
           event.type === "turn.started"
             ? (eventTurnId ?? null)
-            : event.type === "turn.completed" || event.type === "session.exited"
+            : event.type === "session.exited"
               ? null
               : activeTurnId;
-        const status = (() => {
+        let status: OrchestrationSessionStatus = (() => {
           switch (event.type) {
             case "session.state.changed":
               return orchestrationSessionStatusFromRuntimeState(event.payload.state);
@@ -1869,10 +2010,6 @@ const make = Effect.gen(function* () {
               return "running";
             case "session.exited":
               return "stopped";
-            case "turn.completed":
-              return normalizeRuntimeTurnState(event.payload.state) === "failed"
-                ? "error"
-                : "ready";
             case "session.started":
             case "thread.started":
               // Provider thread/session start notifications can arrive during an
@@ -1880,17 +2017,83 @@ const make = Effect.gen(function* () {
               return activeTurnId !== null ? "running" : "ready";
           }
         })();
+        if (event.type === "session.state.changed" && status === "ready" && activeTurnId !== null) {
+          yield* Effect.logWarning(
+            "provider runtime ready state ignored while active turn is in progress",
+            {
+              eventId: event.eventId,
+              eventType: event.type,
+              threadId: thread.id,
+              activeTurnId,
+            },
+          );
+          status =
+            activeSessionStatus === "starting" ||
+            activeSessionStatus === "running" ||
+            activeSessionStatus === "recovering"
+              ? activeSessionStatus
+              : "running";
+        }
         const lastError =
           event.type === "session.state.changed" && event.payload.state === "error"
             ? (event.payload.reason ?? thread.session?.lastError ?? "Provider session error")
-            : event.type === "turn.completed" &&
-                normalizeRuntimeTurnState(event.payload.state) === "failed"
-              ? (event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed")
-              : status === "ready"
-                ? null
-                : (thread.session?.lastError ?? null);
+            : status === "ready"
+              ? null
+              : (thread.session?.lastError ?? null);
 
-        if (shouldApplyThreadLifecycle) {
+        if (canApplyProviderSessionLifecycle) {
+          const activeTerminalStatus =
+            activeTurnId !== null &&
+            (event.type === "session.exited" ||
+              (event.type === "session.state.changed" &&
+                (status === "error" || status === "stopped" || status === "interrupted")))
+              ? status
+              : null;
+
+          if (activeTurnId !== null && activeTerminalStatus !== null) {
+            if (eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId)) {
+              yield* Effect.logWarning("provider runtime terminal state ignored for stale turn", {
+                eventId: event.eventId,
+                eventType: event.type,
+                threadId: thread.id,
+                eventTurnId,
+                activeTurnId,
+                status: activeTerminalStatus,
+              });
+              return;
+            }
+
+            const sessionStatus =
+              activeTerminalStatus === "error"
+                ? "error"
+                : activeTerminalStatus === "interrupted"
+                  ? "interrupted"
+                  : "stopped";
+            const errorText =
+              sessionStatus === "error"
+                ? (lastError ?? "Provider session error")
+                : event.type === "session.exited"
+                  ? "Provider session exited while the turn was active."
+                  : `Provider session became ${activeTerminalStatus} while the turn was active.`;
+            yield* finalizeActiveTurnFromProviderTerminalState({
+              event,
+              thread,
+              activeTurnId,
+              turnState: sessionStatus === "error" ? "failed" : "interrupted",
+              sessionStatus,
+              errorText,
+              now,
+              commandTag:
+                event.type === "session.exited"
+                  ? "session-exited"
+                  : `session-state-${activeTerminalStatus}`,
+            });
+            if (event.type === "session.exited") {
+              yield* clearTurnStateForSession(thread.id);
+            }
+            return;
+          }
+
           if (event.type === "turn.started" && acceptedTurnStartedSourcePlan !== null) {
             yield* markSourceProposedPlanImplemented(
               acceptedTurnStartedSourcePlan.sourceThreadId,
@@ -2111,7 +2314,7 @@ const make = Effect.gen(function* () {
 
       if (event.type === "turn.completed") {
         const turnId = toTurnId(event.turnId);
-        if (turnId) {
+        if (turnId && canSettleProviderTurn) {
           const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
           yield* Effect.forEach(
             assistantMessageIds,
@@ -2141,6 +2344,108 @@ const make = Effect.gen(function* () {
             turnId,
             updatedAt: now,
           });
+
+          yield* orchestrationEngine.dispatch({
+            type: "thread.turn.complete",
+            commandId: providerCommandId(event, "thread-turn-complete"),
+            threadId: thread.id,
+            turnId,
+            state: normalizeRuntimeTurnState(event.payload.state),
+            assistantMessageId: Array.from(assistantMessageIds).at(-1) ?? null,
+            completedAt: now,
+            ...(event.payload.errorMessage === undefined
+              ? {}
+              : { errorText: event.payload.errorMessage }),
+            createdAt: now,
+          });
+
+          if (canApplyProviderSessionLifecycle) {
+            const normalizedState = normalizeRuntimeTurnState(event.payload.state);
+            const status = normalizedState === "failed" ? "error" : "ready";
+            yield* orchestrationEngine.dispatch({
+              type: "thread.session.set",
+              commandId: providerCommandId(event, "thread-session-set"),
+              threadId: thread.id,
+              session: {
+                threadId: thread.id,
+                status,
+                providerName: event.provider,
+                runtimeMode: thread.session?.runtimeMode ?? "full-access",
+                activeTurnId: null,
+                lastError:
+                  normalizedState === "failed"
+                    ? (event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed")
+                    : null,
+                updatedAt: now,
+              },
+              createdAt: now,
+            });
+          }
+        }
+      }
+
+      if (event.type === "turn.aborted") {
+        const turnId = toTurnId(event.turnId);
+        if (turnId && canSettleProviderTurn) {
+          const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
+          yield* Effect.forEach(
+            assistantMessageIds,
+            (assistantMessageId) =>
+              finalizeAssistantMessage({
+                event,
+                threadId: thread.id,
+                messageId: assistantMessageId,
+                turnId,
+                createdAt: now,
+                commandTag: "assistant-complete-abort-finalize",
+                finalDeltaCommandTag: "assistant-delta-abort-finalize",
+                hasProjectedMessage: thread.messages.some(
+                  (entry) => entry.id === assistantMessageId,
+                ),
+              }),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
+          yield* clearAssistantMessageIdsForTurn(thread.id, turnId);
+          yield* clearAssistantSegmentStateForTurn(thread.id, turnId);
+
+          yield* finalizeBufferedProposedPlan({
+            event,
+            threadId: thread.id,
+            threadProposedPlans: thread.proposedPlans,
+            planId: proposedPlanIdForTurn(thread.id, turnId),
+            turnId,
+            updatedAt: now,
+          });
+
+          yield* orchestrationEngine.dispatch({
+            type: "thread.turn.complete",
+            commandId: providerCommandId(event, "thread-turn-aborted"),
+            threadId: thread.id,
+            turnId,
+            state: "interrupted",
+            assistantMessageId: Array.from(assistantMessageIds).at(-1) ?? null,
+            completedAt: now,
+            errorText: event.payload.reason,
+            createdAt: now,
+          });
+
+          if (canApplyProviderSessionLifecycle) {
+            yield* orchestrationEngine.dispatch({
+              type: "thread.session.set",
+              commandId: providerCommandId(event, "thread-session-set"),
+              threadId: thread.id,
+              session: {
+                threadId: thread.id,
+                status: "interrupted",
+                providerName: event.provider,
+                runtimeMode: thread.session?.runtimeMode ?? "full-access",
+                activeTurnId: null,
+                lastError: event.payload.reason,
+                updatedAt: now,
+              },
+              createdAt: now,
+            });
+          }
         }
       }
 
@@ -2156,20 +2461,41 @@ const make = Effect.gen(function* () {
           : activeTurnId === null || eventTurnId === undefined || sameId(activeTurnId, eventTurnId);
 
         if (shouldApplyRuntimeError) {
-          yield* orchestrationEngine.dispatch({
-            type: "thread.session.set",
-            commandId: providerCommandId(event, "runtime-error-session-set"),
-            threadId: thread.id,
-            session: {
+          if (activeTurnId !== null) {
+            yield* finalizeActiveTurnFromProviderTerminalState({
+              event,
+              thread,
+              activeTurnId,
+              turnState: "failed",
+              sessionStatus: "error",
+              errorText: runtimeErrorMessage,
+              now,
+              commandTag: "runtime-error",
+            });
+          } else {
+            yield* orchestrationEngine.dispatch({
+              type: "thread.session.set",
+              commandId: providerCommandId(event, "runtime-error-session-set"),
               threadId: thread.id,
-              status: "error",
-              providerName: event.provider,
-              runtimeMode: thread.session?.runtimeMode ?? "full-access",
-              activeTurnId: eventTurnId ?? null,
-              lastError: runtimeErrorMessage,
-              updatedAt: now,
-            },
-            createdAt: now,
+              session: {
+                threadId: thread.id,
+                status: "error",
+                providerName: event.provider,
+                runtimeMode: thread.session?.runtimeMode ?? "full-access",
+                activeTurnId: null,
+                lastError: runtimeErrorMessage,
+                updatedAt: now,
+              },
+              createdAt: now,
+            });
+          }
+        } else {
+          yield* Effect.logWarning("provider runtime error ignored for stale turn", {
+            eventId: event.eventId,
+            eventType: event.type,
+            threadId: thread.id,
+            eventTurnId: eventTurnId ?? null,
+            activeTurnId,
           });
         }
       }

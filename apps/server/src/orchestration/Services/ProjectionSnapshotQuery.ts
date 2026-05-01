@@ -13,6 +13,7 @@ import type {
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationTeamTaskTraceSnapshot,
+  OrchestrationThreadDetailSnapshot,
   OrchestrationGetTeamTaskTraceInput,
   OrchestrationThread,
   OrchestrationThreadShell,
@@ -107,6 +108,14 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadDetailById: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single active thread detail snapshot by id with the projection cursor
+   * from the same projection read path.
+   */
+  readonly getThreadDetailSnapshotById: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>, ProjectionRepositoryError>;
 
   readonly getTeamTaskTrace: (
     input: OrchestrationGetTeamTaskTraceInput,

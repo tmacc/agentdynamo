@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   CommandId,
   type OrchestrationTeamTask,
@@ -11,6 +13,9 @@ import { TeamTaskReactor, type TeamTaskReactorShape } from "../Services/TeamTask
 
 const commandId = (tag: string): CommandId =>
   CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
+const deterministicCommandId = (tag: string): CommandId => CommandId.make(`recovery:${tag}`);
+const stableSummaryHash = (summary: string): string =>
+  createHash("sha256").update(summary).digest("hex").slice(0, 16);
 
 function latestAssistantSummary(thread: {
   readonly messages: ReadonlyArray<{
@@ -91,7 +96,8 @@ function deriveStatus(input: {
   if (input.childThread.session?.status === "starting") return "starting";
   if (
     input.childThread.latestTurn?.state === "running" ||
-    input.childThread.session?.status === "running"
+    input.childThread.session?.status === "running" ||
+    input.childThread.session?.status === "recovering"
   )
     return "running";
   if (input.childThread.latestTurn?.state === "completed") return "completed";
@@ -101,7 +107,10 @@ function deriveStatus(input: {
 const makeTeamTaskReactor = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
 
-  const syncChild = Effect.fn("team.syncChild")(function* (childThreadId: ThreadId) {
+  const syncChild = Effect.fn("team.syncChild")(function* (
+    childThreadId: ThreadId,
+    options?: { readonly deterministic?: boolean },
+  ) {
     const readModel = yield* orchestrationEngine.getReadModel();
     const childThread = readModel.threads.find((thread) => thread.id === childThreadId);
     if (!childThread?.teamParent) return;
@@ -117,10 +126,14 @@ const makeTeamTaskReactor = Effect.gen(function* () {
     const nextStatus = deriveStatus({ task, childThread });
     const nextSummary = latestAssistantSummary(childThread);
     const createdAt = new Date().toISOString();
+    const makeCommandId = (tag: string) =>
+      options?.deterministic
+        ? deterministicCommandId(`team-task:${parentThread.id}:${task.id}:${tag}`)
+        : commandId(tag);
     if (nextSummary !== null && nextSummary !== task.latestSummary) {
       yield* orchestrationEngine.dispatch({
         type: "thread.team-task.update-summary",
-        commandId: commandId("team-task-summary"),
+        commandId: makeCommandId(`summary:${stableSummaryHash(nextSummary)}`),
         parentThreadId: parentThread.id,
         taskId: task.id,
         latestSummary: nextSummary,
@@ -129,7 +142,7 @@ const makeTeamTaskReactor = Effect.gen(function* () {
     }
     if (nextStatus === task.status) return;
     const base = {
-      commandId: commandId("team-task-status"),
+      commandId: makeCommandId(`status:${nextStatus}`),
       parentThreadId: parentThread.id,
       taskId: task.id,
       createdAt,
@@ -170,12 +183,28 @@ const makeTeamTaskReactor = Effect.gen(function* () {
     }
   });
 
+  const syncAll: TeamTaskReactorShape["syncAll"] = () =>
+    Effect.gen(function* () {
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const childThreadIds = readModel.threads
+        .filter((thread) => thread.teamParent !== null)
+        .map((thread) => thread.id);
+      yield* Effect.forEach(
+        childThreadIds,
+        (childThreadId) => syncChild(childThreadId, { deterministic: true }),
+        { concurrency: 1, discard: true },
+      );
+    }).pipe(
+      Effect.catchCause((cause) => Effect.logWarning("team.task.sync-all-failed", { cause })),
+    );
+
   const start = Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
     switch (event.type) {
       case "thread.session-set":
       case "thread.activity-appended":
       case "thread.message-sent":
       case "thread.turn-start-requested":
+      case "thread.turn-completed":
       case "thread.turn-diff-completed":
         return syncChild(event.payload.threadId).pipe(Effect.ignoreCause({ log: true }));
       default:
@@ -183,7 +212,7 @@ const makeTeamTaskReactor = Effect.gen(function* () {
     }
   }).pipe(Effect.forkScoped, Effect.asVoid);
 
-  return { start } satisfies TeamTaskReactorShape;
+  return { start, syncAll } satisfies TeamTaskReactorShape;
 });
 
 export const TeamTaskReactorLive = Layer.effect(TeamTaskReactor, makeTeamTaskReactor);

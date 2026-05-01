@@ -14,6 +14,12 @@ import {
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
+  type OrchestrationShellSnapshot,
+  type OrchestrationShellStreamItem,
+  type OrchestrationTeamTaskTraceSnapshot,
+  type OrchestrationTeamTaskTraceStreamItem,
+  type OrchestrationThreadDetailSnapshot,
+  type OrchestrationThreadStreamItem,
   OrchestrationForkThreadError,
   type OrchestrationShellStreamEvent,
   OrchestrationGetFullThreadDiffError,
@@ -44,14 +50,15 @@ import { GitManager } from "./git/Services/GitManager.ts";
 import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster.ts";
 import { Keybindings } from "./keybindings.ts";
 import { Open, resolveAvailableEditors } from "./open.ts";
+import { ProjectionBoardSnapshotQuery } from "./board/Services/ProjectionBoardSnapshotQuery.ts";
 import { enqueueAndExecuteForkThread } from "./orchestration/forkThreadExecution.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine.ts";
+import { replaySafeOrchestrationStream } from "./orchestration/subscriptions.ts";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ThreadForkDispatcher } from "./orchestration/Services/ThreadForkDispatcher.ts";
 import { ProjectionBoardCardRepository } from "./persistence/Services/ProjectionBoardCards.ts";
 import { ProjectionBoardDismissedGhostRepository } from "./persistence/Services/ProjectionBoardDismissedGhosts.ts";
-import { ProjectionStateRepository } from "./persistence/Services/ProjectionState.ts";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -89,6 +96,7 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
       | "thread.message-sent"
       | "thread.proposed-plan-upserted"
       | "thread.activity-appended"
+      | "thread.turn-completed"
       | "thread.turn-diff-completed"
       | "thread.reverted"
       | "thread.session-set"
@@ -104,6 +112,7 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
     event.type === "thread.message-sent" ||
     event.type === "thread.proposed-plan-upserted" ||
     event.type === "thread.activity-appended" ||
+    event.type === "thread.turn-completed" ||
     event.type === "thread.turn-diff-completed" ||
     event.type === "thread.reverted" ||
     event.type === "thread.session-set" ||
@@ -117,8 +126,7 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
 }
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
-const BOARD_CARDS_PROJECTOR = "projection.board-cards";
-const BOARD_DISMISSED_GHOSTS_PROJECTOR = "projection.board-dismissed-ghosts";
+const BOARD_REPLAY_WARNING_THRESHOLD = 500;
 
 function isBoardCardEvent(event: OrchestrationEvent): boolean {
   return (
@@ -186,11 +194,11 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+      const projectionBoardSnapshotQuery = yield* ProjectionBoardSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngineService;
       const projectionBoardCardRepository = yield* ProjectionBoardCardRepository;
       const projectionBoardDismissedGhostRepository =
         yield* ProjectionBoardDismissedGhostRepository;
-      const projectionStateRepository = yield* ProjectionStateRepository;
       const checkpointDiffQuery = yield* CheckpointDiffQuery;
       const keybindings = yield* Keybindings;
       const open = yield* Open;
@@ -760,124 +768,140 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [ORCHESTRATION_WS_METHODS.subscribeShell]: (_input) =>
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeShell,
-            Effect.gen(function* () {
-              const snapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationGetSnapshotError({
-                      message: "Failed to load orchestration shell snapshot",
-                      cause,
-                    }),
+            Effect.succeed(
+              replaySafeOrchestrationStream<
+                OrchestrationShellSnapshot,
+                OrchestrationShellStreamItem,
+                OrchestrationGetSnapshotError,
+                never
+              >(orchestrationEngine, {
+                subscriptionName: "orchestration.subscribeShell",
+                loadSnapshot: projectionSnapshotQuery.getShellSnapshot().pipe(
+                  Effect.map((snapshot) => ({
+                    snapshot,
+                    snapshotSequence: snapshot.snapshotSequence,
+                  })),
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationGetSnapshotError({
+                        message: "Failed to load orchestration shell snapshot",
+                        cause,
+                      }),
+                  ),
                 ),
-              );
-
-              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-                Stream.mapEffect(toShellStreamEvent),
-                Stream.flatMap((event) =>
-                  Option.isSome(event) ? Stream.succeed(event.value) : Stream.empty,
-                ),
-              );
-
-              return Stream.concat(
-                Stream.make({
+                snapshotItem: (snapshot) => ({
                   kind: "snapshot" as const,
                   snapshot,
                 }),
-                liveStream,
-              );
-            }),
+                mapEvent: toShellStreamEvent,
+                mapReplayError: (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to replay orchestration shell events",
+                    cause,
+                  }),
+              }),
+            ),
             { "rpc.aggregate": "orchestration" },
           ),
         [ORCHESTRATION_WS_METHODS.subscribeThread]: (input) =>
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeThread,
-            Effect.gen(function* () {
-              const [threadDetail, snapshotSequence] = yield* Effect.all([
-                projectionSnapshotQuery.getThreadDetailById(input.threadId).pipe(
-                  Effect.mapError(
-                    (cause) =>
-                      new OrchestrationGetSnapshotError({
-                        message: `Failed to load thread ${input.threadId}`,
-                        cause,
-                      }),
-                  ),
-                ),
-                orchestrationEngine
-                  .getReadModel()
-                  .pipe(Effect.map((readModel) => readModel.snapshotSequence)),
-              ]);
+            Effect.succeed(
+              replaySafeOrchestrationStream<
+                OrchestrationThreadDetailSnapshot,
+                OrchestrationThreadStreamItem,
+                OrchestrationGetSnapshotError,
+                never
+              >(orchestrationEngine, {
+                subscriptionName: "orchestration.subscribeThread",
+                loadSnapshot: Effect.gen(function* () {
+                  const threadSnapshot = yield* projectionSnapshotQuery
+                    .getThreadDetailSnapshotById(input.threadId)
+                    .pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new OrchestrationGetSnapshotError({
+                            message: `Failed to load thread ${input.threadId}`,
+                            cause,
+                          }),
+                      ),
+                    );
 
-              if (Option.isNone(threadDetail)) {
-                return yield* new OrchestrationGetSnapshotError({
-                  message: `Thread ${input.threadId} was not found`,
-                  cause: input.threadId,
-                });
-              }
+                  if (Option.isNone(threadSnapshot)) {
+                    return yield* new OrchestrationGetSnapshotError({
+                      message: `Thread ${input.threadId} was not found`,
+                      cause: input.threadId,
+                    });
+                  }
 
-              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-                Stream.filter(
-                  (event) =>
-                    event.aggregateKind === "thread" &&
-                    event.aggregateId === input.threadId &&
-                    isThreadDetailEvent(event),
-                ),
-                Stream.map((event) => ({
-                  kind: "event" as const,
-                  event,
-                })),
-              );
-
-              return Stream.concat(
-                Stream.make({
-                  kind: "snapshot" as const,
-                  snapshot: {
-                    snapshotSequence,
-                    thread: threadDetail.value,
-                  },
+                  return {
+                    snapshot: threadSnapshot.value,
+                    snapshotSequence: threadSnapshot.value.snapshotSequence,
+                  };
                 }),
-                liveStream,
-              );
-            }),
+                snapshotItem: (snapshot) => ({
+                  kind: "snapshot" as const,
+                  snapshot,
+                }),
+                mapEvent: (event) =>
+                  event.aggregateKind === "thread" &&
+                  event.aggregateId === input.threadId &&
+                  isThreadDetailEvent(event)
+                    ? Effect.succeed(Option.some({ kind: "event" as const, event }))
+                    : Effect.succeed(Option.none()),
+                mapReplayError: (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: `Failed to replay thread ${input.threadId}`,
+                    cause,
+                  }),
+              }),
+            ),
             { "rpc.aggregate": "orchestration" },
           ),
         [ORCHESTRATION_WS_METHODS.subscribeTeamTaskTrace]: (input) =>
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeTeamTaskTrace,
-            Effect.gen(function* () {
-              const snapshot = yield* projectionSnapshotQuery.getTeamTaskTrace(input).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationGetSnapshotError({
-                      message: "Failed to load native subagent trace",
-                      cause,
-                    }),
+            Effect.succeed(
+              replaySafeOrchestrationStream<
+                OrchestrationTeamTaskTraceSnapshot,
+                OrchestrationTeamTaskTraceStreamItem,
+                OrchestrationGetSnapshotError,
+                never
+              >(orchestrationEngine, {
+                subscriptionName: "orchestration.subscribeTeamTaskTrace",
+                loadSnapshot: projectionSnapshotQuery.getTeamTaskTrace(input).pipe(
+                  Effect.map((snapshot) => ({
+                    snapshot,
+                    snapshotSequence: snapshot.snapshotSequence,
+                  })),
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationGetSnapshotError({
+                        message: "Failed to load native subagent trace",
+                        cause,
+                      }),
+                  ),
                 ),
-              );
-
-              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-                Stream.filter(
-                  (event) =>
-                    event.aggregateKind === "thread" &&
-                    event.aggregateId === input.parentThreadId &&
-                    (event.type === "thread.team-task-native-trace-item-upserted" ||
-                      event.type === "thread.team-task-native-trace-content-appended" ||
-                      event.type === "thread.team-task-native-trace-item-completed") &&
-                    event.payload.taskId === input.taskId,
-                ),
-                Stream.map((event) => ({
-                  kind: "event" as const,
-                  event,
-                })),
-              );
-
-              return Stream.concat(
-                Stream.make({
+                snapshotItem: (snapshot) => ({
                   kind: "snapshot" as const,
                   snapshot,
                 }),
-                liveStream,
-              );
-            }),
+                mapEvent: (event) =>
+                  event.aggregateKind === "thread" &&
+                  event.aggregateId === input.parentThreadId &&
+                  (event.type === "thread.team-task-native-trace-item-upserted" ||
+                    event.type === "thread.team-task-native-trace-content-appended" ||
+                    event.type === "thread.team-task-native-trace-item-completed") &&
+                  event.payload.taskId === input.taskId
+                    ? Effect.succeed(Option.some({ kind: "event" as const, event }))
+                    : Effect.succeed(Option.none()),
+                mapReplayError: (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to replay native subagent trace events",
+                    cause,
+                  }),
+              }),
+            ),
             { "rpc.aggregate": "orchestration" },
           ),
         [BOARD_WS_METHODS.listCards]: (input) =>
@@ -918,24 +942,12 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             Effect.succeed(
               Stream.unwrap(
                 Effect.gen(function* () {
-                  const liveQueue = yield* Queue.unbounded<OrchestrationEvent>();
-                  yield* orchestrationEngine.streamDomainEvents.pipe(
-                    Stream.runForEach((event) => Queue.offer(liveQueue, event)),
-                    Effect.forkScoped,
-                  );
-                  const [cards, dismissedGhosts, cardState, dismissedGhostState] =
-                    yield* Effect.all([
-                      projectionBoardCardRepository.listByProject({ projectId: input.projectId }),
-                      projectionBoardDismissedGhostRepository.listByProject({
-                        projectId: input.projectId,
-                      }),
-                      projectionStateRepository.getByProjector({
-                        projector: BOARD_CARDS_PROJECTOR,
-                      }),
-                      projectionStateRepository.getByProjector({
-                        projector: BOARD_DISMISSED_GHOSTS_PROJECTOR,
-                      }),
-                    ]).pipe(
+                  const liveSubscription = yield* orchestrationEngine.subscribeDomainEvents();
+                  const snapshot = yield* projectionBoardSnapshotQuery
+                    .getProjectSnapshot({
+                      projectId: input.projectId,
+                    })
+                    .pipe(
                       Effect.mapError(
                         (cause) =>
                           new BoardSubscribeProjectError({
@@ -944,17 +956,21 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                           }),
                       ),
                     );
-                  const cardSequence = Option.match(cardState, {
-                    onNone: () => 0,
-                    onSome: (state) => state.lastAppliedSequence,
-                  });
-                  const dismissedGhostSequence = Option.match(dismissedGhostState, {
-                    onNone: () => 0,
-                    onSome: (state) => state.lastAppliedSequence,
-                  });
-                  const snapshotSequence = Math.min(cardSequence, dismissedGhostSequence);
-                  const lastCardSequence = yield* Ref.make(cardSequence);
-                  const lastDismissedGhostSequence = yield* Ref.make(dismissedGhostSequence);
+                  const replayToSequence = yield* orchestrationEngine.getLatestSequence().pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new BoardSubscribeProjectError({
+                          message: `Failed to capture board replay cursor for project ${input.projectId}`,
+                          cause,
+                        }),
+                    ),
+                  );
+                  const lastCardSequence = yield* Ref.make(snapshot.cardSequence);
+                  const lastDismissedGhostSequence = yield* Ref.make(
+                    snapshot.dismissedGhostSequence,
+                  );
+                  const replayCount = yield* Ref.make(0);
+                  const latestReplaySequence = yield* Ref.make(snapshot.snapshotSequence);
                   const toBoardStreamEvent = (
                     event: OrchestrationEvent,
                   ): Effect.Effect<Option.Option<BoardStreamEvent>> => {
@@ -986,8 +1002,12 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                         Option.isSome(event) ? Stream.succeed(event.value) : Stream.empty,
                       ),
                     );
-                  const replayStream = mapBoardEvents(
-                    orchestrationEngine.readEvents(snapshotSequence).pipe(
+                  const replayEvents = orchestrationEngine
+                    .readEventsRange({
+                      fromSequenceExclusive: snapshot.snapshotSequence,
+                      toSequenceInclusive: replayToSequence,
+                    })
+                    .pipe(
                       Stream.mapError(
                         (cause) =>
                           new BoardSubscribeProjectError({
@@ -995,21 +1015,43 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                             cause,
                           }),
                       ),
-                    ),
-                  );
-                  const liveStream = mapBoardEvents(Stream.fromQueue(liveQueue));
+                      Stream.tap((event) =>
+                        Effect.gen(function* () {
+                          yield* Ref.update(replayCount, (count) => count + 1);
+                          yield* Ref.set(latestReplaySequence, event.sequence);
+                        }),
+                      ),
+                      Stream.onEnd(
+                        Effect.gen(function* () {
+                          const count = yield* Ref.get(replayCount);
+                          if (count > BOARD_REPLAY_WARNING_THRESHOLD) {
+                            yield* Effect.logWarning("board.subscription.large-replay", {
+                              projectId: input.projectId,
+                              snapshotSequence: snapshot.snapshotSequence,
+                              replayToSequence,
+                              cardSequence: snapshot.cardSequence,
+                              dismissedGhostSequence: snapshot.dismissedGhostSequence,
+                              replayCount: count,
+                              latestSequence: yield* Ref.get(latestReplaySequence),
+                            });
+                          }
+                        }),
+                      ),
+                    );
+                  const replayStream = mapBoardEvents(replayEvents);
+                  const liveStream = mapBoardEvents(Stream.fromSubscription(liveSubscription));
 
                   return Stream.concat(
                     Stream.make({
                       kind: "snapshot" as const,
-                      cards,
-                      dismissedGhosts,
-                      snapshotSequence,
+                      cards: snapshot.cards,
+                      dismissedGhosts: snapshot.dismissedGhosts,
+                      snapshotSequence: snapshot.snapshotSequence,
                     }),
-                    Stream.merge(replayStream, liveStream),
+                    Stream.concat(replayStream, liveStream),
                   );
                 }),
-              ),
+              ) as Stream.Stream<BoardStreamEvent, BoardSubscribeProjectError>,
             ),
             { "rpc.aggregate": "board" },
           ),

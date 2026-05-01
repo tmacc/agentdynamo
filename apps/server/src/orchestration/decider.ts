@@ -25,6 +25,7 @@ import {
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
 import { projectEvent } from "./projector.ts";
+import { normalizeSessionActiveTurn } from "./turnLifecycle.ts";
 import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
 import type { ProjectionBoardCardRepositoryShape } from "../persistence/Services/ProjectionBoardCards.ts";
 import { isMaterializedDynamoTeamTask } from "../team/teamTaskGuards.ts";
@@ -1559,6 +1560,25 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const normalizedSessionActiveTurn = normalizeSessionActiveTurn({
+        status: command.session.status,
+        activeTurnId: command.session.activeTurnId,
+      });
+      const session =
+        normalizedSessionActiveTurn.activeTurnId === command.session.activeTurnId
+          ? command.session
+          : {
+              ...command.session,
+              activeTurnId: normalizedSessionActiveTurn.activeTurnId,
+            };
+      if (session.activeTurnId !== command.session.activeTurnId) {
+        yield* Effect.logWarning("orchestration.session.invalid-active-turn-normalized", {
+          threadId: command.threadId,
+          status: command.session.status,
+          receivedActiveTurnId: command.session.activeTurnId,
+          commandId: command.commandId,
+        });
+      }
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1570,7 +1590,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.session-set",
         payload: {
           threadId: command.threadId,
-          session: command.session,
+          session,
         },
       };
     }
@@ -1646,6 +1666,31 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           proposedPlan: command.proposedPlan,
+        },
+      };
+    }
+
+    case "thread.turn.complete": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.turn-completed",
+        payload: {
+          threadId: command.threadId,
+          turnId: command.turnId,
+          state: command.state,
+          assistantMessageId: command.assistantMessageId,
+          completedAt: command.completedAt,
+          ...(command.errorText === undefined ? {} : { errorText: command.errorText }),
         },
       };
     }

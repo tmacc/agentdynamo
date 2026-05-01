@@ -90,6 +90,8 @@ describe("OrchestrationEngine", () => {
           }),
         ),
       readFromSequence: () => Stream.empty,
+      getLatestSequence: () => Effect.succeed(0),
+      readRange: () => Stream.empty,
       readAll: () =>
         Stream.fail(
           new PersistenceSqlError({
@@ -163,6 +165,7 @@ describe("OrchestrationEngine", () => {
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
+          getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
           getTeamTaskTrace: () => Effect.die("unused"),
         }),
       ),
@@ -628,6 +631,17 @@ describe("OrchestrationEngine", () => {
       readFromSequence(sequenceExclusive) {
         return Stream.fromIterable(events.filter((event) => event.sequence > sequenceExclusive));
       },
+      getLatestSequence() {
+        return Effect.succeed(nextSequence - 1);
+      },
+      readRange({ fromSequenceExclusive, toSequenceInclusive }) {
+        return Stream.fromIterable(
+          events.filter(
+            (event) =>
+              event.sequence > fromSequenceExclusive && event.sequence <= toSequenceInclusive,
+          ),
+        );
+      },
       readAll() {
         return Stream.fromIterable(events);
       },
@@ -855,6 +869,17 @@ describe("OrchestrationEngine", () => {
       },
       readFromSequence(sequenceExclusive) {
         return Stream.fromIterable(events.filter((event) => event.sequence > sequenceExclusive));
+      },
+      getLatestSequence() {
+        return Effect.succeed(nextSequence - 1);
+      },
+      readRange({ fromSequenceExclusive, toSequenceInclusive }) {
+        return Stream.fromIterable(
+          events.filter(
+            (event) =>
+              event.sequence > fromSequenceExclusive && event.sequence <= toSequenceInclusive,
+          ),
+        );
       },
       readAll() {
         return Stream.fromIterable(events);
