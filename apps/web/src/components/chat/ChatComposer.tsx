@@ -234,12 +234,12 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         <SelectTrigger
           variant="ghost"
           size="sm"
-          className="font-medium"
-          aria-label="Runtime mode"
-          title={runtimeModeOption.description}
+          className="px-1.5 text-muted-foreground/70 hover:text-foreground/80 sm:px-2"
+          aria-label={`Access mode: ${runtimeModeOption.label}`}
+          title={`${runtimeModeOption.label} — ${runtimeModeOption.description}`}
         >
           <RuntimeModeIcon className="size-4" />
-          <SelectValue>{runtimeModeOption.label}</SelectValue>
+          <SelectValue className="sr-only">{runtimeModeOption.label}</SelectValue>
         </SelectTrigger>
         <SelectPopup alignItemWithTrigger={false}>
           {runtimeModeOptions.map((mode) => {
@@ -294,7 +294,8 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           <Button
             variant="ghost"
             className={cn(
-              "relative shrink-0 whitespace-nowrap px-2 sm:px-3",
+              "shrink-0 px-1.5 sm:px-2",
+              props.activeTeamTaskCount > 0 ? "gap-1" : null,
               props.agentsSidebarOpen
                 ? "text-primary hover:text-primary"
                 : "text-muted-foreground/70 hover:text-foreground/80",
@@ -302,14 +303,16 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
             size="sm"
             type="button"
             onClick={props.onToggleAgentsSidebar}
+            aria-label={
+              props.activeTeamTaskCount > 0
+                ? `Agents — ${props.activeTeamTaskCount} active`
+                : "Agents"
+            }
             title={props.agentsSidebarOpen ? "Hide agents sidebar" : "Show agents sidebar"}
           >
             <UsersRoundIcon />
-            <span className="sr-only sm:not-sr-only">Agents</span>
             {props.activeTeamTaskCount > 0 ? (
-              <span className="-right-0.5 -top-0.5 absolute flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
-                {props.activeTeamTaskCount}
-              </span>
+              <span className="font-medium text-xs tabular-nums">{props.activeTeamTaskCount}</span>
             ) : null}
           </Button>
         </>
@@ -2008,10 +2011,23 @@ export const ChatComposer = memo(
 
               <div
                 className={cn(
-                  "relative px-3 pb-2 sm:px-4",
+                  "relative pl-3 pb-2 pr-11 sm:pl-4 sm:pr-12",
                   hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
                 )}
               >
+                {!activePendingApproval ? (
+                  <div className="absolute right-1.5 top-1.5 z-10 sm:right-2 sm:top-2">
+                    <ComposerSavedPromptMenu
+                      compact
+                      popoverSide="bottom"
+                      popoverAlign="end"
+                      projectRef={activeProjectRef}
+                      onSelectSnippet={requestSavedPromptSnippetApply}
+                      onRenameSnippet={(snippet) => setRenameSavedPromptSnippetId(snippet.id)}
+                      onRequestDeleteSnippet={requestDeleteSavedPromptSnippet}
+                    />
+                  </div>
+                ) : null}
                 {composerMenuOpen && !isComposerApprovalState && (
                   <div className="absolute inset-x-0 bottom-full z-20 mb-2 px-1">
                     <ComposerCommandMenu
@@ -2182,17 +2198,6 @@ export const ChatComposer = memo(
                         setIsComposerModelPickerOpen(open);
                       }}
                       onInstanceModelChange={onProviderModelSelect}
-                    />
-
-                    {isComposerFooterCompact ? null : (
-                      <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-                    )}
-                    <ComposerSavedPromptMenu
-                      compact={isComposerFooterCompact}
-                      projectRef={activeProjectRef}
-                      onSelectSnippet={requestSavedPromptSnippetApply}
-                      onRenameSnippet={(snippet) => setRenameSavedPromptSnippetId(snippet.id)}
-                      onRequestDeleteSnippet={requestDeleteSavedPromptSnippet}
                     />
 
                     {isComposerFooterCompact ? (
