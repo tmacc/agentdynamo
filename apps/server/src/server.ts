@@ -159,8 +159,21 @@ const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
 // `create()`; `ProviderEventLoggersLive` owns the shared native/canonical
 // NDJSON writers and is provided at the outer runtime layer so both
 // `ProviderService` and the per-instance drivers read the same logger pair.
+const ProviderInstanceRegistryLayerLive = ProviderInstanceRegistryHydrationLive.pipe(
+  Layer.provideMerge(ProviderEventLoggersLive),
+  Layer.provideMerge(OpenCodeRuntimeLive),
+);
+
+const ProviderAdapterRegistryLayerLive = ProviderAdapterRegistryLive.pipe(
+  Layer.provide(ProviderInstanceRegistryLayerLive),
+);
+
+const ProviderRegistryLayerLive = ProviderRegistryLive.pipe(
+  Layer.provide(ProviderInstanceRegistryLayerLive),
+);
+
 const ProviderLayerLive = ProviderServiceLive.pipe(
-  Layer.provide(ProviderAdapterRegistryLive),
+  Layer.provide(ProviderAdapterRegistryLayerLive),
   Layer.provideMerge(ProviderSessionDirectoryLayerLive),
 );
 
@@ -186,11 +199,15 @@ const WorktreeSetupLayerLive = Layer.mergeAll(
   ProjectSetupScriptRunnerLayerLive,
 );
 
+const TextGenerationLayerLive = TextGenerationLive.pipe(
+  Layer.provide(ProviderInstanceRegistryLayerLive),
+);
+
 const GitManagerLayerLive = GitManagerLive.pipe(
   Layer.provideMerge(ProjectSetupScriptRunnerLayerLive),
   Layer.provideMerge(GitCoreLive),
   Layer.provideMerge(GitHubCliLive),
-  Layer.provideMerge(TextGenerationLive),
+  Layer.provideMerge(TextGenerationLayerLive),
 );
 
 const GitLayerLive = Layer.empty.pipe(
@@ -241,13 +258,12 @@ const RuntimeDependenciesCoreLive = ReactorLayerLive.pipe(
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(KeybindingsLive),
-  Layer.provideMerge(ProviderRegistryLive),
+  Layer.provideMerge(ProviderRegistryLayerLive),
   // The instance registry is the new routing keystone — text generation,
   // adapter lookup, and runtime ingestion all resolve `ProviderInstanceId`
   // through this layer. Built-in drivers come from `BUILT_IN_DRIVERS`;
   // `providerInstances` hydration merges `settings.providers.<kind>`
   // with explicit `providerInstances` entries on boot.
-  Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
   // Shared native/canonical NDJSON writers used by both the per-instance
   // drivers (native stream, written from inside each `<X>Adapter`) and
   // `ProviderService` (canonical stream, written after event normalization).
@@ -268,7 +284,7 @@ const RuntimeDependenciesCoreLive = ReactorLayerLive.pipe(
 const ProjectIntelligenceResolverLayerLive = ProjectIntelligenceResolverLive.pipe(
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(GitLayerLive),
-  Layer.provideMerge(ProviderRegistryLive),
+  Layer.provideMerge(ProviderRegistryLayerLive),
   Layer.provideMerge(ServerSettingsLive),
   Layer.provideMerge(OrchestrationLayerLive),
 );
