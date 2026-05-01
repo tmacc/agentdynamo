@@ -2,6 +2,8 @@ import {
   CommandId,
   EventId,
   ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
   TeamTaskId,
   ThreadId,
   GitCommandError,
@@ -74,7 +76,9 @@ function makeEvent(input: {
 
 function provider(): ServerProvider {
   return {
-    provider: "codex",
+    instanceId: ProviderInstanceId.make("codex"),
+    driver: ProviderDriverKind.make("codex"),
+    displayName: "Codex",
     enabled: true,
     installed: true,
     version: "test",
@@ -104,7 +108,7 @@ function teamTask(overrides: Partial<OrchestrationTeamTask> = {}): Orchestration
     roleLabel: "Worker",
     kind: "coding",
     modelSelection: {
-      provider: "codex",
+      instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5.5",
     },
     modelSelectionMode: "coordinator-selected",
@@ -143,7 +147,7 @@ async function baseReadModel(
         title: "Project",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: {
-          provider: "codex",
+          instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5.5",
         },
         scripts: [],
@@ -160,7 +164,7 @@ async function baseReadModel(
         projectId: ProjectId.make("project-1"),
         title: "Parent",
         modelSelection: {
-          provider: "codex",
+          instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5.5",
         },
         runtimeMode: "full-access",
@@ -247,6 +251,7 @@ async function makeRuntime(input: {
   const registry = {
     getProviders: Effect.succeed([provider()]),
     refresh: () => Effect.succeed([provider()]),
+    refreshInstance: () => Effect.succeed([provider()]),
     streamChanges: Stream.empty,
   } satisfies ProviderRegistryShape;
   const git = {
@@ -311,7 +316,7 @@ describe("TeamOrchestrationService", () => {
       source: "native-provider",
       childThreadMaterialized: false,
       nativeProviderRef: {
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         providerItemId: "item-1",
       },
     });

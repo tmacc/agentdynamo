@@ -5,6 +5,7 @@ import type {
   ServerProvider,
   ServerSettings,
 } from "@t3tools/contracts";
+import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 
 import { selectTeamWorkerModel, TeamModelSelectionError } from "./teamModelSelection.ts";
 
@@ -17,19 +18,21 @@ const baseSettings = {
 } as ServerSettings;
 
 const baseThread = {
-  modelSelection: { provider: "codex", model: "gpt-5.4" },
-} as OrchestrationThread;
+  modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+} as unknown as OrchestrationThread;
 
 const baseProject = {
-  defaultModelSelection: { provider: "codex", model: "gpt-5.4" },
-} as OrchestrationProject;
+  defaultModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+} as unknown as OrchestrationProject;
 
 function provider(input: {
-  readonly provider: ServerProvider["provider"];
+  readonly provider: ServerProvider["driver"];
   readonly models: ReadonlyArray<{ readonly slug: string; readonly name: string }>;
 }): ServerProvider {
   return {
-    provider: input.provider,
+    instanceId: ProviderInstanceId.make(input.provider),
+    driver: input.provider,
+    displayName: input.provider,
     enabled: true,
     installed: true,
     version: "1.0.0",
@@ -55,13 +58,13 @@ describe("selectTeamWorkerModel", () => {
   it("normalizes requested provider model aliases", () => {
     const result = selectTeamWorkerModel({
       taskKind: "coding",
-      requestedProvider: "claudeAgent",
+      requestedProvider: ProviderDriverKind.make("claudeAgent"),
       requestedModel: "opus-4.7",
       parentThread: baseThread,
       project: baseProject,
       providers: [
         provider({
-          provider: "claudeAgent",
+          provider: ProviderDriverKind.make("claudeAgent"),
           models: [{ slug: "claude-opus-4-7", name: "Claude Opus 4.7" }],
         }),
       ],
@@ -69,7 +72,7 @@ describe("selectTeamWorkerModel", () => {
     });
 
     expect(result.modelSelection).toEqual({
-      provider: "claudeAgent",
+      instanceId: ProviderInstanceId.make("claudeAgent"),
       model: "claude-opus-4-7",
     });
     expect(result.mode).toBe("user-specified");
@@ -80,13 +83,13 @@ describe("selectTeamWorkerModel", () => {
     expect(() =>
       selectTeamWorkerModel({
         taskKind: "coding",
-        requestedProvider: "claudeAgent",
+        requestedProvider: ProviderDriverKind.make("claudeAgent"),
         requestedModel: "opus-4.7",
         parentThread: baseThread,
         project: baseProject,
         providers: [
           provider({
-            provider: "claudeAgent",
+            provider: ProviderDriverKind.make("claudeAgent"),
             models: [{ slug: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" }],
           }),
         ],

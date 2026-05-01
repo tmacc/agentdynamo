@@ -1,5 +1,5 @@
 import type { OrchestrationTeamTask, TeamTaskId, ThreadId } from "@t3tools/contracts";
-import { CheckIcon, ChevronRightIcon, ExternalLinkIcon, XIcon } from "lucide-react";
+import { BotIcon, CheckIcon, ChevronRightIcon, ExternalLinkIcon, XIcon } from "lucide-react";
 import { memo, useState, type MouseEvent } from "react";
 
 import { cn } from "~/lib/utils";
@@ -8,6 +8,7 @@ import {
   isDedicatedDynamoTeamWorktreeTask,
   isMaterializedDynamoTeamTask,
   teamTaskModelLabel,
+  teamTaskProviderDriver,
   teamTaskStatusClassName,
   teamTaskStatusLabel,
 } from "./TeamTaskShared";
@@ -74,7 +75,10 @@ const TeamTaskInlineRow = memo(function TeamTaskInlineRow({
 }) {
   const [open, setOpen] = useState(view.defaultOpen ?? false);
   const { task, diffSummary, elapsed } = view;
-  const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[task.modelSelection.provider];
+  const providerDriver = teamTaskProviderDriver(task);
+  const ProviderIcon = providerDriver
+    ? (PROVIDER_ICON_BY_PROVIDER[providerDriver] ?? BotIcon)
+    : BotIcon;
   const active = isActiveTeamTask(task);
   const isMaterializedDynamo = isMaterializedDynamoTeamTask(task);
   const isDedicatedDynamoWorktree = isDedicatedDynamoTeamWorktreeTask(task);

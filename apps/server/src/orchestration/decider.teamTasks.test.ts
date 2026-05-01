@@ -2,6 +2,8 @@ import {
   CommandId,
   EventId,
   ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
   TeamTaskId,
   ThreadId,
   type OrchestrationEvent,
@@ -14,6 +16,8 @@ import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
 const now = "2026-01-01T00:00:00.000Z";
+const codexProvider = ProviderDriverKind.make("codex");
+const codexInstance = ProviderInstanceId.make("codex");
 
 function makeEvent(input: {
   readonly sequence: number;
@@ -45,7 +49,7 @@ function nativeTask(overrides: Partial<OrchestrationTeamTask> = {}): Orchestrati
     roleLabel: null,
     kind: "general",
     modelSelection: {
-      provider: "codex",
+      instanceId: codexInstance,
       model: "gpt-5.5",
     },
     modelSelectionMode: "coordinator-selected",
@@ -58,7 +62,7 @@ function nativeTask(overrides: Partial<OrchestrationTeamTask> = {}): Orchestrati
     source: "native-provider",
     childThreadMaterialized: false,
     nativeProviderRef: {
-      provider: "codex",
+      provider: codexProvider,
       providerItemId: "item-1",
     },
     status: "running",
@@ -82,7 +86,7 @@ function dynamoTask(overrides: Partial<OrchestrationTeamTask> = {}): Orchestrati
     roleLabel: "Worker",
     kind: "coding",
     modelSelection: {
-      provider: "codex",
+      instanceId: codexInstance,
       model: "gpt-5.5",
     },
     modelSelectionMode: "coordinator-selected",
@@ -118,7 +122,7 @@ async function readModelWithParentThread() {
           projectId: ProjectId.make("project-1"),
           title: "Parent",
           modelSelection: {
-            provider: "codex",
+            instanceId: codexInstance,
             model: "gpt-5.5",
           },
           runtimeMode: "full-access",

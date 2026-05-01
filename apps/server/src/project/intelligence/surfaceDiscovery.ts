@@ -15,6 +15,7 @@ import type {
   ProjectScript,
   ProjectWorktreeSetupProfile,
 } from "@t3tools/contracts";
+import { ProviderDriverKind } from "@t3tools/contracts";
 import { approximateTokenCount, countNonEmptyLines } from "@t3tools/shared/codeStatsPolicy";
 
 import { createProjectIntelligenceSurfaceId } from "./surfaceIds.ts";
@@ -24,6 +25,8 @@ import type { DiscoveredProjectIntelligenceSurface } from "./types.ts";
 const EXCERPT_MAX_NON_EMPTY_LINES = 12;
 const EXCERPT_MAX_CHARS = 700;
 const MAX_DISCOVERY_FILES = 10_000;
+const CODEX_PROVIDER = ProviderDriverKind.make("codex");
+const CLAUDE_PROVIDER = ProviderDriverKind.make("claudeAgent");
 
 interface ProjectContext {
   readonly scripts: ReadonlyArray<ProjectScript>;
@@ -333,8 +336,8 @@ function parseSettingsVirtualSurfaces(input: {
       ].join("\n");
       surfaces.push(
         buildVirtualSurface({
-          owner: "claudeAgent",
-          provider: "claudeAgent",
+          owner: CLAUDE_PROVIDER,
+          provider: CLAUDE_PROVIDER,
           kind: "hook",
           label: `${eventName} hook`,
           path: `${input.settingsPath}#hook:${eventName}`,
@@ -362,8 +365,8 @@ function parseSettingsVirtualSurfaces(input: {
   for (const pluginId of enabledPlugins) {
     surfaces.push(
       buildVirtualSurface({
-        owner: "claudeAgent",
-        provider: "claudeAgent",
+        owner: CLAUDE_PROVIDER,
+        provider: CLAUDE_PROVIDER,
         kind: "plugin",
         label: pluginId,
         path: `plugin://claudeAgent/${pluginId}`,
@@ -408,7 +411,7 @@ async function addProjectRootSurfaces(input: {
   await addFileIfExists(input.surfaces, {
     filePath: path.join(input.cwd, "CLAUDE.md"),
     owner: "shared",
-    provider: "claudeAgent",
+    provider: CLAUDE_PROVIDER,
     kind: "instruction",
     scope: input.scope,
     activation: "always-loaded",
@@ -416,8 +419,8 @@ async function addProjectRootSurfaces(input: {
   });
   await addFileIfExists(input.surfaces, {
     filePath: path.join(input.cwd, ".codex", "AGENTS.md"),
-    owner: "codex",
-    provider: "codex",
+    owner: CODEX_PROVIDER,
+    provider: CODEX_PROVIDER,
     kind: "instruction",
     scope: input.scope,
     activation: "always-loaded",
@@ -430,8 +433,8 @@ async function addProjectRootSurfaces(input: {
   )) {
     const surface = await buildFileSurface({
       filePath: skillPath,
-      owner: "codex",
-      provider: "codex",
+      owner: CODEX_PROVIDER,
+      provider: CODEX_PROVIDER,
       kind: "skill",
       scope: input.scope,
       activation: "on-skill-match",
@@ -445,8 +448,8 @@ async function addProjectRootSurfaces(input: {
   )) {
     const surface = await buildFileSurface({
       filePath: skillPath,
-      owner: "codex",
-      provider: "codex",
+      owner: CODEX_PROVIDER,
+      provider: CODEX_PROVIDER,
       kind: "skill",
       scope: input.scope,
       activation: "on-skill-match",
@@ -459,8 +462,8 @@ async function addProjectRootSurfaces(input: {
   )) {
     const surface = await buildFileSurface({
       filePath: agentPath,
-      owner: "claudeAgent",
-      provider: "claudeAgent",
+      owner: CLAUDE_PROVIDER,
+      provider: CLAUDE_PROVIDER,
       kind: "custom-agent",
       scope: input.scope,
       activation: "on-agent-invoke",
@@ -473,8 +476,8 @@ async function addProjectRootSurfaces(input: {
   )) {
     const surface = await buildFileSurface({
       filePath: commandPath,
-      owner: "claudeAgent",
-      provider: "claudeAgent",
+      owner: CLAUDE_PROVIDER,
+      provider: CLAUDE_PROVIDER,
       kind: "slash-command",
       scope: input.scope,
       activation: "on-command",
@@ -489,8 +492,8 @@ async function addProjectRootSurfaces(input: {
   ]) {
     const settingsSurface = await buildFileSurface({
       filePath: settingsPath,
-      owner: "claudeAgent",
-      provider: "claudeAgent",
+      owner: CLAUDE_PROVIDER,
+      provider: CLAUDE_PROVIDER,
       kind: "settings",
       scope: input.scope,
       activation: "runtime-config",
@@ -539,8 +542,8 @@ async function addUserSurfaces(input: {
 
   await addFileIfExists(input.surfaces, {
     filePath: path.join(input.codexHome, "AGENTS.md"),
-    owner: "codex",
-    provider: "codex",
+    owner: CODEX_PROVIDER,
+    provider: CODEX_PROVIDER,
     kind: "instruction",
     scope: "user",
     activation: "always-loaded",
@@ -551,8 +554,8 @@ async function addUserSurfaces(input: {
     const resolvedScope = skillPath.includes(`${path.sep}.system${path.sep}`) ? "system" : "user";
     const surface = await buildFileSurface({
       filePath: skillPath,
-      owner: "codex",
-      provider: "codex",
+      owner: CODEX_PROVIDER,
+      provider: CODEX_PROVIDER,
       kind: "skill",
       scope: resolvedScope,
       activation: "on-skill-match",
@@ -564,8 +567,8 @@ async function addUserSurfaces(input: {
   for (const skillPath of await findNamedFiles(path.join(agentsHome, "skills"), "SKILL.md")) {
     const surface = await buildFileSurface({
       filePath: skillPath,
-      owner: "codex",
-      provider: "codex",
+      owner: CODEX_PROVIDER,
+      provider: CODEX_PROVIDER,
       kind: "skill",
       scope: "user",
       activation: "on-skill-match",
@@ -577,8 +580,8 @@ async function addUserSurfaces(input: {
   for (const agentPath of await listTopLevelMarkdownFiles(path.join(claudeHome, "agents"))) {
     const surface = await buildFileSurface({
       filePath: agentPath,
-      owner: "claudeAgent",
-      provider: "claudeAgent",
+      owner: CLAUDE_PROVIDER,
+      provider: CLAUDE_PROVIDER,
       kind: "custom-agent",
       scope: "user",
       activation: "on-agent-invoke",
@@ -590,8 +593,8 @@ async function addUserSurfaces(input: {
   for (const commandPath of await listTopLevelMarkdownFiles(path.join(claudeHome, "commands"))) {
     const surface = await buildFileSurface({
       filePath: commandPath,
-      owner: "claudeAgent",
-      provider: "claudeAgent",
+      owner: CLAUDE_PROVIDER,
+      provider: CLAUDE_PROVIDER,
       kind: "slash-command",
       scope: "user",
       activation: "on-command",
@@ -607,8 +610,8 @@ async function addUserSurfaces(input: {
   ]) {
     const settingsSurface = await buildFileSurface({
       filePath: settingsPath,
-      owner: "claudeAgent",
-      provider: "claudeAgent",
+      owner: CLAUDE_PROVIDER,
+      provider: CLAUDE_PROVIDER,
       kind: "settings",
       scope: "user",
       activation: "runtime-config",
@@ -638,8 +641,8 @@ async function addUserSurfaces(input: {
   for (const memoryPath of await listTopLevelMarkdownFiles(memoryDir)) {
     const surface = await buildFileSurface({
       filePath: memoryPath,
-      owner: "claudeAgent",
-      provider: "claudeAgent",
+      owner: CLAUDE_PROVIDER,
+      provider: CLAUDE_PROVIDER,
       kind: "memory",
       scope: "user",
       activation: "separate-memory",

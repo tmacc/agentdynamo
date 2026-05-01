@@ -1,3 +1,4 @@
+import { ProviderDriverKind } from "@t3tools/contracts";
 import type { ProviderKind } from "@t3tools/contracts";
 import type {
   ProjectIntelligenceActivation,
@@ -34,18 +35,23 @@ export const SECTION_DESCRIPTIONS: Record<ProjectIntelligenceSectionId, string> 
   warnings: "Actionable issues found while resolving project intelligence.",
 };
 
-export const PROVIDER_LABELS: Record<ProviderKind, string> = {
-  codex: "Codex",
-  claudeAgent: "Claude Code",
-  cursor: "Cursor",
-  opencode: "OpenCode",
+const CODEX_PROVIDER = ProviderDriverKind.make("codex");
+const CLAUDE_PROVIDER = ProviderDriverKind.make("claudeAgent");
+const CURSOR_PROVIDER = ProviderDriverKind.make("cursor");
+const OPENCODE_PROVIDER = ProviderDriverKind.make("opencode");
+
+export const PROVIDER_LABELS: Partial<Record<ProviderKind, string>> = {
+  [CODEX_PROVIDER]: "Codex",
+  [CLAUDE_PROVIDER]: "Claude Code",
+  [CURSOR_PROVIDER]: "Cursor",
+  [OPENCODE_PROVIDER]: "OpenCode",
 };
 
-export const OWNER_LABELS: Record<ProjectIntelligenceOwner, string> = {
-  codex: "Codex",
-  claudeAgent: "Claude Code",
-  cursor: "Cursor",
-  opencode: "OpenCode",
+export const OWNER_LABELS: Partial<Record<ProjectIntelligenceOwner, string>> = {
+  [CODEX_PROVIDER]: "Codex",
+  [CLAUDE_PROVIDER]: "Claude Code",
+  [CURSOR_PROVIDER]: "Cursor",
+  [OPENCODE_PROVIDER]: "OpenCode",
   shared: "Shared",
   dynamo: "Dynamo",
 };

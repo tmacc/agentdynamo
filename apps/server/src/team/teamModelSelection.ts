@@ -3,6 +3,7 @@ import {
   type ModelSelection,
   type OrchestrationProject,
   type OrchestrationThread,
+  type ProviderInstanceId,
   type ProviderKind,
   type ServerProvider,
   type ServerSettings,
@@ -34,8 +35,8 @@ export class TeamModelSelectionError extends Error {
   }
 }
 
-function createSelection(provider: ProviderKind, model: string): ModelSelection {
-  return { provider, model } as ModelSelection;
+function createSelection(instanceId: ProviderInstanceId, model: string): ModelSelection {
+  return { instanceId, model };
 }
 
 function enabledWorkerProviders(
@@ -56,7 +57,7 @@ function resolveRequestedModel(
   model: string | undefined,
 ): string | null {
   if (!provider || !model) return null;
-  return resolveSelectableModel(provider.provider, model, provider.models);
+  return resolveSelectableModel(provider.driver, model, provider.models);
 }
 
 function isValidSelection(
@@ -65,7 +66,7 @@ function isValidSelection(
 ): selection is ModelSelection {
   if (!selection) return false;
   const provider = enabledWorkerProviders(providers).find(
-    (candidate) => candidate.provider === selection.provider,
+    (candidate) => candidate.instanceId === selection.instanceId,
   );
   return resolveRequestedModel(provider, selection.model) === selection.model;
 }
@@ -110,10 +111,18 @@ function modelScore(model: ServerProvider["models"][number], taskKind: TeamTaskK
   const teamCaps = model.teamCapabilities;
   const preferred = teamCaps?.preferredTaskKinds.includes(taskKind) ? 30 : 0;
   const rank = teamCaps?.workerRank ?? 50;
-  const effortScore = (caps?.reasoningEffortLevels.length ?? 0) * 3;
-  const thinkingScore = caps?.supportsThinkingToggle ? 4 : 0;
+  const effortScore =
+    (caps?.optionDescriptors?.find((descriptor) => descriptor.id === "effort")?.type === "select"
+      ? 1
+      : 0) * 3;
+  const thinkingScore =
+    caps?.optionDescriptors?.some((descriptor) => descriptor.id === "thinking") === true ? 4 : 0;
   const fastScore =
-    taskKind === "exploration" || taskKind === "docs" ? (caps?.supportsFastMode ? 8 : 0) : 0;
+    taskKind === "exploration" || taskKind === "docs"
+      ? caps?.optionDescriptors?.some((descriptor) => descriptor.id === "fastMode") === true
+        ? 8
+        : 0
+      : 0;
   const customPenalty = model.isCustom ? -5 : 0;
   return preferred + rank + effortScore + thinkingScore + fastScore + customPenalty;
 }
@@ -121,13 +130,27 @@ function modelScore(model: ServerProvider["models"][number], taskKind: TeamTaskK
 function bestAvailableSelection(
   providers: ReadonlyArray<ServerProvider>,
   taskKind: TeamTaskKind,
-): { readonly provider: ProviderKind; readonly model: string } | null {
-  let best: { provider: ProviderKind; model: string; score: number } | null = null;
+): {
+  readonly driver: ProviderKind;
+  readonly instanceId: ProviderInstanceId;
+  readonly model: string;
+} | null {
+  let best: {
+    driver: ProviderKind;
+    instanceId: ProviderInstanceId;
+    model: string;
+    score: number;
+  } | null = null;
   for (const provider of enabledWorkerProviders(providers)) {
     for (const model of provider.models) {
-      const score = taskKindScore(taskKind, provider.provider) + modelScore(model, taskKind);
+      const score = taskKindScore(taskKind, provider.driver) + modelScore(model, taskKind);
       if (!best || score > best.score) {
-        best = { provider: provider.provider, model: model.slug, score };
+        best = {
+          driver: provider.driver,
+          instanceId: provider.instanceId,
+          model: model.slug,
+          score,
+        };
       }
     }
   }
@@ -141,16 +164,16 @@ export function selectTeamWorkerModel(input: SelectTeamWorkerModelInput): TeamMo
   }
 
   if (input.requestedProvider || input.requestedModel) {
-    const provider = providers.find((entry) => entry.provider === input.requestedProvider);
+    const provider = providers.find((entry) => entry.driver === input.requestedProvider);
     const requestedModel = resolveRequestedModel(provider, input.requestedModel);
     if (provider && requestedModel) {
       return {
-        modelSelection: createSelection(provider.provider, requestedModel),
+        modelSelection: createSelection(provider.instanceId, requestedModel),
         mode: "user-specified",
         reason:
           requestedModel === input.requestedModel
-            ? `Coordinator requested ${provider.provider}/${requestedModel}.`
-            : `Coordinator requested ${provider.provider}/${input.requestedModel}; normalized to ${requestedModel}.`,
+            ? `Coordinator requested ${provider.driver}/${requestedModel}.`
+            : `Coordinator requested ${provider.driver}/${input.requestedModel}; normalized to ${requestedModel}.`,
       };
     }
     throw new TeamModelSelectionError(
@@ -161,7 +184,7 @@ export function selectTeamWorkerModel(input: SelectTeamWorkerModelInput): TeamMo
   const best = bestAvailableSelection(providers, input.taskKind);
   if (best) {
     return {
-      modelSelection: createSelection(best.provider, best.model),
+      modelSelection: createSelection(best.instanceId, best.model),
       mode: "coordinator-selected",
       reason: `Selected as the best available ${input.taskKind} worker from installed providers.`,
     };
@@ -187,8 +210,8 @@ export function selectTeamWorkerModel(input: SelectTeamWorkerModelInput): TeamMo
   if (provider && model) {
     return {
       modelSelection: createSelection(
-        provider.provider,
-        model.slug ?? DEFAULT_MODEL_BY_PROVIDER[provider.provider],
+        provider.instanceId,
+        model.slug ?? DEFAULT_MODEL_BY_PROVIDER[provider.driver] ?? model.slug,
       ),
       mode: "fallback",
       reason: "Fell back to the first available worker model.",

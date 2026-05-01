@@ -29,6 +29,9 @@ Long term maintainability is a core priority. If you add new functionality, firs
 - Any new feature or bugfix that changes upstream-derived code, or changes behavior we expect to preserve across upstream merges, must update `PATCH.md` in the same change.
 - Keep `PATCH.md` entries concrete: user-visible behavior, key files/modules, invariants, merge hotspots, and verification steps.
 - Before merging or rebasing from upstream, review `PATCH.md` and treat every listed item as a preservation checklist.
+- Track the last successfully integrated upstream commit with the shared `origin/upstream-sync-base` branch. Before an upstream sync, compare `origin/upstream-sync-base..upstream/main` rather than relying on the fork branch's local merge-base.
+- After an upstream sync is merged, verified, and recorded in `PATCH.md`, advance `upstream-sync-base` to the upstream commit that was integrated and push it to `origin`.
+- Do not use the upstream merge playbook for normal fork branch updates from `origin/main` or for merging fork PR branches. Those operations should not move `upstream-sync-base` and do not require `PATCH.md` updates unless they introduce or change fork-only behavior.
 
 ## Package Roles
 
