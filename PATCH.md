@@ -202,6 +202,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 - `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce`.
 - `User-visible behavior`: Project-level board with stored columns (`ideas`, `planned`) and derived columns (`in-progress`, `review`, `done`) computed from thread/runtime state. Supports card creation, drag/drop reordering, linked threads, ghost cards, seeded prompts, board-scoped routing, and adding implementation work from proposed plans directly into the board.
+- `User-visible behavior`: Starting an agent from an unlinked board card opens a fresh draft in Plan mode with `New worktree` selected from base branch `main`, instead of inheriting the currently open thread or draft branch/worktree.
 - `Why it exists`: Gives Dynamo a lightweight planning surface tied directly to real agent threads instead of separate project-management tooling.
 - `Key fork files`:
   - `packages/contracts/src/board.ts`
@@ -213,15 +214,18 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/boardRouteSearch.ts`
   - `apps/web/src/boardStore.ts`
   - `apps/web/src/boardUiStore.ts`
+  - `apps/web/src/hooks/useHandleNewThread.ts`
   - `apps/web/src/components/board/BoardView.tsx`
   - `apps/web/src/components/board/BoardCardSheet.tsx`
   - `apps/web/src/routes/_chat.tsx`
+  - `apps/web/src/lib/chatThreadActions.ts`
   - `apps/web/src/components/chat/ChatHeader.tsx`
   - `apps/web/src/components/chat/ProposedPlanCard.tsx`
 - `Important invariants`:
   - Stored columns are authoritative on the server.
   - Derived columns are recomputed from thread state and git/runtime signals.
   - Card-to-thread linking must stay unique and stable.
+  - Board-started agents represent independent tasks and must default to Plan mode plus a new worktree from `main`; the user may still override those draft settings before sending the first message.
   - Ghost-card dismissals must persist across reloads.
   - Board route state must survive thread and draft navigation without leaking board params into normal thread opens.
   - Fork-only migration ids that are moved or reused during upstream syncs require a later idempotent ensure migration; board table DDL is re-run at migration id `044` so databases whose receipts advanced past old ids `026`/`027` still get `projection_board_cards`, `projection_board_dismissed_ghosts`, and their indexes.
