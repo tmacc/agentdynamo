@@ -10,9 +10,10 @@ export default mergeConfig(
       // runtimes heavily. Running files in parallel introduces load-sensitive flakes.
       fileParallelism: false,
       // Server integration tests exercise sqlite, git, and orchestration together.
-      // Under package-wide parallel runs they regularly exceed the default 15s budget.
-      testTimeout: 60_000,
-      hookTimeout: 60_000,
+      // CI runners can spend long stretches in sqlite/git/provider projection waits
+      // during package-wide runs, so keep the Vitest budget above the harness wait.
+      testTimeout: 120_000,
+      hookTimeout: 120_000,
     },
   }),
 );
