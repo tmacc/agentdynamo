@@ -356,7 +356,7 @@ describe("ClaudeAdapterLive", () => {
         const adapter = yield* ClaudeAdapter;
         yield* adapter.startSession({
           threadId: THREAD_ID,
-          provider: "claudeAgent",
+          provider: ProviderDriverKind.make("claudeAgent"),
           runtimeMode: "full-access",
           teamCoordinator: {
             parentThreadId: THREAD_ID,

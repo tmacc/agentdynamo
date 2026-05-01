@@ -5,7 +5,7 @@ import { runMigrations } from "../../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { TeamCoordinatorAccess } from "../Services/TeamCoordinatorAccess.ts";
 import { TeamCoordinatorAccessLive } from "./TeamCoordinatorAccess.ts";
-import { ThreadId, TeamCoordinatorGrantId } from "@t3tools/contracts";
+import { ProviderDriverKind, ThreadId, TeamCoordinatorGrantId } from "@t3tools/contracts";
 
 const layer = it.layer(
   TeamCoordinatorAccessLive.pipe(Layer.provideMerge(NodeSqliteClient.layerMemory())),
@@ -17,8 +17,14 @@ layer("TeamCoordinatorAccess", (it) => {
       yield* runMigrations({ toMigrationInclusive: 45 });
       const access = yield* TeamCoordinatorAccess;
       const parentThreadId = ThreadId.make("thread-team-access");
-      const first = yield* access.issueGrant({ parentThreadId, provider: "codex" });
-      const second = yield* access.issueGrant({ parentThreadId, provider: "codex" });
+      const first = yield* access.issueGrant({
+        parentThreadId,
+        provider: ProviderDriverKind.make("codex"),
+      });
+      const second = yield* access.issueGrant({
+        parentThreadId,
+        provider: ProviderDriverKind.make("codex"),
+      });
 
       yield* access.revokeOtherGrantsForThread({
         parentThreadId,
@@ -38,8 +44,14 @@ layer("TeamCoordinatorAccess", (it) => {
       yield* runMigrations({ toMigrationInclusive: 45 });
       const access = yield* TeamCoordinatorAccess;
       const parentThreadId = ThreadId.make("thread-team-access-single");
-      const first = yield* access.issueGrant({ parentThreadId, provider: "codex" });
-      const second = yield* access.issueGrant({ parentThreadId, provider: "codex" });
+      const first = yield* access.issueGrant({
+        parentThreadId,
+        provider: ProviderDriverKind.make("codex"),
+      });
+      const second = yield* access.issueGrant({
+        parentThreadId,
+        provider: ProviderDriverKind.make("codex"),
+      });
 
       yield* access.revokeGrant({ grantId: second.grantId });
 

@@ -205,7 +205,8 @@ export function buildServerProvider(input: {
     ...(input.probe.message ? { message: input.probe.message } : {}),
     models: input.models,
     teamCapabilities: {
-      supportsCoordinatorTools: input.provider === "codex" || input.provider === "claudeAgent",
+      supportsCoordinatorTools:
+        input.presentation.displayName === "Codex" || input.presentation.displayName === "Claude",
       supportsWorker: true,
     },
     slashCommands: [...(input.slashCommands ?? [])],

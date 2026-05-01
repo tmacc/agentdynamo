@@ -283,7 +283,7 @@ validationLayer("CodexAdapterLive validation", (it) => {
       const adapter = yield* CodexAdapter;
 
       yield* adapter.startSession({
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-team"),
         runtimeMode: "full-access",
         teamCoordinator: {

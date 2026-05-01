@@ -187,7 +187,7 @@ export function renderTeamChildPrompt(input: TeamTaskContextInput): {
     `Assigned task title: ${input.title}`,
     input.roleLabel ? `Assigned role: ${input.roleLabel}` : null,
     `Task kind: ${taskKind}`,
-    `Selected worker: ${input.modelSelection.provider}/${input.modelSelection.model}`,
+    `Selected worker: ${input.modelSelection.instanceId}/${input.modelSelection.model}`,
     `Selection reason: ${input.modelSelectionReason}`,
     `Workspace policy: ${input.workspaceMode} -> ${policy.resolvedWorkspaceMode}`,
     `Setup policy: ${input.setupMode} -> ${policy.resolvedSetupMode}`,

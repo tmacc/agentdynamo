@@ -4,6 +4,7 @@ import {
   type FeatureCardId,
   type IsoDateTime,
   type ProjectId,
+  ProviderDriverKind,
   type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
@@ -61,7 +62,7 @@ function makeThread(
 
 function runningSession(): ThreadSession {
   return {
-    provider: "codex",
+    provider: ProviderDriverKind.make("codex"),
     status: "running",
     orchestrationStatus: "running",
     activeTurnId: "turn-1" as TurnId,
@@ -72,7 +73,7 @@ function runningSession(): ThreadSession {
 
 function settledSession(): ThreadSession {
   return {
-    provider: "codex",
+    provider: ProviderDriverKind.make("codex"),
     status: "ready",
     orchestrationStatus: "idle",
     createdAt: "2026-01-01T00:00:00.000Z",

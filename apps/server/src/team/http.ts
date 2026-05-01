@@ -76,7 +76,7 @@ function describeWorkerModels(providers: ReadonlyArray<ServerProvider>): string 
         .slice(0, 8)
         .map((model) => model.slug)
         .join(", ");
-      return `${provider.provider}: ${models}`;
+      return `${provider.instanceId}: ${models}`;
     });
 
   return lines.length > 0

@@ -20,7 +20,38 @@
 - Range command: `git log --oneline origin/upstream-sync-base..upstream/main`
 - Count command: `git rev-list --count origin/upstream-sync-base..upstream/main`
 - Advance after successful sync: `git branch -f upstream-sync-base <integrated-upstream-tip>` followed by `git push origin upstream-sync-base`
-- Current reconstructed marker: upstream commit equivalent to `327499aa` from the `2026-04-23` merge is `b0b7b38d` (`fix(server): detect localized Windows command errors (#2152)`). This should be used to initialize `upstream-sync-base` unless a later verified upstream sync marker already exists on `origin`.
+- Previous reconstructed marker: upstream commit equivalent to `327499aa` from the `2026-04-23` merge is `b0b7b38d` (`fix(server): detect localized Windows command errors (#2152)`).
+- Current integrated marker: upstream `17b43960` (`Add structured Discord webhook logging for release notifications (#2431)`) verified on branch `t3code/upstream-sync-2026-04-30`.
+
+## Upstream Sync Log
+
+### 2026-05-01 - Replay upstream `b0b7b38d..17b43960`
+
+- `Status`: verified on integration branch `t3code/upstream-sync-2026-04-30`.
+- `Range integrated`: `b0b7b38da1dc4b19833d13f84eb907b1e2adfb63..17b43960e86335534c63fb2b93ea68300b3bcc62`.
+- `Previous marker`: `b0b7b38d` was a reconstructed equivalent of the last upstream commit included in the fork's `2026-04-23` merge, because fork-local replayed commits made `HEAD..upstream/main` report already-integrated history as new.
+- `New marker after verification`: `17b43960e86335534c63fb2b93ea68300b3bcc62`.
+- `Integration method`: replayed upstream commits onto current `origin/main` with conflict resolution and fork compatibility commits, rather than relying on Git's merge-base between divergent histories.
+- `Skipped upstream commit`: `ada410bc` (`chore(release): prepare v0.0.21`) because it is a release version bump only and conflicts with Dynamo release/version ownership.
+- `Adopted upstream behavior`:
+  - Provider model selection option arrays and provider-instance model selection.
+  - OpenCode README/provider updates and Windows PATH handling.
+  - Stale runtime/lifecycle fixes for WebSocket reconnects, snapshots, permissions, visited timestamps, terminal dimensions, PR branch status, request-permission command input, and release scripts.
+  - Mobile web fixes for iOS safe areas, input focus, file picker scrolling, sidebar/new-thread/archive visibility, and diff panel closing in non-Git projects.
+  - Electron `40.9.3` trusted dependency bump.
+  - Release workflow optimization and Discord release announcement plumbing, while keeping Dynamo runner/release policy.
+- `Fork behavior preserved`:
+  - Dynamo branding, docs, release naming, storage isolation, and GitHub-hosted release workflow choices.
+  - Dynamo team coordinator tools, child-agent drawer semantics, grants, team task projections, child worktree review/apply, and native-provider task mirroring.
+  - Board projections, forked-thread context handoff, provider account identity, worktree branch metadata guards, and new-worktree default branch behavior.
+  - Project intelligence surfaces and provider-discovery behavior adapted to upstream's provider-instance model.
+- `Merge notes`:
+  - Upstream migrations `026`, `027`, and `028` were remapped to Dynamo-local `046`, `047`, and `048` to avoid colliding with existing fork-only migrations.
+  - Team task and context-handoff code now stores upstream's `ModelSelection.instanceId` shape while preserving driver-oriented UI labels and coordinator routing where only a provider driver is available.
+  - Multi-provider provider snapshots are stamped with `instanceId` and `driver`; Dynamo team worker selection uses provider instances for execution and provider drivers for scoring.
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Run focused migration/team/orchestration/web tests for the remapped migrations, provider-instance team selection, provider runtime ingestion, coordinator access, team task presentation, project intelligence presentation, board projection, and store projections.
 
 ## Current Baseline
 

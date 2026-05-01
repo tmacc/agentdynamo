@@ -7,6 +7,7 @@ import {
   MessageId,
   TeamTaskId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
   TurnId,
@@ -98,7 +99,7 @@ function makeTeamTask(overrides: Partial<OrchestrationTeamTask> = {}): Orchestra
     roleLabel: "Research",
     kind: "exploration",
     modelSelection: {
-      provider: "codex",
+      instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5.5",
     },
     modelSelectionMode: "coordinator-selected",
@@ -492,7 +493,7 @@ describe("thread selection memoization", () => {
       source: "native-provider",
       childThreadMaterialized: false,
       nativeProviderRef: {
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         providerItemId: "item-1",
       },
     });
@@ -533,7 +534,7 @@ describe("thread selection memoization", () => {
       source: "native-provider",
       childThreadMaterialized: false,
       nativeProviderRef: {
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         providerItemId: "item-1",
       },
     });

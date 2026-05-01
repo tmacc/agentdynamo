@@ -2,6 +2,7 @@ import {
   ContextHandoffId,
   MessageId,
   OrchestrationProposedPlanId,
+  ProviderDriverKind,
   ThreadId,
   TurnId,
   type OrchestrationMessage,
@@ -14,6 +15,7 @@ import { renderContextHandoff, type ContextHandoffRenderableThread } from "./con
 const threadId = ThreadId.make("thread-context-handoff");
 const sourceThreadId = ThreadId.make("source-thread-context-handoff");
 const liveMessageId = MessageId.make("live-message");
+const codexProvider = ProviderDriverKind.make("codex");
 
 function message(input: {
   readonly id: string;
@@ -44,7 +46,7 @@ function makeHandoff(
     sourceThreadId,
     sourceThreadTitle: "Source thread",
     sourceUserMessageId: MessageId.make("source-user-message"),
-    targetProvider: "codex",
+    targetProvider: codexProvider,
     importedUntilAt: "2026-01-01T00:00:03.000Z",
     createdAt: "2026-01-01T00:00:04.000Z",
     status: "pending",
@@ -120,7 +122,7 @@ describe("renderContextHandoff", () => {
       thread: makeThread(),
       handoff: makeHandoff(),
       liveMessage,
-      targetProvider: "codex",
+      targetProvider: codexProvider,
       maxInputChars: 20_000,
       reserveChars: 500,
     });
@@ -158,7 +160,7 @@ describe("renderContextHandoff", () => {
       thread,
       handoff: makeHandoff(),
       liveMessage,
-      targetProvider: "codex",
+      targetProvider: codexProvider,
       maxInputChars: 1_050,
       reserveChars: 0,
     });
@@ -176,7 +178,7 @@ describe("renderContextHandoff", () => {
       thread: makeThread(),
       handoff: makeHandoff(),
       liveMessage,
-      targetProvider: "codex",
+      targetProvider: codexProvider,
       maxInputChars: 20,
       reserveChars: 0,
     });
@@ -203,12 +205,12 @@ describe("renderContextHandoff", () => {
         handoff: makeHandoff({
           status: "delivered",
           deliveredAt: "2026-01-01T00:00:06.000Z",
-          deliveredProvider: "codex",
+          deliveredProvider: codexProvider,
           deliveredTurnId: TurnId.make("turn-delivered"),
           deliveredLiveMessageId: liveMessageId,
         }),
         liveMessage,
-        targetProvider: "codex",
+        targetProvider: codexProvider,
         maxInputChars: 20_000,
         reserveChars: 500,
       }),

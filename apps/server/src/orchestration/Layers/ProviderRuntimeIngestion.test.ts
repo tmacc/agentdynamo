@@ -2855,7 +2855,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "task.started",
       eventId: asEventId("evt-claude-task-started"),
-      provider: "claudeAgent",
+      provider: ProviderDriverKind.make("claudeAgent"),
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-claude-native"),
@@ -2876,10 +2876,10 @@ describe("ProviderRuntimeIngestion", () => {
       childThreadMaterialized: false,
       status: "running",
       modelSelection: {
-        provider: "claudeAgent",
+        instanceId: ProviderInstanceId.make("claudeAgent"),
       },
       nativeProviderRef: {
-        provider: "claudeAgent",
+        provider: ProviderDriverKind.make("claudeAgent"),
         providerTaskId: "claude-task-1",
         providerTurnId: "turn-claude-native",
       },
@@ -2888,7 +2888,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "task.progress",
       eventId: asEventId("evt-claude-task-progress"),
-      provider: "claudeAgent",
+      provider: ProviderDriverKind.make("claudeAgent"),
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-claude-native"),
@@ -2910,7 +2910,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "task.completed",
       eventId: asEventId("evt-claude-task-completed"),
-      provider: "claudeAgent",
+      provider: ProviderDriverKind.make("claudeAgent"),
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-claude-native"),
@@ -2937,7 +2937,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "task.completed",
       eventId: asEventId("evt-claude-task-failed"),
-      provider: "claudeAgent",
+      provider: ProviderDriverKind.make("claudeAgent"),
       createdAt: now,
       threadId: asThreadId("thread-1"),
       payload: {
@@ -2949,7 +2949,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "task.completed",
       eventId: asEventId("evt-claude-task-stopped"),
-      provider: "claudeAgent",
+      provider: ProviderDriverKind.make("claudeAgent"),
       createdAt: now,
       threadId: asThreadId("thread-1"),
       payload: {
@@ -2978,7 +2978,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "item.started",
       eventId: asEventId("evt-codex-collab-started"),
-      provider: "codex",
+      provider: ProviderDriverKind.make("codex"),
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-codex-native"),
@@ -3005,7 +3005,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "item.completed",
       eventId: asEventId("evt-codex-collab-completed"),
-      provider: "codex",
+      provider: ProviderDriverKind.make("codex"),
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-codex-native"),
@@ -3044,7 +3044,7 @@ describe("ProviderRuntimeIngestion", () => {
       childThreadMaterialized: false,
       status: "running",
       nativeProviderRef: {
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         providerItemId: "item-collab-1",
         providerThreadIds: ["provider-thread-child-1"],
         toolName: "spawnAgent",
@@ -3055,7 +3055,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "item.completed",
       eventId: asEventId("evt-codex-collab-wait-completed"),
-      provider: "codex",
+      provider: ProviderDriverKind.make("codex"),
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-codex-native"),
@@ -3093,7 +3093,7 @@ describe("ProviderRuntimeIngestion", () => {
     task = nativeTasks[0];
     expect(task?.completedAt).not.toBeNull();
     expect(task?.nativeProviderRef).toMatchObject({
-      provider: "codex",
+      provider: ProviderDriverKind.make("codex"),
       providerItemId: "item-collab-wait-1",
       providerThreadIds: ["provider-thread-child-1"],
       toolName: "wait",
@@ -3107,7 +3107,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "item.started",
       eventId: asEventId("evt-codex-command-started"),
-      provider: "codex",
+      provider: ProviderDriverKind.make("codex"),
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-codex-command"),

@@ -1,5 +1,7 @@
 import {
   EnvironmentId,
+  ProviderDriverKind,
+  ProviderInstanceId,
   TeamTaskId,
   ThreadId,
   type OrchestrationTeamTask,
@@ -31,7 +33,7 @@ function task(overrides: Partial<OrchestrationTeamTask> = {}): OrchestrationTeam
     roleLabel: null,
     kind: "general",
     modelSelection: {
-      provider: "codex",
+      instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5.5",
     },
     modelSelectionMode: "coordinator-selected",
@@ -61,7 +63,7 @@ describe("TeamTaskShared", () => {
       source: "native-provider",
       childThreadMaterialized: false,
       nativeProviderRef: {
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         providerItemId: "item-1",
       },
     });
@@ -97,7 +99,7 @@ describe("TeamTaskShared", () => {
       childThreadMaterialized: false,
       childThreadId: ThreadId.make("native-child:codex:item-1"),
       nativeProviderRef: {
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         providerItemId: "item-1",
       },
       status: "completed",

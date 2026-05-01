@@ -1,4 +1,5 @@
-import type { OrchestrationTeamTask, ProviderKind } from "@t3tools/contracts";
+import { ProviderDriverKind } from "@t3tools/contracts";
+import type { OrchestrationTeamTask } from "@t3tools/contracts";
 import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
 import {
   isDedicatedDynamoTeamWorktreeTask,
@@ -60,9 +61,13 @@ export function teamTaskStatusClassName(status: OrchestrationTeamTask["status"])
   }
 }
 
+export function teamTaskProviderDriver(task: OrchestrationTeamTask): ProviderDriverKind | null {
+  return ProviderDriverKind.make(String(task.modelSelection.instanceId));
+}
+
 export function teamTaskModelLabel(task: OrchestrationTeamTask): string {
-  const provider = task.modelSelection.provider as ProviderKind;
-  const providerLabel = PROVIDER_DISPLAY_NAMES[provider] ?? provider;
+  const provider = teamTaskProviderDriver(task);
+  const providerLabel = provider ? (PROVIDER_DISPLAY_NAMES[provider] ?? provider) : "Provider";
   const sourceLabel = isNativeProviderTeamTask(task) ? " · native" : "";
   return `${providerLabel} ${task.modelSelection.model}${sourceLabel}`;
 }

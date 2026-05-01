@@ -4,7 +4,9 @@ import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
   CommandId,
+  DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
+  defaultInstanceIdForDriver,
   MessageId,
   NativeSubagentTraceItemId,
   type ModelSelection,
@@ -124,11 +126,11 @@ function nativeTaskModelSelection(input: {
   readonly provider: ProviderKind;
   readonly parentModelSelection: ModelSelection;
 }): ModelSelection {
-  return input.parentModelSelection.provider === input.provider
+  return input.parentModelSelection.instanceId === defaultInstanceIdForDriver(input.provider)
     ? input.parentModelSelection
     : {
-        provider: input.provider,
-        model: DEFAULT_MODEL_BY_PROVIDER[input.provider],
+        instanceId: defaultInstanceIdForDriver(input.provider),
+        model: DEFAULT_MODEL_BY_PROVIDER[input.provider] ?? DEFAULT_MODEL,
       };
 }
 

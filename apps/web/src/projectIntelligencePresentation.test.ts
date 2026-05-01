@@ -3,6 +3,7 @@ import type {
   ProjectIntelligenceSurfaceId,
   ProjectIntelligenceSurfaceSummary,
 } from "@t3tools/contracts";
+import { ProviderDriverKind } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -13,6 +14,8 @@ import {
   sortSurfacesByHealth,
   summarizeOverview,
 } from "./projectIntelligencePresentation";
+
+const providerKind = ProviderDriverKind.make;
 
 function surface(
   id: string,
@@ -66,7 +69,7 @@ describe("projectIntelligencePresentation", () => {
     const grouped = groupSurfacesBySection(surfaces);
     const overview = summarizeOverview({
       surfaces,
-      providers: [provider("codex")],
+      providers: [provider(providerKind("codex"))],
       warnings: [{ id: "warn", severity: "warning", message: "Warning" }],
     });
 
@@ -81,21 +84,25 @@ describe("projectIntelligencePresentation", () => {
 
   it("keeps provider-neutral labels and health sorting", () => {
     const sorted = sortProvidersByHealth([
-      provider("cursor", { health: "ok" }),
-      provider("opencode", { health: "warning" }),
-      provider("claudeAgent", { health: "error" }),
+      provider(providerKind("cursor"), { health: "ok" }),
+      provider(providerKind("opencode"), { health: "warning" }),
+      provider(providerKind("claudeAgent"), { health: "error" }),
     ]);
 
-    expect(getProviderLabel("cursor")).toBe("Cursor");
-    expect(getProviderLabel("opencode")).toBe("OpenCode");
-    expect(sorted.map((entry) => entry.provider)).toEqual(["claudeAgent", "opencode", "cursor"]);
+    expect(getProviderLabel(providerKind("cursor"))).toBe("Cursor");
+    expect(getProviderLabel(providerKind("opencode"))).toBe("OpenCode");
+    expect(sorted.map((entry) => entry.provider)).toEqual([
+      providerKind("claudeAgent"),
+      providerKind("opencode"),
+      providerKind("cursor"),
+    ]);
   });
 
   it("filters by provider, kind, scope, health, and search text", () => {
     const surfaces = [
       surface("codex-skill", {
-        owner: "codex",
-        provider: "codex",
+        owner: providerKind("codex"),
+        provider: providerKind("codex"),
         kind: "skill",
         scope: "user",
         activation: "on-skill-match",
@@ -113,7 +120,7 @@ describe("projectIntelligencePresentation", () => {
     expect(
       applySurfaceFilter(surfaces, {
         searchText: "typescript",
-        owners: ["codex"],
+        owners: [providerKind("codex")],
         kinds: ["skill"],
         scopes: ["user"],
         healths: ["ok"],

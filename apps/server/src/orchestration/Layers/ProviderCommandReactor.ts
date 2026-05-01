@@ -472,28 +472,21 @@ const make = Effect.gen(function* () {
       });
     }
     const preferredProvider: ProviderDriverKind = desiredDriverKind;
+    const continuationCompatible =
+      currentInfo.continuationIdentity.continuationKey ===
+      desiredInfo.continuationIdentity.continuationKey;
     if (
       thread.session !== null &&
       requestedModelSelection !== undefined &&
-      requestedModelSelection.instanceId !== currentInstanceId
+      requestedModelSelection.instanceId !== currentInstanceId &&
+      currentInfo.driverKind === desiredInfo.driverKind &&
+      !continuationCompatible
     ) {
-      if (currentInfo.driverKind !== desiredInfo.driverKind) {
-        return yield* new ProviderAdapterRequestError({
-          provider: preferredProvider,
-          method: "thread.turn.start",
-          detail: `Thread '${threadId}' is bound to driver '${currentInfo.driverKind}' and cannot switch to '${desiredInfo.driverKind}'.`,
-        });
-      }
-      if (
-        currentInfo.continuationIdentity.continuationKey !==
-        desiredInfo.continuationIdentity.continuationKey
-      ) {
-        return yield* new ProviderAdapterRequestError({
-          provider: preferredProvider,
-          method: "thread.turn.start",
-          detail: `Thread '${threadId}' cannot switch from instance '${currentInstanceId}' to '${desiredInstanceId}' because their provider resume state is incompatible.`,
-        });
-      }
+      return yield* new ProviderAdapterRequestError({
+        provider: preferredProvider,
+        method: "thread.turn.start",
+        detail: `Thread '${threadId}' cannot switch from instance '${currentInstanceId}' to '${desiredInstanceId}' because their provider resume state is incompatible.`,
+      });
     }
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
@@ -530,9 +523,7 @@ const make = Effect.gen(function* () {
       };
     });
 
-    const startProviderSession = (input?: {
-      readonly resumeCursor?: unknown;
-    }) =>
+    const startProviderSession = (input?: { readonly resumeCursor?: unknown }) =>
       Effect.gen(function* () {
         const teamCoordinator = yield* resolveTeamCoordinator(preferredProvider);
         const started = yield* Effect.exit(
@@ -644,9 +635,10 @@ const make = Effect.gen(function* () {
         return existingSessionThreadId;
       }
 
-      const resumeCursor = shouldRestartForModelChange
-        ? undefined
-        : (activeSession?.resumeCursor ?? undefined);
+      const resumeCursor =
+        shouldRestartForModelChange || !continuationCompatible
+          ? undefined
+          : (activeSession?.resumeCursor ?? undefined);
       yield* Effect.logInfo("provider command reactor restarting provider session", {
         threadId,
         existingSessionThreadId,

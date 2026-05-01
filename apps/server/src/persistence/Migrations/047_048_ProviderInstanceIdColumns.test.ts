@@ -7,18 +7,18 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("027_028_ProviderInstanceIdColumns", (it) => {
+layer("047_048_ProviderInstanceIdColumns", (it) => {
   it.effect("continues when provider_session_runtime was partially migrated", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 26 });
+      yield* runMigrations({ toMigrationInclusive: 46 });
       yield* sql`
         ALTER TABLE provider_session_runtime
         ADD COLUMN provider_instance_id TEXT
       `;
 
-      yield* runMigrations({ toMigrationInclusive: 28 });
+      yield* runMigrations({ toMigrationInclusive: 48 });
 
       const migrations = yield* sql<{
         readonly migration_id: number;
@@ -26,16 +26,16 @@ layer("027_028_ProviderInstanceIdColumns", (it) => {
       }>`
         SELECT migration_id, name
         FROM effect_sql_migrations
-        WHERE migration_id IN (27, 28)
+        WHERE migration_id IN (47, 48)
         ORDER BY migration_id
       `;
       assert.deepStrictEqual(migrations, [
         {
-          migration_id: 27,
+          migration_id: 47,
           name: "ProviderSessionRuntimeInstanceId",
         },
         {
-          migration_id: 28,
+          migration_id: 48,
           name: "ProjectionThreadSessionInstanceId",
         },
       ]);

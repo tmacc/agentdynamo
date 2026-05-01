@@ -611,7 +611,7 @@ function toTeamTaskWorkLogEntry(
   const detailParts = [
     providerLabel && model ? `${providerLabel} ${model}` : providerLabel,
     typeof payload?.modelSelectionReason === "string" ? payload.modelSelectionReason : null,
-  ].filter((part): part is string => part !== null && part.length > 0);
+  ].filter((part): part is string => part != null && part.length > 0);
 
   return {
     id: activity.id,
@@ -648,9 +648,9 @@ function toProviderSwitchWorkLogEntry(
   };
 }
 
-function parseProviderKind(value: unknown): ProviderKind | null {
+function parseProviderKind(value: unknown): ProviderDriverKind | null {
   return value === "codex" || value === "claudeAgent" || value === "cursor" || value === "opencode"
-    ? value
+    ? ProviderDriverKind.make(value)
     : null;
 }
 

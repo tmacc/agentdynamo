@@ -526,7 +526,7 @@ const buildAppUnderTest = (options?: {
             Effect.succeed({
               grantId: "grant-test" as never,
               parentThreadId: defaultThreadId,
-              provider: "codex",
+              provider: ProviderDriverKind.make("codex"),
               accessToken: "test-token",
               createdAt: new Date(0).toISOString(),
               expiresAt: new Date(Date.now() + 60_000).toISOString(),

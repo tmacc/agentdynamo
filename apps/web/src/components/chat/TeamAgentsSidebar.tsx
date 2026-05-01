@@ -26,6 +26,7 @@ import {
   isMaterializedDynamoTeamTask,
   isNativeProviderTeamTask,
   teamTaskModelLabel,
+  teamTaskProviderDriver,
   teamTaskSourceLabel,
   teamTaskStatusClassName,
   teamTaskStatusLabel,
@@ -189,7 +190,10 @@ const AgentCard = memo(function AgentCard({
   onReviewTaskChanges: (task: OrchestrationTeamTask) => void;
   onInspectNativeTask: (taskId: TeamTaskId) => void;
 }) {
-  const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[task.modelSelection.provider];
+  const providerDriver = teamTaskProviderDriver(task);
+  const ProviderIcon = providerDriver
+    ? (PROVIDER_ICON_BY_PROVIDER[providerDriver] ?? BotIcon)
+    : BotIcon;
   const isActive = isActiveTeamTask(task);
   const isMaterializedDynamo = isMaterializedDynamoTeamTask(task);
   const isDedicatedDynamoWorktree = isDedicatedDynamoTeamWorktreeTask(task);
