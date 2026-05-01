@@ -1,11 +1,18 @@
 import { scopeProjectRef } from "@t3tools/client-runtime";
-import type { EnvironmentId, FeatureCard, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  FeatureCard,
+  ProjectId,
+  ProviderInteractionMode,
+  ScopedProjectRef,
+} from "@t3tools/contracts";
 import {
   type DraftId,
   type DraftThreadEnvMode,
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { linkBoardCardThread } from "../boardStore";
+import { DEFAULT_NEW_WORKTREE_BASE_BRANCH } from "../components/BranchToolbar.logic";
 
 interface ThreadContextLike {
   environmentId: EnvironmentId;
@@ -25,6 +32,7 @@ interface NewThreadHandler {
       branch?: string | null;
       worktreePath?: string | null;
       envMode?: DraftThreadEnvMode;
+      interactionMode?: ProviderInteractionMode;
     },
   ): Promise<void>;
 }
@@ -159,10 +167,12 @@ export async function startSeededThreadForCard(args: {
     throw new Error("Fresh draft thread creation is not available in this context.");
   }
 
-  const draftId = await createFreshDraftThread(
-    projectRef,
-    buildContextualThreadOptionsForProject(context, projectRef),
-  );
+  const draftId = await createFreshDraftThread(projectRef, {
+    envMode: "worktree",
+    branch: DEFAULT_NEW_WORKTREE_BASE_BRANCH,
+    worktreePath: null,
+    interactionMode: "plan",
+  });
 
   const draftStore = useComposerDraftStore.getState();
   if (!draftStore.getDraftSession(draftId)) {
