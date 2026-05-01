@@ -8,6 +8,19 @@
 - Do not remove an entry just because a merge dropped the code. Mark its current status instead.
 - Keep entries concrete: user-visible behavior, key files, invariants, merge hotspots, and verification steps.
 - After every upstream merge, review every entry here before treating the branch as ready.
+- Track upstream syncs with the shared `origin/upstream-sync-base` branch. The commit range to review before a merge is `origin/upstream-sync-base..upstream/main`, not `HEAD..upstream/main`.
+- After every verified upstream merge, record the upstream range merged here, then advance and push `upstream-sync-base` to the upstream tip that was integrated.
+- If upstream rewrites or replays history and the sync marker is no longer an ancestor of `upstream/main`, identify the equivalent upstream commit by PR number, subject, or patch-id, record the mismatch here, and reset `upstream-sync-base` to the equivalent commit after verification.
+- Do not update this file or move `upstream-sync-base` for ordinary fork-internal branch updates from `origin/main`; those are not upstream syncs unless they explicitly include new commits from the `upstream` remote.
+
+## Upstream Sync Tracking
+
+- Shared marker: `origin/upstream-sync-base`
+- Purpose: records the upstream commit that this fork has last successfully integrated and verified, so future upstream syncs can review only the new upstream range even when the fork branch has local merge commits or upstream history has been replayed.
+- Range command: `git log --oneline origin/upstream-sync-base..upstream/main`
+- Count command: `git rev-list --count origin/upstream-sync-base..upstream/main`
+- Advance after successful sync: `git branch -f upstream-sync-base <integrated-upstream-tip>` followed by `git push origin upstream-sync-base`
+- Current reconstructed marker: upstream commit equivalent to `327499aa` from the `2026-04-23` merge is `b0b7b38d` (`fix(server): detect localized Windows command errors (#2152)`). This should be used to initialize `upstream-sync-base` unless a later verified upstream sync marker already exists on `origin`.
 
 ## Current Baseline
 
