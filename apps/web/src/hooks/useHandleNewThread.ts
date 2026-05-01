@@ -1,5 +1,9 @@
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime";
-import { DEFAULT_RUNTIME_MODE, type ScopedProjectRef } from "@t3tools/contracts";
+import {
+  DEFAULT_RUNTIME_MODE,
+  type ProviderInteractionMode,
+  type ScopedProjectRef,
+} from "@t3tools/contracts";
 import type { UnifiedSettings } from "@t3tools/contracts/settings";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
@@ -59,6 +63,7 @@ function useNewThreadState() {
         branch?: string | null;
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
+        interactionMode?: ProviderInteractionMode;
       },
     ): Promise<void> => {
       const {
@@ -78,6 +83,7 @@ function useNewThreadState() {
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
+      const hasInteractionModeOption = options?.interactionMode !== undefined;
       const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
       const latestActiveDraftThread: DraftThreadState | null = currentRouteTarget
         ? currentRouteTarget.kind === "server"
@@ -86,15 +92,22 @@ function useNewThreadState() {
         : null;
       if (storedDraftThread) {
         return (async () => {
-          if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
+          if (
+            hasBranchOption ||
+            hasWorktreePathOption ||
+            hasEnvModeOption ||
+            hasInteractionModeOption
+          ) {
             setDraftThreadContext(storedDraftThread.draftId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
               ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
               ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
+              ...(hasInteractionModeOption ? { interactionMode: options?.interactionMode } : {}),
             });
           }
           setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, storedDraftThread.draftId, {
             threadId: storedDraftThread.threadId,
+            ...(hasInteractionModeOption ? { interactionMode: options?.interactionMode } : {}),
           });
           if (
             currentRouteTarget?.kind === "draft" &&
@@ -116,11 +129,17 @@ function useNewThreadState() {
         latestActiveDraftThread.logicalProjectKey === logicalProjectKey &&
         latestActiveDraftThread.promotedTo == null
       ) {
-        if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
+        if (
+          hasBranchOption ||
+          hasWorktreePathOption ||
+          hasEnvModeOption ||
+          hasInteractionModeOption
+        ) {
           setDraftThreadContext(currentRouteTarget.draftId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
             ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
             ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
+            ...(hasInteractionModeOption ? { interactionMode: options?.interactionMode } : {}),
           });
         }
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, currentRouteTarget.draftId, {
@@ -131,6 +150,7 @@ function useNewThreadState() {
           ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
           ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
           ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
+          ...(hasInteractionModeOption ? { interactionMode: options?.interactionMode } : {}),
         });
         return Promise.resolve();
       }
@@ -146,6 +166,7 @@ function useNewThreadState() {
           worktreePath: options?.worktreePath ?? null,
           envMode: options?.envMode ?? "local",
           runtimeMode: DEFAULT_RUNTIME_MODE,
+          ...(hasInteractionModeOption ? { interactionMode: options?.interactionMode } : {}),
         });
         applyStickyState(draftId);
 
@@ -175,6 +196,7 @@ function useFreshDraftThreadState() {
         branch?: string | null;
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
+        interactionMode?: ProviderInteractionMode;
       },
     ): Promise<DraftId> => {
       const draftId = newDraftId();
@@ -194,6 +216,9 @@ function useFreshDraftThreadState() {
         worktreePath: options?.worktreePath ?? null,
         envMode: options?.envMode ?? "local",
         runtimeMode: DEFAULT_RUNTIME_MODE,
+        ...(options?.interactionMode !== undefined
+          ? { interactionMode: options.interactionMode }
+          : {}),
       });
       applyStickyState(draftId);
 

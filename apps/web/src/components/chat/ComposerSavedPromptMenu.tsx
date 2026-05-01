@@ -3,6 +3,7 @@ import { BookmarkIcon, EllipsisIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { type SavedPromptSnippet, useSavedPromptStore } from "~/savedPromptStore";
+import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -17,6 +18,9 @@ interface ComposerSavedPromptMenuProps {
   onSelectSnippet: (snippet: SavedPromptSnippet) => void;
   onRenameSnippet: (snippet: SavedPromptSnippet) => void;
   onRequestDeleteSnippet: (snippet: SavedPromptSnippet) => void;
+  triggerClassName?: string;
+  popoverSide?: "top" | "bottom" | "left" | "right";
+  popoverAlign?: "start" | "center" | "end";
 }
 
 export function ComposerSavedPromptMenu({
@@ -26,6 +30,9 @@ export function ComposerSavedPromptMenu({
   onSelectSnippet,
   onRenameSnippet,
   onRequestDeleteSnippet,
+  triggerClassName,
+  popoverSide = "top",
+  popoverAlign = "start",
 }: ComposerSavedPromptMenuProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -49,7 +56,11 @@ export function ComposerSavedPromptMenu({
           <Button
             variant="ghost"
             size={compact ? "icon-sm" : "sm"}
-            className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
+            className={cn(
+              "shrink-0 whitespace-nowrap text-muted-foreground/70 hover:text-foreground/80",
+              compact ? null : "px-2 sm:px-3",
+              triggerClassName,
+            )}
             aria-label="Saved prompts"
             title="Saved prompts"
             disabled={disabled}
@@ -61,7 +72,11 @@ export function ComposerSavedPromptMenu({
         {compact ? null : <span>Saved</span>}
       </PopoverTrigger>
 
-      <PopoverPopup side="top" align="start" className="w-[min(30rem,calc(100vw-2rem))] p-0">
+      <PopoverPopup
+        side={popoverSide}
+        align={popoverAlign}
+        className="w-[min(30rem,calc(100vw-2rem))] p-0"
+      >
         <div className="border-b px-3 py-3">
           <div className="flex items-center gap-2">
             <BookmarkIcon className="size-4 text-muted-foreground/70" />

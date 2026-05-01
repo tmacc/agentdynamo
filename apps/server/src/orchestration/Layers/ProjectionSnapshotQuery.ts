@@ -233,6 +233,7 @@ function mapSessionRow(
     threadId: row.threadId,
     status: row.status,
     providerName: row.providerName,
+    ...(row.providerInstanceId !== null ? { providerInstanceId: row.providerInstanceId } : {}),
     runtimeMode: row.runtimeMode,
     activeTurnId: row.activeTurnId,
     lastError: row.lastError,
@@ -546,6 +547,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           status,
           provider_name AS "providerName",
+          provider_instance_id AS "providerInstanceId",
           provider_session_id AS "providerSessionId",
           provider_thread_id AS "providerThreadId",
           runtime_mode AS "runtimeMode",
@@ -914,6 +916,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           status,
           provider_name AS "providerName",
+          provider_instance_id AS "providerInstanceId",
           runtime_mode AS "runtimeMode",
           active_turn_id AS "activeTurnId",
           last_error AS "lastError",
@@ -1247,6 +1250,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   threadId: row.threadId,
                   status: row.status,
                   providerName: row.providerName,
+                  ...(row.providerInstanceId !== null
+                    ? { providerInstanceId: row.providerInstanceId }
+                    : {}),
                   runtimeMode: row.runtimeMode,
                   activeTurnId: row.activeTurnId,
                   lastError: row.lastError,

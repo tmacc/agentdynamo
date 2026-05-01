@@ -68,9 +68,7 @@ function allocateDots(
   }
   // Trim if over (shouldn't happen given desiredUsed cap, defensive).
   while (assigned > TOTAL_DOTS) {
-    const sorted = fractions
-      .map((f, idx) => ({ idx, n: f.base }))
-      .toSorted((a, b) => b.n - a.n);
+    const sorted = fractions.map((f, idx) => ({ idx, n: f.base })).toSorted((a, b) => b.n - a.n);
     const top = sorted[0];
     if (!top || top.n <= 1) break;
     fractions[top.idx]!.base -= 1;

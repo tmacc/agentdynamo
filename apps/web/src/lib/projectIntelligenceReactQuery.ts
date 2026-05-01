@@ -198,9 +198,8 @@ export function useSetSurfaceEnabledMutation() {
       // modes, all effective-cwds) so the surface list reflects the override.
       void queryClient.invalidateQueries({
         predicate: (query) => {
-          const [namespace, kind, environmentId, projectCwd] = query.queryKey as ReadonlyArray<
-            unknown
-          >;
+          const [namespace, kind, environmentId, projectCwd] =
+            query.queryKey as ReadonlyArray<unknown>;
           return (
             namespace === "projectIntelligence" &&
             kind === "summary" &&

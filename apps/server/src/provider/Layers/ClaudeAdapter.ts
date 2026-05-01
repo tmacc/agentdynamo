@@ -24,8 +24,11 @@ import {
   ApprovalRequestId,
   type CanonicalItemType,
   type CanonicalRequestType,
+  type ClaudeSettings,
   EventId,
   type ProviderApprovalDecision,
+  ProviderDriverKind,
+  ProviderInstanceId,
   ProviderItemId,
   type ProviderRuntimeEvent,
   type ProviderRuntimeTurnStatus,
@@ -40,9 +43,14 @@ import {
   ThreadId,
   TurnId,
   type UserInputQuestion,
-  ClaudeAgentEffort,
 } from "@t3tools/contracts";
-import { applyClaudePromptEffortPrefix, resolveEffort, trimOrNull } from "@t3tools/shared/model";
+import {
+  applyClaudePromptEffortPrefix,
+  getModelSelectionBooleanOptionValue,
+  getModelSelectionStringOptionValue,
+  getProviderOptionDescriptors,
+  resolvePromptInjectedEffort,
+} from "@t3tools/shared/model";
 import {
   Cause,
   DateTime,
@@ -51,7 +59,7 @@ import {
   Exit,
   FileSystem,
   Fiber,
-  Layer,
+  Path,
   Queue,
   Random,
   Ref,
@@ -60,8 +68,13 @@ import {
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
-import { getClaudeModelCapabilities, resolveClaudeApiModelId } from "./ClaudeProvider.ts";
+import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
+import {
+  getClaudeModelCapabilities,
+  normalizeClaudeCliEffort,
+  resolveClaudeApiModelId,
+  resolveClaudeEffort,
+} from "./ClaudeProvider.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -70,10 +83,10 @@ import {
   ProviderAdapterValidationError,
   type ProviderAdapterError,
 } from "../Errors.ts";
-import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
+import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
-const PROVIDER = "claudeAgent" as const;
+const PROVIDER = ProviderDriverKind.make("claudeAgent");
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
 type ClaudeToolResultStreamKind = Extract<
   RuntimeContentStreamKind,
@@ -172,6 +185,8 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
 }
 
 export interface ClaudeAdapterLiveOptions {
+  readonly instanceId?: ProviderInstanceId;
+  readonly environment?: NodeJS.ProcessEnv;
   readonly createQuery?: (input: {
     readonly prompt: AsyncIterable<SDKUserMessage>;
     readonly options: ClaudeQueryOptions;
@@ -186,6 +201,18 @@ function isUuid(value: string): boolean {
 
 function isSyntheticClaudeThreadId(value: string): boolean {
   return value.startsWith("claude-thread-");
+}
+
+function hasDurableClaudeSessionId(message: SDKMessage): boolean {
+  if (message.type !== "system") {
+    return true;
+  }
+
+  return (
+    message.subtype !== "hook_started" &&
+    message.subtype !== "hook_progress" &&
+    message.subtype !== "hook_response"
+  );
 }
 
 function toMessage(cause: unknown, fallback: string): string {
@@ -211,19 +238,9 @@ function normalizeClaudeStreamMessages(cause: Cause.Cause<Error>): ReadonlyArray
   return squashed.length > 0 ? [squashed] : [];
 }
 
-function getEffectiveClaudeAgentEffort(
-  effort: ClaudeAgentEffort | null | undefined,
-): ClaudeSdkEffort | null {
-  if (!effort) {
-    return null;
-  }
-  if (effort === "ultrathink") {
-    return null;
-  }
-  if (effort === "xhigh") {
-    return "max";
-  }
-  return effort;
+function getEffectiveClaudeAgentEffort(effort: string | null | undefined): ClaudeSdkEffort | null {
+  const normalized = normalizeClaudeCliEffort(effort);
+  return normalized ? (normalized as ClaudeSdkEffort) : null;
 }
 
 function isClaudeInterruptedMessage(message: string): boolean {
@@ -562,18 +579,19 @@ Use Dynamo's team coordinator MCP tools only when the request needs Dynamo-manag
 If the user specifies providers or models for Dynamo-managed work, pass those requested values to team_spawn_child. Do not silently substitute unavailable requested models with same-provider alternatives. If a provider or model is omitted for a Dynamo-managed child, omit it in the tool call and let Dynamo choose.
 </dynamo_team_coordinator>`;
 
-function buildPromptText(input: ProviderSendTurnInput): string {
+function buildPromptText(
+  input: ProviderSendTurnInput,
+  boundInstanceId: ProviderInstanceId,
+): string {
   const rawEffort =
-    input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.options?.effort : null;
+    input.modelSelection?.instanceId === boundInstanceId
+      ? getModelSelectionStringOptionValue(input.modelSelection, "effort")
+      : null;
   const claudeModel =
-    input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.model : undefined;
+    input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection.model : undefined;
   const caps = getClaudeModelCapabilities(claudeModel);
 
-  // For prompt injection, we check if the raw effort is a prompt-injected level (e.g. "ultrathink").
-  // resolveEffort strips prompt-injected values (returning the default instead), so we check the raw value directly.
-  const trimmedEffort = trimOrNull(rawEffort);
-  const promptEffort =
-    trimmedEffort && caps.promptInjectedEffortLevels.includes(trimmedEffort) ? trimmedEffort : null;
+  const promptEffort = resolvePromptInjectedEffort(caps, rawEffort);
   return applyClaudePromptEffortPrefix(input.input?.trim() ?? "", promptEffort);
 }
 
@@ -610,9 +628,10 @@ const buildUserMessageEffect = Effect.fn("buildUserMessageEffect")(function* (
   dependencies: {
     readonly fileSystem: FileSystem.FileSystem;
     readonly attachmentsDir: string;
+    readonly boundInstanceId: ProviderInstanceId;
   },
 ) {
-  const text = buildPromptText(input);
+  const text = buildPromptText(input, dependencies.boundInstanceId);
   const sdkContent: Array<Record<string, unknown>> = [];
 
   if (text.length > 0) {
@@ -962,11 +981,17 @@ function sdkNativeItemId(message: SDKMessage): string | undefined {
   return undefined;
 }
 
-const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
+export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
+  claudeSettings: ClaudeSettings,
   options?: ClaudeAdapterLiveOptions,
 ) {
+  const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("claudeAgent");
   const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig;
+  const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, options?.environment).pipe(
+    Effect.provideService(Path.Path, path),
+  );
   const nativeEventLogger =
     options?.nativeEventLogger ??
     (options?.nativeEventLogPath !== undefined
@@ -988,7 +1013,6 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
-  const serverSettingsService = yield* ServerSettingsService;
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   const nextEventId = Effect.map(Random.nextUUIDv4, (id) => EventId.make(id));
@@ -1258,6 +1282,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     message: SDKMessage,
   ) {
     if (typeof message.session_id !== "string" || message.session_id.length === 0) {
+      return;
+    }
+    if (!hasDurableClaudeSessionId(message)) {
       return;
     }
     const nextThreadId = message.session_id;
@@ -2545,10 +2572,14 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         const requestId = ApprovalRequestId.make(yield* Random.nextUUIDv4);
 
         // Parse questions from the SDK's AskUserQuestion input.
+        // `id` MUST equal the full question text — Claude SDK >= 2.1.121 looks
+        // up answers by question text in `mapToolResultToToolResultBlockParam`,
+        // so the key the UI uses to keep its draft answer must match the SDK's
+        // expected lookup key. See https://github.com/pingdotgg/t3code/issues/2388
         const rawQuestions = Array.isArray(toolInput.questions) ? toolInput.questions : [];
         const questions: Array<UserInputQuestion> = rawQuestions.map(
           (q: Record<string, unknown>, idx: number) => ({
-            id: typeof q.header === "string" ? q.header : `q-${idx}`,
+            id: typeof q.question === "string" && q.question.length > 0 ? q.question : `q-${idx}`,
             header: typeof q.header === "string" ? q.header : `Question ${idx + 1}`,
             question: typeof q.question === "string" ? q.question : "",
             options: Array.isArray(q.options)
@@ -2816,18 +2847,6 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const canUseTool: CanUseTool = (toolName, toolInput, callbackOptions) =>
         runPromise(canUseToolEffect(toolName, toolInput, callbackOptions));
 
-      const claudeSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) => settings.providers.claudeAgent),
-        Effect.mapError(
-          (error) =>
-            new ProviderAdapterProcessError({
-              provider: PROVIDER,
-              threadId: input.threadId,
-              detail: error.message,
-              cause: error,
-            }),
-        ),
-      );
       const claudeBinaryPath = claudeSettings.binaryPath;
       const extraArgs = parseCliArgs(claudeSettings.launchArgs).flags;
       const teamMcpConfig =
@@ -2845,16 +2864,24 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             }
           : undefined;
       const modelSelection =
-        input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
+        input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
       const caps = getClaudeModelCapabilities(modelSelection?.model);
+      const descriptors = getProviderOptionDescriptors({ caps });
       const apiModelId = modelSelection ? resolveClaudeApiModelId(modelSelection) : undefined;
-      const effort = (resolveEffort(caps, modelSelection?.options?.effort) ??
-        null) as ClaudeAgentEffort | null;
-      const fastMode = modelSelection?.options?.fastMode === true && caps.supportsFastMode;
-      const thinking =
-        typeof modelSelection?.options?.thinking === "boolean" && caps.supportsThinkingToggle
-          ? modelSelection.options.thinking
-          : undefined;
+      const rawEffort = getModelSelectionStringOptionValue(modelSelection, "effort");
+      const effort = resolveClaudeEffort(caps, rawEffort) ?? null;
+      const fastModeSupported = descriptors.some(
+        (descriptor) => descriptor.type === "boolean" && descriptor.id === "fastMode",
+      );
+      const thinkingSupported = descriptors.some(
+        (descriptor) => descriptor.type === "boolean" && descriptor.id === "thinking",
+      );
+      const fastMode =
+        getModelSelectionBooleanOptionValue(modelSelection, "fastMode") === true &&
+        fastModeSupported;
+      const thinking = thinkingSupported
+        ? getModelSelectionBooleanOptionValue(modelSelection, "thinking")
+        : undefined;
       const effectiveEffort = getEffectiveClaudeAgentEffort(effort);
       const runtimeModeToPermission: Record<string, PermissionMode> = {
         "auto-accept-edits": "acceptEdits",
@@ -2865,7 +2892,6 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
         ...(fastMode ? { fastMode: true } : {}),
       };
-
       const queryOptions: ClaudeQueryOptions = {
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(apiModelId ? { model: apiModelId } : {}),
@@ -2898,7 +2924,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         includeHookEvents: true,
         agentProgressSummaries: true,
         canUseTool,
-        env: process.env,
+        env: claudeEnvironment,
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
         ...(Object.keys(extraArgs).length > 0 || teamMcpConfig !== undefined
           ? {
@@ -2911,6 +2937,31 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             }
           : {}),
       };
+
+      yield* Effect.annotateCurrentSpan({
+        "provider.kind": PROVIDER,
+        "provider.thread_id": threadId,
+        "provider.runtime_mode": input.runtimeMode,
+        "claude.resume.source":
+          existingResumeSessionId !== undefined ? "resume-session" : "generated-session",
+        "claude.resume.thread_id": resumeState?.threadId ?? "",
+        "claude.resume.session_id": existingResumeSessionId ?? "",
+        "claude.resume.session_at": resumeState?.resumeSessionAt ?? "",
+        "claude.resume.turn_count": resumeState?.turnCount ?? -1,
+        "claude.query.cwd": input.cwd ?? "",
+        "claude.query.model": apiModelId ?? "",
+        "claude.query.effort": effectiveEffort ?? "",
+        "claude.query.permission_mode": permissionMode ?? "",
+        "claude.query.allow_dangerously_skip_permissions": permissionMode === "bypassPermissions",
+        "claude.query.resume": existingResumeSessionId ?? "",
+        "claude.query.session_id": newSessionId ?? "",
+        "claude.query.include_partial_messages": true,
+        "claude.query.additional_directories": input.cwd ? [input.cwd] : [],
+        "claude.query.setting_sources": [...CLAUDE_SETTING_SOURCES],
+        "claude.query.settings_json": JSON.stringify(settings),
+        "claude.query.extra_args_json": JSON.stringify(extraArgs),
+        "claude.query.path_to_executable": claudeBinaryPath,
+      });
 
       const queryRuntime = yield* Effect.try({
         try: () =>
@@ -2930,6 +2981,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const session: ProviderSession = {
         threadId,
         provider: PROVIDER,
+        providerInstanceId: boundInstanceId,
         status: "ready",
         runtimeMode: input.runtimeMode,
         ...(input.cwd ? { cwd: input.cwd } : {}),
@@ -3041,7 +3093,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const sendTurn: ClaudeAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
     const context = yield* requireSession(input.threadId);
     const modelSelection =
-      input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
+      input.modelSelection !== undefined && input.modelSelection.instanceId === boundInstanceId
+        ? input.modelSelection
+        : undefined;
 
     if (context.turnState) {
       // Auto-close a stale synthetic turn (from background agent responses
@@ -3115,6 +3169,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     const message = yield* buildUserMessageEffect(input, {
       fileSystem,
       attachmentsDir: serverConfig.attachmentsDir,
+      boundInstanceId,
     });
 
     yield* Queue.offer(context.promptQueue, {
@@ -3253,9 +3308,3 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     },
   } satisfies ClaudeAdapterShape;
 });
-
-export const ClaudeAdapterLive = Layer.effect(ClaudeAdapter, makeClaudeAdapter());
-
-export function makeClaudeAdapterLive(options?: ClaudeAdapterLiveOptions) {
-  return Layer.effect(ClaudeAdapter, makeClaudeAdapter(options));
-}

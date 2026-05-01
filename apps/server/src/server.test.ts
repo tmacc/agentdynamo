@@ -18,6 +18,8 @@ import {
   type OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
   ResolvedKeybindingRule,
   ThreadId,
   WS_METHODS,
@@ -148,7 +150,7 @@ const defaultProjectId = ProjectId.make("project-default");
 const defaultThreadId = ThreadId.make("thread-default");
 const defaultDesktopBootstrapToken = "test-desktop-bootstrap-token";
 const defaultModelSelection = {
-  provider: "codex",
+  instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5-codex",
 } as const;
 const testEnvironmentDescriptor = {
@@ -524,7 +526,7 @@ const buildAppUnderTest = (options?: {
             Effect.succeed({
               grantId: "grant-test" as never,
               parentThreadId: defaultThreadId,
-              provider: "codex",
+              provider: ProviderDriverKind.make("codex"),
               accessToken: "test-token",
               createdAt: new Date(0).toISOString(),
               expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -1967,7 +1969,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const providers = [
         {
-          provider: "codex" as const,
+          instanceId: ProviderInstanceId.make("codex"),
+          driver: ProviderDriverKind.make("codex"),
           enabled: true,
           installed: true,
           version: "1.0.0",
@@ -2037,7 +2040,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const nextProviders = [
         {
-          provider: "codex" as const,
+          instanceId: ProviderInstanceId.make("codex"),
+          driver: ProviderDriverKind.make("codex"),
           enabled: true,
           installed: true,
           version: "1.0.0",
@@ -2286,7 +2290,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             workspaceRoot: missingWorkspaceRoot,
             createWorkspaceRootIfMissing: true,
             defaultModelSelection: {
-              provider: "codex",
+              instanceId: ProviderInstanceId.make("codex"),
               model: "gpt-5-codex",
             },
             createdAt: new Date().toISOString(),

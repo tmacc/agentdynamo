@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dynamo Thread Topbar Options</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --surface-0: #f3f4f7;
+        --surface-1: rgba(255, 255, 255, 0.86);
+        --surface-2: rgba(255, 255, 255, 0.94);
+        --surface-3: rgba(248, 249, 252, 0.96);
+        --surface-inverse: #10131a;
+        --text-strong: #161a22;
+        --text: #2a3040;
+        --text-muted: #6d7485;
+        --text-faint: #8f95a3;
+        --line-soft: rgba(17, 24, 39, 0.08);
+        --line-strong: rgba(17, 24, 39, 0.14);
+        --accent: #4e67ff;
+        --accent-soft: rgba(78, 103, 255, 0.1);
+        --success: #0f9f6e;
+        --success-soft: rgba(15, 159, 110, 0.11);
+        --warning: #b86b00;
+        --warning-soft: rgba(184, 107, 0, 0.12);
+        --danger: #cf3347;
+        --danger-soft: rgba(207, 51, 71, 0.12);
+        --shadow-sm: 0 1px 2px rgba(16, 19, 26, 0.06);
+        --shadow-md: 0 10px 32px rgba(16, 19, 26, 0.08);
+        --shadow-lg: 0 18px 56px rgba(16, 19, 26, 0.12);
+        --radius-sm: 10px;
+        --radius-md: 14px;
+        --radius-lg: 18px;
+        --radius-xl: 24px;
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-5: 20px;
+        --space-6: 24px;
+        --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family:
+          "DM Sans",
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(78, 103, 255, 0.12), transparent 28%),
+          radial-gradient(circle at top right, rgba(15, 159, 110, 0.08), transparent 24%),
+          linear-gradient(180deg, #fcfcfe 0%, #eef1f7 100%);
+      }
+
+      .grain::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.05;
+        background-image: radial-gradient(#1b223014 0.8px, transparent 0.8px);
+        background-size: 18px 18px;
+      }
+
+      .topbar {
+        position: relative;
+        display: flex;
+        min-height: 56px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line-soft);
+        background: linear-gradient(180deg, var(--surface-2), var(--surface-3));
+        backdrop-filter: blur(18px);
+      }
+
+      .title-wrap {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--line-soft);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.76);
+        color: var(--text-muted);
+        font-size: 12px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .pill[data-tone="accent"] {
+        background: var(--accent-soft);
+        color: var(--accent);
+        border-color: rgba(78, 103, 255, 0.14);
+      }
+
+      .pill[data-tone="success"] {
+        background: var(--success-soft);
+        color: var(--success);
+        border-color: rgba(15, 159, 110, 0.14);
+      }
+
+      .pill[data-tone="warning"] {
+        background: var(--warning-soft);
+        color: var(--warning);
+        border-color: rgba(184, 107, 0, 0.14);
+      }
+
+      .pill[data-tone="danger"] {
+        background: var(--danger-soft);
+        color: var(--danger);
+        border-color: rgba(207, 51, 71, 0.14);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 34px;
+        min-width: 34px;
+        padding: 0 11px;
+        border: 1px solid var(--line-soft);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.78);
+        color: var(--text);
+        box-shadow: var(--shadow-sm);
+        transition:
+          transform 160ms var(--ease-standard),
+          background 160ms var(--ease-standard),
+          border-color 160ms var(--ease-standard),
+          box-shadow 160ms var(--ease-standard);
+      }
+
+      .btn:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.96);
+        border-color: var(--line-strong);
+        box-shadow: 0 8px 20px rgba(16, 19, 26, 0.08);
+      }
+
+      .btn:focus-visible {
+        outline: 2px solid rgba(78, 103, 255, 0.45);
+        outline-offset: 2px;
+      }
+
+      .btn[data-primary="true"] {
+        background: linear-gradient(180deg, #6278ff, #4e67ff);
+        border-color: rgba(78, 103, 255, 0.5);
+        color: white;
+      }
+
+      .btn[disabled] {
+        opacity: 0.42;
+        cursor: not-allowed;
+        box-shadow: none;
+        transform: none;
+      }
+
+      .segmented {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px;
+        border: 1px solid var(--line-soft);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.7);
+      }
+
+      .segmented .btn {
+        min-height: 30px;
+        padding: 0 10px;
+        border-radius: 10px;
+        box-shadow: none;
+        background: transparent;
+        border-color: transparent;
+      }
+
+      .segmented .btn[data-active="true"] {
+        background: rgba(17, 24, 39, 0.06);
+        border-color: rgba(17, 24, 39, 0.06);
+      }
+
+      .shell {
+        overflow: hidden;
+        border: 1px solid rgba(17, 24, 39, 0.07);
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.7);
+        box-shadow: var(--shadow-lg);
+        backdrop-filter: blur(20px);
+      }
+
+      .thread-body {
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(245, 247, 252, 0.85)),
+          linear-gradient(135deg, rgba(78, 103, 255, 0.03), transparent 40%);
+      }
+
+      .message {
+        max-width: min(760px, 88%);
+        padding: 14px 16px;
+        border-radius: 20px;
+        border: 1px solid rgba(17, 24, 39, 0.06);
+        background: rgba(255, 255, 255, 0.84);
+      }
+
+      .message.agent {
+        margin-left: auto;
+        background: linear-gradient(180deg, rgba(78, 103, 255, 0.1), rgba(78, 103, 255, 0.06));
+        border-color: rgba(78, 103, 255, 0.12);
+      }
+
+      .skeleton {
+        display: inline-block;
+        border-radius: 999px;
+        background: linear-gradient(
+          90deg,
+          rgba(17, 24, 39, 0.06),
+          rgba(17, 24, 39, 0.1),
+          rgba(17, 24, 39, 0.06)
+        );
+        background-size: 200% 100%;
+        animation: pulse 1.4s linear infinite;
+      }
+
+      @keyframes pulse {
+        to {
+          background-position: -200% 0;
+        }
+      }
+
+      .variant-card {
+        position: relative;
+        padding: 18px;
+        border: 1px solid rgba(17, 24, 39, 0.08);
+        border-radius: 26px;
+        background: rgba(255, 255, 255, 0.62);
+        box-shadow: var(--shadow-md);
+      }
+
+      .variant-card[data-selected="true"] {
+        border-color: rgba(78, 103, 255, 0.26);
+        box-shadow:
+          0 0 0 1px rgba(78, 103, 255, 0.16),
+          var(--shadow-lg);
+      }
+
+      .variant-button {
+        width: 100%;
+        text-align: left;
+        border: 1px solid rgba(17, 24, 39, 0.08);
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.82);
+        padding: 14px 16px;
+        transition:
+          transform 160ms var(--ease-standard),
+          box-shadow 160ms var(--ease-standard),
+          border-color 160ms var(--ease-standard);
+      }
+
+      .variant-button:hover {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .variant-button[data-active="true"] {
+        border-color: rgba(78, 103, 255, 0.24);
+        box-shadow:
+          inset 0 0 0 1px rgba(78, 103, 255, 0.12),
+          var(--shadow-sm);
+      }
+
+      .preview-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.9fr);
+        gap: 24px;
+      }
+
+      .mobile-shell {
+        max-width: 390px;
+        margin-inline: auto;
+      }
+
+      .overflow-strip {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+      }
+
+      .overflow-strip::-webkit-scrollbar {
+        display: none;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: 0.9;
+      }
+
+      @media (max-width: 1080px) {
+        .preview-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .topbar {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .mobile-stack {
+          display: grid;
+          gap: 10px;
+          width: 100%;
+        }
+
+        .action-wrap {
+          width: 100%;
+          justify-content: space-between;
+          overflow-x: auto;
+        }
+      }
+    </style>
+  </head>
+  <body class="grain">
+    <main class="mx-auto max-w-[1440px] px-5 py-8 md:px-8 md:py-10">
+      <section class="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div class="max-w-3xl">
+          <p
+            class="mb-3 inline-flex items-center gap-2 rounded-full border border-black/5 bg-white/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500"
+          >
+            Thread Topbar Study
+          </p>
+          <h1 class="text-4xl font-semibold tracking-tight text-slate-900 md:text-5xl">
+            Four topbar directions for Dynamo’s thread view
+          </h1>
+          <p class="mt-4 max-w-2xl text-base leading-7 text-slate-600 md:text-lg">
+            Same shell, same action set, different emphasis. Use the controls to compare default,
+            loading, empty, error, disabled, and overflow states before deciding what should move
+            into production.
+          </p>
+        </div>
+        <div
+          class="grid gap-3 rounded-[24px] border border-black/6 bg-white/70 p-4 shadow-sm backdrop-blur md:grid-cols-2"
+        >
+          <label class="grid gap-2">
+            <span class="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Active concept
+            </span>
+            <select
+              id="variant-select"
+              class="rounded-2xl border border-black/8 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-0"
+            ></select>
+          </label>
+          <label class="grid gap-2">
+            <span class="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              State
+            </span>
+            <select
+              id="state-select"
+              class="rounded-2xl border border-black/8 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-0"
+            ></select>
+          </label>
+        </div>
+      </section>
+
+      <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4" id="variant-list"></section>
+
+      <section class="preview-grid mt-8">
+        <div class="grid gap-6">
+          <div class="variant-card">
+            <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-slate-900" id="active-name"></p>
+                <p class="mt-1 text-sm leading-6 text-slate-600" id="active-summary"></p>
+              </div>
+              <div
+                class="inline-flex items-center gap-2 rounded-full border border-black/6 bg-slate-950 px-3 py-1.5 text-xs font-medium text-white"
+                id="active-score"
+              ></div>
+            </div>
+            <div class="shell" id="desktop-preview"></div>
+          </div>
+          <div class="variant-card">
+            <div class="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-slate-900">Selection Notes</p>
+                <p class="mt-1 text-sm text-slate-600">What each concept optimizes for.</p>
+              </div>
+            </div>
+            <div class="grid gap-3 text-sm leading-6 text-slate-700" id="active-notes"></div>
+          </div>
+        </div>
+
+        <div class="grid gap-6">
+          <div class="variant-card">
+            <div class="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-slate-900">Narrow View</p>
+                <p class="mt-1 text-sm text-slate-600">
+                  Mobile-width behavior with the same concept and state.
+                </p>
+              </div>
+            </div>
+            <div class="shell mobile-shell" id="mobile-preview"></div>
+          </div>
+          <div class="variant-card">
+            <p class="text-sm font-semibold text-slate-900">Legend</p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <span class="pill" data-tone="accent"><span class="dot"></span> Board active</span>
+              <span class="pill" data-tone="success"><span class="dot"></span> Git healthy</span>
+              <span class="pill" data-tone="warning"><span class="dot"></span> Needs review</span>
+              <span class="pill" data-tone="danger"
+                ><span class="dot"></span> Failure surfaced</span
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const icons = {
+        board:
+          '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true" class="h-4 w-4"><rect x="2" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="12" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="11" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="12" y="11" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/></svg>',
+        terminal:
+          '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true" class="h-4 w-4"><path d="M3 4.5h14v11H3z" stroke="currentColor" stroke-width="1.5" rx="2"/><path d="m6.2 8.2 2 1.8-2 1.8M10.8 11.8h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        diff: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true" class="h-4 w-4"><path d="M6 4v12M14 4v12M6 7h8M6 13h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        git: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true" class="h-4 w-4"><path d="M10 3.2 16.8 10 10 16.8 3.2 10 10 3.2Z" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><path d="M8.9 8.9 11 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        open: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true" class="h-4 w-4"><path d="M8 4h8v8M17 3 9 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M16 11v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        menu: '<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" class="h-4 w-4"><circle cx="4" cy="10" r="1.4"/><circle cx="10" cy="10" r="1.4"/><circle cx="16" cy="10" r="1.4"/></svg>',
+        spark:
+          '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true" class="h-4 w-4"><path d="m10 2 1.7 5.3L17 9l-5.3 1.7L10 16l-1.7-5.3L3 9l5.3-1.7L10 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+        chevron:
+          '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true" class="h-4 w-4"><path d="m6 8 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        alert:
+          '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true" class="h-4 w-4"><path d="M10 3.5 17 16H3l7-12.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M10 7.5v3.5M10 13.5h.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+      };
+
+      const variants = [
+        {
+          id: "split-utility",
+          name: "Split Utility Bar",
+          chip: "Recommended",
+          score: "Best fit for current app",
+          summary:
+            "Preserves today’s compact footprint but separates identity from utility. The right cluster becomes easier to scan and simpler to collapse on smaller widths.",
+          notes: [
+            "Best when you want a production-safe refinement instead of a rewrite.",
+            "Keeps Board, Terminal, and Diff as obvious toggles while demoting secondary actions.",
+            "Works well with the existing 52px Electron header constraint and drag-region model.",
+          ],
+        },
+        {
+          id: "command-centric",
+          name: "Command-Centric",
+          chip: "Fastest action path",
+          score: "Strong for power users",
+          summary:
+            "Makes the main action lane the hero. Great if you want the thread view to feel more like an active workbench than a static document header.",
+          notes: [
+            "Useful if scripts and run actions matter more than passive project metadata.",
+            "Feels more energetic, but the title has to compete harder for attention.",
+            "Better suited to keyboard-heavy workflows than passive browsing.",
+          ],
+        },
+        {
+          id: "workspace-breadcrumb",
+          name: "Workspace Breadcrumb",
+          chip: "Strongest hierarchy",
+          score: "Best information scent",
+          summary:
+            "Turns project and thread context into a breadcrumb-like identity system. It makes navigation and orientation feel stronger without adding another row.",
+          notes: [
+            "Best if users frequently jump between projects and need stronger location cues.",
+            "Brings the shell closer to a workspace IDE feel.",
+            "Slightly less compact than the split utility direction at narrow widths.",
+          ],
+        },
+        {
+          id: "status-first",
+          name: "Status-First",
+          chip: "Most operational",
+          score: "Best resilience signaling",
+          summary:
+            "Centers live system health and thread status. This suits Dynamo if reliability, child-agent state, and workspace readiness should be constantly visible.",
+          notes: [
+            "Good fit if you want the UI to communicate runtime trust at a glance.",
+            "Makes failure and degraded states much clearer than the current header.",
+            "Can feel busier during happy-path use unless statuses are aggressively prioritized.",
+          ],
+        },
+      ];
+
+      const states = [
+        { id: "default", label: "Default" },
+        { id: "loading", label: "Loading" },
+        { id: "empty", label: "Empty Project" },
+        { id: "error", label: "Error" },
+        { id: "disabled", label: "Disabled" },
+        { id: "overflow", label: "Overflow" },
+      ];
+
+      const stateContent = {
+        default: {
+          title: "Refine topbar behavior for child agents sidebar",
+          project: "agentDynamoT3",
+          subtitle: "Thread 18",
+          chips: [
+            { label: "Git clean", tone: "success", icon: "git" },
+            { label: "Board linked", tone: "accent", icon: "board" },
+          ],
+        },
+        loading: {
+          title: "",
+          project: "",
+          subtitle: "Session resuming",
+          chips: [{ label: "Restoring environment", tone: "warning", icon: "spark" }],
+        },
+        empty: {
+          title: "Untitled draft",
+          project: "",
+          subtitle: "No project attached yet",
+          chips: [{ label: "No Git", tone: "warning", icon: "alert" }],
+        },
+        error: {
+          title: "Investigate stalled stream after reconnect",
+          project: "agentDynamoT3",
+          subtitle: "Session degraded",
+          chips: [{ label: "Provider error", tone: "danger", icon: "alert" }],
+        },
+        disabled: {
+          title: "Open the diagnostics panel for websocket orchestration",
+          project: "agentDynamoT3",
+          subtitle: "Read-only mode",
+          chips: [{ label: "Sandbox locked", tone: "warning", icon: "alert" }],
+        },
+        overflow: {
+          title:
+            "Audit project-intelligence loading behavior when a long-running provider session is restored after a local app restart",
+          project: "agentDynamoT3-internal-shell",
+          subtitle: "Pinned branch: feature/topbar-exploration",
+          chips: [
+            { label: "Git ahead 12", tone: "success", icon: "git" },
+            { label: "3 child agents", tone: "accent", icon: "spark" },
+            { label: "Board filtered", tone: "warning", icon: "board" },
+          ],
+        },
+      };
+
+      const variantList = document.getElementById("variant-list");
+      const variantSelect = document.getElementById("variant-select");
+      const stateSelect = document.getElementById("state-select");
+      const desktopPreview = document.getElementById("desktop-preview");
+      const mobilePreview = document.getElementById("mobile-preview");
+
+      let currentVariant = variants[0].id;
+      let currentState = states[0].id;
+
+      function icon(name) {
+        return icons[name] || "";
+      }
+
+      function renderVariantControls() {
+        variantSelect.innerHTML = variants
+          .map((variant) => `<option value="${variant.id}">${variant.name}</option>`)
+          .join("");
+        stateSelect.innerHTML = states
+          .map((state) => `<option value="${state.id}">${state.label}</option>`)
+          .join("");
+        variantSelect.value = currentVariant;
+        stateSelect.value = currentState;
+
+        variantList.innerHTML = variants
+          .map((variant) => {
+            return `
+              <button class="variant-button" data-variant="${variant.id}" data-active="${variant.id === currentVariant}">
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold text-slate-900">${variant.name}</div>
+                    <div class="mt-1 text-sm leading-6 text-slate-600">${variant.summary}</div>
+                  </div>
+                  <span class="pill" data-tone="${variant.id === "split-utility" ? "accent" : "default"}">${variant.chip}</span>
+                </div>
+              </button>
+            `;
+          })
+          .join("");
+
+        variantList.querySelectorAll("[data-variant]").forEach((button) => {
+          button.addEventListener("click", () => {
+            currentVariant = button.getAttribute("data-variant");
+            sync();
+          });
+        });
+      }
+
+      function renderHeader(variantId, stateId, compact) {
+        const state = stateContent[stateId];
+        const isLoading = stateId === "loading";
+        const isEmpty = stateId === "empty";
+        const isError = stateId === "error";
+        const isDisabled = stateId === "disabled";
+        const isOverflow = stateId === "overflow";
+        const title = isLoading
+          ? '<span class="skeleton h-4 w-[220px]"></span>'
+          : `<div class="${compact ? "text-sm" : "text-[15px]"} font-semibold leading-5 text-[var(--text-strong)]">${state.title}</div>`;
+        const project =
+          !state.project || isLoading ? "" : `<span class="pill">${state.project}</span>`;
+        const chips = state.chips
+          .map(
+            (chip) =>
+              `<span class="pill" data-tone="${chip.tone}">${icon(chip.icon)}<span>${chip.label}</span></span>`,
+          )
+          .join("");
+        const utilityToggles = `
+          <div class="segmented">
+            <button class="btn" data-active="${!isEmpty}" ${isDisabled || isEmpty ? "disabled" : ""}>${icon("board")} ${compact ? "" : "<span>Board</span>"}</button>
+            <button class="btn" data-active="${!isEmpty}" ${isDisabled || isEmpty ? "disabled" : ""}>${icon("terminal")} ${compact ? "" : "<span>Terminal</span>"}</button>
+            <button class="btn" data-active="${!isEmpty && !isError}" ${isDisabled || isEmpty ? "disabled" : ""}>${icon("diff")} ${compact ? "" : "<span>Diff</span>"}</button>
+          </div>
+        `;
+        const secondaryActions = `
+          <div class="flex items-center gap-2 action-wrap">
+            <button class="btn" ${isDisabled || isEmpty ? "disabled" : ""}>${icon("open")} ${compact ? "" : "<span>Open</span>"}</button>
+            <button class="btn" ${isDisabled || isEmpty ? "disabled" : ""}>${icon("git")} ${compact ? "" : "<span>Git</span>"}</button>
+            <button class="btn" ${isDisabled ? "disabled" : ""}>${icon("menu")}</button>
+          </div>
+        `;
+        const primaryRun = `<button class="btn" data-primary="true" ${isDisabled ? "disabled" : ""}>${icon("spark")}<span>${isLoading ? "Resuming" : "Run"}</span></button>`;
+
+        if (variantId === "split-utility") {
+          return `
+            <div class="topbar">
+              <div class="mobile-stack title-wrap">
+                <div class="title-wrap min-w-0">
+                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl border border-black/5 bg-white/80 text-[var(--accent)]">${icon("spark")}</div>
+                  <div class="min-w-0">
+                    ${title}
+                    <div class="mt-1 flex min-w-0 items-center gap-2 overflow-hidden text-xs text-[var(--text-muted)]">
+                      <span class="truncate">${state.subtitle}</span>
+                      ${project}
+                    </div>
+                  </div>
+                </div>
+                <div class="${isOverflow ? "overflow-strip" : "flex flex-wrap"} gap-2">${chips}</div>
+              </div>
+              <div class="flex items-center gap-2 action-wrap">
+                ${utilityToggles}
+                ${secondaryActions}
+              </div>
+            </div>
+          `;
+        }
+
+        if (variantId === "command-centric") {
+          return `
+            <div class="topbar">
+              <div class="mobile-stack title-wrap">
+                <div class="min-w-0">
+                  ${title}
+                  <div class="mt-1 flex min-w-0 items-center gap-2 overflow-hidden text-xs text-[var(--text-muted)]">
+                    ${project}
+                    <span class="truncate">${state.subtitle}</span>
+                  </div>
+                </div>
+                <div class="${isOverflow ? "overflow-strip" : "flex flex-wrap"} gap-2">${chips}</div>
+              </div>
+              <div class="flex items-center gap-2 action-wrap">
+                ${primaryRun}
+                <button class="btn" ${isDisabled || isEmpty ? "disabled" : ""}>${icon("spark")}<span>${compact ? "Scripts" : "Scripts"}</span>${icon("chevron")}</button>
+                ${utilityToggles}
+                <button class="btn" ${isDisabled ? "disabled" : ""}>${icon("menu")}</button>
+              </div>
+            </div>
+          `;
+        }
+
+        if (variantId === "workspace-breadcrumb") {
+          return `
+            <div class="topbar">
+              <div class="mobile-stack title-wrap">
+                <div class="min-w-0">
+                  <div class="flex min-w-0 items-center gap-2 overflow-hidden text-xs font-medium uppercase tracking-[0.12em] text-[var(--text-faint)]">
+                    <span class="truncate">${state.project || "Workspace"}</span>
+                    <span>/</span>
+                    <span class="truncate">${state.subtitle}</span>
+                  </div>
+                  <div class="mt-1">${title}</div>
+                </div>
+                <div class="${isOverflow ? "overflow-strip" : "flex flex-wrap"} gap-2">${chips}</div>
+              </div>
+              <div class="flex items-center gap-2 action-wrap">
+                <button class="btn" ${isDisabled ? "disabled" : ""}>${icon("open")} ${compact ? "" : "<span>Open</span>"}</button>
+                ${utilityToggles}
+                <button class="btn" ${isDisabled || isEmpty ? "disabled" : ""}>${icon("git")} ${compact ? "" : "<span>Changes</span>"}</button>
+                <button class="btn" ${isDisabled ? "disabled" : ""}>${icon("menu")}</button>
+              </div>
+            </div>
+          `;
+        }
+
+        return `
+          <div class="topbar">
+            <div class="mobile-stack title-wrap">
+              <div class="min-w-0">
+                ${title}
+                <div class="mt-1 flex min-w-0 items-center gap-2 overflow-hidden text-xs text-[var(--text-muted)]">
+                  <span class="truncate">${state.subtitle}</span>
+                  ${project}
+                </div>
+              </div>
+              <div class="${isOverflow ? "overflow-strip" : "flex flex-wrap"} gap-2">${chips}</div>
+            </div>
+            <div class="flex items-center gap-2 action-wrap">
+              <span class="pill" data-tone="${isError ? "danger" : isEmpty ? "warning" : "success"}">
+                <span class="dot"></span>
+                ${isError ? "Stream degraded" : isEmpty ? "Awaiting project" : "Ready"}
+              </span>
+              <span class="pill" data-tone="${isDisabled ? "warning" : "accent"}">
+                <span class="dot"></span>
+                ${isDisabled ? "Read only" : "1 agent active"}
+              </span>
+              ${utilityToggles}
+              <button class="btn" ${isDisabled || isEmpty ? "disabled" : ""}>${icon("git")} ${compact ? "" : "<span>Review</span>"}</button>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderBody(stateId, compact) {
+        if (stateId === "empty") {
+          return `
+            <div class="thread-body ${compact ? "p-4" : ""}">
+              <div class="rounded-[24px] border border-dashed border-black/10 bg-white/50 px-6 py-10 text-center">
+                <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]">${icon("spark")}</div>
+                <h3 class="mt-4 text-lg font-semibold text-slate-900">Attach a project to unlock tools</h3>
+                <p class="mt-2 text-sm leading-6 text-slate-600">
+                  Terminal, diff, and git actions stay disabled until this draft has an active project.
+                </p>
+              </div>
+            </div>
+          `;
+        }
+
+        return `
+          <div class="thread-body ${compact ? "p-4" : ""}">
+            <div class="message">
+              Need three directions for the thread topbar that still work with the current Electron titlebar height.
+            </div>
+            <div class="message agent">
+              I prepared split utility, command-centric, workspace breadcrumb, and status-first concepts with compact and overflow behavior.
+            </div>
+            ${
+              stateId === "loading"
+                ? `<div class="message"><span class="skeleton h-3 w-[70%]"></span><br /><span class="skeleton mt-3 h-3 w-[52%]"></span></div>`
+                : ""
+            }
+            ${
+              stateId === "error"
+                ? `<div class="rounded-[20px] border border-[rgba(207,51,71,0.16)] bg-[rgba(207,51,71,0.06)] px-4 py-3 text-sm text-[var(--danger)]">Provider stream stalled after reconnect. Preserve header controls, but surface the degraded state close to the title.</div>`
+                : ""
+            }
+          </div>
+        `;
+      }
+
+      function renderShell(variantId, stateId, compact) {
+        return `${renderHeader(variantId, stateId, compact)}${renderBody(stateId, compact)}`;
+      }
+
+      function sync() {
+        renderVariantControls();
+
+        const variant = variants.find((item) => item.id === currentVariant);
+        document.getElementById("active-name").textContent = variant.name;
+        document.getElementById("active-summary").textContent = variant.summary;
+        document.getElementById("active-score").innerHTML =
+          `<span class="dot"></span>${variant.score}`;
+        document.getElementById("active-notes").innerHTML = variant.notes
+          .map(
+            (note) =>
+              `<div class="rounded-2xl border border-black/6 bg-white/70 px-4 py-3">${note}</div>`,
+          )
+          .join("");
+
+        desktopPreview.innerHTML = renderShell(currentVariant, currentState, false);
+        mobilePreview.innerHTML = renderShell(currentVariant, currentState, true);
+
+        variantSelect.value = currentVariant;
+        stateSelect.value = currentState;
+      }
+
+      variantSelect.addEventListener("change", (event) => {
+        currentVariant = event.target.value;
+        sync();
+      });
+
+      stateSelect.addEventListener("change", (event) => {
+        currentState = event.target.value;
+        sync();
+      });
+
+      sync();
+    </script>
+  </body>
+</html>

@@ -18,7 +18,8 @@ Unsigned builds may require extra approval from your operating system. Code sign
 Dynamo launches provider CLIs locally, so you need at least one supported provider installed and authenticated before starting:
 
 - Codex: install [Codex CLI](https://github.com/openai/codex), then run `codex login`
-- Claude: install Claude Code, then run `claude auth login`
+- Claude: install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`
+- OpenCode: install [OpenCode](https://opencode.ai), then run `opencode auth login`
 
 ## Local development
 
@@ -71,3 +72,7 @@ Dynamo is not accepting broad external contributions yet. Small bug reports and 
 Need support or want to follow development? Join the [Discord](https://discord.gg/jn4EGJjrvv).
 
 Observability guide: [docs/observability.md](./docs/observability.md)
+
+## Credits
+
+Dynamo started as a fork of [T3 Code](https://github.com/pingdotgg/t3code) and owes its core agent-runtime architecture to that project. Thanks to the T3 Code team.

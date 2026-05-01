@@ -17,7 +17,7 @@ function providerHealth(provider: ServerProvider): ProjectIntelligenceHealth {
 }
 
 function providerLabel(provider: ServerProvider): string {
-  return PROVIDER_DISPLAY_NAMES[provider.provider] ?? provider.provider;
+  return PROVIDER_DISPLAY_NAMES[provider.driver] ?? provider.driver;
 }
 
 function virtualSurface(input: {
@@ -36,13 +36,13 @@ function virtualSurface(input: {
   const summary: ProjectIntelligenceSurfaceSummary = {
     id: createProjectIntelligenceSurfaceId([
       "provider",
-      input.provider.provider,
+      input.provider.driver,
       input.kind,
       input.path,
       input.label,
     ]),
-    owner: input.provider.provider,
-    provider: input.provider.provider,
+    owner: input.provider.driver,
+    provider: input.provider.driver,
     kind: input.kind,
     label: input.label,
     path: input.path,
@@ -70,7 +70,7 @@ export function summarizeProviders(
   providers: ReadonlyArray<ServerProvider>,
 ): ReadonlyArray<ProjectIntelligenceProviderSummary> {
   return providers.map((provider) => ({
-    provider: provider.provider,
+    provider: provider.driver,
     enabled: provider.enabled,
     installed: provider.installed,
     status: provider.status,
@@ -112,7 +112,7 @@ export function discoverProviderSurfaces(
           provider,
           kind: "model",
           label: model.name,
-          path: `provider://${provider.provider}/model/${model.slug}`,
+          path: `provider://${provider.driver}/model/${model.slug}`,
           activation: "runtime-config",
           enabled: provider.enabled,
           sourceLabel: `${label} model`,
@@ -139,7 +139,7 @@ export function discoverProviderSurfaces(
           path:
             skill.path.trim().length > 0
               ? skill.path
-              : `provider://${provider.provider}/skill/${skill.name}`,
+              : `provider://${provider.driver}/skill/${skill.name}`,
           activation: "on-skill-match",
           enabled: skill.enabled,
           triggerLabel: skill.name,
@@ -167,7 +167,7 @@ export function discoverProviderSurfaces(
           provider,
           kind: "slash-command",
           label: command.name,
-          path: `provider://${provider.provider}/command/${command.name}`,
+          path: `provider://${provider.driver}/command/${command.name}`,
           activation: "on-command",
           enabled: provider.enabled,
           triggerLabel: `/${command.name}`,
@@ -200,7 +200,7 @@ export function discoverProviderSurfaces(
           provider,
           kind: "team-capability",
           label: `${label} team capabilities`,
-          path: `provider://${provider.provider}/team-capabilities`,
+          path: `provider://${provider.driver}/team-capabilities`,
           activation: "runtime-config",
           enabled: provider.enabled,
           sourceLabel: `${label} runtime`,

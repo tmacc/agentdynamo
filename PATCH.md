@@ -8,6 +8,50 @@
 - Do not remove an entry just because a merge dropped the code. Mark its current status instead.
 - Keep entries concrete: user-visible behavior, key files, invariants, merge hotspots, and verification steps.
 - After every upstream merge, review every entry here before treating the branch as ready.
+- Track upstream syncs with the shared `origin/upstream-sync-base` branch. The commit range to review before a merge is `origin/upstream-sync-base..upstream/main`, not `HEAD..upstream/main`.
+- After every verified upstream merge, record the upstream range merged here, then advance and push `upstream-sync-base` to the upstream tip that was integrated.
+- If upstream rewrites or replays history and the sync marker is no longer an ancestor of `upstream/main`, identify the equivalent upstream commit by PR number, subject, or patch-id, record the mismatch here, and reset `upstream-sync-base` to the equivalent commit after verification.
+- Do not update this file or move `upstream-sync-base` for ordinary fork-internal branch updates from `origin/main`; those are not upstream syncs unless they explicitly include new commits from the `upstream` remote.
+
+## Upstream Sync Tracking
+
+- Shared marker: `origin/upstream-sync-base`
+- Purpose: records the upstream commit that this fork has last successfully integrated and verified, so future upstream syncs can review only the new upstream range even when the fork branch has local merge commits or upstream history has been replayed.
+- Range command: `git log --oneline origin/upstream-sync-base..upstream/main`
+- Count command: `git rev-list --count origin/upstream-sync-base..upstream/main`
+- Advance after successful sync: `git branch -f upstream-sync-base <integrated-upstream-tip>` followed by `git push origin upstream-sync-base`
+- Previous reconstructed marker: upstream commit equivalent to `327499aa` from the `2026-04-23` merge is `b0b7b38d` (`fix(server): detect localized Windows command errors (#2152)`).
+- Current integrated marker: upstream `17b43960` (`Add structured Discord webhook logging for release notifications (#2431)`) verified on branch `t3code/upstream-sync-2026-04-30`.
+
+## Upstream Sync Log
+
+### 2026-05-01 - Replay upstream `b0b7b38d..17b43960`
+
+- `Status`: verified on integration branch `t3code/upstream-sync-2026-04-30`.
+- `Range integrated`: `b0b7b38da1dc4b19833d13f84eb907b1e2adfb63..17b43960e86335534c63fb2b93ea68300b3bcc62`.
+- `Previous marker`: `b0b7b38d` was a reconstructed equivalent of the last upstream commit included in the fork's `2026-04-23` merge, because fork-local replayed commits made `HEAD..upstream/main` report already-integrated history as new.
+- `New marker after verification`: `17b43960e86335534c63fb2b93ea68300b3bcc62`.
+- `Integration method`: replayed upstream commits onto current `origin/main` with conflict resolution and fork compatibility commits, rather than relying on Git's merge-base between divergent histories.
+- `Skipped upstream commit`: `ada410bc` (`chore(release): prepare v0.0.21`) because it is a release version bump only and conflicts with Dynamo release/version ownership.
+- `Adopted upstream behavior`:
+  - Provider model selection option arrays and provider-instance model selection.
+  - OpenCode README/provider updates and Windows PATH handling.
+  - Stale runtime/lifecycle fixes for WebSocket reconnects, snapshots, permissions, visited timestamps, terminal dimensions, PR branch status, request-permission command input, and release scripts.
+  - Mobile web fixes for iOS safe areas, input focus, file picker scrolling, sidebar/new-thread/archive visibility, and diff panel closing in non-Git projects.
+  - Electron `40.9.3` trusted dependency bump.
+  - Release workflow optimization and Discord release announcement plumbing, while keeping Dynamo runner/release policy.
+- `Fork behavior preserved`:
+  - Dynamo branding, docs, release naming, storage isolation, and GitHub-hosted release workflow choices.
+  - Dynamo team coordinator tools, child-agent drawer semantics, grants, team task projections, child worktree review/apply, and native-provider task mirroring.
+  - Board projections, forked-thread context handoff, provider account identity, worktree branch metadata guards, and new-worktree default branch behavior.
+  - Project intelligence surfaces and provider-discovery behavior adapted to upstream's provider-instance model.
+- `Merge notes`:
+  - Upstream migrations `026`, `027`, and `028` were remapped to Dynamo-local `046`, `047`, and `048` to avoid colliding with existing fork-only migrations.
+  - Team task and context-handoff code now stores upstream's `ModelSelection.instanceId` shape while preserving driver-oriented UI labels and coordinator routing where only a provider driver is available.
+  - Multi-provider provider snapshots are stamped with `instanceId` and `driver`; Dynamo team worker selection uses provider instances for execution and provider drivers for scoring.
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Run focused migration/team/orchestration/web tests for the remapped migrations, provider-instance team selection, provider runtime ingestion, coordinator access, team task presentation, project intelligence presentation, board projection, and store projections.
 
 ## Current Baseline
 
@@ -158,6 +202,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 - `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce`.
 - `User-visible behavior`: Project-level board with stored columns (`ideas`, `planned`) and derived columns (`in-progress`, `review`, `done`) computed from thread/runtime state. Supports card creation, drag/drop reordering, linked threads, ghost cards, seeded prompts, board-scoped routing, and adding implementation work from proposed plans directly into the board.
+- `User-visible behavior`: Starting an agent from an unlinked board card opens a fresh draft in Plan mode with `New worktree` selected from base branch `main`, instead of inheriting the currently open thread or draft branch/worktree.
 - `Why it exists`: Gives Dynamo a lightweight planning surface tied directly to real agent threads instead of separate project-management tooling.
 - `Key fork files`:
   - `packages/contracts/src/board.ts`
@@ -169,15 +214,18 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/boardRouteSearch.ts`
   - `apps/web/src/boardStore.ts`
   - `apps/web/src/boardUiStore.ts`
+  - `apps/web/src/hooks/useHandleNewThread.ts`
   - `apps/web/src/components/board/BoardView.tsx`
   - `apps/web/src/components/board/BoardCardSheet.tsx`
   - `apps/web/src/routes/_chat.tsx`
+  - `apps/web/src/lib/chatThreadActions.ts`
   - `apps/web/src/components/chat/ChatHeader.tsx`
   - `apps/web/src/components/chat/ProposedPlanCard.tsx`
 - `Important invariants`:
   - Stored columns are authoritative on the server.
   - Derived columns are recomputed from thread state and git/runtime signals.
   - Card-to-thread linking must stay unique and stable.
+  - Board-started agents represent independent tasks and must default to Plan mode plus a new worktree from `main`; the user may still override those draft settings before sending the first message.
   - Ghost-card dismissals must persist across reloads.
   - Board route state must survive thread and draft navigation without leaking board params into normal thread opens.
   - Fork-only migration ids that are moved or reused during upstream syncs require a later idempotent ensure migration; board table DDL is re-run at migration id `044` so databases whose receipts advanced past old ids `026`/`027` still get `projection_board_cards`, `projection_board_dismissed_ghosts`, and their indexes.
@@ -390,8 +438,8 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ### Project intelligence
 
-- `Status`: Restored as Project Intelligence v2.
-- `User-visible behavior`: A provider-neutral agent context and health dashboard exposes the instructions, skills, commands, custom agents, hooks, MCP/tool surfaces, memory, project scripts, worktree setup, provider health, model/team capabilities, warnings, and code stats visible to the current project or thread workspace.
+- `Status`: Restored as Project Intelligence v2, with the context inspector/project context manager added on `t3code/sidebar-context-redesign`.
+- `User-visible behavior`: A provider-neutral agent context and health dashboard exposes the instructions, skills, commands, custom agents, hooks, MCP/tool surfaces, memory, project scripts, worktree setup, provider health, model/team capabilities, warnings, and code stats visible to the current project or thread workspace. The primary Project Intelligence surface is now the distilled Context inspector: a 200-dot context usage grid, model-aware context-window percentage, System/Skills/Sub-agents/Memory/MCP categories, read-only capabilities, and a project-level context manager at `/settings/project-context`. Thread chats can open a docked Context right panel from the chat header; project context can also be opened from the project sidebar action.
 - `Why it exists`: Gives users a structured operational overview of how a project is configured for agent work, reducing guesswork and making hidden repo/runtime surfaces discoverable.
 - `Key fork files`:
   - `packages/contracts/src/project.ts`
@@ -404,13 +452,25 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/lib/projectIntelligenceReactQuery.ts`
   - `apps/web/src/projectIntelligencePresentation.ts`
   - `apps/web/src/projectIntelligenceRouteSearch.ts`
+  - `apps/web/src/components/chat/ChatContextSidebar.tsx`
+  - `apps/web/src/components/project-intelligence/ContextInspector*.tsx`
+  - `apps/web/src/components/project-intelligence/sections/ContextInspectorSection.tsx`
+  - `apps/web/src/components/settings/ProjectContextSettingsPanel.tsx`
+  - `apps/web/src/lib/modelContextWindow.ts`
+  - `apps/web/src/stores/threadContextOverridesStore.ts`
+  - `apps/web/src/rightPanelLayout.ts`
+  - `apps/server/src/project/intelligence/projectContextOverrides.ts`
   - `packages/shared/src/codeStatsPolicy.ts`
 - `Important invariants`:
   - All providers appear in health/runtime summaries even when only Codex and Claude expose deeper file-backed context initially.
   - Surface preview reads are authorized by rediscovering allowed surfaces for the requested project/thread before reading content.
   - Secrets are redacted before excerpts and full previews.
   - Thread mode distinguishes the project root from the effective worktree.
-  - The UI is read-only except for opening real source files in the editor.
+  - The distilled Project Intelligence nav keeps Context, Providers, Runtime, and Warnings as the primary sections. Overview, Loaded Context, Tools, Memory, and Code Stats route/search ids must redirect into Context or Runtime rather than breaking old URLs.
+  - Thread Context mode is read-only for subtractive changes. Thread additions are additive-only and in-memory; project default toggles persist to `.t3code/project-context.json`.
+  - Context percentages must be model-aware. Thread mode should prefer the latest server context-window activity, then fall back to the active `ModelSelection.instanceId` provider snapshot. Project mode is a what-if preview over enabled provider instances and must not silently write the project's default model selection.
+  - Project context toggles currently update discovered Project Intelligence surfaces and persistence only; provider adapters still assemble prompt context from their own disk/runtime sources. Do not present the toggle as provider-side enforcement until adapters consult the project context override layer.
+  - The non-inspector UI is read-only except for opening real source files in the editor.
   - Frontend/design ownership can be delegated to an Opus 4.7 agent, but final integration must preserve the agreed contract and API shapes.
 - `Merge hotspots`:
   - Project contracts and resolver output shape
@@ -423,6 +483,9 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `bun typecheck`
   - Targeted `bun run test` suites for Project Intelligence contracts, shared code stats, server redaction/discovery/readback/code stats/ws wiring, and web presentation/route/component behavior.
   - Open Project Intelligence from a project sidebar action and from the command palette.
+  - Open the docked thread Context panel from the chat header and confirm it uses the active thread model/window.
+  - Open `/settings/project-context`, switch the what-if model, and confirm the context percentage updates without changing the project default model.
+  - Toggle a project context item and confirm `.t3code/project-context.json` is written and rediscovery reflects the override.
   - Open from an active thread with a worktree and confirm thread-workspace context is shown separately from project context.
   - Confirm Codex and Claude surfaces are discovered in a project with `.codex`, `.agents`, `.claude`, `AGENTS.md`, and `CLAUDE.md`.
   - Confirm Cursor/OpenCode appear with provider health/models even if they expose no file-backed surfaces.

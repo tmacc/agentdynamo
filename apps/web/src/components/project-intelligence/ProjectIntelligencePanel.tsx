@@ -150,10 +150,7 @@ export function ProjectIntelligencePanel(props: ProjectIntelligencePanelProps) {
     () => allSurfaces.filter(isInspectorSurface).length,
     [allSurfaces],
   );
-  const runtimeCount = useMemo(
-    () => allSurfaces.filter(isRuntimeSurface).length,
-    [allSurfaces],
-  );
+  const runtimeCount = useMemo(() => allSurfaces.filter(isRuntimeSurface).length, [allSurfaces]);
   const countsBySection = useMemo<Partial<Record<ProjectIntelligenceSectionId, number>>>(
     () => ({
       "context-inspector": inspectorCount,
@@ -356,9 +353,7 @@ function SectionContent(props: SectionContentProps) {
         viewMode={props.viewMode === "thread" ? "thread" : "project"}
         threadId={props.threadId}
         surfaces={props.allSurfaces}
-        {...(props.contextMaxTokens !== undefined
-          ? { maxTokens: props.contextMaxTokens }
-          : {})}
+        {...(props.contextMaxTokens !== undefined ? { maxTokens: props.contextMaxTokens } : {})}
         {...(props.contextActiveModel ? { activeModel: props.contextActiveModel } : {})}
         {...(props.contextOnPickModel ? { onPickModel: props.contextOnPickModel } : {})}
       />

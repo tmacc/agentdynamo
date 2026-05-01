@@ -12,10 +12,7 @@ import { memo, useCallback, useMemo, useState } from "react";
 import { Button } from "../ui/button";
 import { ProjectIntelligencePanel } from "../project-intelligence/ProjectIntelligencePanel";
 import { deriveLatestContextWindowSnapshot } from "~/lib/contextWindow";
-import {
-  describeModelSelection,
-  resolveModelContextWindowTokens,
-} from "~/lib/modelContextWindow";
+import { describeModelSelection, resolveModelContextWindowTokens } from "~/lib/modelContextWindow";
 
 /**
  * Thin wrapper that mounts ProjectIntelligencePanel docked inside the chat
@@ -34,20 +31,18 @@ export const ChatContextSidebar = memo(function ChatContextSidebar(props: {
   providers: ReadonlyArray<ServerProvider>;
   onClose: () => void;
 }) {
-  const [section, setSection] = useState<
-    Parameters<React.ComponentProps<typeof ProjectIntelligencePanel>["onSelectSection"]>[0]
-  >("context-inspector");
+  const [section, setSection] =
+    useState<
+      Parameters<React.ComponentProps<typeof ProjectIntelligencePanel>["onSelectSection"]>[0]
+    >("context-inspector");
   const [surfaceId, setSurfaceId] = useState<ProjectIntelligenceSurfaceId | null>(null);
 
-  const handleSelectSection = useCallback(
-    (next: typeof section) => {
-      setSection(next);
-      // Drop the focused surface when switching to/from the inspector to avoid
-      // re-opening the surface detail drawer on top of the inspector.
-      setSurfaceId(null);
-    },
-    [],
-  );
+  const handleSelectSection = useCallback((next: typeof section) => {
+    setSection(next);
+    // Drop the focused surface when switching to/from the inspector to avoid
+    // re-opening the surface detail drawer on top of the inspector.
+    setSurfaceId(null);
+  }, []);
 
   // Resolve the active context window: prefer the live `maxTokens` reported
   // in the latest context-window activity event (server-derived, accounts for

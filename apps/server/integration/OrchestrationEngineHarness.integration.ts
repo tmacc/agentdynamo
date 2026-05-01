@@ -3,7 +3,8 @@ import { execFileSync } from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ApprovalRequestId,
-  ProviderKind,
+  CodexSettings,
+  ProviderDriverKind,
   TeamCoordinatorGrantId,
   type OrchestrationEvent,
   type OrchestrationThread,
@@ -37,13 +38,16 @@ import { ProviderSessionRuntimeRepositoryLive } from "../src/persistence/Layers/
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
 import { ProjectionCheckpointRepository } from "../src/persistence/Services/ProjectionCheckpoints.ts";
 import { ProjectionPendingApprovalRepository } from "../src/persistence/Services/ProjectionPendingApprovals.ts";
-import { ProviderUnsupportedError } from "../src/provider/Errors.ts";
+import { makeAdapterRegistryMock } from "../src/provider/testUtils/providerAdapterRegistryMock.ts";
 import { ProviderAdapterRegistry } from "../src/provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
 import { ServerSettingsService } from "../src/serverSettings.ts";
 import { makeProviderServiceLive } from "../src/provider/Layers/ProviderService.ts";
-import { makeCodexAdapterLive } from "../src/provider/Layers/CodexAdapter.ts";
-import { CodexAdapter } from "../src/provider/Services/CodexAdapter.ts";
+import { makeCodexAdapter } from "../src/provider/Layers/CodexAdapter.ts";
+import {
+  NoOpProviderEventLoggers,
+  ProviderEventLoggers,
+} from "../src/provider/Layers/ProviderEventLoggers.ts";
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { CheckpointReactorLive } from "../src/orchestration/Layers/CheckpointReactor.ts";
@@ -217,7 +221,7 @@ export interface OrchestrationIntegrationHarness {
 }
 
 interface MakeOrchestrationIntegrationHarnessOptions {
-  readonly provider?: ProviderKind;
+  readonly provider?: ProviderDriverKind;
   readonly realCodex?: boolean;
 }
 
@@ -228,7 +232,7 @@ export const makeOrchestrationIntegrationHarness = (
     const path = yield* Path.Path;
     const fileSystem = yield* FileSystem.FileSystem;
 
-    const provider = options?.provider ?? "codex";
+    const provider = options?.provider ?? ProviderDriverKind.make("codex");
     const useRealCodex = options?.realCodex === true;
     const adapterHarness = useRealCodex
       ? null
@@ -236,13 +240,10 @@ export const makeOrchestrationIntegrationHarness = (
           provider,
         });
     const fakeRegistry = adapterHarness
-      ? Layer.succeed(ProviderAdapterRegistry, {
-          getByProvider: (resolvedProvider) =>
-            resolvedProvider === adapterHarness.provider
-              ? Effect.succeed(adapterHarness.adapter)
-              : Effect.fail(new ProviderUnsupportedError({ provider: resolvedProvider })),
-          listProviders: () => Effect.succeed([adapterHarness.provider]),
-        } as typeof ProviderAdapterRegistry.Service)
+      ? Layer.succeed(
+          ProviderAdapterRegistry,
+          makeAdapterRegistryMock({ [adapterHarness.provider]: adapterHarness.adapter }),
+        )
       : null;
     const rootDir = yield* fileSystem.makeTempDirectoryScoped({
       prefix: "t3-orchestration-integration-",
@@ -267,31 +268,30 @@ export const makeOrchestrationIntegrationHarness = (
     const realCodexRegistry = Layer.effect(
       ProviderAdapterRegistry,
       Effect.gen(function* () {
-        const codexAdapter = yield* CodexAdapter;
-        return {
-          getByProvider: (resolvedProvider) =>
-            resolvedProvider === "codex"
-              ? Effect.succeed(codexAdapter)
-              : Effect.fail(new ProviderUnsupportedError({ provider: resolvedProvider })),
-          listProviders: () => Effect.succeed(["codex"] as const),
-        } as typeof ProviderAdapterRegistry.Service;
+        const codexSettings = Schema.decodeSync(CodexSettings)({});
+        const codexAdapter = yield* makeCodexAdapter(codexSettings);
+        return makeAdapterRegistryMock({
+          [ProviderDriverKind.make("codex")]: codexAdapter,
+        });
       }),
     ).pipe(
-      Layer.provide(makeCodexAdapterLive()),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
+    const providerEventLoggersLayer = Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers);
     const providerLayer = useRealCodex
       ? makeProviderServiceLive().pipe(
           Layer.provide(providerSessionDirectoryLayer),
           Layer.provide(realCodexRegistry),
           Layer.provide(AnalyticsService.layerTest),
+          Layer.provide(providerEventLoggersLayer),
         )
       : makeProviderServiceLive().pipe(
           Layer.provide(providerSessionDirectoryLayer),
           Layer.provide(fakeRegistry!),
           Layer.provide(AnalyticsService.layerTest),
+          Layer.provide(providerEventLoggersLayer),
         );
 
     const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitCoreLive));

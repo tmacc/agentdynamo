@@ -2,10 +2,10 @@ import { Effect, Schema } from "effect";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 export const DEFAULT_TERMINAL_ID = "default";
-export const TERMINAL_MIN_COLS = 20;
-export const TERMINAL_MAX_COLS = 400;
-export const TERMINAL_MIN_ROWS = 5;
-export const TERMINAL_MAX_ROWS = 200;
+export const TERMINAL_MIN_COLS = 1;
+export const TERMINAL_MAX_COLS = 1000;
+export const TERMINAL_MIN_ROWS = 1;
+export const TERMINAL_MAX_ROWS = 500;
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const TerminalColsSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(TERMINAL_MIN_COLS)).check(

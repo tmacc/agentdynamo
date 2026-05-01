@@ -83,10 +83,7 @@ export function ContextInspectorSection({
   const setEnabledMutation = useSetSurfaceEnabledMutation();
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
 
-  const inspectorSurfaces = useMemo(
-    () => surfaces.filter(isInspectorSurface),
-    [surfaces],
-  );
+  const inspectorSurfaces = useMemo(() => surfaces.filter(isInspectorSurface), [surfaces]);
 
   const grouped = useMemo(() => {
     const out: Record<InspectorCategoryId, ProjectIntelligenceSurfaceSummary[]> = {
@@ -128,10 +125,7 @@ export function ContextInspectorSection({
 
   // Capabilities (slash-commands, hooks, plugins) — read-only flat list shown
   // below the inspector accordion. Folded in here from the old "Tools" tab.
-  const capabilities = useMemo(
-    () => surfaces.filter(isCapabilitySurface),
-    [surfaces],
-  );
+  const capabilities = useMemo(() => surfaces.filter(isCapabilitySurface), [surfaces]);
 
   // Savings: tokens that *would* be loaded if every surface were on its discovery
   // default minus what's currently loaded after overrides. We approximate the

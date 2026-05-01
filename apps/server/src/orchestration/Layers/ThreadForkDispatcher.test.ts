@@ -6,6 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import {
   MessageId,
+  ProviderInstanceId,
   ProjectId,
   ThreadId,
   type ModelSelection,
@@ -48,7 +49,7 @@ const projectId = ProjectId.make("project-fork-test");
 const sourceThreadId = ThreadId.make("thread-source");
 const sourceUserMessageId = MessageId.make("message-source-user");
 const modelSelection = {
-  provider: "codex",
+  instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5.5",
 } satisfies ModelSelection;
 

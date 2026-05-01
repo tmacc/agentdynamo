@@ -5,7 +5,7 @@ import type {
   OrchestrationTeamTask,
   TeamAgentsSettings,
 } from "@t3tools/contracts";
-import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
+import { PROVIDER_DISPLAY_NAMES, ProviderKind } from "@t3tools/contracts";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -407,7 +407,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           sourceThreadId: command.forkOrigin.sourceThreadId,
           sourceThreadTitle: command.forkOrigin.sourceThreadTitle,
           sourceUserMessageId: command.forkOrigin.sourceUserMessageId,
-          targetProvider: command.modelSelection.provider,
+          targetProvider: ProviderKind.make(String(command.modelSelection.instanceId)),
           importedUntilAt: command.forkOrigin.importedUntilAt,
           createdAt: command.createdAt,
         },
@@ -454,7 +454,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
       const sourceProvider = handoff.sourceProvider;
       const targetProvider =
-        command.modelSelection?.provider ?? handoff.targetProvider ?? command.provider;
+        (command.modelSelection
+          ? ProviderKind.make(String(command.modelSelection.instanceId))
+          : undefined) ??
+        handoff.targetProvider ??
+        command.provider;
       const targetModel = command.modelSelection?.model;
       const sourceProviderLabel =
         sourceProvider === undefined ? undefined : providerDisplayName(sourceProvider);

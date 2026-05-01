@@ -122,8 +122,7 @@ export function ContextInspectorCategory({
             const userDisabled = userDisabledIds?.has(surface.id) ?? false;
             // Thread view: read-only on disabling. The "off" state is whether the project default
             // currently has this surface disabled. Additive: thread can re-enable by adding.
-            const isLocked =
-              surface.activation === "always-loaded" || surface.scope === "system";
+            const isLocked = surface.activation === "always-loaded" || surface.scope === "system";
             const off = !surface.enabled;
             const isThreadAddition = threadAdditionIds?.has(surface.id) ?? false;
             const pending = pendingIds?.has(surface.id) ?? false;
@@ -181,9 +180,7 @@ export function ContextInspectorCategory({
                     <span
                       className={cn(
                         "block size-2.5 rounded-full border transition-colors",
-                        off
-                          ? "border-muted-foreground/30 bg-transparent"
-                          : "border-transparent",
+                        off ? "border-muted-foreground/30 bg-transparent" : "border-transparent",
                       )}
                       style={{
                         backgroundColor: off
@@ -208,9 +205,7 @@ export function ContextInspectorCategory({
                     <span
                       className={cn(
                         "rounded border px-1 py-px text-[8.5px] uppercase tracking-[0.12em]",
-                        isThreadAddition
-                          ? "font-semibold"
-                          : "border-transparent bg-muted/40",
+                        isThreadAddition ? "font-semibold" : "border-transparent bg-muted/40",
                       )}
                       style={
                         isThreadAddition
@@ -222,7 +217,9 @@ export function ContextInspectorCategory({
                           : undefined
                       }
                     >
-                      {isThreadAddition ? "ADDED" : (
+                      {isThreadAddition ? (
+                        "ADDED"
+                      ) : (
                         <span className="inline-flex items-center gap-0.5">
                           <PlusIcon className="size-2.5" />
                           ADD
@@ -231,9 +228,7 @@ export function ContextInspectorCategory({
                     </span>
                   ) : null}
                   {typeof surface.approxTokenCount === "number" ? (
-                    <span className="tabular-nums">
-                      {formatTokens(surface.approxTokenCount)}
-                    </span>
+                    <span className="tabular-nums">{formatTokens(surface.approxTokenCount)}</span>
                   ) : (
                     <span className="opacity-50">—</span>
                   )}

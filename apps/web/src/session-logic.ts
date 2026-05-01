@@ -7,7 +7,7 @@ import {
   type OrchestrationLatestTurn,
   type OrchestrationThreadActivity,
   type OrchestrationProposedPlanId,
-  type ProviderKind,
+  ProviderDriverKind,
   type ToolLifecycleItemType,
   type UserInputQuestion,
   type ThreadId,
@@ -23,7 +23,7 @@ import type {
   TurnDiffSummary,
 } from "./types";
 
-export type ProviderPickerKind = ProviderKind;
+export type ProviderPickerKind = ProviderDriverKind;
 
 export const PROVIDER_OPTIONS: Array<{
   value: ProviderPickerKind;
@@ -32,10 +32,20 @@ export const PROVIDER_OPTIONS: Array<{
   /** Shown on the model picker sidebar when relevant */
   pickerSidebarBadge?: "new" | "soon";
 }> = [
-  { value: "codex", label: "Codex", available: true },
-  { value: "claudeAgent", label: "Claude", available: true },
-  { value: "opencode", label: "OpenCode", available: true, pickerSidebarBadge: "new" },
-  { value: "cursor", label: "Cursor", available: true, pickerSidebarBadge: "new" },
+  { value: ProviderDriverKind.make("codex"), label: "Codex", available: true },
+  { value: ProviderDriverKind.make("claudeAgent"), label: "Claude", available: true },
+  {
+    value: ProviderDriverKind.make("opencode"),
+    label: "OpenCode",
+    available: true,
+    pickerSidebarBadge: "new",
+  },
+  {
+    value: ProviderDriverKind.make("cursor"),
+    label: "Cursor",
+    available: true,
+    pickerSidebarBadge: "new",
+  },
 ];
 
 export interface WorkLogEntry {
@@ -170,6 +180,7 @@ function requestKindFromRequestType(requestType: unknown): PendingApproval["requ
   switch (requestType) {
     case "command_execution_approval":
     case "exec_command_approval":
+    case "dynamic_tool_call":
       return "command";
     case "file_read_approval":
       return "file-read";
@@ -600,7 +611,7 @@ function toTeamTaskWorkLogEntry(
   const detailParts = [
     providerLabel && model ? `${providerLabel} ${model}` : providerLabel,
     typeof payload?.modelSelectionReason === "string" ? payload.modelSelectionReason : null,
-  ].filter((part): part is string => part !== null && part.length > 0);
+  ].filter((part): part is string => part != null && part.length > 0);
 
   return {
     id: activity.id,
@@ -637,9 +648,9 @@ function toProviderSwitchWorkLogEntry(
   };
 }
 
-function parseProviderKind(value: unknown): ProviderKind | null {
+function parseProviderKind(value: unknown): ProviderDriverKind | null {
   return value === "codex" || value === "claudeAgent" || value === "cursor" || value === "opencode"
-    ? value
+    ? ProviderDriverKind.make(value)
     : null;
 }
 

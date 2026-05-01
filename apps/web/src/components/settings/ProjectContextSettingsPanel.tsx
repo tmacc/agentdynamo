@@ -1,7 +1,9 @@
 import type {
   ModelSelection,
   ProjectIntelligenceSurfaceId,
-  ProviderKind,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ServerProvider,
 } from "@t3tools/contracts";
 import { LayersIcon } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -11,17 +13,24 @@ import {
   describeModelSelection,
   resolveModelContextWindowTokens,
 } from "../../lib/modelContextWindow";
+import {
+  deriveProviderInstanceEntries,
+  sortProviderInstanceEntries,
+} from "../../providerInstances";
 import { useServerConfig } from "../../rpc/serverState";
 import { selectProjectsAcrossEnvironments, useStore } from "../../store";
 import type { Project } from "../../types";
 import { ProjectIntelligencePanel } from "../project-intelligence/ProjectIntelligencePanel";
 
 interface ModelOption {
-  readonly providerKind: ProviderKind;
+  readonly instanceId: ProviderInstanceId;
+  readonly driverKind: ProviderDriverKind;
   readonly providerLabel: string;
   readonly modelSlug: string;
   readonly modelLabel: string;
 }
+
+const EMPTY_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 
 /**
  * Settings sub-page that wraps ProjectIntelligencePanel in `viewMode="project"`,
@@ -36,7 +45,7 @@ export function ProjectContextSettingsPanel() {
   const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
   const activeEnvironmentId = useStore((state) => state.activeEnvironmentId);
   const serverConfig = useServerConfig();
-  const providers = serverConfig?.providers ?? [];
+  const providers = serverConfig?.providers ?? EMPTY_PROVIDERS;
 
   // Default selection: first project in the active environment, then any first project.
   const defaultProject = useMemo<Project | null>(() => {
@@ -60,16 +69,14 @@ export function ProjectContextSettingsPanel() {
 
   const modelOptions = useMemo<ModelOption[]>(() => {
     const out: ModelOption[] = [];
-    for (const provider of providers) {
-      if (!provider.enabled) continue;
-      for (const model of provider.models) {
+    for (const entry of sortProviderInstanceEntries(deriveProviderInstanceEntries(providers))) {
+      if (!entry.enabled || !entry.installed || !entry.isAvailable) continue;
+      for (const model of entry.models) {
         if (model.isCustom) continue;
         out.push({
-          providerKind: provider.provider,
-          providerLabel:
-            { codex: "Codex", claudeAgent: "Claude", cursor: "Cursor", opencode: "OpenCode" }[
-              provider.provider
-            ] ?? provider.provider,
+          instanceId: entry.instanceId,
+          driverKind: entry.driverKind,
+          providerLabel: entry.displayName,
           modelSlug: model.slug,
           modelLabel: model.name,
         });
@@ -87,18 +94,17 @@ export function ProjectContextSettingsPanel() {
     [providers, effectiveSelection],
   );
 
-  const [section, setSection] = useState<
-    Parameters<React.ComponentProps<typeof ProjectIntelligencePanel>["onSelectSection"]>[0]
-  >("context-inspector");
+  const [section, setSection] =
+    useState<
+      Parameters<React.ComponentProps<typeof ProjectIntelligencePanel>["onSelectSection"]>[0]
+    >("context-inspector");
   const [surfaceId, setSurfaceId] = useState<ProjectIntelligenceSurfaceId | null>(null);
 
   if (!selectedProject) {
     return (
       <div className="flex h-full flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center text-muted-foreground">
         <LayersIcon className="size-6" aria-hidden="true" />
-        <p className="text-sm">
-          Add a project from the sidebar to manage its context defaults.
-        </p>
+        <p className="text-sm">Add a project from the sidebar to manage its context defaults.</p>
       </div>
     );
   }
@@ -111,16 +117,16 @@ export function ProjectContextSettingsPanel() {
     const currentIdx = modelOptions.findIndex(
       (option) =>
         effectiveSelection != null &&
-        option.providerKind === effectiveSelection.provider &&
+        option.instanceId === effectiveSelection.instanceId &&
         option.modelSlug === effectiveSelection.model,
     );
     const nextIdx = (currentIdx + 1) % modelOptions.length;
     const next = modelOptions[nextIdx];
     if (!next) return;
     setWhatIfSelection({
-      provider: next.providerKind,
+      instanceId: next.instanceId,
       model: next.modelSlug,
-    } as ModelSelection);
+    });
   };
 
   const handleResetWhatIf = () => setWhatIfSelection(null);
@@ -154,26 +160,26 @@ export function ProjectContextSettingsPanel() {
             <select
               value={
                 effectiveSelection
-                  ? `${effectiveSelection.provider}::${effectiveSelection.model}`
+                  ? `${effectiveSelection.instanceId}::${effectiveSelection.model}`
                   : ""
               }
               onChange={(event) => {
-                const [providerKind, modelSlug] = event.target.value.split("::");
-                if (!providerKind || !modelSlug) {
+                const [instanceId, modelSlug] = event.target.value.split("::");
+                if (!instanceId || !modelSlug) {
                   setWhatIfSelection(null);
                   return;
                 }
                 setWhatIfSelection({
-                  provider: providerKind as ProviderKind,
+                  instanceId: instanceId as ProviderInstanceId,
                   model: modelSlug,
-                } as ModelSelection);
+                });
               }}
               className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
             >
               {modelOptions.map((option) => (
                 <option
-                  key={`${option.providerKind}::${option.modelSlug}`}
-                  value={`${option.providerKind}::${option.modelSlug}`}
+                  key={`${option.instanceId}::${option.modelSlug}`}
+                  value={`${option.instanceId}::${option.modelSlug}`}
                 >
                   {option.providerLabel} · {option.modelLabel}
                 </option>
