@@ -438,8 +438,8 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ### Project intelligence
 
-- `Status`: Restored as Project Intelligence v2.
-- `User-visible behavior`: A provider-neutral agent context and health dashboard exposes the instructions, skills, commands, custom agents, hooks, MCP/tool surfaces, memory, project scripts, worktree setup, provider health, model/team capabilities, warnings, and code stats visible to the current project or thread workspace.
+- `Status`: Restored as Project Intelligence v2, with the context inspector/project context manager added on `t3code/sidebar-context-redesign`.
+- `User-visible behavior`: A provider-neutral agent context and health dashboard exposes the instructions, skills, commands, custom agents, hooks, MCP/tool surfaces, memory, project scripts, worktree setup, provider health, model/team capabilities, warnings, and code stats visible to the current project or thread workspace. The primary Project Intelligence surface is now the distilled Context inspector: a 200-dot context usage grid, model-aware context-window percentage, System/Skills/Sub-agents/Memory/MCP preload categories, thread live/compacted runtime categories in the same graph, read-only capabilities, and a project-level context manager at `/settings/project-context`. Thread chats can open a docked Context right panel from the chat header; project context can also be opened from the project sidebar action.
 - `Why it exists`: Gives users a structured operational overview of how a project is configured for agent work, reducing guesswork and making hidden repo/runtime surfaces discoverable.
 - `Key fork files`:
   - `packages/contracts/src/project.ts`
@@ -452,13 +452,27 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/lib/projectIntelligenceReactQuery.ts`
   - `apps/web/src/projectIntelligencePresentation.ts`
   - `apps/web/src/projectIntelligenceRouteSearch.ts`
+  - `apps/web/src/components/chat/ChatContextSidebar.tsx`
+  - `apps/web/src/components/project-intelligence/ContextInspector*.tsx`
+  - `apps/web/src/components/project-intelligence/sections/ContextInspectorSection.tsx`
+  - `apps/web/src/components/settings/ProjectContextSettingsPanel.tsx`
+  - `apps/web/src/lib/contextWindow.ts`
+  - `apps/web/src/lib/modelContextWindow.ts`
+  - `apps/web/src/stores/threadContextOverridesStore.ts`
+  - `apps/web/src/rightPanelLayout.ts`
+  - `apps/server/src/project/intelligence/projectContextOverrides.ts`
   - `packages/shared/src/codeStatsPolicy.ts`
 - `Important invariants`:
   - All providers appear in health/runtime summaries even when only Codex and Claude expose deeper file-backed context initially.
   - Surface preview reads are authorized by rediscovering allowed surfaces for the requested project/thread before reading content.
   - Secrets are redacted before excerpts and full previews.
   - Thread mode distinguishes the project root from the effective worktree.
-  - The UI is read-only except for opening real source files in the editor.
+  - The distilled Project Intelligence nav keeps Context, Providers, Runtime, and Warnings as the primary sections. Overview, Loaded Context, Tools, Memory, and Code Stats route/search ids must redirect into Context or Runtime rather than breaking old URLs.
+  - Thread Context mode is read-only for subtractive changes. Thread additions are additive-only and in-memory; project default toggles persist to `.t3code/project-context.json`.
+  - Context percentages must be model-aware. Thread mode should prefer the latest server context-window activity, then fall back to the active `ModelSelection.instanceId` provider snapshot. Project mode is a what-if preview over enabled provider instances and must not silently write the project's default model selection.
+  - Thread mode should fold provider-reported live context-window usage into the same context graph as project preload, using distinct graph-only categories for live thread context and compacted retained context. Compacted retained context is currently estimated from runtime `context-compaction` markers plus the lowest observed `context-window.updated.usedTokens` after the latest compaction, because providers do not report compact-summary token counts as a separate field.
+  - Project context toggles currently update discovered Project Intelligence surfaces and persistence only; provider adapters still assemble prompt context from their own disk/runtime sources. Do not present the toggle as provider-side enforcement until adapters consult the project context override layer.
+  - The non-inspector UI is read-only except for opening real source files in the editor.
   - Frontend/design ownership can be delegated to an Opus 4.7 agent, but final integration must preserve the agreed contract and API shapes.
 - `Merge hotspots`:
   - Project contracts and resolver output shape
@@ -471,6 +485,10 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `bun typecheck`
   - Targeted `bun run test` suites for Project Intelligence contracts, shared code stats, server redaction/discovery/readback/code stats/ws wiring, and web presentation/route/component behavior.
   - Open Project Intelligence from a project sidebar action and from the command palette.
+  - Open the docked thread Context panel from the chat header and confirm it uses the active thread model/window.
+  - In a thread with `context-window.updated` activities, confirm Thread Context shows project preload, thread runtime usage, total processed tokens, compaction count, and compacted retained estimate when compaction markers exist.
+  - Open `/settings/project-context`, switch the what-if model, and confirm the context percentage updates without changing the project default model.
+  - Toggle a project context item and confirm `.t3code/project-context.json` is written and rediscovery reflects the override.
   - Open from an active thread with a worktree and confirm thread-workspace context is shown separately from project context.
   - Confirm Codex and Claude surfaces are discovered in a project with `.codex`, `.agents`, `.claude`, `AGENTS.md`, and `CLAUDE.md`.
   - Confirm Cursor/OpenCode appear with provider health/models even if they expose no file-backed surfaces.

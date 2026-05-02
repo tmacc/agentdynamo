@@ -10,8 +10,7 @@ type SectionMeta = {
 };
 
 const SHORT_LABELS: Partial<Record<ProjectIntelligenceSectionId, string>> = {
-  "loaded-context": "Context",
-  "code-stats": "Stats",
+  "context-inspector": "Context",
 };
 
 export interface ProjectIntelligenceSectionNavProps {

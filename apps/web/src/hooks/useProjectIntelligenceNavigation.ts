@@ -86,6 +86,7 @@ export function useProjectIntelligenceNavigation(): UseProjectIntelligenceNaviga
       to: ".",
       search: (previous) =>
         clearProjectIntelligenceRouteSearchParams(previous as Record<string, unknown>),
+      replace: true,
     }).catch(() => undefined);
   }, [navigate]);
 

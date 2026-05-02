@@ -16,6 +16,11 @@ import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { WorkspacePaths } from "../../workspace/Services/WorkspacePaths.ts";
 import { collectProjectCodeStats } from "../intelligence/codeStats.ts";
+import {
+  applySurfaceOverrides,
+  readProjectContextOverrides,
+  setSurfaceEnabledOverride,
+} from "../intelligence/projectContextOverrides.ts";
 import { discoverProviderSurfaces, summarizeProviders } from "../intelligence/providerDiscovery.ts";
 import { discoverProjectSurfaces } from "../intelligence/surfaceDiscovery.ts";
 import { readDiscoveredSurface } from "../intelligence/surfaceReadback.ts";
@@ -190,12 +195,18 @@ export const makeProjectIntelligenceResolver = Effect.gen(function* () {
       });
     }
 
+    const overrides = await readProjectContextOverrides(normalized.projectCwd);
+    const summarizedSurfaces = applySurfaceOverrides(
+      discoveredSurfaces.map((surface) => surface.summary),
+      overrides,
+    );
+
     const result: ProjectGetIntelligenceResult = {
       resolvedAt: new Date().toISOString(),
       viewMode: input.viewMode,
       projectCwd: normalized.projectCwd,
       ...(normalized.effectiveCwd ? { effectiveCwd: normalized.effectiveCwd } : {}),
-      surfaces: discoveredSurfaces.map((surface) => surface.summary).toSorted(sortSurfaces),
+      surfaces: [...summarizedSurfaces].toSorted(sortSurfaces),
       providers: summarizeProviders(providers),
       codeStats,
       warnings,
@@ -254,9 +265,60 @@ export const makeProjectIntelligenceResolver = Effect.gen(function* () {
             ),
     });
 
+  const getSurfaceOverrides: ProjectIntelligenceResolverShape["getSurfaceOverrides"] = (input) =>
+    Effect.tryPromise({
+      try: async () => {
+        const projectCwd = await runPromise(
+          workspacePaths.normalizeWorkspaceRoot(input.projectCwd),
+        );
+        const enabledOverrides = await readProjectContextOverrides(projectCwd);
+        return { projectCwd, enabledOverrides };
+      },
+      catch: (cause) =>
+        Schema.is(ProjectIntelligenceResolverError)(cause)
+          ? cause
+          : toResolverError(
+              "projectIntelligence.getSurfaceOverrides",
+              "Unable to read project context overrides.",
+              cause,
+            ),
+    });
+
+  const setSurfaceEnabled: ProjectIntelligenceResolverShape["setSurfaceEnabled"] = (input) =>
+    Effect.tryPromise({
+      try: async () => {
+        const projectCwd = await runPromise(
+          workspacePaths.normalizeWorkspaceRoot(input.projectCwd),
+        );
+        const enabledOverrides = await setSurfaceEnabledOverride(
+          projectCwd,
+          input.surfaceId,
+          input.enabled,
+        );
+        // Bust the cache for both view modes so the next get-intelligence
+        // reflects the new override on either the project or thread surface list.
+        // Snapshot keys first since we mutate the map during iteration.
+        const cacheKeys = Array.from(cache.keys());
+        for (const key of cacheKeys) {
+          if (key.includes(projectCwd)) cache.delete(key);
+        }
+        return { projectCwd, enabledOverrides };
+      },
+      catch: (cause) =>
+        Schema.is(ProjectIntelligenceResolverError)(cause)
+          ? cause
+          : toResolverError(
+              "projectIntelligence.setSurfaceEnabled",
+              "Unable to update project context override.",
+              cause,
+            ),
+    });
+
   return {
     getIntelligence,
     readSurface,
+    getSurfaceOverrides,
+    setSurfaceEnabled,
   } satisfies ProjectIntelligenceResolverShape;
 });
 

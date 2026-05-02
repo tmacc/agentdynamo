@@ -19,7 +19,7 @@ describe("parseProjectIntelligenceRouteSearch", () => {
       intel: "project",
       intelEnvironmentId: "env-1",
       intelProjectCwd: "/Users/me/Projects/foo",
-      intelSection: "tools",
+      intelSection: "context-inspector",
       intelSurfaceId: "surface:abc",
       intelEffectiveCwd: "  ",
     });
@@ -28,7 +28,7 @@ describe("parseProjectIntelligenceRouteSearch", () => {
       intel: "project",
       intelEnvironmentId: "env-1",
       intelProjectCwd: "/Users/me/Projects/foo",
-      intelSection: "tools",
+      intelSection: "context-inspector",
       intelSurfaceId: "surface:abc",
     });
   });
@@ -39,10 +39,29 @@ describe("parseProjectIntelligenceRouteSearch", () => {
       intelEnvironmentId: "env-1",
       intelProjectCwd: "/proj",
       intelEffectiveCwd: "/worktree",
-      intelSection: "loaded-context",
+      intelSection: "providers",
     });
     expect(parsed.intel).toBe("thread");
     expect(parsed.intelEffectiveCwd).toBe("/worktree");
+    expect(parsed.intelSection).toBe("providers");
+  });
+
+  it("redirects legacy section ids to their replacement section", () => {
+    const cases: Array<[string, string]> = [
+      ["overview", "context-inspector"],
+      ["loaded-context", "context-inspector"],
+      ["tools", "context-inspector"],
+      ["memory", "context-inspector"],
+      ["code-stats", "runtime"],
+    ];
+    for (const [legacy, replacement] of cases) {
+      const parsed = parseProjectIntelligenceRouteSearch({
+        intel: "project",
+        intelProjectCwd: "/proj",
+        intelSection: legacy,
+      });
+      expect(parsed.intelSection).toBe(replacement);
+    }
   });
 
   it("ignores unknown sections", () => {
@@ -62,7 +81,7 @@ describe("stripProjectIntelligenceRouteSearchParams", () => {
       intelEnvironmentId: "env-1",
       intelProjectCwd: "/proj",
       intelEffectiveCwd: "/wt",
-      intelSection: "tools",
+      intelSection: "context-inspector",
       intelSurfaceId: "id",
       view: "board",
       diff: "1",
@@ -77,7 +96,7 @@ describe("clearProjectIntelligenceRouteSearchParams", () => {
       intel: "project",
       intelEnvironmentId: "env-1",
       intelProjectCwd: "/proj",
-      intelSection: "tools",
+      intelSection: "context-inspector",
       intelSurfaceId: "id",
       keep: "me",
     } as Record<string, unknown>);
@@ -108,7 +127,7 @@ describe("buildProjectIntelligenceRouteSearch", () => {
       environmentId: "env-1" as never,
       projectCwd: "/proj",
       effectiveCwd: "/worktree",
-      section: "tools",
+      section: "context-inspector",
       surfaceId: "surface-1" as never,
     });
     expect(built).toEqual({
@@ -116,7 +135,7 @@ describe("buildProjectIntelligenceRouteSearch", () => {
       intelEnvironmentId: "env-1",
       intelProjectCwd: "/proj",
       intelEffectiveCwd: "/worktree",
-      intelSection: "tools",
+      intelSection: "context-inspector",
       intelSurfaceId: "surface-1",
     });
   });

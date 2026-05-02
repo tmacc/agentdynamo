@@ -11,7 +11,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { DiffIcon, LayoutGridIcon, TerminalSquareIcon } from "lucide-react";
+import { DiffIcon, LayersIcon, LayoutGridIcon, TerminalSquareIcon } from "lucide-react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { clearBoardRouteSearchParams } from "~/boardRouteSearch";
 import { Badge } from "../ui/badge";
@@ -50,6 +50,9 @@ interface ChatHeaderProps {
   onDisableWorktreeSetup: () => void;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
+  onToggleContext: () => void;
+  contextOpen: boolean;
+  contextAvailable: boolean;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -80,6 +83,9 @@ export const ChatHeader = memo(function ChatHeader({
   onDisableWorktreeSetup,
   onToggleTerminal,
   onToggleDiff,
+  onToggleContext,
+  contextOpen,
+  contextAvailable,
 }: ChatHeaderProps) {
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as {
@@ -197,6 +203,28 @@ export const ChatHeader = memo(function ChatHeader({
               : terminalToggleShortcutLabel
                 ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
                 : "Toggle terminal drawer"}
+          </TooltipPopup>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                className="shrink-0"
+                pressed={contextOpen}
+                onPressedChange={onToggleContext}
+                aria-label="Toggle context inspector"
+                variant="outline"
+                size="xs"
+                disabled={!contextAvailable}
+              >
+                <LayersIcon className="size-3" />
+              </Toggle>
+            }
+          />
+          <TooltipPopup side="bottom">
+            {!contextAvailable
+              ? "Context inspector is unavailable until this thread has an active project."
+              : "Toggle context inspector"}
           </TooltipPopup>
         </Tooltip>
         <Tooltip>

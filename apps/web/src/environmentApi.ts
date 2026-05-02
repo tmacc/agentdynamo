@@ -28,6 +28,8 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       applyWorktreeSetup: rpcClient.projects.applyWorktreeSetup,
       getIntelligence: rpcClient.projects.getIntelligence,
       readIntelligenceSurface: rpcClient.projects.readIntelligenceSurface,
+      getSurfaceOverrides: rpcClient.projects.getSurfaceOverrides,
+      setSurfaceEnabled: rpcClient.projects.setSurfaceEnabled,
     },
     filesystem: {
       browse: rpcClient.filesystem.browse,
