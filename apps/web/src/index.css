@@ -149,6 +149,8 @@
   --inspector-cat-agents: oklch(0.74 0.16 145);
   --inspector-cat-memory: oklch(0.78 0.13 220);
   --inspector-cat-mcp: oklch(0.78 0.16 70);
+  --inspector-cat-thread-compacted: oklch(0.68 0.15 30);
+  --inspector-cat-thread-live: oklch(0.72 0.14 200);
   --inspector-cat-free: --alpha(var(--color-black) / 6%);
   --inspector-accent: oklch(0.78 0.18 130);
   --inspector-accent-soft: --alpha(oklch(0.78 0.18 130) / 12%);
@@ -160,6 +162,8 @@
     --inspector-cat-agents: oklch(0.78 0.18 145);
     --inspector-cat-memory: oklch(0.82 0.14 220);
     --inspector-cat-mcp: oklch(0.82 0.18 70);
+    --inspector-cat-thread-compacted: oklch(0.72 0.18 30);
+    --inspector-cat-thread-live: oklch(0.78 0.15 200);
     --inspector-cat-free: --alpha(var(--color-white) / 5%);
     --inspector-accent: oklch(0.82 0.2 130);
     --inspector-accent-soft: --alpha(oklch(0.82 0.2 130) / 14%);

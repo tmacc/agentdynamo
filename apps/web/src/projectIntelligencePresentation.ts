@@ -204,13 +204,21 @@ export function isMemorySurface(surface: ProjectIntelligenceSurfaceSummary): boo
 }
 
 // ─── Context Inspector ───
-// Categories shown in the context dot grid + accordion. "system" is locked
-// (always-loaded instructions like AGENTS.md / CLAUDE.md). The remaining four
-// are user-toggleable. Tools/slash-commands/hooks/plugins surface as a
-// read-only Capabilities block below the inspector — they are provider-managed
-// and not directly user-toggleable.
+// Categories shown in the context dot grid. "system" is locked (always-loaded
+// instructions like AGENTS.md / CLAUDE.md). The preload surface categories are
+// shown in the accordion; thread-live and thread-compacted are graph-only
+// runtime categories in thread view. Tools/slash-commands/hooks/plugins surface
+// as a read-only Capabilities block below the inspector — they are
+// provider-managed and not directly user-toggleable.
 
-export type InspectorCategoryId = "system" | "skills" | "agents" | "memory" | "mcp";
+export type InspectorCategoryId =
+  | "system"
+  | "skills"
+  | "agents"
+  | "memory"
+  | "mcp"
+  | "thread-compacted"
+  | "thread-live";
 
 export const INSPECTOR_KINDS: ReadonlyArray<ProjectIntelligenceSurfaceKind> = [
   "instruction",
@@ -246,6 +254,16 @@ export const INSPECTOR_CATEGORY_ORDER: ReadonlyArray<InspectorCategoryId> = [
   "agents",
   "memory",
   "mcp",
+  "thread-compacted",
+  "thread-live",
+];
+
+export const INSPECTOR_SURFACE_CATEGORY_ORDER: ReadonlyArray<InspectorCategoryId> = [
+  "system",
+  "skills",
+  "agents",
+  "memory",
+  "mcp",
 ];
 
 export const INSPECTOR_CATEGORY_LABELS: Record<InspectorCategoryId, string> = {
@@ -254,6 +272,8 @@ export const INSPECTOR_CATEGORY_LABELS: Record<InspectorCategoryId, string> = {
   agents: "Sub-agents",
   memory: "Memory",
   mcp: "MCP servers",
+  "thread-compacted": "Compacted retained",
+  "thread-live": "Live thread",
 };
 
 // Category swatch colors. These correspond to CSS variables defined in
@@ -264,6 +284,8 @@ export const INSPECTOR_CATEGORY_COLOR_VAR: Record<InspectorCategoryId, string> =
   agents: "var(--inspector-cat-agents)",
   memory: "var(--inspector-cat-memory)",
   mcp: "var(--inspector-cat-mcp)",
+  "thread-compacted": "var(--inspector-cat-thread-compacted)",
+  "thread-live": "var(--inspector-cat-thread-live)",
 };
 
 // Surface kinds that show up in the read-only Capabilities block below the

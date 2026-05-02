@@ -1,13 +1,18 @@
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, OrchestrationThreadActivity, ThreadId } from "@t3tools/contracts";
 import type {
   ProjectIntelligenceSurfaceId,
   ProjectIntelligenceSurfaceSummary,
 } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLinkIcon } from "lucide-react";
+import { ExternalLinkIcon, LayersIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
+import {
+  deriveContextCompactionStats,
+  deriveLatestContextWindowSnapshot,
+  formatContextWindowTokens,
+} from "~/lib/contextWindow";
 import {
   projectSurfaceOverridesQueryOptions,
   useSetSurfaceEnabledMutation,
@@ -15,7 +20,9 @@ import {
 import {
   categorizeForInspector,
   getSurfaceKindLabel,
-  INSPECTOR_CATEGORY_ORDER,
+  INSPECTOR_CATEGORY_COLOR_VAR,
+  INSPECTOR_CATEGORY_LABELS,
+  INSPECTOR_SURFACE_CATEGORY_ORDER,
   isCapabilitySurface,
   isInspectorSurface,
   type InspectorCategoryId,
@@ -33,6 +40,18 @@ import {
 import { ContextInspectorSavingsPill } from "../ContextInspectorSavingsPill";
 
 const DEFAULT_MAX_TOKENS = 200_000;
+
+function emptyInspectorTokens(): Record<InspectorCategoryId, number> {
+  return {
+    system: 0,
+    skills: 0,
+    agents: 0,
+    memory: 0,
+    mcp: 0,
+    "thread-compacted": 0,
+    "thread-live": 0,
+  };
+}
 
 function formatTokens(n: number): string {
   const r = Math.round(n);
@@ -54,6 +73,10 @@ export interface ContextInspectorSectionProps {
   readonly activeModel?: Pick<ContextInspectorModelPillProps, "providerLabel" | "modelLabel">;
   /** Optional click handler to swap the active model (project-view picker). */
   readonly onPickModel?: () => void;
+  /** Opens the project-level context manager dock from thread view. */
+  readonly onOpenProjectContext?: () => void;
+  /** Thread activities used to show live/compacted context accounting. */
+  readonly threadActivities?: ReadonlyArray<OrchestrationThreadActivity>;
 }
 
 export function ContextInspectorSection({
@@ -65,6 +88,8 @@ export function ContextInspectorSection({
   maxTokens = DEFAULT_MAX_TOKENS,
   activeModel,
   onPickModel,
+  onOpenProjectContext,
+  threadActivities,
 }: ContextInspectorSectionProps) {
   const overridesQuery = useQuery(
     projectSurfaceOverridesQueryOptions({ environmentId, projectCwd }),
@@ -92,12 +117,14 @@ export function ContextInspectorSection({
       agents: [],
       memory: [],
       mcp: [],
+      "thread-compacted": [],
+      "thread-live": [],
     };
     for (const surface of inspectorSurfaces) {
       const cat = categorizeForInspector(surface);
       if (cat) out[cat].push(surface);
     }
-    for (const cat of INSPECTOR_CATEGORY_ORDER) {
+    for (const cat of INSPECTOR_SURFACE_CATEGORY_ORDER) {
       out[cat] = out[cat].toSorted((a, b) =>
         a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
       );
@@ -106,14 +133,8 @@ export function ContextInspectorSection({
   }, [inspectorSurfaces]);
 
   // Compute tokens per category from currently-enabled surfaces.
-  const tokensPerCategory = useMemo(() => {
-    const tokens: Record<InspectorCategoryId, number> = {
-      system: 0,
-      skills: 0,
-      agents: 0,
-      memory: 0,
-      mcp: 0,
-    };
+  const preloadTokensPerCategory = useMemo(() => {
+    const tokens = emptyInspectorTokens();
     for (const surface of inspectorSurfaces) {
       const cat = categorizeForInspector(surface);
       if (!cat) continue;
@@ -122,6 +143,12 @@ export function ContextInspectorSection({
     }
     return tokens;
   }, [inspectorSurfaces]);
+
+  const preloadTokens = useMemo(
+    () =>
+      INSPECTOR_SURFACE_CATEGORY_ORDER.reduce((sum, cat) => sum + preloadTokensPerCategory[cat], 0),
+    [preloadTokensPerCategory],
+  );
 
   // Capabilities (slash-commands, hooks, plugins) — read-only flat list shown
   // below the inspector accordion. Folded in here from the old "Tools" tab.
@@ -140,6 +167,44 @@ export function ContextInspectorSection({
     return saved;
   }, [inspectorSurfaces, userDisabledIds]);
   const savingsCount = userDisabledIds.size;
+
+  const latestContextWindow = useMemo(
+    () => deriveLatestContextWindowSnapshot(threadActivities ?? []),
+    [threadActivities],
+  );
+  const compactionStats = useMemo(
+    () => deriveContextCompactionStats(threadActivities ?? []),
+    [threadActivities],
+  );
+
+  const threadRuntimeTokens = useMemo(() => {
+    if (viewMode !== "thread" || !latestContextWindow) {
+      return {
+        runtimeTokens: 0,
+        compactedTokens: null as number | null,
+        liveTokens: 0,
+      };
+    }
+
+    const runtimeTokens = Math.max(0, latestContextWindow.usedTokens - preloadTokens);
+    const compactedTokens =
+      compactionStats.estimatedCompactedTokens !== null
+        ? Math.min(runtimeTokens, compactionStats.estimatedCompactedTokens)
+        : null;
+    const liveTokens =
+      compactedTokens !== null ? Math.max(0, runtimeTokens - compactedTokens) : runtimeTokens;
+
+    return { runtimeTokens, compactedTokens, liveTokens };
+  }, [compactionStats.estimatedCompactedTokens, latestContextWindow, preloadTokens, viewMode]);
+
+  const tokensPerCategory = useMemo(() => {
+    const tokens = { ...preloadTokensPerCategory };
+    if (viewMode === "thread" && latestContextWindow) {
+      tokens["thread-compacted"] = threadRuntimeTokens.compactedTokens ?? 0;
+      tokens["thread-live"] = threadRuntimeTokens.liveTokens;
+    }
+    return tokens;
+  }, [latestContextWindow, preloadTokensPerCategory, threadRuntimeTokens, viewMode]);
 
   const totalTokens = useMemo(
     () => Object.values(tokensPerCategory).reduce((a, b) => a + b, 0),
@@ -267,9 +332,7 @@ export function ContextInspectorSection({
                 providerLabel={activeModel.providerLabel}
                 modelLabel={activeModel.modelLabel}
                 maxTokens={maxTokens}
-                {...(viewMode === "project" && onPickModel
-                  ? { onClick: onPickModel }
-                  : { readOnly: true })}
+                {...(onPickModel ? { onClick: onPickModel } : { readOnly: true })}
               />
             ) : null}
           </div>
@@ -278,6 +341,18 @@ export function ContextInspectorSection({
         <div className="mt-3">
           <ContextInspectorDotGrid tokensPerCategory={tokensPerCategory} maxTokens={maxTokens} />
         </div>
+
+        {viewMode === "thread" && latestContextWindow ? (
+          <ContextGraphBreakdown
+            preloadTokens={preloadTokens}
+            runtimeTokens={threadRuntimeTokens.runtimeTokens}
+            liveTokens={threadRuntimeTokens.liveTokens}
+            compactedTokens={threadRuntimeTokens.compactedTokens}
+            totalProcessedTokens={latestContextWindow.totalProcessedTokens ?? null}
+            compactionCount={compactionStats.compactionCount}
+            estimatedCompactedDeltaTokens={compactionStats.estimatedCompactedDeltaTokens}
+          />
+        ) : null}
 
         {viewMode === "project" ? (
           <div className="mt-3">
@@ -293,16 +368,32 @@ export function ContextInspectorSection({
 
       {/* Read-only banner for thread view */}
       {viewMode === "thread" ? (
-        <p className="px-1 font-mono text-[10.5px] text-muted-foreground/80">
-          Project defaults shown below are read-only here. Use{" "}
-          <span className="text-foreground/80">Add for this thread</span> to layer extras for the
-          current conversation, or open the Project Context Manager to edit defaults.
-        </p>
+        <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card/40 p-3">
+          <p className="font-mono text-[10.5px] leading-relaxed text-muted-foreground/80">
+            Project defaults are read-only from a thread. The graph includes provider-reported live
+            thread context when available.
+          </p>
+          <button
+            type="button"
+            onClick={onOpenProjectContext}
+            disabled={!onOpenProjectContext}
+            className={cn(
+              "inline-flex w-fit items-center gap-1.5 rounded border border-border/60 bg-background px-2 py-1",
+              "font-mono text-[10px] uppercase tracking-[0.12em] text-foreground/80",
+              "transition-colors hover:bg-muted/40 hover:text-foreground",
+              "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--inspector-accent-line)]",
+              !onOpenProjectContext && "cursor-not-allowed opacity-50 hover:bg-background",
+            )}
+          >
+            Manage Project Defaults
+            <LayersIcon className="size-2.5" aria-hidden="true" />
+          </button>
+        </div>
       ) : null}
 
       {/* Category accordion */}
       <div className="rounded-lg border border-border/60 bg-card/40">
-        {INSPECTOR_CATEGORY_ORDER.map((catId) => (
+        {INSPECTOR_SURFACE_CATEGORY_ORDER.map((catId) => (
           <ContextInspectorCategory
             key={catId}
             categoryId={catId}
@@ -341,6 +432,97 @@ export function ContextInspectorSection({
         Note: in v1, toggles are saved per-project but provider adapters do not yet enforce them.
         Treat this as preview; provider-side enforcement lands in v1.1.
       </p>
+    </div>
+  );
+}
+
+function formatSignedTokens(value: number): string {
+  if (value === 0) return "0";
+  return `${value > 0 ? "+" : "-"}${formatContextWindowTokens(Math.abs(value))}`;
+}
+
+function ContextGraphBreakdown(props: {
+  readonly preloadTokens: number;
+  readonly runtimeTokens: number;
+  readonly liveTokens: number;
+  readonly totalProcessedTokens: number | null;
+  readonly compactionCount: number;
+  readonly compactedTokens: number | null;
+  readonly estimatedCompactedDeltaTokens: number | null;
+}) {
+  const compactedDisplay =
+    props.compactedTokens !== null ? `~${formatContextWindowTokens(props.compactedTokens)}` : "n/a";
+
+  return (
+    <div className="mt-3 border-t border-border/40 pt-2">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 sm:grid-cols-3">
+        <ContextGraphMetric
+          label="Project preload"
+          value={formatContextWindowTokens(props.preloadTokens)}
+        />
+        <ContextGraphMetric
+          categoryId="thread-live"
+          label={INSPECTOR_CATEGORY_LABELS["thread-live"]}
+          value={formatContextWindowTokens(props.liveTokens)}
+        />
+        <ContextGraphMetric
+          categoryId="thread-compacted"
+          label={INSPECTOR_CATEGORY_LABELS["thread-compacted"]}
+          value={compactedDisplay}
+          detail={
+            props.estimatedCompactedDeltaTokens !== null
+              ? formatSignedTokens(props.estimatedCompactedDeltaTokens)
+              : undefined
+          }
+        />
+        <ContextGraphMetric
+          label="Thread runtime"
+          value={formatContextWindowTokens(props.runtimeTokens)}
+        />
+        <ContextGraphMetric
+          label="Total processed"
+          value={
+            props.totalProcessedTokens !== null
+              ? formatContextWindowTokens(props.totalProcessedTokens)
+              : "n/a"
+          }
+        />
+        <ContextGraphMetric label="Compactions" value={String(props.compactionCount)} />
+      </div>
+      {props.compactedTokens !== null ? (
+        <p className="mt-2 font-mono text-[10px] leading-snug text-muted-foreground/65">
+          Compacted retained is estimated from runtime compaction markers and the lowest observed
+          post-compaction window usage; providers do not report summary token counts separately.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ContextGraphMetric(props: {
+  readonly categoryId?: InspectorCategoryId | undefined;
+  readonly label: string;
+  readonly value: string;
+  readonly detail?: string | undefined;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted-foreground/70">
+        {props.categoryId ? (
+          <span
+            className="size-1.5 shrink-0 rounded-[1px]"
+            style={{ backgroundColor: INSPECTOR_CATEGORY_COLOR_VAR[props.categoryId] }}
+            aria-hidden="true"
+          />
+        ) : null}
+        {props.label}
+      </div>
+      <div className="mt-0.5 flex items-baseline gap-1 font-mono text-[12px] text-foreground tabular-nums">
+        <span>{props.value}</span>
+        {props.detail ? (
+          <span className="text-[10px] text-muted-foreground">{props.detail}</span>
+        ) : null}
+      </div>
     </div>
   );
 }

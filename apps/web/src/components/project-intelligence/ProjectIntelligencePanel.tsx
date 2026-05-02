@@ -1,5 +1,6 @@
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type {
+  EnvironmentId,
+  OrchestrationThreadActivity,
   ProjectIntelligenceHealth,
   ProjectIntelligenceOwner,
   ProjectIntelligenceProviderSummary,
@@ -10,6 +11,7 @@ import type {
   ProjectIntelligenceSurfaceSummary,
   ProjectIntelligenceViewMode,
   ProjectIntelligenceWarning,
+  ThreadId,
 } from "@t3tools/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircleIcon } from "lucide-react";
@@ -60,6 +62,10 @@ export interface ProjectIntelligencePanelProps {
   contextActiveModel?: { providerLabel: string; modelLabel: string } | undefined;
   /** Click handler for the model pill in project view (opens a picker). */
   contextOnPickModel?: (() => void) | undefined;
+  /** Opens the project-level context manager from thread view. */
+  onOpenProjectContext?: (() => void) | undefined;
+  /** Thread activities used to show live/compacted thread context accounting. */
+  contextThreadActivities?: ReadonlyArray<OrchestrationThreadActivity> | undefined;
   onClose: () => void;
   onSelectSection: (section: ProjectIntelligenceSectionId) => void;
   onSelectSurface: (surfaceId: ProjectIntelligenceSurfaceId | null) => void;
@@ -264,6 +270,12 @@ export function ProjectIntelligencePanel(props: ProjectIntelligencePanelProps) {
               {...(props.contextOnPickModel
                 ? { contextOnPickModel: props.contextOnPickModel }
                 : {})}
+              {...(props.onOpenProjectContext
+                ? { onOpenProjectContext: props.onOpenProjectContext }
+                : {})}
+              {...(props.contextThreadActivities
+                ? { contextThreadActivities: props.contextThreadActivities }
+                : {})}
             />
           </ScrollArea>
         )}
@@ -341,6 +353,8 @@ interface SectionContentProps {
   contextMaxTokens?: number;
   contextActiveModel?: { providerLabel: string; modelLabel: string };
   contextOnPickModel?: () => void;
+  onOpenProjectContext?: () => void;
+  contextThreadActivities?: ReadonlyArray<OrchestrationThreadActivity>;
 }
 
 function SectionContent(props: SectionContentProps) {
@@ -356,6 +370,12 @@ function SectionContent(props: SectionContentProps) {
         {...(props.contextMaxTokens !== undefined ? { maxTokens: props.contextMaxTokens } : {})}
         {...(props.contextActiveModel ? { activeModel: props.contextActiveModel } : {})}
         {...(props.contextOnPickModel ? { onPickModel: props.contextOnPickModel } : {})}
+        {...(props.onOpenProjectContext
+          ? { onOpenProjectContext: props.onOpenProjectContext }
+          : {})}
+        {...(props.contextThreadActivities
+          ? { threadActivities: props.contextThreadActivities }
+          : {})}
       />
     );
   }

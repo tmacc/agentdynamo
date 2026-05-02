@@ -1,8 +1,6 @@
 import type {
   ModelSelection,
   ProjectIntelligenceSurfaceId,
-  ProviderDriverKind,
-  ProviderInstanceId,
   ServerProvider,
 } from "@t3tools/contracts";
 import { LayersIcon } from "lucide-react";
@@ -14,21 +12,14 @@ import {
   resolveModelContextWindowTokens,
 } from "../../lib/modelContextWindow";
 import {
-  deriveProviderInstanceEntries,
-  sortProviderInstanceEntries,
-} from "../../providerInstances";
+  buildContextModelOptions,
+  modelSelectionFromContextOption,
+  resolveContextModelOptionKey,
+} from "../../lib/contextModelOptions";
 import { useServerConfig } from "../../rpc/serverState";
 import { selectProjectsAcrossEnvironments, useStore } from "../../store";
 import type { Project } from "../../types";
 import { ProjectIntelligencePanel } from "../project-intelligence/ProjectIntelligencePanel";
-
-interface ModelOption {
-  readonly instanceId: ProviderInstanceId;
-  readonly driverKind: ProviderDriverKind;
-  readonly providerLabel: string;
-  readonly modelSlug: string;
-  readonly modelLabel: string;
-}
 
 const EMPTY_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 
@@ -67,23 +58,11 @@ export function ProjectContextSettingsPanel() {
   const effectiveSelection: ModelSelection | null =
     whatIfSelection ?? selectedProject?.defaultModelSelection ?? null;
 
-  const modelOptions = useMemo<ModelOption[]>(() => {
-    const out: ModelOption[] = [];
-    for (const entry of sortProviderInstanceEntries(deriveProviderInstanceEntries(providers))) {
-      if (!entry.enabled || !entry.installed || !entry.isAvailable) continue;
-      for (const model of entry.models) {
-        if (model.isCustom) continue;
-        out.push({
-          instanceId: entry.instanceId,
-          driverKind: entry.driverKind,
-          providerLabel: entry.displayName,
-          modelSlug: model.slug,
-          modelLabel: model.name,
-        });
-      }
-    }
-    return out;
-  }, [providers]);
+  const modelOptions = useMemo(() => buildContextModelOptions(providers), [providers]);
+  const selectedModelOptionKey = useMemo(
+    () => resolveContextModelOptionKey(modelOptions, effectiveSelection),
+    [effectiveSelection, modelOptions],
+  );
 
   const contextMaxTokens = useMemo(
     () => resolveModelContextWindowTokens(providers, effectiveSelection),
@@ -114,19 +93,11 @@ export function ProjectContextSettingsPanel() {
   // single-button cycler keeps the surface tiny for v1.
   const handlePickModel = () => {
     if (modelOptions.length === 0) return;
-    const currentIdx = modelOptions.findIndex(
-      (option) =>
-        effectiveSelection != null &&
-        option.instanceId === effectiveSelection.instanceId &&
-        option.modelSlug === effectiveSelection.model,
-    );
+    const currentIdx = modelOptions.findIndex((option) => option.key === selectedModelOptionKey);
     const nextIdx = (currentIdx + 1) % modelOptions.length;
     const next = modelOptions[nextIdx];
     if (!next) return;
-    setWhatIfSelection({
-      instanceId: next.instanceId,
-      model: next.modelSlug,
-    });
+    setWhatIfSelection(modelSelectionFromContextOption(next));
   };
 
   const handleResetWhatIf = () => setWhatIfSelection(null);
@@ -158,30 +129,21 @@ export function ProjectContextSettingsPanel() {
               Model
             </span>
             <select
-              value={
-                effectiveSelection
-                  ? `${effectiveSelection.instanceId}::${effectiveSelection.model}`
-                  : ""
-              }
+              value={selectedModelOptionKey}
               onChange={(event) => {
-                const [instanceId, modelSlug] = event.target.value.split("::");
-                if (!instanceId || !modelSlug) {
+                const next = modelOptions.find((option) => option.key === event.target.value);
+                if (!next) {
                   setWhatIfSelection(null);
                   return;
                 }
-                setWhatIfSelection({
-                  instanceId: instanceId as ProviderInstanceId,
-                  model: modelSlug,
-                });
+                setWhatIfSelection(modelSelectionFromContextOption(next));
               }}
               className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
             >
               {modelOptions.map((option) => (
-                <option
-                  key={`${option.instanceId}::${option.modelSlug}`}
-                  value={`${option.instanceId}::${option.modelSlug}`}
-                >
+                <option key={option.key} value={option.key}>
                   {option.providerLabel} · {option.modelLabel}
+                  {option.contextWindowLabel ? ` · ${option.contextWindowLabel}` : ""}
                 </option>
               ))}
             </select>

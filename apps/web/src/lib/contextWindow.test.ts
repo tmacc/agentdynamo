@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { EventId, type OrchestrationThreadActivity, TurnId } from "@t3tools/contracts";
 
-import { deriveLatestContextWindowSnapshot, formatContextWindowTokens } from "./contextWindow";
+import {
+  deriveContextCompactionStats,
+  deriveLatestContextWindowSnapshot,
+  formatContextWindowTokens,
+} from "./contextWindow";
 
 function makeActivity(id: string, kind: string, payload: unknown): OrchestrationThreadActivity {
   return {
@@ -63,5 +67,33 @@ describe("contextWindow", () => {
 
     expect(snapshot?.usedTokens).toBe(81_659);
     expect(snapshot?.totalProcessedTokens).toBe(748_126);
+  });
+
+  it("estimates compacted retained tokens from the post-compaction floor", () => {
+    const stats = deriveContextCompactionStats([
+      makeActivity("activity-1", "context-window.updated", {
+        usedTokens: 180_000,
+      }),
+      makeActivity("activity-2", "context-compaction", {
+        state: "compacted",
+      }),
+      makeActivity("activity-3", "context-window.updated", {
+        usedTokens: 42_000,
+      }),
+      makeActivity("activity-4", "context-window.updated", {
+        usedTokens: 61_000,
+      }),
+      makeActivity("activity-5", "context-compaction", {
+        state: "compacted",
+      }),
+      makeActivity("activity-6", "context-window.updated", {
+        usedTokens: 55_000,
+      }),
+    ]);
+
+    expect(stats.compactionCount).toBe(2);
+    expect(stats.estimatedCompactedTokens).toBe(55_000);
+    expect(stats.previousEstimatedCompactedTokens).toBe(42_000);
+    expect(stats.estimatedCompactedDeltaTokens).toBe(13_000);
   });
 });
