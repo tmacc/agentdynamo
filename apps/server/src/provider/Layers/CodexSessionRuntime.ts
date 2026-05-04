@@ -30,6 +30,7 @@ import { expandHomePath } from "../../pathExpansion.ts";
 import {
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+  CODEX_PROTOTYPE_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS,
 } from "../CodexDeveloperInstructions.ts";
 
@@ -317,13 +318,15 @@ function buildCodexCollaborationMode(input: {
   const baseDeveloperInstructions =
     input.interactionMode === "plan"
       ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
-      : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
+      : input.interactionMode === "prototype"
+        ? CODEX_PROTOTYPE_MODE_DEVELOPER_INSTRUCTIONS
+        : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
   const developerInstructions =
     input.teamCoordinatorTools === true
       ? `${baseDeveloperInstructions}\n\n${CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS}`
       : baseDeveloperInstructions;
   return {
-    mode: input.interactionMode ?? "default",
+    mode: input.interactionMode === "prototype" ? "default" : (input.interactionMode ?? "default"),
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",

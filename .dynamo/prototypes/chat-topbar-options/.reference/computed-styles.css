@@ -1,0 +1,26 @@
+/* 1 */ #root {
+  display: block;
+  position: static;
+  box-sizing: border-box;
+  width: 1440px;
+  height: 1100px;
+  margin: 0px;
+  padding: 0px;
+  font-family: "DM Sans", -apple-system, "system-ui", "Segoe UI", system-ui, sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  letter-spacing: normal;
+  color: rgb(38, 38, 38);
+  background: rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box;
+  background-color: rgba(0, 0, 0, 0);
+  border: 0px solid oklab(0 0 0 / 0.08);
+  border-radius: 0px;
+  box-shadow: none;
+  opacity: 1;
+  gap: normal;
+  grid-template-columns: none;
+  align-items: normal;
+  justify-content: normal;
+  overflow: hidden;
+}

@@ -98,6 +98,10 @@ import {
   ProviderRegistry,
   type ProviderRegistryShape,
 } from "./provider/Services/ProviderRegistry.ts";
+import {
+  ReviewOrchestrator,
+  type ReviewOrchestratorShape,
+} from "./review/Services/ReviewOrchestrator.ts";
 import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./serverLifecycleEvents.ts";
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings.ts";
@@ -376,6 +380,7 @@ const buildAppUnderTest = (options?: {
     projectIntelligenceResolver?: Partial<ProjectIntelligenceResolverShape>;
     teamCoordinatorAccess?: Partial<TeamCoordinatorAccessShape>;
     teamOrchestrationService?: Partial<TeamOrchestrationServiceShape>;
+    reviewOrchestrator?: Partial<ReviewOrchestratorShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -539,14 +544,22 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(TeamOrchestrationService)({
-          spawnChild: () => Effect.die(new Error("unused")),
-          listChildren: () => Effect.succeed([]),
-          waitForChildren: () => Effect.succeed([]),
-          sendChildMessage: () => Effect.die(new Error("unused")),
-          closeChild: () => Effect.die(new Error("unused")),
-          ...options?.layers?.teamOrchestrationService,
-        }),
+        Layer.mergeAll(
+          Layer.mock(TeamOrchestrationService)({
+            spawnChild: () => Effect.die(new Error("unused")),
+            listChildren: () => Effect.succeed([]),
+            waitForChildren: () => Effect.succeed([]),
+            sendChildMessage: () => Effect.die(new Error("unused")),
+            closeChild: () => Effect.die(new Error("unused")),
+            ...options?.layers?.teamOrchestrationService,
+          }),
+          Layer.mock(ReviewOrchestrator)({
+            start: () => Effect.die(new Error("unused")),
+            cancel: () => Effect.die(new Error("unused")),
+            getResult: () => Effect.succeed(null),
+            ...options?.layers?.reviewOrchestrator,
+          }),
+        ),
       ),
       Layer.provide(
         Layer.mock(ProjectionSnapshotQuery)({

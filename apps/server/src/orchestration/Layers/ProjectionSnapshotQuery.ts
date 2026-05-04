@@ -399,6 +399,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
+          review_state_json AS "reviewState",
           fork_source_thread_id AS "forkSourceThreadId",
           fork_source_thread_title AS "forkSourceThreadTitle",
           fork_source_user_message_id AS "forkSourceUserMessageId",
@@ -725,6 +726,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
+          review_state_json AS "reviewState",
           fork_source_thread_id AS "forkSourceThreadId",
           fork_source_thread_title AS "forkSourceThreadTitle",
           fork_source_user_message_id AS "forkSourceUserMessageId",
@@ -1520,6 +1522,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                       archivedAt: row.archivedAt,
                       session: sessionByThread.get(row.threadId) ?? null,
                       teamParent: teamParentByChildThread.get(row.threadId) ?? null,
+                      reviewState: row.reviewState,
                       activeTeamTaskCount: activeTeamTaskCountByParent.get(row.threadId) ?? 0,
                       contextHandoffs: contextHandoffsByThread.get(row.threadId) ?? [],
                       latestUserMessageAt: row.latestUserMessageAt,
@@ -1752,6 +1755,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         archivedAt: threadRow.value.archivedAt,
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
         ...forkOriginFields(threadRow.value),
+        reviewState: threadRow.value.reviewState,
         teamParent:
           childTeamTaskRows[0] === undefined
             ? null

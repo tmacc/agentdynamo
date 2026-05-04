@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Data, Effect, Layer } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 
 import { ServerConfig } from "./config.ts";
@@ -59,8 +59,14 @@ import { TeamCoordinatorAccessLive } from "./team/Layers/TeamCoordinatorAccess.t
 import { TeamOrchestrationServiceLive } from "./team/Layers/TeamOrchestrationService.ts";
 import { TeamTaskReactorLive } from "./team/Layers/TeamTaskReactor.ts";
 import { teamMcpRoutesLayer } from "./team/http.ts";
+import { ReviewOrchestratorLive } from "./review/Layers/ReviewOrchestratorLive.ts";
+import { reviewHttpRoutesLayer } from "./review/Layers/ReviewHttpRoute.ts";
 import { ObservabilityLive } from "./observability/Layers/Observability.ts";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment.ts";
+import {
+  installPrototypeDesignExtractorShim,
+  installPrototypeViewerShim,
+} from "./prototypeDesignExtractor.ts";
 import {
   authBearerBootstrapRouteLayer,
   authBootstrapRouteLayer,
@@ -134,6 +140,10 @@ const PlatformServicesLive = Layer.unwrap(
     }
   }),
 );
+
+class PrototypeAppCommandStartupError extends Data.TaggedError("PrototypeAppCommandStartupError")<{
+  readonly cause: unknown;
+}> {}
 
 const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(OrchestrationReactorLive.pipe(Layer.provideMerge(TeamTaskReactorLive))),
@@ -246,7 +256,9 @@ const ThreadForkLayerLive = ThreadForkDispatcherLive.pipe(
   Layer.provideMerge(ThreadForkMaterializerLive),
 );
 
-const TeamLayerLive = Layer.mergeAll(TeamCoordinatorAccessLive, TeamOrchestrationServiceLive);
+const TeamBaseLayerLive = Layer.mergeAll(TeamCoordinatorAccessLive, TeamOrchestrationServiceLive);
+
+const TeamLayerLive = ReviewOrchestratorLive.pipe(Layer.provideMerge(TeamBaseLayerLive));
 
 const RuntimeDependenciesCoreLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ThreadForkLayerLive),
@@ -331,6 +343,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   serverEnvironmentRouteLayer,
   staticAndDevRouteLayer,
   teamMcpRoutesLayer,
+  reviewHttpRoutesLayer,
   websocketRpcRouteLayer,
 ).pipe(Layer.provide(browserApiCorsLayer));
 
@@ -339,6 +352,18 @@ export const makeServerLayer = Layer.unwrap(
     const config = yield* ServerConfig;
 
     fixPath();
+    yield* Effect.tryPromise({
+      try: () =>
+        Promise.all([
+          installPrototypeDesignExtractorShim({ stateDir: config.stateDir }),
+          installPrototypeViewerShim({ stateDir: config.stateDir }),
+        ]),
+      catch: (cause) => new PrototypeAppCommandStartupError({ cause }),
+    }).pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning("failed to install Prototype app-owned commands", { cause }),
+      ),
+    );
 
     const httpListeningLayer = Layer.effectDiscard(
       Effect.gen(function* () {

@@ -13,6 +13,8 @@ export * from "./server.ts";
 export * from "./settings.ts";
 export * from "./git.ts";
 export * from "./orchestration.ts";
+export * from "./review.ts";
+export * from "./prototype.ts";
 export * from "./editor.ts";
 export * from "./project.ts";
 export * from "./filesystem.ts";

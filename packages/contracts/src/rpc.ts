@@ -423,6 +423,18 @@ export const WsOrchestrationForkThreadRpc = Rpc.make(ORCHESTRATION_WS_METHODS.fo
   error: OrchestrationForkThreadError,
 });
 
+export const WsOrchestrationStartReviewRpc = Rpc.make(ORCHESTRATION_WS_METHODS.startReview, {
+  payload: OrchestrationRpcSchemas.startReview.input,
+  success: OrchestrationRpcSchemas.startReview.output,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsOrchestrationCancelReviewRpc = Rpc.make(ORCHESTRATION_WS_METHODS.cancelReview, {
+  payload: OrchestrationRpcSchemas.cancelReview.input,
+  success: OrchestrationRpcSchemas.cancelReview.output,
+  error: OrchestrationDispatchCommandError,
+});
+
 export const WsOrchestrationGetTurnDiffRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getTurnDiff, {
   payload: OrchestrationGetTurnDiffInput,
   success: OrchestrationRpcSchemas.getTurnDiff.output,
@@ -568,6 +580,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeAuthAccessRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationForkThreadRpc,
+  WsOrchestrationStartReviewRpc,
+  WsOrchestrationCancelReviewRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationGetTeamTaskTraceRpc,

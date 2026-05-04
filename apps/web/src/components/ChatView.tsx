@@ -51,6 +51,7 @@ import { readLocalApi } from "../localApi";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import {
   collapseExpandedComposerCursor,
+  parseReviewSlashCommand,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
 import {
@@ -188,6 +189,7 @@ import { ForkThreadDialog } from "./ForkThreadDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
+import { ReviewResultPanel } from "./chat/ReviewResultPanel";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
@@ -2252,7 +2254,9 @@ export default function ChatView(props: ChatViewProps) {
     ],
   );
   const toggleInteractionMode = useCallback(() => {
-    handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
+    const nextInteractionMode =
+      interactionMode === "default" ? "plan" : interactionMode === "plan" ? "prototype" : "default";
+    handleInteractionModeChange(nextInteractionMode);
   }, [handleInteractionModeChange, interactionMode]);
   const openChatRightPanel = useCallback(
     (panel: ChatRightPanelId) => {
@@ -2791,6 +2795,25 @@ export default function ChatView(props: ChatViewProps) {
       composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
         ? parseStandaloneComposerSlashCommand(trimmed)
         : null;
+    const reviewSlashCommand =
+      composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
+        ? parseReviewSlashCommand(trimmed)
+        : null;
+    if (reviewSlashCommand) {
+      const api = readEnvironmentApi(environmentId);
+      if (!api) {
+        setThreadError(activeThread.id, "Environment API is unavailable.");
+        return;
+      }
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      await api.orchestration.startReview({
+        threadId: activeThread.id,
+        ...(reviewSlashCommand.prRef ? { prRef: reviewSlashCommand.prRef } : {}),
+      });
+      return;
+    }
     if (standaloneSlashCommand) {
       handleInteractionModeChange(standaloneSlashCommand);
       promptRef.current = "";
@@ -3994,6 +4017,8 @@ export default function ChatView(props: ChatViewProps) {
               </div>
             )}
           </div>
+
+          <ReviewResultPanel review={activeThread.reviewState} />
 
           {/* Input bar */}
           <div

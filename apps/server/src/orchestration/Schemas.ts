@@ -24,6 +24,10 @@ import {
   ThreadTeamTaskStartedPayload as ContractsThreadTeamTaskStartedPayloadSchema,
   ThreadTeamTaskStatusChangedPayload as ContractsThreadTeamTaskStatusChangedPayloadSchema,
   ThreadTeamTaskSummaryUpdatedPayload as ContractsThreadTeamTaskSummaryUpdatedPayloadSchema,
+  ThreadReviewCancelledPayload as ContractsThreadReviewCancelledPayloadSchema,
+  ThreadReviewCompletedPayload as ContractsThreadReviewCompletedPayloadSchema,
+  ThreadReviewStartedPayload as ContractsThreadReviewStartedPayloadSchema,
+  ThreadReviewUpdatedPayload as ContractsThreadReviewUpdatedPayloadSchema,
   ThreadTurnStartRequestedPayload as ContractsThreadTurnStartRequestedPayloadSchema,
   ThreadTurnInterruptRequestedPayload as ContractsThreadTurnInterruptRequestedPayloadSchema,
   ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
@@ -65,6 +69,10 @@ export const ThreadTeamTaskMessageRequestedPayload =
   ContractsThreadTeamTaskMessageRequestedPayloadSchema;
 export const ThreadTeamTaskCloseRequestedPayload =
   ContractsThreadTeamTaskCloseRequestedPayloadSchema;
+export const ThreadReviewStartedPayload = ContractsThreadReviewStartedPayloadSchema;
+export const ThreadReviewUpdatedPayload = ContractsThreadReviewUpdatedPayloadSchema;
+export const ThreadReviewCompletedPayload = ContractsThreadReviewCompletedPayloadSchema;
+export const ThreadReviewCancelledPayload = ContractsThreadReviewCancelledPayloadSchema;
 
 export const ThreadTurnStartRequestedPayload = ContractsThreadTurnStartRequestedPayloadSchema;
 export const ThreadTurnInterruptRequestedPayload =

@@ -70,6 +70,56 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ## Fork Feature Inventory
 
+### 2026-05-01 - Prototype interaction mode
+
+- `Status`: active
+- `Area`: provider | web | contracts | shared
+- `User-visible impact`: Composer mode selection includes Prototype alongside Build/Chat and Plan. Prototype turns instruct Codex, Claude, Cursor, and OpenCode to create high-fidelity page-context HTML/CSS/JS prototypes under `.dynamo/prototypes/<slug>/`, extract rendered app DOM/styles for existing-screen prompts, write `prototype.json` plus directly openable `frames/*.html`, and open the viewer `index.html` in the user's external browser.
+- `Why this patch exists`: Dynamo needs a provider-agnostic version of frontend prototype/design workflow behavior so users can ask any configured agent to produce realistic UI prototypes grounded in the current app's design system.
+- `Key files`:
+  - `packages/contracts/src/orchestration.ts`
+  - `packages/contracts/src/prototype.ts`
+  - `packages/shared/src/prototypeMode/instructions.ts`
+  - `apps/server/src/provider/CodexDeveloperInstructions.ts`
+  - `apps/server/src/provider/Layers/CodexSessionRuntime.ts`
+  - `apps/server/src/provider/Layers/ClaudeAdapter.ts`
+  - `apps/server/src/provider/Layers/CursorAdapter.ts`
+  - `apps/server/src/provider/Layers/OpenCodeAdapter.ts`
+  - `apps/server/src/prototypeDesignExtractor.ts`
+  - `scripts/dynamo-design-extract.ts`
+  - `scripts/dynamo-prototype-viewer.ts`
+  - `apps/web/src/components/ChatView.tsx`
+  - `apps/web/src/components/chat/ChatComposer.tsx`
+  - `apps/web/src/components/chat/CompactComposerControlsMenu.tsx`
+- `Important invariants`:
+  - `ProviderInteractionMode` includes `prototype`, but `DEFAULT_PROVIDER_INTERACTION_MODE` remains `default`.
+  - Prototype mode is a prompt/workflow mode, not a sandbox or permission downgrade; providers should retain write access according to the selected runtime mode.
+  - Codex receives native collaboration-mode developer instructions with Codex mode set to `default`; Claude receives a preset `systemPrompt.append` and recreates the SDK query when entering or leaving Prototype; Cursor and OpenCode use a one-time synthetic `<system>...</system>` prompt because they do not expose equivalent per-session system prompt slots here.
+  - When Claude recreates the SDK query for Prototype, it must also replace the prompt queue/async iterable and shut down the old queue. Reusing the original prompt iterable can let the closed SDK query consume the user's first Prototype prompt, leaving the UI stuck in Working with no provider output.
+  - OpenCode Plan mode remains out of scope for this patch.
+  - Prototype output is page-first, not presentation-first. Component redesigns should stay in situ inside the surrounding page shell when page context exists; isolated component output is reserved for explicit isolated-component requests or prompts with no available page context.
+  - Existing-screen Prototype prompts are gated on a valid rendered DOM capture. Provider instructions must prefer live runtime env (`VITE_DEV_SERVER_URL`, `VITE_HTTP_URL`, `VITE_WS_URL`, `PORT`, `HOST`, `T3CODE_PORT`) over repo defaults, must not guess root routes for routed/authenticated SPAs, and must stop to ask for the exact URL/selector if extraction fails. Agents should not continue from source-only evidence unless the user explicitly asks them to proceed without rendered DOM.
+  - The DOM extractor is owned by the Dynamo application, not by the user's target repository. On server startup, Dynamo installs a command shim under its own state directory, exposes it as `DYNAMO_DESIGN_EXTRACT`, and prepends the shim directory to provider `PATH`; Prototype prompts should use that command before any `bun run` fallback. This keeps DOM extraction available inside isolated project worktrees that do not have Dynamo's package scripts.
+  - The DOM extractor writes `dom.html`, `computed-styles.css`, `meta.json`, and a full-page `screenshot.png` (skip with `--no-screenshot`). It uses `domcontentloaded` plus a 1.5s settle wait and a 15s timeout (override with `--wait`/`--timeout`) so Vite/Next dev servers with persistent WebSocket HMR connections do not stall it. It exits with code 2 plus a clear `bun install` message if Playwright cannot be imported. It exits non-zero for unusable captures such as a blank SPA root, a shell with no visible page regions, or a `--selector` that matches zero nodes; artifacts are still written so the failed capture can be inspected. When passed `--selector`, `meta.json.target` records match count, selector path, bounding boxes, text labels, and ancestry; `meta.json.layoutRegions` records visible page landmarks for shell reconstruction.
+  - The prototype viewer is also app-owned. Server startup installs a `dynamo-prototype-viewer` shim and exposes it as `DYNAMO_PROTOTYPE_VIEWER`; agents should write `prototype.json` plus `frames/*.html`, then run the viewer command to materialize the stable `index.html` canvas and `assets/prototype-viewer.*`. The viewer is copied into each prototype directory for `file://` compatibility and embeds the manifest in `index.html` so external browsers do not need to fetch local JSON.
+  - Prototype artifacts must keep the stable output contract under `.dynamo/prototypes/<slug>/`: `prototype.json` is a version `1` manifest with mode `page-canvas`; `index.html` is the Dynamo-owned viewer entrypoint; generated frames live under `frames/*.html`; shared generated assets live under `assets/`; captured page evidence lives under `.reference/`. The manifest schema is owned by `packages/contracts/src/prototype.ts` and is schema-only, with no filesystem behavior.
+- `Merge hotspots`:
+  - Provider interaction mode schemas and persisted composer draft normalization
+  - Provider adapter mode mapping and system-prompt injection paths
+  - Server startup environment setup for app-owned Prototype extractor command
+  - App-owned Prototype viewer command and manifest/frame output contract
+  - Composer mode picker/toggle behavior
+  - Root package scripts and Playwright dependency wiring
+  - Shared Prototype prompt wording and any future viewer/manifest contract files
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck` at the repo root.
+  - Run `bun run test src/prototype.test.ts` in `packages/contracts` after changing the prototype manifest schema.
+  - Run adapter and UI tests covering mode-to-prompt mapping.
+  - For prompt-only page-canvas contract changes, run provider prompt injection tests if they assert injected prompt text.
+  - Run `bun run test src/provider/Layers/ClaudeAdapter.test.ts` in `apps/server` after touching Claude query restart behavior.
+  - Use `docs/prototype-mode-qa.md` to regenerate the known topbar-options failure case and verify it produces page-context frames on the app-owned canvas, not a presentation.
+  - In a local app, send a Prototype turn that references a running URL and confirm `.dynamo/prototypes/<slug>/index.html` opens in the external browser.
+
 ### New worktree thread base branch default
 
 - `Status`: Present on current fork.
@@ -197,6 +247,51 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Confirm completed/failed/cancelled child summaries remain visible after reload/reprojection.
   - Confirm child threads do not receive coordinator tools.
   - Disable Team agents in General settings and confirm new coordinator sessions do not receive `dynamo_team` tools.
+
+### Cross-provider code review
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: The chat composer supports `/review [#PR]` to launch a Dynamo-managed code review for a PR. Dynamo detects authenticated Claude/Codex worker availability, selects a multi-provider or single-provider review preset, spawns visible child agents for map/bug/style passes, verifies candidate findings with fresh child verifier agents, drops unreproduced findings, and renders verified findings inline in the chat panel. Findings are not posted back to GitHub in v1.
+- `Why it exists`: Gives Dynamo a provider-aware review flow that degrades from Claude+Codex cross-checking to single-provider fresh-context verification while keeping child work visible and steerable through the existing Agents drawer.
+- `Key fork files`:
+  - `packages/contracts/src/review.ts`
+  - `packages/contracts/src/orchestration.ts`
+  - `packages/contracts/src/rpc.ts`
+  - `packages/contracts/src/ipc.ts`
+  - `apps/server/src/persistence/Migrations/049_ProjectionThreadReviewState.ts`
+  - `apps/server/src/persistence/Migrations/050_EnsureProjectionThreadReviewState.ts`
+  - `apps/server/src/review/*`
+  - `apps/server/src/ws.ts`
+  - `apps/server/src/server.ts`
+  - `apps/server/src/team/teamModelSelection.ts`
+  - `apps/web/src/components/ChatView.tsx`
+  - `apps/web/src/components/chat/ChatComposer.tsx`
+  - `apps/web/src/components/chat/ReviewResultPanel.tsx`
+  - `apps/web/src/review/useReview.ts`
+  - `apps/web/src/store.ts`
+- `Important invariants`:
+  - v1 review supports only Claude and Codex worker providers; Cursor/OpenCode routing remains future work.
+  - Tier detection must ignore unauthenticated, disabled, non-worker, and unsupported providers.
+  - Multi-provider mode uses Claude for high-recall bug hunting and Codex for independent verification where available.
+  - Single-provider modes must spawn fresh verifier children and require sandbox reproduction before surfacing findings.
+  - Review children must be durable team tasks visible in the Agents drawer and cancellable through existing team controls.
+  - Findings shown to the user must be verified and deduped by file, line range, and kind.
+  - Review state is event-sourced on the thread and projected into `reviewState` so reload/replay preserves review status and results.
+  - Review-state migrations intentionally use ids `49` and `50` because `origin/main` owns provider-instance migrations `46` through `48`; do not reintroduce duplicate migration ids during future merges.
+- `Merge hotspots`:
+  - Orchestration command/event schemas and read-model thread shape
+  - Projection thread persistence schema/migrations
+  - WebSocket orchestration RPC method list and server handlers
+  - Team worker model selection and provider auth/status shape
+  - Chat composer slash-command parsing and submit routing
+  - Chat timeline/panel layout around the message list and composer
+- `Verification`:
+  - Run `/review #123` with Claude and Codex authenticated and confirm review children appear in Agents, status reaches completed, and verified findings render in chat.
+  - Disable Codex and confirm the tier label and verifier selection use the Claude-only fallback.
+  - Disable Claude and confirm the tier label and verifier selection use the Codex-only fallback.
+  - Disable both and confirm the review fails with a friendly provider sign-in error.
+  - Cancel an active review and confirm child tasks are closed and thread `reviewState` becomes cancelled.
+  - Run `bun run test apps/server/src/review/reviewTier.test.ts apps/server/src/review/reviewPresets.test.ts apps/server/src/review/reviewParsing.test.ts`.
 
 ### Board View
 

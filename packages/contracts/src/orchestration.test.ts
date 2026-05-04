@@ -20,6 +20,7 @@ import {
   OrchestrationProposedPlan,
   OrchestrationSession,
   ProjectCreateCommand,
+  ProviderInteractionMode,
   ThreadMetaUpdatedPayload,
   ThreadTurnStartCommand,
   ThreadCreatedPayload,
@@ -66,6 +67,14 @@ const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationComma
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeOrchestrationTeamTask = Schema.decodeUnknownEffect(OrchestrationTeamTask);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
+const decodeProviderInteractionMode = Schema.decodeUnknownEffect(ProviderInteractionMode);
+
+it.effect("decodes prototype provider interaction mode", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeProviderInteractionMode("prototype");
+    assert.strictEqual(parsed, "prototype");
+  }),
+);
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
   Effect.gen(function* () {

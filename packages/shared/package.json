@@ -83,6 +83,10 @@
     "./branding": {
       "types": "./src/branding.ts",
       "import": "./src/branding.ts"
+    },
+    "./prototype-mode": {
+      "types": "./src/prototypeMode/instructions.ts",
+      "import": "./src/prototypeMode/instructions.ts"
     }
   },
   "scripts": {

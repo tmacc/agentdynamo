@@ -604,6 +604,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
             hasActionableProposedPlan: 0,
+            reviewState: null,
             forkSourceThreadId: event.payload.forkOrigin?.sourceThreadId ?? null,
             forkSourceThreadTitle: event.payload.forkOrigin?.sourceThreadTitle ?? null,
             forkSourceUserMessageId: event.payload.forkOrigin?.sourceUserMessageId ?? null,
@@ -775,6 +776,77 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             updatedAt: event.occurredAt,
           });
           yield* refreshThreadShellSummary(event.payload.threadId);
+          return;
+        }
+
+        case "thread.review-started":
+        case "thread.review-updated": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            reviewState: event.payload.state,
+            updatedAt: event.occurredAt,
+          });
+          return;
+        }
+
+        case "thread.review-completed": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            reviewState: {
+              status: "completed",
+              tier: event.payload.result.tier,
+              label: event.payload.result.label,
+              startedAt:
+                existingRow.value.reviewState?.startedAt ?? event.payload.result.completedAt,
+              updatedAt: event.payload.result.completedAt,
+              completedAt: event.payload.result.completedAt,
+              prRef: existingRow.value.reviewState?.prRef ?? null,
+              prNumber: event.payload.result.prNumber,
+              prTitle: event.payload.result.prTitle,
+              baseRef: event.payload.result.baseRef,
+              headRef: event.payload.result.headRef,
+              findings: event.payload.result.findings,
+              droppedFindingCount: event.payload.result.droppedFindingCount,
+              errorText: null,
+              taskIds: existingRow.value.reviewState?.taskIds ?? [],
+            },
+            updatedAt: event.occurredAt,
+          });
+          return;
+        }
+
+        case "thread.review-cancelled": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            reviewState: existingRow.value.reviewState
+              ? {
+                  ...existingRow.value.reviewState,
+                  status: "cancelled",
+                  updatedAt: event.payload.cancelledAt,
+                  completedAt: event.payload.cancelledAt,
+                  errorText: event.payload.reason ?? null,
+                }
+              : null,
+            updatedAt: event.occurredAt,
+          });
           return;
         }
 

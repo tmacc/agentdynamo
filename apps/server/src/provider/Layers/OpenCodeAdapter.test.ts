@@ -276,6 +276,10 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         provider: ProviderDriverKind.make("opencode"),
         threadId,
         runtimeMode: "full-access",
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("opencode"),
+          "anthropic/claude-sonnet-4-5",
+        ),
       });
       yield* adapter.stopSession(threadId);
 
@@ -484,6 +488,51 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         parts: [{ type: "text", text: "Fix it" }],
       });
     }).pipe(Effect.provide(adapterLayer));
+  });
+
+  it.effect("prepends prototype instructions once for OpenCode sessions", () => {
+    return Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-opencode-prototype-mode");
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId,
+        input: "prototype topbar options",
+        interactionMode: "prototype",
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("opencode"),
+          "anthropic/claude-sonnet-4-5",
+        ),
+      });
+      yield* adapter.sendTurn({
+        threadId,
+        input: "tighten option b",
+        interactionMode: "prototype",
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("opencode"),
+          "anthropic/claude-sonnet-4-5",
+        ),
+      });
+
+      const firstPrompt = runtimeMock.state.promptCalls.at(-2) as
+        | { parts?: Array<{ type: string; text?: string }> }
+        | undefined;
+      const secondPrompt = runtimeMock.state.promptCalls.at(-1) as
+        | { parts?: Array<{ type: string; text?: string }> }
+        | undefined;
+      const firstSystemText = firstPrompt?.parts?.[0]?.text ?? "";
+      const secondText = JSON.stringify(secondPrompt?.parts ?? []);
+      assert.match(firstSystemText, /<system># Prototype Mode/);
+      assert.match(firstSystemText, /DYNAMO_DESIGN_EXTRACT/);
+      assert.match(firstSystemText, /DYNAMO_PROTOTYPE_VIEWER/);
+      assert.match(firstSystemText, /mode: "page-canvas"/);
+      assert.equal(/<system># Prototype Mode/.test(secondText), false);
+    }).pipe(Effect.provide(OpenCodeAdapterTestLayer));
   });
 
   it.effect("rejects sendTurn model selections for another instance id", () => {

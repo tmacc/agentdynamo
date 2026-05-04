@@ -100,6 +100,7 @@ import { toastManager } from "../ui/toast";
 import {
   BotIcon,
   CircleAlertIcon,
+  LayoutTemplateIcon,
   ListTodoIcon,
   type LucideIcon,
   LockIcon,
@@ -150,6 +151,26 @@ const runtimeModeConfig: Record<
 };
 
 const runtimeModeOptions = Object.keys(runtimeModeConfig) as RuntimeMode[];
+const interactionModeConfig: Record<
+  ProviderInteractionMode,
+  { label: string; description: string; icon: LucideIcon }
+> = {
+  default: {
+    label: "Build",
+    description: "Build mode - click to enter plan mode",
+    icon: BotIcon,
+  },
+  plan: {
+    label: "Plan",
+    description: "Plan mode - click to enter prototype mode",
+    icon: ListTodoIcon,
+  },
+  prototype: {
+    label: "Prototype",
+    description: "Prototype mode - click to return to build mode",
+    icon: LayoutTemplateIcon,
+  },
+};
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 
@@ -198,6 +219,8 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
+  const interactionModeOption = interactionModeConfig[props.interactionMode];
+  const InteractionModeIcon = interactionModeOption.icon;
 
   return (
     <>
@@ -211,16 +234,10 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
             size="sm"
             type="button"
             onClick={props.onToggleInteractionMode}
-            title={
-              props.interactionMode === "plan"
-                ? "Plan mode — click to return to normal build mode"
-                : "Default mode — click to enter plan mode"
-            }
+            title={interactionModeOption.description}
           >
-            <BotIcon />
-            <span className="sr-only sm:not-sr-only">
-              {props.interactionMode === "plan" ? "Plan" : "Build"}
-            </span>
+            <InteractionModeIcon />
+            <span className="sr-only sm:not-sr-only">{interactionModeOption.label}</span>
           </Button>
 
           <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
@@ -931,6 +948,13 @@ export const ChatComposer = memo(
             description: "Switch this thread into plan mode",
           },
           {
+            id: "slash:review",
+            type: "slash-command",
+            command: "review",
+            label: "/review",
+            description: "Run a provider-backed code review for this PR",
+          },
+          {
             id: "slash:default",
             type: "slash-command",
             command: "default",
@@ -1633,6 +1657,20 @@ export const ChatComposer = memo(
             }
             return;
           }
+          if (item.command === "review") {
+            const applied = applyPromptReplacement(
+              trigger.rangeStart,
+              trigger.rangeEnd,
+              "/review ",
+              {
+                expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+              },
+            );
+            if (applied) {
+              setComposerHighlightedItemId(null);
+            }
+            return;
+          }
           void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
           const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
             expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
@@ -2215,6 +2253,7 @@ export const ChatComposer = memo(
                         }
                         traitsMenuContent={providerTraitsMenuContent}
                         onToggleInteractionMode={toggleInteractionMode}
+                        onInteractionModeChange={handleInteractionModeChange}
                         onToggleAgentsSidebar={toggleAgentsSidebar}
                         onTogglePlanSidebar={togglePlanSidebar}
                         onRuntimeModeChange={handleRuntimeModeChange}

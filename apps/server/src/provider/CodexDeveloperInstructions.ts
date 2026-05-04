@@ -1,3 +1,5 @@
+import { PROTOTYPE_MODE_INSTRUCTIONS } from "@t3tools/shared/prototype-mode";
+
 export const CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Plan Mode (Conversational)
 
 You work in 3 phases, and you should *chat your way* to a great plan before finalizing it. A great plan is very detailed-intent- and implementation-wise-so that it can be handed to another engineer or agent to be implemented right away. It must be **decision complete**, where the implementer does not need to make any decisions.
@@ -131,6 +133,9 @@ Your active mode changes only when new developer instructions with a different \
 The \`request_user_input\` tool is unavailable in Default mode. If you call it while in Default mode, it will return an error.
 
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
+</collaboration_mode>`;
+
+export const CODEX_PROTOTYPE_MODE_DEVELOPER_INSTRUCTIONS = `<collaboration_mode>${PROTOTYPE_MODE_INSTRUCTIONS}
 </collaboration_mode>`;
 
 export const CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS = `<dynamo_team_coordinator>

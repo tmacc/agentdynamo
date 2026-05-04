@@ -57,6 +57,8 @@ import Migration0045 from "./Migrations/045_RelaxProjectionBoardLinkedThreadUniq
 import Migration0046 from "./Migrations/046_CanonicalizeModelSelectionOptions.ts";
 import Migration0047 from "./Migrations/047_ProviderSessionRuntimeInstanceId.ts";
 import Migration0048 from "./Migrations/048_ProjectionThreadSessionInstanceId.ts";
+import Migration0049 from "./Migrations/049_ProjectionThreadReviewState.ts";
+import Migration0050 from "./Migrations/050_EnsureProjectionThreadReviewState.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -113,6 +115,8 @@ export const migrationEntries = [
   [46, "CanonicalizeModelSelectionOptions", Migration0046],
   [47, "ProviderSessionRuntimeInstanceId", Migration0047],
   [48, "ProjectionThreadSessionInstanceId", Migration0048],
+  [49, "ProjectionThreadReviewState", Migration0049],
+  [50, "EnsureProjectionThreadReviewState", Migration0050],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

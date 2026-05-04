@@ -445,6 +445,57 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       }),
   );
 
+  it.effect("prepends prototype instructions once for Cursor ACP sessions", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CursorAdapter;
+      const serverSettings = yield* ServerSettingsService;
+      const threadId = ThreadId.make("cursor-prototype-mode-probe");
+      const tempDir = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "cursor-acp-")));
+      const requestLogPath = path.join(tempDir, "requests.ndjson");
+      const argvLogPath = path.join(tempDir, "argv.txt");
+      yield* Effect.promise(() => writeFile(requestLogPath, "", "utf8"));
+      const wrapperPath = yield* Effect.promise(() =>
+        makeProbeWrapper(requestLogPath, argvLogPath),
+      );
+      yield* serverSettings.updateSettings({
+        providers: { cursor: { binaryPath: wrapperPath } },
+      });
+
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("cursor"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: createModelSelection(ProviderInstanceId.make("cursor"), "composer-2"),
+      });
+
+      yield* adapter.sendTurn({
+        threadId,
+        input: "prototype a settings page",
+        attachments: [],
+        interactionMode: "prototype",
+      });
+      yield* adapter.sendTurn({
+        threadId,
+        input: "adjust the spacing",
+        attachments: [],
+        interactionMode: "prototype",
+      });
+      yield* adapter.stopSession(threadId);
+
+      const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
+      const promptRequests = requests.filter((entry) => entry.method === "session/prompt");
+      assert.equal(promptRequests.length, 2);
+      const firstPrompt = JSON.stringify(promptRequests[0]?.params);
+      const secondPrompt = JSON.stringify(promptRequests[1]?.params);
+      assert.match(firstPrompt, /<system># Prototype Mode/);
+      assert.match(firstPrompt, /DYNAMO_DESIGN_EXTRACT/);
+      assert.match(firstPrompt, /DYNAMO_PROTOTYPE_VIEWER/);
+      assert.match(firstPrompt, /mode: \\"page-canvas\\"/);
+      assert.equal(/<system># Prototype Mode/.test(secondPrompt), false);
+    }),
+  );
+
   it.effect(
     "streams ACP tool calls and approvals on the active turn in approval-required mode",
     () =>

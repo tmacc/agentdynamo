@@ -87,6 +87,7 @@ import type {
   OrchestrationTeamTaskTraceStreamItem,
   OrchestrationThreadStreamItem,
 } from "./orchestration.ts";
+import type { ReviewCancelInput, ReviewStartInput, ReviewState } from "./review.ts";
 import type { EnvironmentId } from "./baseSchemas.ts";
 import { EditorId } from "./editor.ts";
 import { ServerSettings, type ClientSettings, type ServerSettingsPatch } from "./settings.ts";
@@ -352,6 +353,8 @@ export interface EnvironmentApi {
   orchestration: {
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     forkThread: (input: OrchestrationForkThreadInput) => Promise<OrchestrationForkThreadResult>;
+    startReview: (input: ReviewStartInput) => Promise<ReviewState>;
+    cancelReview: (input: ReviewCancelInput) => Promise<ReviewState>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
     getFullThreadDiff: (
       input: OrchestrationGetFullThreadDiffInput,

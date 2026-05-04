@@ -25,6 +25,10 @@ import {
   ThreadInteractionModeSetPayload,
   ThreadMetaUpdatedPayload,
   ThreadProposedPlanUpsertedPayload,
+  ThreadReviewCancelledPayload,
+  ThreadReviewCompletedPayload,
+  ThreadReviewStartedPayload,
+  ThreadReviewUpdatedPayload,
   ThreadRuntimeModeSetPayload,
   ThreadTeamTaskCloseRequestedPayload,
   ThreadTeamTaskCreatedPayload,
@@ -296,6 +300,7 @@ export function projectEvent(
                     };
                   })(),
             teamTasks: [],
+            reviewState: null,
             messages: [],
             proposedPlans: [],
             contextHandoffs: [],
@@ -814,6 +819,95 @@ export function projectEvent(
         event.type,
         "payload",
       ).pipe(Effect.as(nextBase));
+
+    case "thread.review-started":
+      return decodeForEvent(ThreadReviewStartedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            reviewState: payload.state,
+            updatedAt: event.occurredAt,
+          }),
+        })),
+      );
+
+    case "thread.review-updated":
+      return decodeForEvent(ThreadReviewUpdatedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            reviewState: payload.state,
+            updatedAt: event.occurredAt,
+          }),
+        })),
+      );
+
+    case "thread.review-completed":
+      return decodeForEvent(
+        ThreadReviewCompletedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            reviewState: {
+              status: "completed" as const,
+              tier: payload.result.tier,
+              label: payload.result.label,
+              startedAt:
+                nextBase.threads.find((thread) => thread.id === payload.threadId)?.reviewState
+                  ?.startedAt ?? payload.result.completedAt,
+              updatedAt: payload.result.completedAt,
+              completedAt: payload.result.completedAt,
+              prRef:
+                nextBase.threads.find((thread) => thread.id === payload.threadId)?.reviewState
+                  ?.prRef ?? null,
+              prNumber: payload.result.prNumber,
+              prTitle: payload.result.prTitle,
+              baseRef: payload.result.baseRef,
+              headRef: payload.result.headRef,
+              findings: payload.result.findings,
+              droppedFindingCount: payload.result.droppedFindingCount,
+              errorText: null,
+              taskIds:
+                nextBase.threads.find((thread) => thread.id === payload.threadId)?.reviewState
+                  ?.taskIds ?? [],
+            },
+            updatedAt: event.occurredAt,
+          }),
+        })),
+      );
+
+    case "thread.review-cancelled":
+      return decodeForEvent(
+        ThreadReviewCancelledPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          const previous = thread.reviewState;
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              reviewState: previous
+                ? {
+                    ...previous,
+                    status: "cancelled" as const,
+                    completedAt: payload.cancelledAt,
+                    updatedAt: payload.cancelledAt,
+                    errorText: payload.reason ?? null,
+                  }
+                : null,
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
 
     case "thread.turn-diff-completed":
       return Effect.gen(function* () {

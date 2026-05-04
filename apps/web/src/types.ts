@@ -20,6 +20,7 @@ import type {
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
+  ReviewState,
 } from "@t3tools/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
@@ -123,6 +124,7 @@ export interface Thread {
   forkOrigin?: OrchestrationThreadForkOrigin;
   teamParent?: OrchestrationThreadTeamParent | null;
   teamTasks?: ReadonlyArray<OrchestrationTeamTask>;
+  reviewState?: ReviewState | null;
 }
 
 export interface ThreadShell {
@@ -144,6 +146,7 @@ export interface ThreadShell {
   teamParent?: OrchestrationThreadTeamParent | null;
   teamTasks?: ReadonlyArray<OrchestrationTeamTask>;
   activeTeamTaskCount?: number;
+  reviewState?: ReviewState | null;
 }
 
 export interface ThreadTurnState {

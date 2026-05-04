@@ -53,6 +53,8 @@
     "dist:desktop:win": "node scripts/build-desktop-artifact.ts --platform win --target nsis",
     "dist:desktop:win:arm64": "node scripts/build-desktop-artifact.ts --platform win --target nsis --arch arm64",
     "dist:desktop:win:x64": "node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64",
+    "dynamo-design-extract": "bun scripts/dynamo-design-extract.ts",
+    "dynamo-prototype-viewer": "bun scripts/dynamo-prototype-viewer.ts",
     "release:smoke": "node scripts/release-smoke.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .turbo apps/*/.turbo packages/*/.turbo",
     "sync:vscode-icons": "node scripts/sync-vscode-icons.mjs"
@@ -64,6 +66,7 @@
     "@types/node": "catalog:",
     "oxfmt": "^0.40.0",
     "oxlint": "^1.55.0",
+    "playwright": "^1.58.2",
     "turbo": "^2.3.3",
     "vitest": "catalog:"
   },

@@ -3050,6 +3050,102 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("uses a fresh Claude prompt stream when restarting for prototype mode", () => {
+    const queries: FakeClaudeQuery[] = [];
+    const createInputs: Array<{
+      readonly prompt: AsyncIterable<SDKUserMessage>;
+      readonly options: ClaudeQueryOptions;
+    }> = [];
+    const promptResults: Array<Promise<SDKUserMessage | "ended">> = [];
+    const layer = Layer.effect(
+      ClaudeAdapter,
+      Effect.gen(function* () {
+        const claudeConfig = Schema.decodeSync(ClaudeSettings)({});
+        return yield* makeClaudeAdapter(claudeConfig, {
+          createQuery: (input) => {
+            const query = new FakeClaudeQuery();
+            queries.push(query);
+            createInputs.push(input);
+            promptResults.push(
+              (async () => {
+                for await (const message of input.prompt) {
+                  return message;
+                }
+                return "ended";
+              })(),
+            );
+            return query;
+          },
+        });
+      }),
+    ).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "prototype this",
+        interactionMode: "prototype",
+        attachments: [],
+      });
+
+      assert.equal(queries.length, 2);
+      assert.equal(queries[0]?.closeCalls, 1);
+      const restartedSystemPrompt = createInputs[1]?.options.systemPrompt;
+      assert.equal(typeof restartedSystemPrompt, "object");
+      assert.equal(Array.isArray(restartedSystemPrompt), false);
+      if (
+        typeof restartedSystemPrompt === "object" &&
+        restartedSystemPrompt !== null &&
+        !Array.isArray(restartedSystemPrompt)
+      ) {
+        assert.match(restartedSystemPrompt.append ?? "", /DYNAMO_DESIGN_EXTRACT/);
+        assert.match(restartedSystemPrompt.append ?? "", /DYNAMO_PROTOTYPE_VIEWER/);
+        assert.match(restartedSystemPrompt.append ?? "", /mode: "page-canvas"/);
+      }
+
+      const timeout = Symbol("timeout");
+      const results = yield* Effect.promise(() =>
+        Promise.all(
+          promptResults.map((result) =>
+            Promise.race([
+              result,
+              new Promise<typeof timeout>((resolve) => setTimeout(() => resolve(timeout), 250)),
+            ]),
+          ),
+        ),
+      );
+
+      assert.equal(results[0], "ended");
+      const restartedPrompt = results[1];
+      assert.notEqual(restartedPrompt, undefined);
+      assert.notEqual(restartedPrompt, timeout);
+      assert.notEqual(restartedPrompt, "ended");
+      if (
+        restartedPrompt !== undefined &&
+        restartedPrompt !== timeout &&
+        restartedPrompt !== "ended"
+      ) {
+        assert.deepEqual(restartedPrompt.message.content, [
+          { type: "text", text: "prototype this" },
+        ]);
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(layer),
+    );
+  });
+
   it.effect.each<{ runtimeMode: RuntimeMode; expectedBase: PermissionMode }>([
     { runtimeMode: "full-access", expectedBase: "bypassPermissions" },
     { runtimeMode: "approval-required", expectedBase: "default" },

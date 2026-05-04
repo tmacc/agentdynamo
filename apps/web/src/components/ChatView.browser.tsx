@@ -213,6 +213,12 @@ function createMockEnvironmentApi(input: {
       forkThread: (async () => {
         throw new Error("Not implemented in browser test.");
       }) as EnvironmentApi["orchestration"]["forkThread"],
+      startReview: (async () => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["orchestration"]["startReview"],
+      cancelReview: (async () => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["orchestration"]["cancelReview"],
       getTurnDiff: (() => {
         throw new Error("Not implemented in browser test.");
       }) as EnvironmentApi["orchestration"]["getTurnDiff"],

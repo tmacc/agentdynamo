@@ -70,6 +70,7 @@ import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePat
 import { ProjectIntelligenceResolver } from "./project/Services/ProjectIntelligenceResolver.ts";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner.ts";
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver.ts";
+import { ReviewOrchestrator } from "./review/Services/ReviewOrchestrator.ts";
 import { WorktreeSetupApplicator } from "./project/Services/WorktreeSetupApplicator.ts";
 import { WorktreeSetupScanner } from "./project/Services/WorktreeSetupScanner.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
@@ -99,7 +100,11 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
       | "thread.team-task-status-changed"
       | "thread.team-task-summary-updated"
       | "thread.team-task-message-requested"
-      | "thread.team-task-close-requested";
+      | "thread.team-task-close-requested"
+      | "thread.review-started"
+      | "thread.review-updated"
+      | "thread.review-completed"
+      | "thread.review-cancelled";
   }
 > {
   return (
@@ -114,7 +119,11 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
     event.type === "thread.team-task-status-changed" ||
     event.type === "thread.team-task-summary-updated" ||
     event.type === "thread.team-task-message-requested" ||
-    event.type === "thread.team-task-close-requested"
+    event.type === "thread.team-task-close-requested" ||
+    event.type === "thread.review-started" ||
+    event.type === "thread.review-updated" ||
+    event.type === "thread.review-completed" ||
+    event.type === "thread.review-cancelled"
   );
 }
 
@@ -217,6 +226,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
       const threadForkDispatcher = yield* ThreadForkDispatcher;
+      const reviewOrchestrator = yield* ReviewOrchestrator;
       const serverCommandId = (tag: string) =>
         CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 
@@ -690,6 +700,34 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                       message: "Failed to fork thread.",
                       cause,
                     }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.startReview]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.startReview,
+            reviewOrchestrator.start(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: cause instanceof Error ? cause.message : "Failed to start review.",
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.cancelReview]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.cancelReview,
+            reviewOrchestrator.cancel(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: cause instanceof Error ? cause.message : "Failed to cancel review.",
+                    cause,
+                  }),
               ),
             ),
             { "rpc.aggregate": "orchestration" },

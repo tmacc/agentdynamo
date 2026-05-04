@@ -9,6 +9,7 @@ import * as CodexRpc from "effect-codex-app-server/rpc";
 import {
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+  CODEX_PROTOTYPE_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_TEAM_COORDINATOR_DEVELOPER_INSTRUCTIONS,
 } from "../CodexDeveloperInstructions.ts";
 import {
@@ -121,6 +122,26 @@ describe("buildTurnStartParams", () => {
         },
       },
     });
+  });
+
+  it("maps prototype collaboration mode onto Codex default mode with prototype instructions", () => {
+    const params = Effect.runSync(
+      buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeMode: "full-access",
+        prompt: "Prototype a settings page",
+        model: "gpt-5.3-codex",
+        interactionMode: "prototype",
+      }),
+    );
+
+    assert.equal(params.collaborationMode?.mode, "default");
+    const developerInstructions = params.collaborationMode?.settings.developer_instructions ?? "";
+    assert.equal(developerInstructions, CODEX_PROTOTYPE_MODE_DEVELOPER_INSTRUCTIONS);
+    assert.match(developerInstructions, /page prototypes/);
+    assert.match(developerInstructions, /DYNAMO_DESIGN_EXTRACT/);
+    assert.match(developerInstructions, /DYNAMO_PROTOTYPE_VIEWER/);
+    assert.match(developerInstructions, /mode: "page-canvas"/);
   });
 
   it("omits collaboration mode when interaction mode is absent", () => {

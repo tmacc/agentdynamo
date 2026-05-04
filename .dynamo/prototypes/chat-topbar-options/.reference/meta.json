@@ -1,0 +1,159 @@
+{
+  "url": "http://localhost:5733/",
+  "title": "Dynamo (Dev)",
+  "viewport": {
+    "width": 1440,
+    "height": 1100,
+    "deviceScaleFactor": 1
+  },
+  "fonts": [
+    "DM Sans"
+  ],
+  "stylesheets": [
+    "https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..800;1,9..40,300..800&display=swap"
+  ],
+  "scripts": [
+    "http://localhost:5733/@vite/client",
+    "http://localhost:5733/src/main.tsx?t=1777743345196"
+  ],
+  "colors": {
+    "rgb(38, 38, 38)": 1,
+    "oklab(0 0 0 / 0.08)": 1
+  },
+  "bodyTextSample": "",
+  "visibleElementCount": 1,
+  "appRoots": [
+    {
+      "selector": "#root",
+      "tagName": "div",
+      "id": "root",
+      "className": "",
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 1100,
+        "top": 0,
+        "right": 1440,
+        "bottom": 1100,
+        "left": 0
+      },
+      "childElementCount": 0,
+      "descendantElementCount": 0
+    }
+  ],
+  "layoutRegions": [],
+  "consoleMessages": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/.well-known/t3/environment:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/api/auth/session:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/.well-known/t3/environment:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/api/auth/session:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/.well-known/t3/environment:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/api/auth/session:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/.well-known/t3/environment:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/api/auth/session:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/.well-known/t3/environment:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/api/auth/session:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/.well-known/t3/environment:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/api/auth/session:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/.well-known/t3/environment:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/api/auth/session:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/.well-known/t3/environment:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/api/auth/session:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/.well-known/t3/environment:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/api/auth/session:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/.well-known/t3/environment:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/api/auth/session:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/.well-known/t3/environment:0:0"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": "http://127.0.0.1:13773/api/auth/session:0:0"
+    }
+  ],
+  "pageErrors": []
+}

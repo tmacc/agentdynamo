@@ -39,7 +39,7 @@ function createSelection(instanceId: ProviderInstanceId, model: string): ModelSe
   return { instanceId, model };
 }
 
-function enabledWorkerProviders(
+export function enabledWorkerProviders(
   providers: ReadonlyArray<ServerProvider>,
 ): ReadonlyArray<ServerProvider> {
   return providers.filter(

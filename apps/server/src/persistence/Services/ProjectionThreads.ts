@@ -14,6 +14,7 @@ import {
   ProjectId,
   ProviderInteractionMode,
   RuntimeMode,
+  ReviewState,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -39,6 +40,7 @@ export const ProjectionThread = Schema.Struct({
   pendingApprovalCount: NonNegativeInt,
   pendingUserInputCount: NonNegativeInt,
   hasActionableProposedPlan: NonNegativeInt,
+  reviewState: Schema.NullOr(ReviewState),
   forkSourceThreadId: Schema.NullOr(ThreadId),
   forkSourceThreadTitle: Schema.NullOr(Schema.String),
   forkSourceUserMessageId: Schema.NullOr(MessageId),

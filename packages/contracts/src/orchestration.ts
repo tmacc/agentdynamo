@@ -36,6 +36,7 @@ import {
   BoardUpdateCardCommand,
 } from "./board.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
+import { ReviewCancelInput, ReviewResult, ReviewStartInput, ReviewState } from "./review.ts";
 
 export const ProviderKind = ProviderDriverKind;
 export type ProviderKind = ProviderDriverKind;
@@ -43,6 +44,8 @@ export type ProviderKind = ProviderDriverKind;
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
   forkThread: "orchestration.forkThread",
+  startReview: "orchestration.startReview",
+  cancelReview: "orchestration.cancelReview",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   getTeamTaskTrace: "orchestration.getTeamTaskTrace",
@@ -141,7 +144,7 @@ export const RuntimeMode = Schema.Literals([
 ]);
 export type RuntimeMode = typeof RuntimeMode.Type;
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
-export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
+export const ProviderInteractionMode = Schema.Literals(["default", "plan", "prototype"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
 export const ProviderRequestKind = Schema.Literals(["command", "file-read", "file-change"]);
@@ -640,6 +643,7 @@ export const OrchestrationThread = Schema.Struct({
   forkOrigin: Schema.optional(OrchestrationThreadForkOrigin),
   teamParent: Schema.optionalKey(Schema.NullOr(OrchestrationThreadTeamParent)),
   teamTasks: Schema.optionalKey(Schema.Array(OrchestrationTeamTask)),
+  reviewState: Schema.optionalKey(Schema.NullOr(ReviewState)),
   contextHandoffs: Schema.Array(OrchestrationThreadContextHandoff).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
@@ -693,6 +697,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   forkOrigin: Schema.optional(OrchestrationThreadForkOrigin),
   teamParent: Schema.optionalKey(Schema.NullOr(OrchestrationThreadTeamParent)),
   activeTeamTaskCount: Schema.optionalKey(NonNegativeInt),
+  reviewState: Schema.optionalKey(Schema.NullOr(ReviewState)),
   contextHandoffs: Schema.Array(OrchestrationThreadContextHandoff).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
@@ -1117,6 +1122,38 @@ const ThreadTeamTaskNativeTraceMarkCompletedCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadReviewStartCommand = Schema.Struct({
+  type: Schema.Literal("thread.review.start"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  state: ReviewState,
+  createdAt: IsoDateTime,
+});
+
+const ThreadReviewUpdateCommand = Schema.Struct({
+  type: Schema.Literal("thread.review.update"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  state: ReviewState,
+  createdAt: IsoDateTime,
+});
+
+const ThreadReviewCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.review.complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  result: ReviewResult,
+  createdAt: IsoDateTime,
+});
+
+const ThreadReviewCancelCommand = Schema.Struct({
+  type: Schema.Literal("thread.review.cancel"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  reason: Schema.optional(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -1270,6 +1307,10 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTeamTaskNativeTraceUpsertItemCommand,
   ThreadTeamTaskNativeTraceAppendContentCommand,
   ThreadTeamTaskNativeTraceMarkCompletedCommand,
+  ThreadReviewStartCommand,
+  ThreadReviewUpdateCommand,
+  ThreadReviewCompleteCommand,
+  ThreadReviewCancelCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1314,6 +1355,10 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.team-task-native-trace-item-upserted",
   "thread.team-task-native-trace-content-appended",
   "thread.team-task-native-trace-item-completed",
+  "thread.review-started",
+  "thread.review-updated",
+  "thread.review-completed",
+  "thread.review-cancelled",
   "board.card-created",
   "board.card-updated",
   "board.card-moved",
@@ -1568,6 +1613,27 @@ export const ThreadTeamTaskNativeTraceItemCompletedPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+export const ThreadReviewStartedPayload = Schema.Struct({
+  threadId: ThreadId,
+  state: ReviewState,
+});
+
+export const ThreadReviewUpdatedPayload = Schema.Struct({
+  threadId: ThreadId,
+  state: ReviewState,
+});
+
+export const ThreadReviewCompletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  result: ReviewResult,
+});
+
+export const ThreadReviewCancelledPayload = Schema.Struct({
+  threadId: ThreadId,
+  reason: Schema.optional(TrimmedNonEmptyString),
+  cancelledAt: IsoDateTime,
+});
+
 export const ThreadContextHandoffPreparedPayload = Schema.Struct({
   handoffId: ContextHandoffId,
   threadId: ThreadId,
@@ -1795,6 +1861,26 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
+    type: Schema.Literal("thread.review-started"),
+    payload: ThreadReviewStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.review-updated"),
+    payload: ThreadReviewUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.review-completed"),
+    payload: ThreadReviewCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.review-cancelled"),
+    payload: ThreadReviewCancelledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
     type: Schema.Literal("board.card-created"),
     payload: BoardCardCreatedPayload,
   }),
@@ -1998,6 +2084,14 @@ export const OrchestrationRpcSchemas = {
   forkThread: {
     input: OrchestrationForkThreadInput,
     output: OrchestrationForkThreadResult,
+  },
+  startReview: {
+    input: ReviewStartInput,
+    output: ReviewState,
+  },
+  cancelReview: {
+    input: ReviewCancelInput,
+    output: ReviewState,
   },
   getTurnDiff: {
     input: OrchestrationGetTurnDiffInput,

@@ -11,11 +11,12 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection } from "@t3tools/contracts";
+import { ModelSelection, ReviewState } from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    reviewState: Schema.NullOr(Schema.fromJsonString(ReviewState)),
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
@@ -44,6 +45,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_approval_count,
           pending_user_input_count,
           has_actionable_proposed_plan,
+          review_state_json,
           fork_source_thread_id,
           fork_source_thread_title,
           fork_source_user_message_id,
@@ -68,6 +70,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.pendingApprovalCount},
           ${row.pendingUserInputCount},
           ${row.hasActionableProposedPlan},
+          ${row.reviewState === null ? null : JSON.stringify(row.reviewState)},
           ${row.forkSourceThreadId},
           ${row.forkSourceThreadTitle},
           ${row.forkSourceUserMessageId},
@@ -92,6 +95,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_approval_count = excluded.pending_approval_count,
           pending_user_input_count = excluded.pending_user_input_count,
           has_actionable_proposed_plan = excluded.has_actionable_proposed_plan,
+          review_state_json = excluded.review_state_json,
           fork_source_thread_id = excluded.fork_source_thread_id,
           fork_source_thread_title = excluded.fork_source_thread_title,
           fork_source_user_message_id = excluded.fork_source_user_message_id,
@@ -123,6 +127,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
+          review_state_json AS "reviewState",
           fork_source_thread_id AS "forkSourceThreadId",
           fork_source_thread_title AS "forkSourceThreadTitle",
           fork_source_user_message_id AS "forkSourceUserMessageId",
@@ -156,6 +161,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
+          review_state_json AS "reviewState",
           fork_source_thread_id AS "forkSourceThreadId",
           fork_source_thread_title AS "forkSourceThreadTitle",
           fork_source_user_message_id AS "forkSourceUserMessageId",

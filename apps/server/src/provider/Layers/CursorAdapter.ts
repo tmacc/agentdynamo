@@ -39,6 +39,7 @@ import {
 } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import type * as EffectAcpSchema from "effect-acp/schema";
+import { PROTOTYPE_MODE_INSTRUCTIONS } from "@t3tools/shared/prototype-mode";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -82,6 +83,7 @@ const CURSOR_RESUME_VERSION = 1 as const;
 const ACP_PLAN_MODE_ALIASES = ["plan", "architect"];
 const ACP_IMPLEMENT_MODE_ALIASES = ["code", "agent", "default", "chat", "implement"];
 const ACP_APPROVAL_MODE_ALIASES = ["ask"];
+const PROTOTYPE_MODE_SYNTHETIC_SYSTEM_MESSAGE = `<system>${PROTOTYPE_MODE_INSTRUCTIONS}</system>`;
 
 export interface CursorAdapterLiveOptions {
   readonly environment?: NodeJS.ProcessEnv;
@@ -125,6 +127,7 @@ interface CursorSessionContext {
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
   lastPlanFingerprint: string | undefined;
+  lastPrototypePromptTurn: TurnId | undefined;
   activeTurnId: TurnId | undefined;
   stopped: boolean;
 }
@@ -215,6 +218,14 @@ function resolveRequestedModeId(input: {
 
   if (input.interactionMode === "plan") {
     return findModeByAliases(modeState.availableModes, ACP_PLAN_MODE_ALIASES)?.id;
+  }
+
+  if (input.interactionMode === "prototype") {
+    return (
+      findModeByAliases(modeState.availableModes, ACP_IMPLEMENT_MODE_ALIASES)?.id ??
+      modeState.availableModes.find((mode) => !isPlanMode(mode))?.id ??
+      modeState.currentModeId
+    );
   }
 
   if (input.runtimeMode === "approval-required") {
@@ -712,6 +723,7 @@ export function makeCursorAdapter(
             pendingUserInputs,
             turns: [],
             lastPlanFingerprint: undefined,
+            lastPrototypePromptTurn: undefined,
             activeTurnId: undefined,
             stopped: false,
           };
@@ -873,6 +885,14 @@ export function makeCursorAdapter(
         });
 
         const promptParts: Array<EffectAcpSchema.ContentBlock> = [];
+        const shouldInjectPrototypePrompt =
+          input.interactionMode === "prototype" && ctx.lastPrototypePromptTurn === undefined;
+        if (shouldInjectPrototypePrompt) {
+          promptParts.push({
+            type: "text",
+            text: PROTOTYPE_MODE_SYNTHETIC_SYSTEM_MESSAGE,
+          });
+        }
         if (input.input?.trim()) {
           promptParts.push({ type: "text", text: input.input.trim() });
         }
@@ -927,6 +947,9 @@ export function makeCursorAdapter(
           );
 
         ctx.turns.push({ id: turnId, items: [{ prompt: promptParts, result }] });
+        if (shouldInjectPrototypePrompt) {
+          ctx.lastPrototypePromptTurn = turnId;
+        }
         ctx.session = {
           ...ctx.session,
           activeTurnId: turnId,

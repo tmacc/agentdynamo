@@ -956,6 +956,97 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.review.start": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (thread.reviewState?.status === "queued" || thread.reviewState?.status === "running") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' already has an active review.`,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.review-started" as const,
+        payload: {
+          threadId: command.threadId,
+          state: command.state,
+        },
+      };
+    }
+
+    case "thread.review.update": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.review-updated" as const,
+        payload: {
+          threadId: command.threadId,
+          state: command.state,
+        },
+      };
+    }
+
+    case "thread.review.complete": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.review-completed" as const,
+        payload: {
+          threadId: command.threadId,
+          result: command.result,
+        },
+      };
+    }
+
+    case "thread.review.cancel": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.review-cancelled" as const,
+        payload: {
+          threadId: command.threadId,
+          ...(command.reason !== undefined ? { reason: command.reason } : {}),
+          cancelledAt: command.createdAt,
+        },
+      };
+    }
+
     case "thread.team-task.mark-starting":
     case "thread.team-task.mark-running":
     case "thread.team-task.mark-waiting":

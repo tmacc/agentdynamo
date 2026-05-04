@@ -431,6 +431,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
           teamParent: null,
           activeTeamTaskCount: 0,
+          reviewState: null,
           latestUserMessageAt: "2026-02-24T00:00:04.000Z",
           contextHandoffs: [],
           hasPendingApprovals: true,

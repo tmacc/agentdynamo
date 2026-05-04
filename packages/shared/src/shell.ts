@@ -8,6 +8,7 @@ const PATH_CAPTURE_END = "__T3CODE_PATH_END__";
 const SHELL_ENV_NAME_PATTERN = /^[A-Z0-9_]+$/;
 const WINDOWS_PATH_DELIMITER = ";";
 const POSIX_PATH_DELIMITER = ":";
+const POSIX_LOGIN_SHELL_ENV_TIMEOUT_MS = 2000;
 const WINDOWS_SHELL_CANDIDATES = ["pwsh.exe", "powershell.exe"] as const;
 
 type ExecFileSyncLike = (
@@ -192,9 +193,9 @@ export const readEnvironmentFromLoginShell: ShellEnvironmentReader = (
     return {};
   }
 
-  const output = execFile(shell, ["-ilc", buildEnvironmentCaptureCommand(names)], {
+  const output = execFile(shell, ["-lc", buildEnvironmentCaptureCommand(names)], {
     encoding: "utf8",
-    timeout: 5000,
+    timeout: POSIX_LOGIN_SHELL_ENV_TIMEOUT_MS,
   });
 
   const environment: Partial<Record<string, string>> = {};

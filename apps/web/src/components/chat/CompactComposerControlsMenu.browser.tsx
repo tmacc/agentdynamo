@@ -156,6 +156,7 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
         />
       }
       onToggleInteractionMode={vi.fn()}
+      onInteractionModeChange={vi.fn()}
       onToggleAgentsSidebar={vi.fn()}
       onTogglePlanSidebar={vi.fn()}
       onRuntimeModeChange={vi.fn()}
@@ -311,6 +312,7 @@ describe("CompactComposerControlsMenu", () => {
         runtimeMode="approval-required"
         showInteractionModeToggle={false}
         onToggleInteractionMode={vi.fn()}
+        onInteractionModeChange={vi.fn()}
         onToggleAgentsSidebar={vi.fn()}
         onTogglePlanSidebar={vi.fn()}
         onRuntimeModeChange={vi.fn()}
@@ -328,6 +330,43 @@ describe("CompactComposerControlsMenu", () => {
       expect(text).toContain("Access");
       expect(text).toContain("Supervised");
       expect(text).toContain("Full access");
+    });
+
+    await screen.unmount();
+    host.remove();
+  });
+
+  it("shows prototype as a selectable interaction mode", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <CompactComposerControlsMenu
+        activePlan={false}
+        activeAgents={false}
+        activeTeamTaskCount={0}
+        agentsSidebarOpen={false}
+        interactionMode="prototype"
+        planSidebarLabel="Plan"
+        planSidebarOpen={false}
+        runtimeMode="approval-required"
+        showInteractionModeToggle
+        onToggleInteractionMode={vi.fn()}
+        onInteractionModeChange={vi.fn()}
+        onToggleAgentsSidebar={vi.fn()}
+        onTogglePlanSidebar={vi.fn()}
+        onRuntimeModeChange={vi.fn()}
+      />,
+      { container: host },
+    );
+
+    await page.getByLabelText("More composer controls").click();
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent ?? "").toContain("Prototype");
+      const prototypeItem = Array.from(document.querySelectorAll('[role="menuitemradio"]')).find(
+        (element) => element.textContent?.includes("Prototype"),
+      );
+      expect(prototypeItem?.getAttribute("aria-checked")).toBe("true");
     });
 
     await screen.unmount();

@@ -3,6 +3,7 @@ import {
   type OpenCodeSettings,
   ProviderDriverKind,
   ProviderInstanceId,
+  type ProviderInteractionMode,
   type ProviderRuntimeEvent,
   type ProviderSession,
   RuntimeItemId,
@@ -15,6 +16,7 @@ import {
 import { Cause, Effect, Exit, Queue, Random, Ref, Scope, Stream } from "effect";
 import type { OpencodeClient, Part, PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+import { PROTOTYPE_MODE_INSTRUCTIONS } from "@t3tools/shared/prototype-mode";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -42,6 +44,7 @@ import {
 } from "../opencodeRuntime.ts";
 
 const PROVIDER = ProviderDriverKind.make("opencode");
+const PROTOTYPE_MODE_SYNTHETIC_SYSTEM_MESSAGE = `<system>${PROTOTYPE_MODE_INSTRUCTIONS}</system>`;
 
 interface OpenCodeTurnSnapshot {
   readonly id: TurnId;
@@ -71,6 +74,7 @@ interface OpenCodeSessionContext {
   activeTurnId: TurnId | undefined;
   activeAgent: string | undefined;
   activeVariant: string | undefined;
+  lastPrototypePromptTurn: TurnId | undefined;
   /**
    * One-shot guard flipped by `stopOpenCodeContext` / `emitUnexpectedExit`.
    * The session lifecycle is owned by `sessionScope`; this Ref exists only
@@ -1113,6 +1117,7 @@ export function makeOpenCodeAdapter(
           activeTurnId: undefined,
           activeAgent: undefined,
           activeVariant: undefined,
+          lastPrototypePromptTurn: undefined,
           stopped: yield* Ref.make(false),
           sessionScope: started.sessionScope,
         };
@@ -1204,13 +1209,23 @@ export function makeOpenCodeAdapter(
         },
       });
 
+      const shouldInjectPrototypePrompt =
+        input.interactionMode === ("prototype" satisfies ProviderInteractionMode) &&
+        context.lastPrototypePromptTurn === undefined;
+
       yield* runOpenCodeSdk("session.promptAsync", () =>
         context.client.session.promptAsync({
           sessionID: context.openCodeSessionId,
           model: parsedModel,
           ...(context.activeAgent ? { agent: context.activeAgent } : {}),
           ...(context.activeVariant ? { variant: context.activeVariant } : {}),
-          parts: [...(text ? [{ type: "text" as const, text }] : []), ...fileParts],
+          parts: [
+            ...(shouldInjectPrototypePrompt
+              ? [{ type: "text" as const, text: PROTOTYPE_MODE_SYNTHETIC_SYSTEM_MESSAGE }]
+              : []),
+            ...(text ? [{ type: "text" as const, text }] : []),
+            ...fileParts,
+          ],
         }),
       ).pipe(
         Effect.mapError(toRequestError),
@@ -1245,6 +1260,9 @@ export function makeOpenCodeAdapter(
           }),
         ),
       );
+      if (shouldInjectPrototypePrompt) {
+        context.lastPrototypePromptTurn = turnId;
+      }
 
       return {
         threadId: input.threadId,

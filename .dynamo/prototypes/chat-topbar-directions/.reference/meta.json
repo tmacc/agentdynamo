@@ -1,0 +1,186 @@
+{
+  "url": "http://localhost:5756/75cd2191-2529-4969-899d-35994db1a155/916bdc0d-06d7-4bf7-b7f6-dd7e8cb7529f",
+  "title": "Dynamo (Dev)",
+  "viewport": {
+    "width": 1440,
+    "height": 1100,
+    "deviceScaleFactor": 1
+  },
+  "fonts": [
+    "DM Sans"
+  ],
+  "stylesheets": [
+    "https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..800;1,9..40,300..800&display=swap"
+  ],
+  "scripts": [
+    "http://localhost:5756/@vite/client",
+    "http://localhost:5756/src/main.tsx"
+  ],
+  "colors": {
+    "rgb(38, 38, 38)": 3,
+    "oklab(0 0 0 / 0.08)": 179,
+    "oklch(0.269 0 0)": 116,
+    "rgb(255, 255, 255)": 18,
+    "oklab(0.515983 3.12924e-7 1.19209e-7 / 0.6)": 17,
+    "oklab(0 0 0 / 0.02)": 1,
+    "oklab(0.515983 3.12924e-7 1.19209e-7 / 0.7)": 56,
+    "color(srgb 0.406311 0.40639 0.406398)": 1,
+    "oklab(0 0 0 / 0.04)": 1,
+    "oklab(0.269 0 0 / 0.9)": 1,
+    "oklab(0 0 0 / 0.034)": 1,
+    "oklab(0.269 0 0 / 0.72)": 1,
+    "oklab(0 0 0 / 0.1)": 12,
+    "oklab(0.515983 3.12924e-7 1.19209e-7 / 0.3)": 1,
+    "oklab(0.488 -0.0226826 -0.215811 / 0.45)": 1,
+    "oklab(0.515983 3.12924e-7 1.19209e-7 / 0.35)": 1,
+    "oklab(0.488 -0.0226827 -0.215811 / 0.9)": 1
+  },
+  "bodyTextSample": "Dynamo DEV Search ⌘K PROJECTS server New thread just now Settings New thread server Add action Open Commit, push & PR Send a message to start the conversation. Ask for follow-up changes or attach images GPT-5.4 Medium · Normal Build Full access Current checkout t3code/topbar-redesign-directions-1",
+  "visibleElementCount": 197,
+  "appRoots": [
+    {
+      "selector": "#root",
+      "tagName": "div",
+      "id": "root",
+      "className": "",
+      "text": "Dynamo DEV Search ⌘K PROJECTS server New thread just now Settings New thread server Add action Open Commit, push & PR Send a message to start the conversation. Ask for follow-up changes or attach images GPT-5.4 Medium · Normal Build Full ac",
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 1100,
+        "top": 0,
+        "right": 1440,
+        "bottom": 1100,
+        "left": 0
+      },
+      "childElementCount": 1,
+      "descendantElementCount": 228
+    }
+  ],
+  "layoutRegions": [
+    {
+      "selector": "body > div:nth-of-type(1) > div.group\\/sidebar-wrapper.flex > main.relative.flex",
+      "tagName": "main",
+      "className": "relative flex min-w-0 w-full flex-1 flex-col md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-2 md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ms-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm/5 h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh",
+      "text": "New thread server Add action Open Commit, push & PR Send a message to start the conversation. Ask for follow-up changes or attach images GPT-5.4 Medium · Normal Build Full access Current checkout t3code/topbar-redesign-directions-1",
+      "boundingBox": {
+        "x": 256,
+        "y": 0,
+        "width": 1184,
+        "height": 1100,
+        "top": 0,
+        "right": 1440,
+        "bottom": 1100,
+        "left": 256
+      }
+    },
+    {
+      "selector": "body > div:nth-of-type(1) > div.group\\/sidebar-wrapper.flex > main.relative.flex > div.flex.min-h-0 > header.border-b.border-border",
+      "tagName": "header",
+      "className": "border-b border-border pb-2 pl-[calc(env(safe-area-inset-left)+0.75rem)] pr-[calc(env(safe-area-inset-right)+0.75rem)] pt-2 sm:pb-3 sm:pl-[calc(env(safe-area-inset-left)+1.25rem)] sm:pr-[calc(env(safe-area-inset-right)+1.25rem)] sm:pt-3",
+      "text": "New thread server Add action Open Commit, push & PR",
+      "boundingBox": {
+        "x": 256,
+        "y": 0,
+        "width": 1184,
+        "height": 49,
+        "top": 0,
+        "right": 1440,
+        "bottom": 49,
+        "left": 256
+      }
+    }
+  ],
+  "target": {
+    "selector": "header",
+    "matchCount": 1,
+    "matches": [
+      {
+        "selector": "body > div:nth-of-type(1) > div.group\\/sidebar-wrapper.flex > main.relative.flex > div.flex.min-h-0 > header.border-b.border-border",
+        "tagName": "header",
+        "className": "border-b border-border pb-2 pl-[calc(env(safe-area-inset-left)+0.75rem)] pr-[calc(env(safe-area-inset-right)+0.75rem)] pt-2 sm:pb-3 sm:pl-[calc(env(safe-area-inset-left)+1.25rem)] sm:pr-[calc(env(safe-area-inset-right)+1.25rem)] sm:pt-3",
+        "text": "New thread server Add action Open Commit, push & PR",
+        "boundingBox": {
+          "x": 256,
+          "y": 0,
+          "width": 1184,
+          "height": 49,
+          "top": 0,
+          "right": 1440,
+          "bottom": 49,
+          "left": 256
+        },
+        "ancestry": [
+          {
+            "selector": "body > div:nth-of-type(1) > div.group\\/sidebar-wrapper.flex > main.relative.flex > div.flex.min-h-0",
+            "tagName": "div",
+            "className": "flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background",
+            "text": "New thread server Add action Open Commit, push & PR Send a message to start the conversation. Ask for follow-up changes or attach images GPT-5.4 Medium · Normal Build Full access Current checkout t3code/topbar-redesign-directions-1",
+            "boundingBox": {
+              "x": 256,
+              "y": 0,
+              "width": 1184,
+              "height": 1100,
+              "top": 0,
+              "right": 1440,
+              "bottom": 1100,
+              "left": 256
+            }
+          },
+          {
+            "selector": "body > div:nth-of-type(1) > div.group\\/sidebar-wrapper.flex > main.relative.flex",
+            "tagName": "main",
+            "className": "relative flex min-w-0 w-full flex-1 flex-col md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-2 md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ms-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm/5 h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh",
+            "text": "New thread server Add action Open Commit, push & PR Send a message to start the conversation. Ask for follow-up changes or attach images GPT-5.4 Medium · Normal Build Full access Current checkout t3code/topbar-redesign-directions-1",
+            "boundingBox": {
+              "x": 256,
+              "y": 0,
+              "width": 1184,
+              "height": 1100,
+              "top": 0,
+              "right": 1440,
+              "bottom": 1100,
+              "left": 256
+            }
+          },
+          {
+            "selector": "body > div:nth-of-type(1) > div.group\\/sidebar-wrapper.flex",
+            "tagName": "div",
+            "className": "group/sidebar-wrapper flex min-h-svh w-full has-data-[variant=inset]:bg-sidebar h-dvh! min-h-0!",
+            "text": "Dynamo DEV Search ⌘K PROJECTS server New thread just now Settings New thread server Add action Open Commit, push & PR Send a message to start the conversation. Ask for follow-up changes or attach images GPT-5.4 Medium · Normal Build Full ac",
+            "boundingBox": {
+              "x": 0,
+              "y": 0,
+              "width": 1440,
+              "height": 1100,
+              "top": 0,
+              "right": 1440,
+              "bottom": 1100,
+              "left": 0
+            }
+          },
+          {
+            "selector": "#root",
+            "tagName": "div",
+            "id": "root",
+            "className": "",
+            "text": "Dynamo DEV Search ⌘K PROJECTS server New thread just now Settings New thread server Add action Open Commit, push & PR Send a message to start the conversation. Ask for follow-up changes or attach images GPT-5.4 Medium · Normal Build Full ac",
+            "boundingBox": {
+              "x": 0,
+              "y": 0,
+              "width": 1440,
+              "height": 1100,
+              "top": 0,
+              "right": 1440,
+              "bottom": 1100,
+              "left": 0
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "consoleMessages": [],
+  "pageErrors": []
+}

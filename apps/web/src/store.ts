@@ -254,6 +254,7 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
     teamParent: thread.teamParent ?? null,
     teamTasks: thread.teamTasks ?? [],
+    reviewState: thread.reviewState ?? null,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -285,6 +286,7 @@ function mapThreadShell(
     worktreePath: thread.worktreePath,
     ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
     teamParent: thread.teamParent ?? null,
+    reviewState: thread.reviewState ?? null,
     activeTeamTaskCount: thread.activeTeamTaskCount ?? 0,
   };
   const session = thread.session ? mapSession(thread.session) : null;
@@ -340,6 +342,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     ...(thread.forkOrigin ? { forkOrigin: thread.forkOrigin } : {}),
     teamParent: thread.teamParent ?? null,
     teamTasks: thread.teamTasks ?? [],
+    reviewState: thread.reviewState ?? null,
     activeTeamTaskCount: (thread.teamTasks ?? []).filter((task) =>
       ["queued", "starting", "running", "waiting"].includes(task.status),
     ).length,
@@ -482,7 +485,8 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left.teamParent?.taskId === right.teamParent?.taskId &&
     left.teamParent?.roleLabel === right.teamParent?.roleLabel &&
     teamTasksEqual(left.teamTasks, right.teamTasks) &&
-    left.activeTeamTaskCount === right.activeTeamTaskCount
+    left.activeTeamTaskCount === right.activeTeamTaskCount &&
+    JSON.stringify(left.reviewState ?? null) === JSON.stringify(right.reviewState ?? null)
   );
 }
 
@@ -1793,6 +1797,52 @@ function applyEnvironmentOrchestrationEvent(
     case "thread.team-task-message-requested":
     case "thread.team-task-close-requested":
       return state;
+
+    case "thread.review-started":
+    case "thread.review-updated":
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        reviewState: event.payload.state,
+        updatedAt: event.occurredAt,
+      }));
+
+    case "thread.review-completed":
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        reviewState: {
+          status: "completed",
+          tier: event.payload.result.tier,
+          label: event.payload.result.label,
+          startedAt: thread.reviewState?.startedAt ?? event.payload.result.completedAt,
+          updatedAt: event.payload.result.completedAt,
+          completedAt: event.payload.result.completedAt,
+          prRef: thread.reviewState?.prRef ?? null,
+          prNumber: event.payload.result.prNumber,
+          prTitle: event.payload.result.prTitle,
+          baseRef: event.payload.result.baseRef,
+          headRef: event.payload.result.headRef,
+          findings: event.payload.result.findings,
+          droppedFindingCount: event.payload.result.droppedFindingCount,
+          errorText: null,
+          taskIds: thread.reviewState?.taskIds ?? [],
+        },
+        updatedAt: event.occurredAt,
+      }));
+
+    case "thread.review-cancelled":
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        reviewState: thread.reviewState
+          ? {
+              ...thread.reviewState,
+              status: "cancelled",
+              updatedAt: event.payload.cancelledAt,
+              completedAt: event.payload.cancelledAt,
+              errorText: event.payload.reason ?? null,
+            }
+          : null,
+        updatedAt: event.occurredAt,
+      }));
 
     case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
