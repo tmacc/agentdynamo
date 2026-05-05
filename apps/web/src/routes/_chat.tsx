@@ -222,7 +222,10 @@ export const Route = createFileRoute("/_chat")({
     ...parseProjectIntelligenceRouteSearch(search),
   }),
   beforeLoad: async ({ context }) => {
-    if (context.authGateState.status !== "authenticated") {
+    if (
+      context.authGateState.status !== "authenticated" &&
+      context.authGateState.status !== "hosted-static"
+    ) {
       throw redirect({ to: "/pair", replace: true });
     }
   },

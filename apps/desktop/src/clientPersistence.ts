@@ -89,6 +89,12 @@ function isPersistedSavedEnvironmentStorageRecord(
     typeof value.wsBaseUrl === "string" &&
     typeof value.createdAt === "string" &&
     (value.lastConnectedAt === null || typeof value.lastConnectedAt === "string") &&
+    (value.desktopSsh === undefined ||
+      (Predicate.isObject(value.desktopSsh) &&
+        typeof value.desktopSsh.alias === "string" &&
+        typeof value.desktopSsh.hostname === "string" &&
+        (value.desktopSsh.username === null || typeof value.desktopSsh.username === "string") &&
+        (value.desktopSsh.port === null || typeof value.desktopSsh.port === "number"))) &&
     (value.encryptedBearerToken === undefined || typeof value.encryptedBearerToken === "string")
   );
 }
@@ -109,7 +115,7 @@ function readSavedEnvironmentRegistryDocument(filePath: string): SavedEnvironmen
 function toPersistedSavedEnvironmentRecord(
   record: PersistedSavedEnvironmentStorageRecord,
 ): PersistedSavedEnvironmentRecord {
-  return {
+  const nextRecord = {
     environmentId: record.environmentId,
     label: record.label,
     httpBaseUrl: record.httpBaseUrl,
@@ -117,6 +123,7 @@ function toPersistedSavedEnvironmentRecord(
     createdAt: record.createdAt,
     lastConnectedAt: record.lastConnectedAt,
   };
+  return record.desktopSsh ? { ...nextRecord, desktopSsh: record.desktopSsh } : nextRecord;
 }
 
 export function readClientSettings(settingsPath: string): ClientSettings | null {
@@ -235,6 +242,7 @@ export function writeSavedEnvironmentRegistry(
             wsBaseUrl: record.wsBaseUrl,
             createdAt: record.createdAt,
             lastConnectedAt: record.lastConnectedAt,
+            ...(record.desktopSsh ? { desktopSsh: record.desktopSsh } : {}),
             encryptedBearerToken,
           }
         : record;
@@ -290,7 +298,7 @@ export function writeSavedEnvironmentSecret(input: {
       const encryptedBearerToken = input.secretStorage
         .encryptString(input.secret)
         .toString("base64");
-      return {
+      const nextRecord = {
         environmentId: record.environmentId,
         label: record.label,
         httpBaseUrl: record.httpBaseUrl,
@@ -298,7 +306,8 @@ export function writeSavedEnvironmentSecret(input: {
         createdAt: record.createdAt,
         lastConnectedAt: record.lastConnectedAt,
         encryptedBearerToken,
-      } satisfies PersistedSavedEnvironmentStorageRecord;
+      };
+      return record.desktopSsh ? { ...nextRecord, desktopSsh: record.desktopSsh } : nextRecord;
     }),
   } satisfies SavedEnvironmentRegistryDocument);
   return found;

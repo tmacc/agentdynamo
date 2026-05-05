@@ -26,13 +26,14 @@ import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReap
 import { OpenCodeRuntimeLive } from "./provider/opencodeRuntime.ts";
 import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQuery.ts";
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore.ts";
-import { GitCoreLive } from "./git/Layers/GitCore.ts";
-import { GitHubCliLive } from "./git/Layers/GitHubCli.ts";
-import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster.ts";
-import { TextGenerationLive } from "./git/Layers/TextGenerationLive.ts";
+import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
+import * as BitbucketApi from "./sourceControl/BitbucketApi.ts";
+import * as GitHubCli from "./sourceControl/GitHubCli.ts";
+import * as GitLabCli from "./sourceControl/GitLabCli.ts";
+import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/ProviderInstanceRegistryHydration.ts";
 import { TerminalManagerLive } from "./terminal/Layers/Manager.ts";
-import { GitManagerLive } from "./git/Layers/GitManager.ts";
+import * as GitManager from "./git/GitManager.ts";
 import { KeybindingsLive } from "./keybindings.ts";
 import { ServerRuntimeStartup, ServerRuntimeStartupLive } from "./serverRuntimeStartup.ts";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor.ts";
@@ -51,6 +52,15 @@ import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdent
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
+import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
+import * as VcsProjectConfig from "./vcs/VcsProjectConfig.ts";
+import * as VcsProcess from "./vcs/VcsProcess.ts";
+import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
+import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
+import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
+import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner.ts";
 import { WorktreeSetupApplicatorLive } from "./project/Layers/WorktreeSetupApplicator.ts";
 import { WorktreeSetupRuntimeLive } from "./project/Layers/WorktreeSetupRuntime.ts";
@@ -86,6 +96,7 @@ import {
   orchestrationSnapshotRouteLayer,
 } from "./orchestration/http.ts";
 import { NetService } from "@t3tools/shared/Net";
+import { disableTailscaleServe, ensureTailscaleServe } from "@t3tools/tailscale";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -144,11 +155,6 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 
-const CheckpointingLayerLive = Layer.empty.pipe(
-  Layer.provideMerge(CheckpointDiffQueryLive),
-  Layer.provideMerge(CheckpointStoreLive),
-);
-
 const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
   Layer.provide(ProviderSessionRuntimeRepositoryLive),
 );
@@ -199,26 +205,61 @@ const WorktreeSetupLayerLive = Layer.mergeAll(
   ProjectSetupScriptRunnerLayerLive,
 );
 
-const TextGenerationLayerLive = TextGenerationLive.pipe(
+const TextGenerationLayerLive = TextGeneration.layer.pipe(
   Layer.provide(ProviderInstanceRegistryLayerLive),
 );
 
-const GitManagerLayerLive = GitManagerLive.pipe(
-  Layer.provideMerge(ProjectSetupScriptRunnerLayerLive),
-  Layer.provideMerge(GitCoreLive),
-  Layer.provideMerge(GitHubCliLive),
-  Layer.provideMerge(TextGenerationLayerLive),
+const VcsDriverRegistryLayerLive = VcsDriverRegistry.layer.pipe(
+  Layer.provide(VcsProjectConfig.layer),
+);
+
+const SourceControlProviderRegistryLayerLive = SourceControlProviderRegistry.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(AzureDevOpsCli.layer, BitbucketApi.layer, GitHubCli.layer, GitLabCli.layer),
+  ),
+  Layer.provideMerge(GitVcsDriver.layer),
+  Layer.provideMerge(VcsDriverRegistryLayerLive),
+);
+
+const GitManagerLayerLive = GitManager.layer.pipe(
+  Layer.provideMerge(ProjectSetupScriptRunnerLive),
+  Layer.provideMerge(GitVcsDriver.layer),
+  Layer.provideMerge(SourceControlProviderRegistryLayerLive),
+  Layer.provideMerge(TextGeneration.layer),
 );
 
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
-  Layer.provideMerge(GitStatusBroadcasterLive.pipe(Layer.provide(GitManagerLayerLive))),
-  Layer.provideMerge(GitCoreLive),
+  Layer.provideMerge(GitVcsDriver.layer),
+);
+
+const GitWorkflowLayerLive = GitWorkflowService.layer.pipe(
+  Layer.provideMerge(VcsDriverRegistryLayerLive),
+  Layer.provideMerge(GitLayerLive),
+);
+
+const SourceControlRepositoryServiceLayerLive = SourceControlRepositoryService.layer.pipe(
+  Layer.provideMerge(GitVcsDriver.layer),
+  Layer.provideMerge(SourceControlProviderRegistryLayerLive),
+);
+
+const VcsLayerLive = Layer.empty.pipe(
+  Layer.provideMerge(VcsProjectConfig.layer),
+  Layer.provideMerge(VcsDriverRegistryLayerLive),
+  Layer.provideMerge(VcsProvisioningService.layer.pipe(Layer.provide(VcsDriverRegistryLayerLive))),
+  Layer.provideMerge(GitWorkflowLayerLive),
+  Layer.provideMerge(SourceControlRepositoryServiceLayerLive),
+  Layer.provideMerge(VcsStatusBroadcaster.layer.pipe(Layer.provide(GitWorkflowLayerLive))),
+);
+
+const CheckpointingLayerLive = Layer.empty.pipe(
+  Layer.provideMerge(CheckpointDiffQueryLive),
+  Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(VcsDriverRegistryLayerLive))),
 );
 
 const WorkspaceEntriesLayerLive = WorkspaceEntriesLive.pipe(
   Layer.provide(WorkspacePathsLive),
-  Layer.provideMerge(GitCoreLive),
+  Layer.provideMerge(VcsDriverRegistryLayerLive),
 );
 
 const WorkspaceFileSystemLayerLive = WorkspaceFileSystemLive.pipe(
@@ -242,18 +283,12 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
-const ThreadForkLayerLive = ThreadForkDispatcherLive.pipe(
-  Layer.provideMerge(ThreadForkMaterializerLive),
-);
-
-const TeamLayerLive = Layer.mergeAll(TeamCoordinatorAccessLive, TeamOrchestrationServiceLive);
-
-const RuntimeDependenciesCoreLive = ReactorLayerLive.pipe(
-  Layer.provideMerge(ThreadForkLayerLive),
-  Layer.provideMerge(TeamLayerLive),
+const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
+  Layer.provideMerge(SourceControlProviderRegistryLayerLive),
   Layer.provideMerge(GitLayerLive),
+  Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(ProviderRuntimeLayerLive),
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(PersistenceLayerLive),
@@ -283,20 +318,19 @@ const RuntimeDependenciesCoreLive = ReactorLayerLive.pipe(
 
 const ProjectIntelligenceResolverLayerLive = ProjectIntelligenceResolverLive.pipe(
   Layer.provideMerge(WorkspaceLayerLive),
-  Layer.provideMerge(GitLayerLive),
+  Layer.provideMerge(VcsDriverRegistryLayerLive),
   Layer.provideMerge(ProviderRegistryLayerLive),
   Layer.provideMerge(ServerSettingsLive),
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
-const RuntimeDependenciesLive = RuntimeDependenciesCoreLive.pipe(
+const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
   Layer.provideMerge(ProjectIntelligenceResolverLayerLive),
   Layer.provideMerge(RepositoryIdentityResolverLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),
-
   // Misc.
   Layer.provideMerge(AnalyticsServiceLayerLive),
   Layer.provideMerge(OpenLive),
@@ -368,6 +402,57 @@ export const makeServerLayer = Layer.unwrap(
         () => clearPersistedServerRuntimeState(config.serverRuntimeStatePath),
       ),
     );
+    const tailscaleServeLayer = config.tailscaleServeEnabled
+      ? Layer.effectDiscard(
+          Effect.acquireRelease(
+            Effect.gen(function* () {
+              const server = yield* HttpServer.HttpServer;
+              const address = server.address;
+              if (typeof address === "string" || !("port" in address)) {
+                return null;
+              }
+
+              const localPort = address.port;
+              return yield* ensureTailscaleServe({
+                localPort,
+                servePort: config.tailscaleServePort,
+                localHost: "127.0.0.1",
+              }).pipe(
+                Effect.as({ localPort, servePort: config.tailscaleServePort }),
+                Effect.tap(() =>
+                  Effect.logInfo("Tailscale Serve configured", {
+                    localPort,
+                    servePort: config.tailscaleServePort,
+                  }),
+                ),
+                Effect.catch((cause) =>
+                  Effect.logWarning("Failed to configure Tailscale Serve", {
+                    cause,
+                    localPort,
+                    servePort: config.tailscaleServePort,
+                  }).pipe(Effect.as(null)),
+                ),
+              );
+            }),
+            (configured) =>
+              configured
+                ? disableTailscaleServe({ servePort: configured.servePort }).pipe(
+                    Effect.tap(() =>
+                      Effect.logInfo("Tailscale Serve disabled", {
+                        servePort: configured.servePort,
+                      }),
+                    ),
+                    Effect.catch((cause) =>
+                      Effect.logWarning("Failed to disable Tailscale Serve", {
+                        cause,
+                        servePort: configured.servePort,
+                      }),
+                    ),
+                  )
+                : Effect.void,
+          ),
+        )
+      : Layer.empty;
 
     const serverApplicationLayer = Layer.mergeAll(
       HttpRouter.serve(makeRoutesLayer, {
@@ -375,6 +460,7 @@ export const makeServerLayer = Layer.unwrap(
       }),
       httpListeningLayer,
       runtimeStateLayer,
+      tailscaleServeLayer,
     );
 
     return serverApplicationLayer.pipe(
@@ -382,6 +468,7 @@ export const makeServerLayer = Layer.unwrap(
       Layer.provideMerge(HttpServerLive),
       Layer.provide(ObservabilityLive),
       Layer.provideMerge(FetchHttpClient.layer),
+      Layer.provideMerge(VcsProcess.layer),
       Layer.provideMerge(PlatformServicesLive),
     );
   }),

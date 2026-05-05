@@ -12,6 +12,10 @@
       "types": "./src/git.ts",
       "import": "./src/git.ts"
     },
+    "./sourceControl": {
+      "types": "./src/sourceControl.ts",
+      "import": "./src/sourceControl.ts"
+    },
     "./logging": {
       "types": "./src/logging.ts",
       "import": "./src/logging.ts"
@@ -83,10 +87,13 @@
     "./branding": {
       "types": "./src/branding.ts",
       "import": "./src/branding.ts"
+    },
+    "./keybindings": {
+      "types": "./src/keybindings.ts",
+      "import": "./src/keybindings.ts"
     }
   },
   "scripts": {
-    "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

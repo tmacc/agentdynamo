@@ -10,10 +10,10 @@ import type {
 } from "@t3tools/contracts";
 import { Effect, Layer, Schema } from "effect";
 
-import { GitCore } from "../../git/Services/GitCore.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { VcsDriverRegistry } from "../../vcs/VcsDriverRegistry.ts";
 import { WorkspacePaths } from "../../workspace/Services/WorkspacePaths.ts";
 import { collectProjectCodeStats } from "../intelligence/codeStats.ts";
 import {
@@ -91,7 +91,7 @@ function dedupeSurfaces(
 
 export const makeProjectIntelligenceResolver = Effect.gen(function* () {
   const workspacePaths = yield* WorkspacePaths;
-  const git = yield* GitCore;
+  const vcsDrivers = yield* VcsDriverRegistry;
   const providerRegistry = yield* ProviderRegistry;
   const serverSettings = yield* ServerSettingsService;
   const orchestrationEngine = yield* OrchestrationEngineService;
@@ -183,7 +183,7 @@ export const makeProjectIntelligenceResolver = Effect.gen(function* () {
 
     const codeStats = await collectProjectCodeStats({
       cwd: normalized.effectiveCwd ?? normalized.projectCwd,
-      git,
+      git: await runPromise(vcsDrivers.get("git")),
       runPromise,
     });
     if (codeStats.partial) {

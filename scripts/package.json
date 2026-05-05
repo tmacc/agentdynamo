@@ -3,7 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare": "node ./run-effect-language-service-prepare.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

@@ -2,7 +2,7 @@ import { ProjectId, type ThreadId } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import { Effect } from "effect";
 
-import { GitCore } from "../git/Services/GitCore.ts";
+import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
 
 export interface ThreadWorkspaceContextInput {
   readonly thread: {
@@ -31,7 +31,7 @@ export interface ThreadWorkspaceContext {
 export const resolveThreadWorkspaceContext = Effect.fn("resolveThreadWorkspaceContext")(function* (
   input: ThreadWorkspaceContextInput,
 ) {
-  const git = yield* GitCore;
+  const git = yield* GitVcsDriver;
   const projectRoot = input.projects.find(
     (project) => project.id === input.thread.projectId,
   )?.workspaceRoot;
@@ -45,7 +45,7 @@ export const resolveThreadWorkspaceContext = Effect.fn("resolveThreadWorkspaceCo
       Effect.catch(() => Effect.succeed(null)),
     );
     isGitRepo = status?.isRepo === true;
-    liveBranch = status?.branch ?? null;
+    liveBranch = status?.refName ?? null;
   }
 
   const effectiveBranch = liveBranch ?? input.thread.branch;

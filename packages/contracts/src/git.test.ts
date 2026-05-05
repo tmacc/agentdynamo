@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 
 import {
-  GitCreateWorktreeInput,
-  GitGetPullRequestRemoteOptionsResult,
+  VcsCreateWorktreeInput,
   GitPreparePullRequestThreadInput,
+  GitGetPullRequestRemoteOptionsResult,
   GitPullRequestRemoteSelectionRequiredError,
   GitRunStackedActionResult,
   GitRunStackedActionInput,
@@ -12,7 +12,7 @@ import {
   GitSetPullRequestRemoteInput,
 } from "./git.ts";
 
-const decodeCreateWorktreeInput = Schema.decodeUnknownSync(GitCreateWorktreeInput);
+const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
 const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
   GitPreparePullRequestThreadInput,
 );
@@ -27,16 +27,16 @@ const decodePullRequestRemoteSelectionRequiredError = Schema.decodeUnknownSync(
   GitPullRequestRemoteSelectionRequiredError,
 );
 
-describe("GitCreateWorktreeInput", () => {
-  it("accepts omitted newBranch for existing-branch worktrees", () => {
+describe("VcsCreateWorktreeInput", () => {
+  it("accepts omitted newRefName for existing-refName worktrees", () => {
     const parsed = decodeCreateWorktreeInput({
       cwd: "/repo",
-      branch: "feature/existing",
+      refName: "feature/existing",
       path: "/tmp/worktree",
     });
 
-    expect(parsed.newBranch).toBeUndefined();
-    expect(parsed.branch).toBe("feature/existing");
+    expect(parsed.newRefName).toBeUndefined();
+    expect(parsed.refName).toBe("feature/existing");
   });
 });
 

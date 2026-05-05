@@ -2,7 +2,7 @@ import type { Dirent } from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
 
-import type { ProjectIntelligenceCodeStats } from "@t3tools/contracts";
+import type { ProjectIntelligenceCodeStats, VcsListWorkspaceFilesResult } from "@t3tools/contracts";
 import {
   AUTHORED_SOURCE_CODE_STATS_BASIS,
   approximateTokenCount,
@@ -13,7 +13,7 @@ import {
 } from "@t3tools/shared/codeStatsPolicy";
 import { Effect } from "effect";
 
-import type { GitCoreShape, GitListWorkspaceFilesResult } from "../../git/Services/GitCore.ts";
+import type { VcsDriverShape } from "../../vcs/VcsDriver.ts";
 
 const MAX_CODE_STATS_FILES = 25_000;
 
@@ -68,7 +68,7 @@ async function discoverNonGitFiles(cwd: string): Promise<{
 
 export async function collectProjectCodeStats(input: {
   readonly cwd: string;
-  readonly git: GitCoreShape;
+  readonly git: VcsDriverShape;
   readonly runPromise: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 }): Promise<ProjectIntelligenceCodeStats> {
   const isGitRepo = await input.runPromise(
@@ -81,10 +81,11 @@ export async function collectProjectCodeStats(input: {
     const listedFiles = await input.runPromise(
       input.git.listWorkspaceFiles(input.cwd).pipe(
         Effect.orElseSucceed(
-          (): GitListWorkspaceFilesResult => ({
-            paths: [],
-            truncated: false,
-          }),
+          (): VcsListWorkspaceFilesResult =>
+            ({
+              paths: [],
+              truncated: false,
+            }) as unknown as VcsListWorkspaceFilesResult,
         ),
       ),
     );

@@ -77,8 +77,10 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
 
       yield* launchStartupHeartbeat.pipe(
         Effect.provideService(ProjectionSnapshotQuery, {
+          getCommandReadModel: () => Effect.die("unused"),
           getSnapshot: () => Effect.die("unused"),
           getShellSnapshot: () => Effect.die("unused"),
+          getSnapshotSequence: () => Effect.die("unused"),
           getCounts: () =>
             Deferred.await(releaseCounts).pipe(
               Effect.as({
@@ -130,8 +132,10 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         autoBootstrapProjectFromCwd: true,
       } as never),
       Effect.provideService(ProjectionSnapshotQuery, {
+        getCommandReadModel: () => Effect.die("unused"),
         getSnapshot: () => Effect.die("unused"),
         getShellSnapshot: () => Effect.die("unused"),
+        getSnapshotSequence: () => Effect.die("unused"),
         getCounts: () => Effect.die("unused"),
         getActiveProjectByWorkspaceRoot: () =>
           Effect.succeed(
@@ -154,8 +158,8 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getTeamTaskTrace: () => Effect.die("unused"),
       }),
       Effect.provideService(OrchestrationEngineService, {
-        getReadModel: () => Effect.die("unused"),
         readEvents: () => Stream.empty,
+        getReadModel: () => Effect.die("unused"),
         dispatch: (command) =>
           Ref.update(dispatchCalls, (calls) => [...calls, command.type]).pipe(
             Effect.as({ sequence: 1 }),
@@ -182,8 +186,10 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         autoBootstrapProjectFromCwd: true,
       } as never),
       Effect.provideService(ProjectionSnapshotQuery, {
+        getCommandReadModel: () => Effect.die("unused"),
         getSnapshot: () => Effect.die("unused"),
         getShellSnapshot: () => Effect.die("unused"),
+        getSnapshotSequence: () => Effect.die("unused"),
         getCounts: () => Effect.die("unused"),
         getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
         getProjectShellById: () => Effect.die("unused"),
@@ -194,8 +200,8 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getTeamTaskTrace: () => Effect.die("unused"),
       }),
       Effect.provideService(OrchestrationEngineService, {
-        getReadModel: () => Effect.die("unused"),
         readEvents: () => Stream.empty,
+        getReadModel: () => Effect.die("unused"),
         dispatch: (command) =>
           Ref.update(dispatchCalls, (calls) => [...calls, command.type]).pipe(
             Effect.as({ sequence: 1 }),

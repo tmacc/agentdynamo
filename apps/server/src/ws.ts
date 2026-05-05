@@ -41,9 +41,6 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery.ts";
 import { ServerConfig } from "./config.ts";
-import { GitCore } from "./git/Services/GitCore.ts";
-import { GitManager } from "./git/Services/GitManager.ts";
-import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster.ts";
 import { Keybindings } from "./keybindings.ts";
 import { Open, resolveAvailableEditors } from "./open.ts";
 import { enqueueAndExecuteForkThread } from "./orchestration/forkThreadExecution.ts";
@@ -67,13 +64,27 @@ import { TerminalManager } from "./terminal/Services/Manager.ts";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem.ts";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths.ts";
-import { ProjectIntelligenceResolver } from "./project/Services/ProjectIntelligenceResolver.ts";
+import { VcsStatusBroadcaster } from "./vcs/VcsStatusBroadcaster.ts";
+import { VcsProvisioningService } from "./vcs/VcsProvisioningService.ts";
+import { GitWorkflowService } from "./git/GitWorkflowService.ts";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner.ts";
+import { ProjectIntelligenceResolver } from "./project/Services/ProjectIntelligenceResolver.ts";
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver.ts";
 import { WorktreeSetupApplicator } from "./project/Services/WorktreeSetupApplicator.ts";
 import { WorktreeSetupScanner } from "./project/Services/WorktreeSetupScanner.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
 import { ServerAuth } from "./auth/Services/ServerAuth.ts";
+import * as SourceControlDiscoveryLayer from "./sourceControl/SourceControlDiscovery.ts";
+import { SourceControlRepositoryService } from "./sourceControl/SourceControlRepositoryService.ts";
+import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
+import * as BitbucketApi from "./sourceControl/BitbucketApi.ts";
+import * as GitHubCli from "./sourceControl/GitHubCli.ts";
+import * as GitLabCli from "./sourceControl/GitLabCli.ts";
+import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
+import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
+import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
+import * as VcsProjectConfig from "./vcs/VcsProjectConfig.ts";
+import * as VcsProcess from "./vcs/VcsProcess.ts";
 import {
   BootstrapCredentialService,
   type BootstrapCredentialChange,
@@ -196,9 +207,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const checkpointDiffQuery = yield* CheckpointDiffQuery;
       const keybindings = yield* Keybindings;
       const open = yield* Open;
-      const gitManager = yield* GitManager;
-      const git = yield* GitCore;
-      const gitStatusBroadcaster = yield* GitStatusBroadcaster;
+      const gitWorkflow = yield* GitWorkflowService;
+      const vcsProvisioning = yield* VcsProvisioningService;
+      const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager;
       const providerRegistry = yield* ProviderRegistry;
       const config = yield* ServerConfig;
@@ -214,6 +225,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment;
       const serverAuth = yield* ServerAuth;
+      const sourceControlDiscovery = yield* SourceControlDiscoveryLayer.SourceControlDiscovery;
+      const sourceControlRepositories = yield* SourceControlRepositoryService;
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
       const threadForkDispatcher = yield* ThreadForkDispatcher;
@@ -287,9 +300,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             return Effect.gen(function* () {
               const workspaceRoot =
                 event.payload.workspaceRoot ??
-                (yield* orchestrationEngine.getReadModel()).projects.find(
-                  (project) => project.id === event.payload.projectId,
-                )?.workspaceRoot ??
+                Option.match(
+                  yield* projectionSnapshotQuery.getProjectShellById(event.payload.projectId),
+                  {
+                    onNone: () => null,
+                    onSome: (project) => project.workspaceRoot,
+                  },
+                ) ??
                 null;
               if (workspaceRoot === null) {
                 return event;
@@ -303,7 +320,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   repositoryIdentity,
                 },
               } satisfies OrchestrationEvent;
-            });
+            }).pipe(Effect.catch(() => Effect.succeed(event)));
           default:
             return Effect.succeed(event);
         }
@@ -517,10 +534,10 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             }
 
             if (bootstrap?.prepareWorktree) {
-              const worktree = yield* git.createWorktree({
+              const worktree = yield* gitWorkflow.createWorktree({
                 cwd: bootstrap.prepareWorktree.projectCwd,
-                branch: bootstrap.prepareWorktree.baseBranch,
-                newBranch: bootstrap.prepareWorktree.branch,
+                refName: bootstrap.prepareWorktree.baseBranch,
+                newRefName: bootstrap.prepareWorktree.branch,
                 path: null,
               });
               targetWorktreePath = worktree.worktree.path;
@@ -528,7 +545,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 type: "thread.meta.update",
                 commandId: serverCommandId("bootstrap-thread-meta-update"),
                 threadId: command.threadId,
-                branch: worktree.worktree.branch,
+                branch: worktree.worktree.refName,
                 worktreePath: targetWorktreePath,
               });
               yield* refreshGitStatus(targetWorktreePath);
@@ -604,7 +621,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       });
 
       const refreshGitStatus = (cwd: string) =>
-        gitStatusBroadcaster
+        vcsStatusBroadcaster
           .refreshStatus(cwd)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
@@ -764,6 +781,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ORCHESTRATION_WS_METHODS.subscribeShell,
             Effect.gen(function* () {
               const snapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+                Effect.tapError((cause) =>
+                  Effect.logError("orchestration shell snapshot load failed", { cause }),
+                ),
                 Effect.mapError(
                   (cause) =>
                     new OrchestrationGetSnapshotError({
@@ -804,9 +824,16 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                       }),
                   ),
                 ),
-                orchestrationEngine
-                  .getReadModel()
-                  .pipe(Effect.map((readModel) => readModel.snapshotSequence)),
+                projectionSnapshotQuery.getSnapshotSequence().pipe(
+                  Effect.map(({ snapshotSequence }) => snapshotSequence),
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationGetSnapshotError({
+                        message: "Failed to load orchestration snapshot sequence",
+                        cause,
+                      }),
+                  ),
+                ),
               ]);
 
               if (Option.isNone(threadDetail)) {
@@ -1053,6 +1080,40 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.serverDiscoverSourceControl]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverDiscoverSourceControl,
+            sourceControlDiscovery.discover,
+            {
+              "rpc.aggregate": "server",
+            },
+          ),
+        [WS_METHODS.sourceControlLookupRepository]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sourceControlLookupRepository,
+            sourceControlRepositories.lookupRepository(input),
+            {
+              "rpc.aggregate": "source-control",
+            },
+          ),
+        [WS_METHODS.sourceControlCloneRepository]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sourceControlCloneRepository,
+            sourceControlRepositories.cloneRepository(input),
+            {
+              "rpc.aggregate": "source-control",
+            },
+          ),
+        [WS_METHODS.sourceControlPublishRepository]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sourceControlPublishRepository,
+            sourceControlRepositories
+              .publishRepository(input)
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            {
+              "rpc.aggregate": "source-control",
+            },
+          ),
         [WS_METHODS.projectsSearchEntries]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchEntries,
@@ -1185,26 +1246,26 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "workspace" },
           ),
-        [WS_METHODS.subscribeGitStatus]: (input) =>
+        [WS_METHODS.subscribeVcsStatus]: (input) =>
           observeRpcStream(
-            WS_METHODS.subscribeGitStatus,
-            gitStatusBroadcaster.streamStatus(input),
+            WS_METHODS.subscribeVcsStatus,
+            vcsStatusBroadcaster.streamStatus(input),
             {
-              "rpc.aggregate": "git",
+              "rpc.aggregate": "vcs",
             },
           ),
-        [WS_METHODS.gitRefreshStatus]: (input) =>
+        [WS_METHODS.vcsRefreshStatus]: (input) =>
           observeRpcEffect(
-            WS_METHODS.gitRefreshStatus,
-            gitStatusBroadcaster.refreshStatus(input.cwd),
+            WS_METHODS.vcsRefreshStatus,
+            vcsStatusBroadcaster.refreshStatus(input.cwd),
             {
-              "rpc.aggregate": "git",
+              "rpc.aggregate": "vcs",
             },
           ),
-        [WS_METHODS.gitPull]: (input) =>
+        [WS_METHODS.vcsPull]: (input) =>
           observeRpcEffect(
-            WS_METHODS.gitPull,
-            git.pullCurrentBranch(input.cwd).pipe(
+            WS_METHODS.vcsPull,
+            gitWorkflow.pullCurrentBranch(input.cwd).pipe(
               Effect.matchCauseEffect({
                 onFailure: (cause) => Effect.failCause(cause),
                 onSuccess: (result) =>
@@ -1217,7 +1278,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcStream(
             WS_METHODS.gitRunStackedAction,
             Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>
-              gitManager
+              gitWorkflow
                 .runStackedAction(input, {
                   actionId: input.actionId,
                   progressReporter: {
@@ -1234,16 +1295,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   }),
                 ),
             ),
-            { "rpc.aggregate": "git" },
+            { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.gitResolvePullRequest]: (input) =>
-          observeRpcEffect(WS_METHODS.gitResolvePullRequest, gitManager.resolvePullRequest(input), {
-            "rpc.aggregate": "git",
-          }),
+          observeRpcEffect(
+            WS_METHODS.gitResolvePullRequest,
+            gitWorkflow.resolvePullRequest(input),
+            {
+              "rpc.aggregate": "git",
+            },
+          ),
         [WS_METHODS.gitGetPullRequestRemoteOptions]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitGetPullRequestRemoteOptions,
-            gitManager.getPullRequestRemoteOptions(input),
+            gitWorkflow.getPullRequestRemoteOptions(input),
             {
               "rpc.aggregate": "git",
             },
@@ -1251,9 +1316,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [WS_METHODS.gitSetPullRequestRemote]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitSetPullRequestRemote,
-            gitManager
-              .setPullRequestRemote(input)
-              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            gitWorkflow.setPullRequestRemote(input),
             {
               "rpc.aggregate": "git",
             },
@@ -1261,56 +1324,62 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitPreparePullRequestThread,
-            gitManager
+            gitWorkflow
               .preparePullRequestThread(input)
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
-            { "rpc.aggregate": "git" },
-          ),
-        [WS_METHODS.gitListBranches]: (input) =>
-          observeRpcEffect(WS_METHODS.gitListBranches, git.listBranches(input), {
-            "rpc.aggregate": "git",
-          }),
-        [WS_METHODS.gitCreateWorktree]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.gitCreateWorktree,
-            git.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
-            { "rpc.aggregate": "git" },
-          ),
-        [WS_METHODS.gitRemoveWorktree]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.gitRemoveWorktree,
-            git.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },
           ),
         [WS_METHODS.gitPreviewWorktreePatch]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitPreviewWorktreePatch,
-            gitManager.previewWorktreePatch(input),
-            { "rpc.aggregate": "git" },
+            gitWorkflow.previewWorktreePatch(input),
+            {
+              "rpc.aggregate": "git",
+            },
           ),
         [WS_METHODS.gitApplyWorktreePatch]: (input) =>
-          observeRpcEffect(WS_METHODS.gitApplyWorktreePatch, gitManager.applyWorktreePatch(input), {
-            "rpc.aggregate": "git",
+          observeRpcEffect(
+            WS_METHODS.gitApplyWorktreePatch,
+            gitWorkflow.applyWorktreePatch(input),
+            {
+              "rpc.aggregate": "git",
+            },
+          ),
+        [WS_METHODS.vcsListRefs]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsListRefs, gitWorkflow.listRefs(input), {
+            "rpc.aggregate": "vcs",
           }),
-        [WS_METHODS.gitCreateBranch]: (input) =>
+        [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
-            WS_METHODS.gitCreateBranch,
-            git.createBranch(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
-            { "rpc.aggregate": "git" },
+            WS_METHODS.vcsCreateWorktree,
+            gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
           ),
-        [WS_METHODS.gitCheckout]: (input) =>
+        [WS_METHODS.vcsRemoveWorktree]: (input) =>
           observeRpcEffect(
-            WS_METHODS.gitCheckout,
-            Effect.scoped(git.checkoutBranch(input)).pipe(
-              Effect.tap(() => refreshGitStatus(input.cwd)),
-            ),
-            { "rpc.aggregate": "git" },
+            WS_METHODS.vcsRemoveWorktree,
+            gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
           ),
-        [WS_METHODS.gitInit]: (input) =>
+        [WS_METHODS.vcsCreateRef]: (input) =>
           observeRpcEffect(
-            WS_METHODS.gitInit,
-            git.initRepo(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
-            { "rpc.aggregate": "git" },
+            WS_METHODS.vcsCreateRef,
+            gitWorkflow.createRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsSwitchRef]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsSwitchRef,
+            gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsInit]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsInit,
+            vcsProvisioning
+              .initRepository(input)
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
@@ -1356,6 +1425,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   version: 1 as const,
                   type: "keybindingsUpdated" as const,
                   payload: {
+                    keybindings: event.keybindings,
                     issues: event.issues,
                   },
                 })),
@@ -1466,7 +1536,30 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           },
         }).pipe(
           Effect.provide(
-            makeWsRpcLayer(session.sessionId).pipe(Layer.provideMerge(RpcSerialization.layerJson)),
+            makeWsRpcLayer(session.sessionId).pipe(
+              Layer.provideMerge(RpcSerialization.layerJson),
+              Layer.provide(
+                SourceControlDiscoveryLayer.layer.pipe(
+                  Layer.provide(
+                    SourceControlProviderRegistry.layer.pipe(
+                      Layer.provide(
+                        Layer.mergeAll(
+                          AzureDevOpsCli.layer,
+                          BitbucketApi.layer,
+                          GitHubCli.layer,
+                          GitLabCli.layer,
+                        ),
+                      ),
+                      Layer.provideMerge(GitVcsDriver.layer),
+                      Layer.provide(
+                        VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer)),
+                      ),
+                    ),
+                  ),
+                  Layer.provide(VcsProcess.layer),
+                ),
+              ),
+            ),
           ),
         );
         return yield* Effect.acquireUseRelease(

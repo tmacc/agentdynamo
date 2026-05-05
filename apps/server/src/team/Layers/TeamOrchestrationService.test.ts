@@ -42,8 +42,9 @@ const parentWorktreePath = "/repo/.dynamo/worktrees/project/t3code-411b93f1";
 
 const gitStatus = (overrides: Partial<GitStatusResult> = {}): GitStatusResult => ({
   isRepo: false,
-  hasOriginRemote: false,
-  isDefaultBranch: false,
+  hasPrimaryRemote: false,
+  isDefaultRef: false,
+  refName: null,
   branch: null,
   hasWorkingTreeChanges: false,
   workingTree: { files: [], insertions: 0, deletions: 0 },
@@ -270,8 +271,9 @@ async function makeRuntime(input: {
     refreshStatus: () =>
       Effect.succeed({
         isRepo: false,
-        hasOriginRemote: false,
-        isDefaultBranch: false,
+        hasPrimaryRemote: false,
+        isDefaultRef: false,
+        refName: null,
         branch: null,
         hasWorkingTreeChanges: false,
         workingTree: { files: [], insertions: 0, deletions: 0 },
@@ -497,7 +499,7 @@ describe("TeamOrchestrationService", () => {
     const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
       Effect.succeed({
         worktree: {
-          branch: "agent/worker-123456",
+          refName: "agent/worker-123456",
           path: "/repo/.dynamo/worktrees/project/agent-worker-123456",
         },
       }),
@@ -537,10 +539,10 @@ describe("TeamOrchestrationService", () => {
       expect(createWorktree).toHaveBeenCalledTimes(1);
       expect(createWorktree.mock.calls[0]?.[0]).toMatchObject({
         cwd: parentWorktreePath,
-        branch: "HEAD",
+        refName: "HEAD",
         path: null,
       });
-      expect(createWorktree.mock.calls[0]?.[0].newBranch).toMatch(/^agent\//);
+      expect(createWorktree.mock.calls[0]?.[0].newRefName).toMatch(/^agent\//);
       expect(seedWorktreeFromSnapshot).toHaveBeenCalledWith({
         sourceCwd: parentWorktreePath,
         targetCwd: "/repo/.dynamo/worktrees/project/agent-worker-123456",

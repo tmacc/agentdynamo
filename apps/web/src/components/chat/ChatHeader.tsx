@@ -55,6 +55,18 @@ interface ChatHeaderProps {
   contextAvailable: boolean;
 }
 
+export function shouldShowOpenInPicker(input: {
+  readonly activeProjectName: string | undefined;
+  readonly activeThreadEnvironmentId: EnvironmentId;
+  readonly primaryEnvironmentId: EnvironmentId | null;
+}): boolean {
+  return (
+    Boolean(input.activeProjectName) &&
+    input.primaryEnvironmentId !== null &&
+    input.activeThreadEnvironmentId === input.primaryEnvironmentId
+  );
+}
+
 export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
@@ -93,8 +105,11 @@ export const ChatHeader = memo(function ChatHeader({
   };
   const boardOpen = search.view === "board";
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const isRemoteEnvironment =
-    primaryEnvironmentId !== null && activeThreadEnvironmentId !== primaryEnvironmentId;
+  const showOpenInPicker = shouldShowOpenInPicker({
+    activeProjectName,
+    activeThreadEnvironmentId,
+    primaryEnvironmentId,
+  });
 
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
@@ -132,7 +147,7 @@ export const ChatHeader = memo(function ChatHeader({
             onDisableWorktreeSetup={onDisableWorktreeSetup}
           />
         )}
-        {activeProjectName && !isRemoteEnvironment && (
+        {showOpenInPicker && (
           <OpenInPicker
             keybindings={keybindings}
             availableEditors={availableEditors}
