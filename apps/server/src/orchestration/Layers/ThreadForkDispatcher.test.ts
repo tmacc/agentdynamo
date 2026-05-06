@@ -42,6 +42,7 @@ import {
   ThreadForkMaterializer,
   type ThreadForkMaterializerShape,
 } from "../Services/ThreadForkMaterializer.ts";
+import { makeGitStatusResult, makeOrchestrationReadModel } from "../../testing/vcsFixtures.ts";
 import { ThreadForkDispatcherLive } from "./ThreadForkDispatcher.ts";
 
 const now = "2026-01-01T00:00:00.000Z";
@@ -150,8 +151,10 @@ function makeProjectionQuery(input: {
   readonly commands: ReadonlyArray<OrchestrationCommand>;
 }): ProjectionSnapshotQueryShape {
   return {
+    getCommandReadModel: () => Effect.succeed(makeOrchestrationReadModel()),
     getSnapshot: () => Effect.die("getSnapshot should not be called"),
     getShellSnapshot: () => Effect.die("getShellSnapshot should not be called"),
+    getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
     getCounts: () => Effect.die("getCounts should not be called"),
     getActiveProjectByWorkspaceRoot: () =>
       Effect.die("getActiveProjectByWorkspaceRoot should not be called"),
@@ -221,18 +224,14 @@ function makeStatusBroadcaster(): GitStatusBroadcasterShape {
     getStatus: () => Effect.die("getStatus should not be called"),
     refreshLocalStatus: () => Effect.die("refreshLocalStatus should not be called"),
     refreshStatus: () =>
-      Effect.succeed({
-        isRepo: true,
-        hasOriginRemote: false,
-        isDefaultBranch: false,
-        branch: "fork",
-        hasWorkingTreeChanges: false,
-        workingTree: { files: [], insertions: 0, deletions: 0 },
-        hasUpstream: false,
-        aheadCount: 0,
-        behindCount: 0,
-        pr: null,
-      }),
+      Effect.succeed(
+        makeGitStatusResult({
+          hasOriginRemote: false,
+          isDefaultBranch: false,
+          branch: "fork",
+          hasUpstream: false,
+        }),
+      ),
     streamStatus: () => Stream.empty,
   };
 }

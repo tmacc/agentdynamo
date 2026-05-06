@@ -1,8 +1,8 @@
 import {
   ORCHESTRATION_WS_METHODS,
-  type GitStatusLocalResult,
-  type GitStatusRemoteResult,
-  type GitStatusStreamEvent,
+  type VcsStatusLocalResult,
+  type VcsStatusRemoteResult,
+  type VcsStatusStreamEvent,
 } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vitest";
 
@@ -19,16 +19,16 @@ vi.mock("./wsTransport", () => ({
 import { createWsRpcClient } from "./wsRpcClient";
 import { type WsTransport } from "./wsTransport";
 
-const baseLocalStatus: GitStatusLocalResult = {
+const baseLocalStatus: VcsStatusLocalResult = {
   isRepo: true,
-  hasOriginRemote: true,
-  isDefaultBranch: false,
-  branch: "feature/demo",
+  hasPrimaryRemote: true,
+  isDefaultRef: false,
+  refName: "feature/demo",
   hasWorkingTreeChanges: false,
   workingTree: { files: [], insertions: 0, deletions: 0 },
 };
 
-const baseRemoteStatus: GitStatusRemoteResult = {
+const baseRemoteStatus: VcsStatusRemoteResult = {
   hasUpstream: true,
   aheadCount: 0,
   behindCount: 0,
@@ -36,7 +36,7 @@ const baseRemoteStatus: GitStatusRemoteResult = {
 };
 
 describe("wsRpcClient", () => {
-  it("reduces git status stream events into flat status snapshots", () => {
+  it("reduces vcs status stream events into flat status snapshots", () => {
     const subscribe = vi.fn(<TValue>(_connect: unknown, listener: (value: TValue) => void) => {
       for (const event of [
         {
@@ -55,7 +55,7 @@ describe("wsRpcClient", () => {
             hasWorkingTreeChanges: true,
           },
         },
-      ] satisfies GitStatusStreamEvent[]) {
+      ] satisfies VcsStatusStreamEvent[]) {
         listener(event as TValue);
       }
       return () => undefined;
@@ -75,7 +75,7 @@ describe("wsRpcClient", () => {
     const client = createWsRpcClient(transport as unknown as WsTransport);
     const listener = vi.fn();
 
-    client.git.onStatus({ cwd: "/repo" }, listener);
+    client.vcs.onStatus({ cwd: "/repo" }, listener);
 
     expect(listener.mock.calls).toEqual([
       [
@@ -84,6 +84,7 @@ describe("wsRpcClient", () => {
           hasUpstream: false,
           aheadCount: 0,
           behindCount: 0,
+          aheadOfDefaultCount: 0,
           pr: null,
         },
       ],

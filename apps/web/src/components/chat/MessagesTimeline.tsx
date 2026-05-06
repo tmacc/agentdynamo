@@ -110,6 +110,8 @@ interface TimelineRowSharedState {
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
+const TIMELINE_LIST_HEADER = <div className="h-3 sm:h-4" />;
+const TIMELINE_LIST_FOOTER = <div className="h-3 sm:h-4" />;
 
 // ---------------------------------------------------------------------------
 // Props (public API)
@@ -372,40 +374,23 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }
 
   return (
-    <>
-      <TimelineRowCtx.Provider value={sharedState}>
-        <LegendList<MessagesTimelineRow>
-          ref={listRef}
-          data={rows}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
-          estimatedItemSize={90}
-          initialScrollAtEnd
-          maintainScrollAtEnd
-          maintainScrollAtEndThreshold={0.1}
-          maintainVisibleContentPosition
-          onScroll={handleScroll}
-          className="h-full overflow-x-hidden overscroll-y-contain px-3 sm:px-5"
-          ListHeaderComponent={<div className="h-3 sm:h-4" />}
-          ListFooterComponent={<div className="h-3 sm:h-4" />}
-        />
-      </TimelineRowCtx.Provider>
-
-      <SavedPromptDialog
-        open={pendingSavedPromptText !== null}
-        mode="create"
-        initialTitle={deriveSavedPromptTitle(pendingSavedPromptText ?? "")}
-        initialScope={currentProjectRef ? "project" : "global"}
-        projectScopeAvailable={currentProjectRef !== null}
-        bodyPreview={pendingSavedPromptText ?? ""}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPendingSavedPromptText(null);
-          }
-        }}
-        onConfirm={handleConfirmSaveUserPrompt}
+    <TimelineRowCtx.Provider value={sharedState}>
+      <LegendList<MessagesTimelineRow>
+        ref={listRef}
+        data={rows}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        estimatedItemSize={90}
+        initialScrollAtEnd
+        maintainScrollAtEnd
+        maintainScrollAtEndThreshold={0.1}
+        maintainVisibleContentPosition
+        onScroll={handleScroll}
+        className="h-full overflow-x-hidden overscroll-y-contain px-3 sm:px-5"
+        ListHeaderComponent={TIMELINE_LIST_HEADER}
+        ListFooterComponent={TIMELINE_LIST_FOOTER}
       />
-    </>
+    </TimelineRowCtx.Provider>
   );
 });
 

@@ -1,0 +1,3 @@
+import createProjectionThreadDetailOrderingIndexes from "./029_ProjectionThreadDetailOrderingIndexes.ts";
+
+export default createProjectionThreadDetailOrderingIndexes;

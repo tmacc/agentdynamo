@@ -1,26 +1,13 @@
-import { GitCommandError, ProjectId, type GitStatusResult } from "@t3tools/contracts";
+import { GitCommandError, ProjectId } from "@t3tools/contracts";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { GitCore, type GitCoreShape } from "../git/Services/GitCore.ts";
+import { makeGitStatusResult } from "../testing/vcsFixtures.ts";
 import {
   resolveThreadWorkspaceContext,
   shouldSyncThreadBranchFromLiveGit,
 } from "./threadWorkspaceContext.ts";
-
-const gitStatus = (overrides: Partial<GitStatusResult> = {}): GitStatusResult => ({
-  isRepo: true,
-  hasOriginRemote: false,
-  isDefaultBranch: false,
-  branch: "feature/live",
-  hasWorkingTreeChanges: false,
-  workingTree: { files: [], insertions: 0, deletions: 0 },
-  hasUpstream: false,
-  aheadCount: 0,
-  behindCount: 0,
-  pr: null,
-  ...overrides,
-});
 
 async function runWithGit<T>(
   git: Partial<GitCoreShape>,
@@ -37,7 +24,7 @@ async function runWithGit<T>(
 describe("threadWorkspaceContext", () => {
   it("prefers the thread worktree path over the project root", async () => {
     const context = await runWithGit(
-      { status: () => Effect.succeed(gitStatus({ branch: "t3code/411b93f1" })) },
+      { status: () => Effect.succeed(makeGitStatusResult({ branch: "t3code/411b93f1" })) },
       resolveThreadWorkspaceContext({
         thread: {
           projectId: ProjectId.make("project-1"),
@@ -54,7 +41,7 @@ describe("threadWorkspaceContext", () => {
 
   it("uses the live git branch as the effective branch when available", async () => {
     const context = await runWithGit(
-      { status: () => Effect.succeed(gitStatus({ branch: "t3code/411b93f1" })) },
+      { status: () => Effect.succeed(makeGitStatusResult({ branch: "t3code/411b93f1" })) },
       resolveThreadWorkspaceContext({
         thread: {
           projectId: ProjectId.make("project-1"),

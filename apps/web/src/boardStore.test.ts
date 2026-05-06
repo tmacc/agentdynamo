@@ -58,6 +58,8 @@ function createEnvironmentApiStub(
     projects: {} as never,
     filesystem: {} as never,
     git: {} as never,
+    sourceControl: {} as never,
+    vcs: {} as never,
     orchestration: {} as never,
     board: {
       listCards: vi.fn(async () => ({ cards: [] })),

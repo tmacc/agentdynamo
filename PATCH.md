@@ -21,9 +21,50 @@
 - Count command: `git rev-list --count origin/upstream-sync-base..upstream/main`
 - Advance after successful sync: `git branch -f upstream-sync-base <integrated-upstream-tip>` followed by `git push origin upstream-sync-base`
 - Previous reconstructed marker: upstream commit equivalent to `327499aa` from the `2026-04-23` merge is `b0b7b38d` (`fix(server): detect localized Windows command errors (#2152)`).
-- Current integrated marker: upstream `17b43960` (`Add structured Discord webhook logging for release notifications (#2431)`) verified on branch `t3code/upstream-sync-2026-04-30`.
+- Current integrated marker: upstream `35721d9a` (`chore(release): prepare v0.0.22`) verified on branch `t3code/upstream-sync-2026-05-05`.
 
 ## Upstream Sync Log
+
+### 2026-05-05 - Merge upstream `17b43960..35721d9a`
+
+- `Status`: verified on integration branch `t3code/upstream-sync-2026-05-05`.
+- `Range integrated`: `17b43960e86335534c63fb2b93ea68300b3bcc62..35721d9a08b225c4a3752f322ae4daccbeaa564e`.
+- `Previous marker`: `17b43960e86335534c63fb2b93ea68300b3bcc62` was a direct ancestor of `upstream/main`.
+- `New marker after verification`: `35721d9a08b225c4a3752f322ae4daccbeaa564e`.
+- `Integration method`: merged `upstream/main` into `origin/main` on integration branch `t3code/upstream-sync-2026-05-05`, accepted upstream's VCS/source-control architecture where it replaced older Git manager surfaces, then reattached Dynamo fork behavior to the new contracts/server/web shape.
+- `Adopted upstream behavior`:
+  - Pluggable VCS driver foundation and source-control provider discovery/publish support, including GitLab, Bitbucket, and Azure DevOps providers.
+  - Hosted frontend, advertised endpoint, Tailscale, and SSH launcher support.
+  - Collapsible file diffs, diff whitespace hiding, Git action dialog clipping fix, markdown highlight stability fix, mobile composer collapse, pairing-token error presentation, startup performance work, effect-language-service prepare-hook fix, and release-version flag fix.
+  - Upstream release metadata through `v0.0.22` was integrated structurally, while Dynamo package versions and release ownership remain fork-owned.
+- `Fork behavior preserved`:
+  - Dynamo branding, README identity, runtime storage isolation, package versions, and release workflow ownership.
+  - Team coordinator child-agent worktrees, review/apply flow, native/provider team task tracing, team task projections, context handoffs, and coordinator MCP access.
+  - Board contracts/projections and settings/project-context route exports.
+  - Saved prompt UI, Agents/Plan right-panel docking, and fork-specific chat/composer controls.
+  - GitHub PR target remote selection and fork Git RPC compatibility methods, now bridged through upstream VCS services where appropriate.
+  - Project intelligence and code statistics, now resolved through `VcsDriverRegistry` and upstream ref/status types.
+  - Compatibility shims for legacy fork imports under `apps/server/src/git/Layers/*` and `apps/server/src/git/Services/*` while migrated code moves to upstream's VCS driver APIs.
+- `Merge notes`:
+  - `GitVcsDriver` and `GitVcsDriverCore` now carry Dynamo child-worktree seed/snapshot/review/apply helpers on top of upstream's pluggable VCS interfaces.
+  - Fork Git RPC contracts retain compatibility fields such as branch/default-branch/origin metadata while upstream source-control methods are available for new provider flows.
+  - Migration `053_CanonicalizePrototypeInteractionMode` maps Dynamo's historical `prototype` interaction mode rows/events to upstream's merged `plan` interaction mode so existing fork databases continue to boot after the sync. It intentionally skips ids `049`-`052` because older Dynamo dev databases already recorded those fork-local ids before this upstream sync.
+  - Upstream's `029_ProjectionThreadDetailOrderingIndexes` migration is registered as Dynamo migration `054_ProjectionThreadDetailOrderingIndexes` because fork migration `029_ProjectionThreadContextHandoffs` already owns id `029`.
+  - Provider command dispatch resolves projects/threads from the orchestration engine's command read model so pending fork/provider-switch context handoffs created in the same command flow are visible before sending the live provider turn.
+  - Source-control PR creation/listing preserves the selected GitHub target repository through the provider abstraction, including `--repo` for configured Dynamo PR target remotes.
+  - Dynamo team worktree review/apply canonicalizes Effect path lookups before same-worktree/common-dir comparison; this preserves the isolated worktree guard after upstream's VCS Effect refactor.
+  - WebSocket RPC startup keeps thread-fork dispatch acquisition method-scoped so desktop dev can complete the `/ws` handshake even when fork-only worktree services are not needed during connection bootstrap.
+  - Browser merge repairs keep pending new-worktree base branch selection UI-only until first send, remount the composer slash-command/saved-prompt menus, and restore Dynamo-branded network-access restart copy.
+- `Merge hotspots`:
+  - VCS driver, Git workflow, and source-control provider contracts.
+  - Team worktree review/apply and patch generation in `apps/server/src/git`.
+  - Projection snapshot/read-model shape for team tasks, board cards, context handoffs, shell snapshots, and native subagent traces.
+  - Chat composer/header/timeline, branch selector, Git action controls, and generated route tree.
+  - Persistence migration numbering where fork-only migrations and upstream migrations share the same historical id range.
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Confirm no merge conflict markers remain.
+  - Confirm Dynamo branding/version ownership, team worktree support, board contract exports, saved prompt UI, and source-control/VCS contracts are present after the merge.
 
 ### 2026-05-01 - Replay upstream `b0b7b38d..17b43960`
 
