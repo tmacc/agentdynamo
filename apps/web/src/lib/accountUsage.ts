@@ -79,7 +79,7 @@ function normalizePercentage(value: unknown, source: string | null): number | nu
   if (numericValue === null) {
     return null;
   }
-  if (source === "claude-cli-tui-capture") {
+  if (source === "claude-cli-tui-capture" || source === "codex-app-server") {
     return Math.max(0, Math.min(100, numericValue));
   }
   const percentage = numericValue <= 1 ? numericValue * 100 : numericValue;
