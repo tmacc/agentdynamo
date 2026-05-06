@@ -444,6 +444,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/server/src/orchestration/Layers/ThreadForkDispatcher.ts`
   - `apps/server/src/orchestration/Layers/ThreadForkMaterializer.ts`
   - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
+  - `apps/server/src/server.ts`
   - `apps/server/src/persistence/Migrations/029_ProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Migrations/034_EnsureProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Services/ProjectionThreadContextHandoffs.ts`
@@ -457,6 +458,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/store.ts`
 - `Important invariants`:
   - Source thread and forked thread must remain distinct.
+  - The server runtime layer must provide `ThreadForkDispatcher` and `ThreadForkMaterializer` alongside their orchestration, projection, Git, VCS status, and setup-script dependencies; otherwise the fork WebSocket RPC fails at runtime with a missing service.
   - Fork origin metadata must survive projection and reload.
   - Timeline UI must show where imported history stops and new fork-local history begins.
   - Fork creation must not break branch/worktree metadata.

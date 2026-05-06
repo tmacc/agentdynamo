@@ -41,6 +41,8 @@ import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus.
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor.ts";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
+import { ThreadForkDispatcherLive } from "./orchestration/Layers/ThreadForkDispatcher.ts";
+import { ThreadForkMaterializerLive } from "./orchestration/Layers/ThreadForkMaterializer.ts";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
 import { ServerSettingsLive } from "./serverSettings.ts";
@@ -332,9 +334,22 @@ const TeamOrchestrationServiceLayerLive = TeamOrchestrationServiceLive.pipe(
   Layer.provideMerge(ProjectSetupScriptRunnerLayerLive),
 );
 
+const ThreadForkMaterializerLayerLive = ThreadForkMaterializerLive.pipe(
+  Layer.provideMerge(SqlitePersistenceLayerLive),
+);
+
+const ThreadForkDispatcherLayerLive = ThreadForkDispatcherLive.pipe(
+  Layer.provideMerge(OrchestrationLayerLive),
+  Layer.provideMerge(ThreadForkMaterializerLayerLive),
+  Layer.provideMerge(GitLayerLive),
+  Layer.provideMerge(VcsStatusBroadcaster.layer.pipe(Layer.provide(GitWorkflowLayerLive))),
+  Layer.provideMerge(ProjectSetupScriptRunnerLayerLive),
+);
+
 const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
   Layer.provideMerge(TeamOrchestrationServiceLayerLive),
+  Layer.provideMerge(ThreadForkDispatcherLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
   Layer.provideMerge(ProjectIntelligenceResolverLayerLive),
   Layer.provideMerge(RepositoryIdentityResolverLive),
