@@ -1105,7 +1105,7 @@ describe("resolveLiveThreadBranchUpdate", () => {
     const update = resolveLiveThreadBranchUpdate({
       threadBranch: "t3code/07f7f5eb",
       threadWorktreePath: "/repo/.dynamo/worktrees/project/t3code-07f7f5eb",
-      gitStatus: status({ branch: "main" }),
+      gitStatus: status({ refName: "main" }),
     });
 
     assert.equal(update, null);
@@ -1115,7 +1115,7 @@ describe("resolveLiveThreadBranchUpdate", () => {
     const update = resolveLiveThreadBranchUpdate({
       threadBranch: "t3code/07f7f5eb",
       threadWorktreePath: null,
-      gitStatus: status({ branch: "main" }),
+      gitStatus: status({ refName: "main" }),
     });
 
     assert.deepEqual(update, {

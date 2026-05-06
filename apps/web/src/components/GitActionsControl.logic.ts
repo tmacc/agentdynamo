@@ -399,6 +399,16 @@ export function resolveLiveThreadBranchUpdate(input: {
     return null;
   }
 
+  if (
+    input.threadBranch !== null &&
+    input.gitStatus.refName !== null &&
+    input.threadWorktreePath &&
+    isTemporaryWorktreeBranch(input.threadBranch) &&
+    !isTemporaryWorktreeBranch(input.gitStatus.refName)
+  ) {
+    return null;
+  }
+
   return {
     branch: input.gitStatus.refName,
   };
