@@ -55,6 +55,7 @@
   - Dynamo team worktree review/apply canonicalizes Effect path lookups before same-worktree/common-dir comparison; this preserves the isolated worktree guard after upstream's VCS Effect refactor.
   - WebSocket RPC startup keeps thread-fork dispatch acquisition method-scoped so desktop dev can complete the `/ws` handshake even when fork-only worktree services are not needed during connection bootstrap.
   - Browser merge repairs keep pending new-worktree base branch selection UI-only until first send, remount the composer slash-command/saved-prompt menus, and restore Dynamo-branded network-access restart copy.
+  - Upstream's mobile-collapse composer (`92e340d8`) restructured `MessagesTimeline.tsx` to drop the trailing `<SavedPromptDialog>` and moved the composer's saved-prompt trigger back into the bottom controls toolbar. Both regressions were re-fixed after the merge; the dialog is restored at the bottom of `MessagesTimeline.tsx` and the trigger is re-pinned to the composer top-right corner. Future merges that touch either file should diff-check these surfaces.
 - `Merge hotspots`:
   - VCS driver, Git workflow, and source-control provider contracts.
   - Team worktree review/apply and patch generation in `apps/server/src/git`.
@@ -362,6 +363,8 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Project-scoped snippets must stay isolated by project key.
   - Duplicate snippets within the same scope should be deduped.
   - Composer insertion and "save prompt" actions must operate on the same store shape.
+  - `MessagesTimeline.tsx` must render `<SavedPromptDialog mode="create" …>` driven by `pendingSavedPromptText` at the bottom of its JSX (typically wrapped in a fragment around the `TimelineRowCtx.Provider`). Without it, the per-message `BookmarkPlusIcon` "Save prompt" button silently sets state with no visible UI. Upstream merges that reformat or simplify this return statement must preserve the dialog.
+  - `ChatComposer.tsx` renders the saved-prompt menu trigger in the composer's top-right corner (absolute-positioned with `compact popoverSide="bottom" popoverAlign="end"` inside the editor wrapper, not in the bottom controls). The wrapper uses asymmetric right padding (`pr-11 sm:pr-12`) to reserve room for the floating bookmark button. Upstream merges that move the trigger back into the bottom toolbar row must be re-fixed.
 - `Merge hotspots`:
   - Composer UI and message actions
   - Client-side persistence/store structure

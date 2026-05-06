@@ -2297,11 +2297,27 @@ export const ChatComposer = memo(
 
               <div
                 className={cn(
-                  "relative px-3 pb-2 sm:px-4",
+                  "relative pl-3 pb-2 pr-11 sm:pl-4 sm:pr-12",
                   hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
                   isComposerCollapsedMobile && "hidden",
                 )}
               >
+                {!activePendingApproval &&
+                pendingUserInputs.length === 0 &&
+                !(showPlanFollowUpPrompt && activeProposedPlan) ? (
+                  <div className="absolute right-1.5 top-1.5 z-10 sm:right-2 sm:top-2">
+                    <ComposerSavedPromptMenu
+                      compact
+                      popoverSide="bottom"
+                      popoverAlign="end"
+                      disabled={environmentUnavailable !== null || isConnecting}
+                      projectRef={activeProjectRef}
+                      onSelectSnippet={requestSavedPromptSnippetApply}
+                      onRenameSnippet={(snippet) => setRenameSavedPromptSnippetId(snippet.id)}
+                      onRequestDeleteSnippet={requestDeleteSavedPromptSnippet}
+                    />
+                  </div>
+                ) : null}
                 {activePendingApproval ? (
                   <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
                     <ComposerPendingApprovalPanel
@@ -2531,14 +2547,6 @@ export const ChatComposer = memo(
                         setIsComposerModelPickerOpen(open);
                       }}
                       onInstanceModelChange={onProviderModelSelect}
-                    />
-                    <ComposerSavedPromptMenu
-                      compact={isComposerFooterCompact}
-                      disabled={environmentUnavailable !== null || isConnecting}
-                      projectRef={activeProjectRef}
-                      onSelectSnippet={requestSavedPromptSnippetApply}
-                      onRenameSnippet={(snippet) => setRenameSavedPromptSnippetId(snippet.id)}
-                      onRequestDeleteSnippet={requestDeleteSavedPromptSnippet}
                     />
 
                     {isComposerFooterCompact ? (
