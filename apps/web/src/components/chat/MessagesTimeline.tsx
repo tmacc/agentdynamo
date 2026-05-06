@@ -374,23 +374,40 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }
 
   return (
-    <TimelineRowCtx.Provider value={sharedState}>
-      <LegendList<MessagesTimelineRow>
-        ref={listRef}
-        data={rows}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        estimatedItemSize={90}
-        initialScrollAtEnd
-        maintainScrollAtEnd
-        maintainScrollAtEndThreshold={0.1}
-        maintainVisibleContentPosition
-        onScroll={handleScroll}
-        className="h-full overflow-x-hidden overscroll-y-contain px-3 sm:px-5"
-        ListHeaderComponent={TIMELINE_LIST_HEADER}
-        ListFooterComponent={TIMELINE_LIST_FOOTER}
+    <>
+      <TimelineRowCtx.Provider value={sharedState}>
+        <LegendList<MessagesTimelineRow>
+          ref={listRef}
+          data={rows}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          estimatedItemSize={90}
+          initialScrollAtEnd
+          maintainScrollAtEnd
+          maintainScrollAtEndThreshold={0.1}
+          maintainVisibleContentPosition
+          onScroll={handleScroll}
+          className="h-full overflow-x-hidden overscroll-y-contain px-3 sm:px-5"
+          ListHeaderComponent={TIMELINE_LIST_HEADER}
+          ListFooterComponent={TIMELINE_LIST_FOOTER}
+        />
+      </TimelineRowCtx.Provider>
+
+      <SavedPromptDialog
+        open={pendingSavedPromptText !== null}
+        mode="create"
+        initialTitle={deriveSavedPromptTitle(pendingSavedPromptText ?? "")}
+        initialScope={currentProjectRef ? "project" : "global"}
+        projectScopeAvailable={currentProjectRef !== null}
+        bodyPreview={pendingSavedPromptText ?? ""}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingSavedPromptText(null);
+          }
+        }}
+        onConfirm={handleConfirmSaveUserPrompt}
       />
-    </TimelineRowCtx.Provider>
+    </>
   );
 });
 
