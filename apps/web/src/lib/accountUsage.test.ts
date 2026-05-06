@@ -162,12 +162,12 @@ describe("accountUsage", () => {
             planType: "pro",
             primary: {
               resetsAt: 1_778_086_861,
-              usedPercent: 38,
+              usedPercent: 1,
               windowDurationMins: 300,
             },
             secondary: {
               resetsAt: 1_778_591_685,
-              usedPercent: 12,
+              usedPercent: 2,
               windowDurationMins: 10_080,
             },
           },
@@ -176,10 +176,13 @@ describe("accountUsage", () => {
     ]);
 
     expect(snapshot?.primary.type).toBe("five_hour");
-    expect(snapshot?.primary.utilizationPercentage).toBe(38);
+    expect(snapshot?.primary.utilizationPercentage).toBe(1);
+    expect(formatAccountUsagePercentage(snapshot?.primary.utilizationPercentage ?? null)).toBe(
+      "1%",
+    );
     expect(snapshot?.limits.map((limit) => [limit.type, limit.utilizationPercentage])).toEqual([
-      ["five_hour", 38],
-      ["seven_day", 12],
+      ["five_hour", 1],
+      ["seven_day", 2],
     ]);
   });
 
