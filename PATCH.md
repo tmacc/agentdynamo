@@ -142,14 +142,18 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Key fork files`:
   - `apps/desktop/package.json`
   - `apps/desktop/tsdown.config.ts`
+  - `scripts/build-desktop-artifact.ts`
 - `Important invariants`:
   - Workspace packages imported by `apps/desktop/src/main.ts` or its runtime dependency graph belong in `dependencies`.
   - Desktop builds must not leave unresolved `@t3tools/client-runtime`, `@t3tools/ssh`, or `@t3tools/tailscale` imports in `dist-electron/main.cjs`.
+  - The staged electron-builder package is outside the monorepo and must omit `workspace:*` dependencies from its production install input; those packages must be bundled before staging.
 - `Merge hotspots`:
   - Desktop package dependency classification
   - Electron main-process bundling config
+  - Desktop artifact staging package generation
 - `Verification`:
   - Run `bun --filter @t3tools/desktop build` and confirm there are no unresolved workspace import warnings.
+  - Run `bun run --cwd scripts test build-desktop-artifact.test.ts` and confirm staged desktop runtime dependency filtering omits `workspace:*` packages.
   - Run `bun dev:desktop` and confirm Electron loads the desktop app.
 
 ### Telemetry flush failure resilience

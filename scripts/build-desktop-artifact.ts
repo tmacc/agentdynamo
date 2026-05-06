@@ -497,7 +497,11 @@ function validateBundledClientAssets(clientDir: string) {
   });
 }
 
-function resolveDesktopRuntimeDependencies(
+function isWorkspaceDependencySpec(spec: string): boolean {
+  return spec.startsWith("workspace:");
+}
+
+export function resolveDesktopRuntimeDependencies(
   dependencies: Record<string, string> | undefined,
   catalog: Record<string, string>,
 ): Record<string, string> {
@@ -506,7 +510,10 @@ function resolveDesktopRuntimeDependencies(
   }
 
   const runtimeDependencies = Object.fromEntries(
-    Object.entries(dependencies).filter(([dependencyName]) => dependencyName !== "electron"),
+    Object.entries(dependencies).filter(
+      ([dependencyName, dependencySpec]) =>
+        dependencyName !== "electron" && !isWorkspaceDependencySpec(dependencySpec),
+    ),
   );
 
   return resolveCatalogDependencies(runtimeDependencies, catalog, "apps/desktop");

@@ -7,6 +7,7 @@ import {
   resolveBuildOptions,
   resolveDesktopBuildIconAssets,
   resolveDesktopProductName,
+  resolveDesktopRuntimeDependencies,
   resolveDesktopUpdateChannel,
   resolveMockUpdateServerPort,
   resolveMockUpdateServerUrl,
@@ -77,6 +78,30 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it("falls back to the default mock update port when the configured port is blank", () => {
     assert.equal(resolveMockUpdateServerUrl(undefined), "http://localhost:3000");
     assert.equal(resolveMockUpdateServerUrl(4123), "http://localhost:4123");
+  });
+
+  it("omits bundled workspace packages from staged desktop runtime dependencies", () => {
+    assert.deepStrictEqual(
+      resolveDesktopRuntimeDependencies(
+        {
+          "@effect/platform-node": "catalog:",
+          "@t3tools/client-runtime": "workspace:*",
+          "@t3tools/tailscale": "workspace:*",
+          effect: "catalog:",
+          electron: "40.9.3",
+          "electron-updater": "^6.6.2",
+        },
+        {
+          "@effect/platform-node": "4.0.0-beta.59",
+          effect: "4.0.0-beta.59",
+        },
+      ),
+      {
+        "@effect/platform-node": "4.0.0-beta.59",
+        effect: "4.0.0-beta.59",
+        "electron-updater": "^6.6.2",
+      },
+    );
   });
 
   it.effect("normalizes mock update server ports from env-style strings", () =>
