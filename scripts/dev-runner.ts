@@ -210,6 +210,8 @@ export function createDevRunnerEnv({
       [LEGACY_APP_HOME_ENV_VAR]: resolvedBaseDir,
     };
 
+    output.T3CODE_TELEMETRY_ENABLED = baseEnv.T3CODE_TELEMETRY_ENABLED ?? "0";
+
     if (!isDesktopMode) {
       output.T3CODE_PORT = String(serverPort);
       output.VITE_HTTP_URL = `http://localhost:${serverPort}`;
