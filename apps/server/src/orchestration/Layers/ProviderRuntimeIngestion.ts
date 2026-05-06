@@ -1247,6 +1247,9 @@ function runtimeEventToActivities(
           summary: "Account usage updated",
           payload: event.payload.rateLimits,
           turnId: toTurnId(event.turnId) ?? null,
+          ...(event.providerInstanceId !== undefined
+            ? { providerInstanceId: event.providerInstanceId }
+            : {}),
           ...maybeSequence,
         },
       ];

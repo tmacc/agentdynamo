@@ -1,5 +1,4 @@
 import { Terminal } from "@xterm/headless";
-import { execSync } from "node:child_process";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -98,11 +97,16 @@ describe("parseClaudeUsageTuiRateLimits", () => {
     );
 
     expect(parsed).toEqual([
-      { status: "allowed", rateLimitType: "five_hour", utilization: 30 },
-      { status: "allowed", rateLimitType: "seven_day", utilization: 4 },
-      { status: "allowed", rateLimitType: "seven_day_opus", utilization: 0 },
-      { status: "allowed", rateLimitType: "seven_day_sonnet", utilization: 12.5 },
-      { status: "allowed", rateLimitType: "overage", utilization: 0 },
+      { status: "allowed", rateLimitType: "five_hour", utilization: 30, resetsAt: null },
+      { status: "allowed", rateLimitType: "seven_day", utilization: 4, resetsAt: null },
+      { status: "allowed", rateLimitType: "seven_day_opus", utilization: 0, resetsAt: null },
+      {
+        status: "allowed",
+        rateLimitType: "seven_day_sonnet",
+        utilization: 12.5,
+        resetsAt: null,
+      },
+      { status: "allowed", rateLimitType: "overage", utilization: 0, resetsAt: null },
     ]);
   });
 
@@ -115,11 +119,11 @@ describe("parseClaudeUsageTuiRateLimits", () => {
         "Total duration (wall): 3s",
         "",
         "Current session",
-        "                                                     0% used",
+        "                                                     82% used",
         "Resets 4:10pm (America/New_York)",
         "",
         "Current week (all models)",
-        "█████████                                          18% used",
+        "█████████                                          100% used",
         "Resets 8pm (America/New_York)",
         "",
         "Current week (Sonnet only)",
@@ -129,9 +133,14 @@ describe("parseClaudeUsageTuiRateLimits", () => {
     );
 
     expect(parsed).toEqual([
-      { status: "allowed", rateLimitType: "five_hour", utilization: 0 },
-      { status: "allowed", rateLimitType: "seven_day", utilization: 18 },
-      { status: "allowed", rateLimitType: "seven_day_sonnet", utilization: 0 },
+      {
+        status: "allowed_warning",
+        rateLimitType: "five_hour",
+        utilization: 82,
+        resetsAt: expect.any(Number),
+      },
+      { status: "rejected", rateLimitType: "seven_day", utilization: 100, resetsAt: null },
+      { status: "allowed", rateLimitType: "seven_day_sonnet", utilization: 0, resetsAt: null },
     ]);
   });
 
@@ -140,35 +149,29 @@ describe("parseClaudeUsageTuiRateLimits", () => {
   });
 });
 
-const claudeBinaryPath = (() => {
-  try {
-    return execSync("which claude", { encoding: "utf-8" }).trim();
-  } catch {
-    return "";
-  }
-})();
+describe("captureClaudeUsageTui (integration)", () => {
+  it.skipIf(!process.env.CLAUDE_BINARY_PATH)(
+    "spawns the real claude CLI and captures the /usage screen",
+    async () => {
+      const cwd = path.resolve(__dirname, "../../..");
+      const result = await captureClaudeUsageTui({
+        binaryPath: process.env.CLAUDE_BINARY_PATH!,
+        cwd,
+        timeoutMs: 20_000,
+      });
 
-const describeIfClaudeAvailable = claudeBinaryPath ? describe : describe.skip;
-
-describeIfClaudeAvailable("captureClaudeUsageTui (integration)", () => {
-  it("spawns the real claude CLI and captures the /usage screen", async () => {
-    const cwd = path.resolve(__dirname, "../../..");
-    const result = await captureClaudeUsageTui({
-      binaryPath: claudeBinaryPath,
-      cwd,
-      timeoutMs: 20_000,
-    });
-
-    // We don't assert specific layout because the CLI's `/usage` rendering
-    // changes between releases. Just confirm we got recognizable content.
-    if (!result.ok) {
-      // Surface the failure reason for easier debugging when the test
-      // environment can't reach a logged-in CLI.
-      throw new Error(
-        `Capture failed (${result.reason}): ${result.message}\nPartial:\n${result.partialText ?? ""}`,
-      );
-    }
-    expect(result.text.length).toBeGreaterThan(0);
-    expect(isClaudeUsageTuiScreen(result.text)).toBe(true);
-  }, 30_000);
+      // We don't assert specific layout because the CLI's `/usage` rendering
+      // changes between releases. Just confirm we got recognizable content.
+      if (!result.ok) {
+        // Surface the failure reason for easier debugging when the test
+        // environment can't reach a logged-in CLI.
+        throw new Error(
+          `Capture failed (${result.reason}): ${result.message}\nPartial:\n${result.partialText ?? ""}`,
+        );
+      }
+      expect(result.text.length).toBeGreaterThan(0);
+      expect(isClaudeUsageTuiScreen(result.text)).toBe(true);
+    },
+    30_000,
+  );
 });

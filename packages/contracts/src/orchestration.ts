@@ -380,6 +380,7 @@ export const OrchestrationThreadActivity = Schema.Struct({
   summary: TrimmedNonEmptyString,
   payload: Schema.Unknown,
   turnId: Schema.NullOr(TurnId),
+  providerInstanceId: Schema.optional(ProviderInstanceId),
   sequence: Schema.optional(NonNegativeInt),
   createdAt: IsoDateTime,
 });

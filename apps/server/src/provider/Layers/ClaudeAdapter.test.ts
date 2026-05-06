@@ -2906,7 +2906,9 @@ describe("ClaudeAdapterLive", () => {
           ok: true,
           text: "Current session 42%",
           capturedAtMs: Date.now(),
-          rateLimits: [{ status: "allowed", rateLimitType: "five_hour", utilization: 42 }],
+          rateLimits: [
+            { status: "allowed", rateLimitType: "five_hour", utilization: 42, resetsAt: null },
+          ],
         };
       },
     });
@@ -2953,6 +2955,7 @@ describe("ClaudeAdapterLive", () => {
               status: "allowed",
               rateLimitType: "five_hour",
               utilization: 42,
+              resetsAt: null,
             },
           },
         });
@@ -2972,7 +2975,9 @@ describe("ClaudeAdapterLive", () => {
           ok: true,
           text: "Current week (all models)\n█████████ 18% used",
           capturedAtMs: Date.now(),
-          rateLimits: [{ status: "allowed", rateLimitType: "seven_day", utilization: 18 }],
+          rateLimits: [
+            { status: "allowed", rateLimitType: "seven_day", utilization: 18, resetsAt: null },
+          ],
         };
       },
     });
@@ -3010,6 +3015,7 @@ describe("ClaudeAdapterLive", () => {
               status: "allowed",
               rateLimitType: "seven_day",
               utilization: 18,
+              resetsAt: null,
             },
           },
         });

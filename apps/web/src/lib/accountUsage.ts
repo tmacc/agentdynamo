@@ -11,6 +11,7 @@ export type AccountRateLimitStatus = "allowed" | "allowed_warning" | "rejected" 
 
 export interface AccountRateLimitSnapshot {
   readonly provider: AccountUsageProviderScope;
+  readonly instanceId: string | null;
   readonly type: AccountRateLimitType | string;
   readonly label: string;
   readonly shortLabel: string;
@@ -34,6 +35,7 @@ export type AccountUsageProviderScope = "codex" | "claudeAgent" | "cursor" | "op
 
 export interface AccountUsageDerivationOptions {
   readonly provider?: AccountUsageProviderScope | null;
+  readonly instanceId?: string | null;
 }
 
 const RATE_LIMIT_ORDER: ReadonlyArray<AccountRateLimitType> = [
@@ -164,6 +166,7 @@ function rateLimitSnapshotFromActivity(
   const labels = labelsForType(type);
   return {
     provider: "claudeAgent",
+    instanceId: activity.providerInstanceId ?? null,
     type,
     label: labels.label,
     shortLabel: labels.shortLabel,
@@ -183,6 +186,7 @@ function codexRateLimitWindowSnapshot(input: {
   readonly window: Record<string, unknown> | null;
   readonly rateLimitReachedType: string | null;
   readonly updatedAt: string;
+  readonly instanceId: string | null;
 }): AccountRateLimitSnapshot | null {
   if (!input.window) {
     return null;
@@ -194,6 +198,7 @@ function codexRateLimitWindowSnapshot(input: {
   const labels = labelsForType(input.type);
   return {
     provider: "codex",
+    instanceId: input.instanceId,
     type: input.type,
     label: labels.label,
     shortLabel: labels.shortLabel,
@@ -234,12 +239,14 @@ function codexRateLimitSnapshotsFromActivity(
       window: primary,
       rateLimitReachedType,
       updatedAt: activity.createdAt,
+      instanceId: activity.providerInstanceId ?? null,
     }),
     codexRateLimitWindowSnapshot({
       type: "seven_day",
       window: secondary,
       rateLimitReachedType,
       updatedAt: activity.createdAt,
+      instanceId: activity.providerInstanceId ?? null,
     }),
   ].filter((snapshot): snapshot is AccountRateLimitSnapshot => snapshot !== null);
 }
@@ -273,6 +280,7 @@ export function deriveLatestAccountUsageSnapshot(
 ): AccountUsageSnapshot | null {
   const latestByType = new Map<string, AccountRateLimitSnapshot>();
   const providerScope = options.provider ?? null;
+  const instanceScope = options.instanceId ?? null;
 
   for (const activity of activities) {
     if (activity.kind !== "account.rate-limits.updated") {
@@ -283,11 +291,19 @@ export function deriveLatestAccountUsageSnapshot(
       if (providerScope && snapshot.provider !== providerScope) {
         continue;
       }
+      if (instanceScope && snapshot.instanceId && snapshot.instanceId !== instanceScope) {
+        continue;
+      }
       // Only displace an existing entry when the new one carries a utilization
       // percentage, so a Claude SDK status-only event (which lacks utilization
       // for low-usage sessions) cannot erase data we captured from the Claude
       // CLI usage screen.
       const existing = latestByType.get(snapshot.type);
+      const existingMatchesInstance = existing?.instanceId === instanceScope;
+      const snapshotMatchesInstance = snapshot.instanceId === instanceScope;
+      if (instanceScope && existing && existingMatchesInstance && !snapshotMatchesInstance) {
+        continue;
+      }
       if (
         existing &&
         existing.utilizationPercentage !== null &&

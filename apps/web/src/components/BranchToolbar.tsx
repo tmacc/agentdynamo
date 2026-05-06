@@ -267,6 +267,11 @@ export const BranchToolbar = memo(function BranchToolbar({
   const activeProject = useStore(activeProjectSelector);
   const hasActiveThread = serverThread !== undefined || draftThread !== null;
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
+  const activeProviderInstanceId =
+    composerModelDraft.activeProvider ??
+    serverThread?.session?.providerInstanceId ??
+    serverThread?.modelSelection.instanceId ??
+    null;
   const activeAccountUsageProvider = useMemo(() => {
     const activeInstanceId =
       composerModelDraft.activeProvider ??
@@ -292,8 +297,9 @@ export const BranchToolbar = memo(function BranchToolbar({
     () =>
       deriveLatestAccountUsageSnapshot(serverThread?.activities ?? [], {
         provider: activeAccountUsageProvider,
+        instanceId: activeProviderInstanceId,
       }),
-    [activeAccountUsageProvider, serverThread?.activities],
+    [activeAccountUsageProvider, activeProviderInstanceId, serverThread?.activities],
   );
   const effectiveEnvMode =
     effectiveEnvModeOverride ??

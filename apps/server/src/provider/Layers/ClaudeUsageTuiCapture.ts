@@ -96,9 +96,10 @@ export interface ClaudeUsageTuiFailure {
 export type ClaudeUsageTuiResult = ClaudeUsageTuiSuccess | ClaudeUsageTuiFailure;
 
 export interface ClaudeUsageTuiRateLimitInfo {
-  readonly status: "allowed";
+  readonly status: "allowed" | "allowed_warning" | "rejected";
   readonly rateLimitType: string;
   readonly utilization: number;
+  readonly resetsAt: number | null;
 }
 
 /**
@@ -158,6 +159,118 @@ function utilizationFromLine(line: string): number | null {
   return Math.max(0, Math.min(100, value));
 }
 
+function statusFromUtilization(utilization: number): ClaudeUsageTuiRateLimitInfo["status"] {
+  if (utilization >= 100) {
+    return "rejected";
+  }
+  if (utilization >= 80) {
+    return "allowed_warning";
+  }
+  return "allowed";
+}
+
+const RESET_TIME_REGEX = /\bresets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:\(([^)]+)\))?/i;
+
+function timezoneOffsetMillis(timeZone: string, instant: Date): number {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(instant);
+    const value = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+    const asUtc = Date.UTC(
+      value("year"),
+      value("month") - 1,
+      value("day"),
+      value("hour"),
+      value("minute"),
+      value("second"),
+    );
+    return asUtc - instant.getTime();
+  } catch {
+    return 0;
+  }
+}
+
+function zonedWallClockToEpochMillis(input: {
+  readonly timeZone: string;
+  readonly year: number;
+  readonly month: number;
+  readonly day: number;
+  readonly hour: number;
+  readonly minute: number;
+}): number | null {
+  const naiveUtc = Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute, 0, 0);
+  let candidate = naiveUtc - timezoneOffsetMillis(input.timeZone, new Date(naiveUtc));
+  candidate = naiveUtc - timezoneOffsetMillis(input.timeZone, new Date(candidate));
+  return Number.isFinite(candidate) ? candidate : null;
+}
+
+function zonedDateParts(
+  timeZone: string,
+  instant: Date,
+): {
+  readonly year: number;
+  readonly month: number;
+  readonly day: number;
+} {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(instant);
+    const value = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+    return { year: value("year"), month: value("month"), day: value("day") };
+  } catch {
+    return {
+      year: instant.getFullYear(),
+      month: instant.getMonth() + 1,
+      day: instant.getDate(),
+    };
+  }
+}
+
+function parseResetTime(line: string, rateLimitType: string): number | null {
+  if (rateLimitType !== "five_hour") {
+    return null;
+  }
+  const match = line.match(RESET_TIME_REGEX);
+  if (!match?.[1] || !match[3]) {
+    return null;
+  }
+  const timezone = match[4]?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!timezone) {
+    return null;
+  }
+  let hour = Number(match[1]);
+  const minute = match[2] ? Number(match[2]) : 0;
+  const meridiem = match[3].toLowerCase();
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return null;
+  }
+  hour %= 12;
+  if (meridiem === "pm") {
+    hour += 12;
+  }
+
+  const now = new Date();
+  const today = zonedDateParts(timezone, now);
+  const todayReset = zonedWallClockToEpochMillis({ timeZone: timezone, ...today, hour, minute });
+  if (todayReset !== null && todayReset > now.getTime()) {
+    return todayReset;
+  }
+  const tomorrow = zonedDateParts(timezone, new Date(now.getTime() + 24 * 60 * 60 * 1000));
+  return zonedWallClockToEpochMillis({ timeZone: timezone, ...tomorrow, hour, minute });
+}
+
 /**
  * Best-effort parser for Claude's human `/usage` TUI. It intentionally keys on
  * broad semantic labels plus percentages instead of box coordinates or exact
@@ -170,10 +283,22 @@ export function parseClaudeUsageTuiRateLimits(
 ): ReadonlyArray<ClaudeUsageTuiRateLimitInfo> {
   const latestByType = new Map<string, ClaudeUsageTuiRateLimitInfo>();
   let pendingRateLimitType: string | null = null;
+  let pendingResetType: string | null = null;
 
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.replaceAll(/[│┃║╎╏]/g, " ").trim();
     if (line.length === 0) {
+      continue;
+    }
+    if (pendingResetType && RESET_TIME_REGEX.test(line)) {
+      const existing = latestByType.get(pendingResetType);
+      if (existing) {
+        latestByType.set(pendingResetType, {
+          ...existing,
+          resetsAt: parseResetTime(line, pendingResetType),
+        });
+      }
+      pendingResetType = null;
       continue;
     }
     const lineRateLimitType = rateLimitTypeFromLine(line);
@@ -189,11 +314,13 @@ export function parseClaudeUsageTuiRateLimits(
       continue;
     }
     latestByType.set(rateLimitType, {
-      status: "allowed",
+      status: statusFromUtilization(utilization),
       rateLimitType,
       utilization,
+      resetsAt: null,
     });
     pendingRateLimitType = null;
+    pendingResetType = rateLimitType;
   }
 
   return [...latestByType.values()];

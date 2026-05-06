@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { EventId, type OrchestrationThreadActivity, TurnId } from "@t3tools/contracts";
+import {
+  EventId,
+  type OrchestrationThreadActivity,
+  ProviderInstanceId,
+  TurnId,
+} from "@t3tools/contracts";
 
 import {
   deriveLatestAccountUsageSnapshot,
@@ -12,6 +17,7 @@ function makeActivity(
   kind: string,
   payload: unknown,
   createdAt = "2026-05-01T16:00:00.000Z",
+  providerInstanceId?: string,
 ): OrchestrationThreadActivity {
   return {
     id: EventId.make(id),
@@ -20,7 +26,21 @@ function makeActivity(
     summary: kind,
     payload,
     turnId: TurnId.make("turn-1"),
+    ...(providerInstanceId
+      ? { providerInstanceId: ProviderInstanceId.make(providerInstanceId) }
+      : {}),
     createdAt,
+  };
+}
+
+function codexRateLimitPayload(fiveHour: number, weekly: number): unknown {
+  return {
+    rateLimits: {
+      rateLimits: {
+        primary: { usedPercent: fiveHour },
+        secondary: { usedPercent: weekly },
+      },
+    },
   };
 }
 
@@ -199,6 +219,94 @@ describe("accountUsage", () => {
         .utilizationPercentage,
     ).toBe(40);
     expect(deriveLatestAccountUsageSnapshot(activities, { provider: "cursor" })).toBeNull();
+  });
+
+  it("filters Claude usage by provider instance when instance metadata is present", () => {
+    const activities = [
+      makeActivity(
+        "activity-claude-a",
+        "account.rate-limits.updated",
+        {
+          rateLimits: {
+            source: "claude-cli-tui-capture",
+            rate_limit_info: {
+              rateLimitType: "five_hour",
+              status: "allowed",
+              utilization: 5,
+            },
+          },
+        },
+        "2026-05-01T16:00:00.000Z",
+        "claude-a",
+      ),
+      makeActivity(
+        "activity-claude-b",
+        "account.rate-limits.updated",
+        {
+          rateLimits: {
+            source: "claude-cli-tui-capture",
+            rate_limit_info: {
+              rateLimitType: "five_hour",
+              status: "allowed_warning",
+              utilization: 82,
+            },
+          },
+        },
+        "2026-05-01T17:00:00.000Z",
+        "claude-b",
+      ),
+    ];
+
+    expect(
+      deriveLatestAccountUsageSnapshot(activities, {
+        provider: "claudeAgent",
+        instanceId: "claude-a",
+      })?.primary.utilizationPercentage,
+    ).toBe(5);
+    expect(
+      deriveLatestAccountUsageSnapshot(activities, {
+        provider: "claudeAgent",
+        instanceId: "claude-b",
+      })?.primary.utilizationPercentage,
+    ).toBe(82);
+  });
+
+  it("filters Codex usage by provider instance when instance metadata is present", () => {
+    const activities = [
+      makeActivity(
+        "activity-codex-a",
+        "account.rate-limits.updated",
+        codexRateLimitPayload(11, 22),
+        "2026-05-01T16:00:00.000Z",
+        "codex-a",
+      ),
+      makeActivity(
+        "activity-codex-b",
+        "account.rate-limits.updated",
+        codexRateLimitPayload(66, 77),
+        "2026-05-01T17:00:00.000Z",
+        "codex-b",
+      ),
+    ];
+
+    expect(
+      deriveLatestAccountUsageSnapshot(activities, {
+        provider: "codex",
+        instanceId: "codex-a",
+      })?.limits.map((limit) => [limit.type, limit.utilizationPercentage]),
+    ).toEqual([
+      ["five_hour", 11],
+      ["seven_day", 22],
+    ]);
+    expect(
+      deriveLatestAccountUsageSnapshot(activities, {
+        provider: "codex",
+        instanceId: "codex-b",
+      })?.limits.map((limit) => [limit.type, limit.utilizationPercentage]),
+    ).toEqual([
+      ["five_hour", 66],
+      ["seven_day", 77],
+    ]);
   });
 
   it("ignores status-only updates when utilization data already exists", () => {

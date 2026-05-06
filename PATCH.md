@@ -160,13 +160,14 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - The capture must clear `CLAUDECODE` from the spawned env so a nested invocation isn't rejected when the server itself is launched from a Claude Code session.
   - The capture must distinguish Claude Code's slash-command picker from the actual `/usage` screen. If the picker appears with `/usage` highlighted, send a second Enter and keep waiting; never return the command picker as successful usage output.
   - The TUI parser must handle Claude Code layouts where the rate-limit label and percentage render on separate rows, because current CLI builds show rows like `Current week (all models)` followed by a bar row containing `18% used`.
+  - Parsed Claude TUI limits must include utilization-derived status (`allowed`, `allowed_warning`, `rejected`) and should preserve the five-hour reset timestamp when the TUI provides one. Weekly TUI reset rows show time-of-day without a date, so they must not be converted into fabricated absolute timestamps.
   - Values parsed from the Claude CLI `/usage` screen are already percentage values. Do not run them through SDK fractional-utilization scaling; otherwise `1% used` becomes a false `100%` meter.
   - On capture failure the `/usage` response must fall back to the SDK rate-limit text so the user always sees something, with the failure reason included.
   - Background post-turn refresh must stay opt-in per Claude provider instance, must not block turn completion, must be single-flight and throttled per session, and must keep prior durable meter data when the TUI parser cannot recognize percentages.
   - The meter must filter out status-only `rate_limit_event` payloads (no utilization) so the meter only renders real percentages.
   - The compact toolbar meter should show both five-hour and seven-day usage when both are known; detailed Opus/Sonnet/extra usage remains in the hover breakdown.
   - Codex meter data must come from Codex app-server `account/rateLimits/updated` payloads, not a separate OpenAI HTTP endpoint. The app-server payload's `primary.usedPercent` is the five-hour window and `secondary.usedPercent` is the weekly window.
-  - Account usage must be scoped to the provider currently selected in the model picker, including unsent draft changes, so switching between Claude/Codex updates the toolbar bars immediately instead of showing stale telemetry from the previous provider.
+  - Account usage activities must carry `providerInstanceId` when available, and the toolbar must scope usage to the exact provider instance currently selected in the model picker, including unsent draft changes. Legacy unscoped activity can be used as fallback, but it must not override exact-instance data or make one Claude/Codex account show another account's usage.
   - Context-window usage must keep the latest observed used-token count but reproject it against the currently selected model's max context window, including unsent picker changes, so the context percent updates before the next turn is sent.
 - `Merge hotspots`:
   - Claude SDK slash command handling
@@ -178,7 +179,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Enable `Refresh usage after turns` for a Claude provider instance, run a normal Claude turn, and confirm the branch toolbar meter updates after the turn completes without adding a chat message.
   - Run with `claude` not on PATH (or set a deliberately broken `binaryPath`) and confirm the response surfaces a clear capture-failed message and the SDK fallback text.
   - Open a Claude-backed thread and confirm the branch toolbar meter appears only after the SDK emits a `rate_limit_event` with utilization (i.e. the meter stays hidden in low-usage sessions instead of rendering N/A).
-  - On macOS/Linux, run `bun run --cwd apps/server test src/provider/Layers/ClaudeUsageTuiCapture.test.ts` with `claude` available; the integration test should report success.
+  - On macOS/Linux, run `bun run --cwd apps/server test src/provider/Layers/ClaudeUsageTuiCapture.test.ts` without `CLAUDE_BINARY_PATH` and confirm the live CLI capture is skipped. Set `CLAUDE_BINARY_PATH` to a logged-in `claude` binary to opt into the integration test and confirm it reports success.
 
 ### New worktree thread base branch default
 

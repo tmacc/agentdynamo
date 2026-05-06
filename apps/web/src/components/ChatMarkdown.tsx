@@ -58,7 +58,9 @@ interface ChatMarkdownProps {
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
-const ANSI_ESCAPE_REGEX = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, "g");
+const ANSI_ESCAPE_PATTERN = `${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`;
+const ANSI_ESCAPE_REGEX = new RegExp(ANSI_ESCAPE_PATTERN, "g");
+const ANSI_ESCAPE_TEST_REGEX = new RegExp(ANSI_ESCAPE_PATTERN);
 const BOX_DRAWING_OR_BLOCK_CHAR_REGEX = /[┌┐└┘├┤┬┴┼│─═║╔╗╚╝╠╣╦╩╬█▁▂▃▄▅▆▇▉▊▋▌▍▎▏░▒▓]/u;
 const MAX_HIGHLIGHT_CACHE_ENTRIES = 500;
 const MAX_HIGHLIGHT_CACHE_MEMORY_BYTES = 50 * 1024 * 1024;
@@ -363,8 +365,8 @@ function sanitizePreformattedText(text: string): string {
   return text.replaceAll(ANSI_ESCAPE_REGEX, "");
 }
 
-function shouldRenderAsPreformattedText(text: string): boolean {
-  if (BOX_DRAWING_OR_BLOCK_CHAR_REGEX.test(text) || ANSI_ESCAPE_REGEX.test(text)) {
+export function shouldRenderAsPreformattedText(text: string): boolean {
+  if (BOX_DRAWING_OR_BLOCK_CHAR_REGEX.test(text) || ANSI_ESCAPE_TEST_REGEX.test(text)) {
     return true;
   }
 

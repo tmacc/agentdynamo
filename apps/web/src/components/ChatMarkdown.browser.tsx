@@ -23,7 +23,7 @@ vi.mock("../localApi", () => ({
   readLocalApi: readLocalApiMock,
 }));
 
-import ChatMarkdown from "./ChatMarkdown";
+import ChatMarkdown, { shouldRenderAsPreformattedText } from "./ChatMarkdown";
 
 describe("ChatMarkdown", () => {
   afterEach(() => {
@@ -168,5 +168,12 @@ describe("ChatMarkdown", () => {
     } finally {
       await screen.unmount();
     }
+  });
+
+  it("detects ANSI preformatted output consistently across repeated calls", () => {
+    const ansiText = `\u001b[32mStatus\u001b[0m\nInput      123`;
+
+    expect(shouldRenderAsPreformattedText(ansiText)).toBe(true);
+    expect(shouldRenderAsPreformattedText(ansiText)).toBe(true);
   });
 });
