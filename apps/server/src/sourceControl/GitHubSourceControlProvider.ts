@@ -97,6 +97,7 @@ export const make = Effect.fn("makeGitHubSourceControlProvider")(function* () {
           .listOpenPullRequests({
             cwd: input.cwd,
             headSelector: input.headSelector,
+            ...(input.repository !== undefined ? { repository: input.repository } : {}),
             ...(input.limit !== undefined ? { limit: input.limit } : {}),
           })
           .pipe(
@@ -120,6 +121,7 @@ export const make = Effect.fn("makeGitHubSourceControlProvider")(function* () {
             String(input.limit ?? 20),
             "--json",
             "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+            ...(input.repository ? ["--repo", input.repository] : []),
           ],
         })
         .pipe(
@@ -172,6 +174,7 @@ export const make = Effect.fn("makeGitHubSourceControlProvider")(function* () {
           headSelector: input.headSelector,
           title: input.title,
           bodyFile: input.bodyFile,
+          ...(input.repository !== undefined ? { repository: input.repository } : {}),
         })
         .pipe(Effect.mapError((error) => providerError("createChangeRequest", error))),
     getRepositoryCloneUrls: (input) =>

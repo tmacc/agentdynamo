@@ -49,6 +49,10 @@
   - `GitVcsDriver` and `GitVcsDriverCore` now carry Dynamo child-worktree seed/snapshot/review/apply helpers on top of upstream's pluggable VCS interfaces.
   - Fork Git RPC contracts retain compatibility fields such as branch/default-branch/origin metadata while upstream source-control methods are available for new provider flows.
   - Migration `053_CanonicalizePrototypeInteractionMode` maps Dynamo's historical `prototype` interaction mode rows/events to upstream's merged `plan` interaction mode so existing fork databases continue to boot after the sync. It intentionally skips ids `049`-`052` because older Dynamo dev databases already recorded those fork-local ids before this upstream sync.
+  - Upstream's `029_ProjectionThreadDetailOrderingIndexes` migration is registered as Dynamo migration `054_ProjectionThreadDetailOrderingIndexes` because fork migration `029_ProjectionThreadContextHandoffs` already owns id `029`.
+  - Provider command dispatch resolves projects/threads from the orchestration engine's command read model so pending fork/provider-switch context handoffs created in the same command flow are visible before sending the live provider turn.
+  - Source-control PR creation/listing preserves the selected GitHub target repository through the provider abstraction, including `--repo` for configured Dynamo PR target remotes.
+  - Dynamo team worktree review/apply canonicalizes Effect path lookups before same-worktree/common-dir comparison; this preserves the isolated worktree guard after upstream's VCS Effect refactor.
   - WebSocket RPC startup keeps thread-fork dispatch acquisition method-scoped so desktop dev can complete the `/ws` handshake even when fork-only worktree services are not needed during connection bootstrap.
 - `Merge hotspots`:
   - VCS driver, Git workflow, and source-control provider contracts.

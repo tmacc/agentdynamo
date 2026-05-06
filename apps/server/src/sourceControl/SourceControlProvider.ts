@@ -53,6 +53,7 @@ export interface SourceControlProviderShape {
   readonly listChangeRequests: (input: {
     readonly cwd: string;
     readonly context?: SourceControlProviderContext;
+    readonly repository?: string | null;
     readonly source?: SourceControlRefSelector;
     readonly headSelector: string;
     readonly state: ChangeRequestState | "all";
@@ -66,6 +67,7 @@ export interface SourceControlProviderShape {
   readonly createChangeRequest: (input: {
     readonly cwd: string;
     readonly context?: SourceControlProviderContext;
+    readonly repository?: string | null;
     readonly source?: SourceControlRefSelector;
     readonly target?: SourceControlRefSelector;
     readonly baseRefName: string;

@@ -296,7 +296,17 @@ export const makeOrchestrationIntegrationHarness = (
           Layer.provide(providerEventLoggersLayer),
         );
 
-    const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(VcsDriverRegistry.layer));
+    const gitVcsDriverLayer = GitVcsDriver.layer.pipe(
+      Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    const vcsDriverRegistryLayer = VcsDriverRegistry.layer.pipe(
+      Layer.provideMerge(GitVcsDriver.vcsLayer),
+      Layer.provideMerge(gitVcsDriverLayer),
+      Layer.provideMerge(VcsProcess.layer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(vcsDriverRegistryLayer));
     const projectionSnapshotQueryLayer = OrchestrationProjectionSnapshotQueryLive;
     const runtimeServicesLayer = Layer.mergeAll(
       projectionSnapshotQueryLayer,
@@ -338,6 +348,7 @@ export const makeOrchestrationIntegrationHarness = (
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(gitWorkflowLayer),
+      Layer.provideMerge(gitVcsDriverLayer),
       Layer.provideMerge(textGenerationLayer),
       Layer.provideMerge(teamCoordinatorAccessLayer),
       Layer.provideMerge(serverSettingsLayer),
@@ -363,7 +374,7 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(
         WorkspaceEntriesLive.pipe(
           Layer.provide(WorkspacePathsLive),
-          Layer.provideMerge(VcsDriverRegistry.layer),
+          Layer.provideMerge(vcsDriverRegistryLayer),
           Layer.provide(NodeServices.layer),
         ),
       ),

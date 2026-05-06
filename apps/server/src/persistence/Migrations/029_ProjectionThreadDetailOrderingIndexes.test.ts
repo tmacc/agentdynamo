@@ -7,13 +7,13 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("029_ProjectionThreadDetailOrderingIndexes", (it) => {
+layer("054_ProjectionThreadDetailOrderingIndexes", (it) => {
   it.effect("creates indexes matching thread detail ordering queries", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 28 });
-      yield* runMigrations({ toMigrationInclusive: 29 });
+      yield* runMigrations({ toMigrationInclusive: 53 });
+      yield* runMigrations({ toMigrationInclusive: 54 });
 
       const activityIndexes = yield* sql<{
         readonly seq: number;

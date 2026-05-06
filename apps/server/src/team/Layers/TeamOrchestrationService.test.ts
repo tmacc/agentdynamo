@@ -40,20 +40,26 @@ import { TeamOrchestrationServiceLive } from "./TeamOrchestrationService.ts";
 const now = "2026-01-01T00:00:00.000Z";
 const parentWorktreePath = "/repo/.dynamo/worktrees/project/t3code-411b93f1";
 
-const gitStatus = (overrides: Partial<GitStatusResult> = {}): GitStatusResult => ({
-  isRepo: false,
-  hasPrimaryRemote: false,
-  isDefaultRef: false,
-  refName: null,
-  branch: null,
-  hasWorkingTreeChanges: false,
-  workingTree: { files: [], insertions: 0, deletions: 0 },
-  hasUpstream: false,
-  aheadCount: 0,
-  behindCount: 0,
-  pr: null,
-  ...overrides,
-});
+const gitStatus = (overrides: Partial<GitStatusResult> = {}): GitStatusResult => {
+  const status = {
+    isRepo: false,
+    hasPrimaryRemote: false,
+    isDefaultRef: false,
+    refName: null,
+    branch: null,
+    hasWorkingTreeChanges: false,
+    workingTree: { files: [], insertions: 0, deletions: 0 },
+    hasUpstream: false,
+    aheadCount: 0,
+    behindCount: 0,
+    pr: null,
+    ...overrides,
+  } satisfies GitStatusResult;
+
+  return overrides.refName === undefined && overrides.branch !== undefined
+    ? { ...status, refName: overrides.branch }
+    : status;
+};
 
 function makeEvent(input: {
   readonly sequence: number;

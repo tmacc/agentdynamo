@@ -416,6 +416,9 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
     }
 
     if (args[0] === "pr" && args[1] === "create") {
+      if (scenario.createPullRequestError) {
+        return Effect.fail(scenario.createPullRequestError);
+      }
       return Effect.succeed(
         fakeGhOutput(
           (scenario.createdPrUrl ?? "https://github.com/pingdotgg/codething-mvp/pull/101") + "\n",
@@ -1266,7 +1269,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 13,
         title: "Existing PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/13",
+        url: "https://github.com/example/project/pull/13",
         baseRef: "main",
         headRef: "feature/status-open-pr",
         state: "open",
@@ -1304,7 +1307,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 14,
         title: "Existing PR title",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/14",
+        url: "https://github.com/example/project/pull/14",
         baseRef: "main",
         headRef: "feature/status-trimmed-pr",
         state: "open",
@@ -1355,7 +1358,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 15,
         title: "Valid PR title",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/15",
+        url: "https://github.com/example/project/pull/15",
         baseRef: "main",
         headRef: "feature/status-valid-pr-entry",
         state: "open",
@@ -1404,7 +1407,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 17,
         title: "Merged PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/17",
+        url: "https://github.com/example/project/pull/17",
         baseRef: "main",
         headRef: "feature/status-lowercase-state",
         state: "merged",
@@ -1594,7 +1597,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect(status.pr).toEqual({
           number: 488,
           title: "Rebase this PR on latest main",
-          url: "https://github.com/pingdotgg/codething-mvp/pull/488",
+          url: "https://github.com/example/project/pull/488",
           baseRef: "main",
           headRef: "statemachine",
           state: "open",
@@ -1744,7 +1747,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 22,
         title: "Merged PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/22",
+        url: "https://github.com/example/project/pull/22",
         baseRef: "main",
         headRef: "feature/status-merged-pr",
         state: "merged",
@@ -1821,7 +1824,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 46,
         title: "Open PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/46",
+        url: "https://github.com/example/project/pull/46",
         baseRef: "main",
         headRef: "feature/status-open-over-merged",
         state: "open",

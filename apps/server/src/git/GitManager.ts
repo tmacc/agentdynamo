@@ -711,7 +711,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       cwd,
       args: ["rev-parse", "--path-format=absolute", "--git-common-dir"],
     });
-    return canonicalizeExistingPath(result.stdout.trim());
+    return yield* canonicalizeExistingPath(result.stdout.trim());
   });
 
   const resolveHeadSha = Effect.fn("resolveHeadSha")(function* (cwd: string) {
@@ -821,8 +821,8 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     }
     const parentCwd = parentThread.worktreePath ?? parentCheckpointContext.value.workspaceRoot;
     const childCwd = childThread.worktreePath;
-    const parentCanonicalPath = canonicalizeExistingPath(parentCwd);
-    const childCanonicalPath = canonicalizeExistingPath(childCwd);
+    const parentCanonicalPath = yield* canonicalizeExistingPath(parentCwd);
+    const childCanonicalPath = yield* canonicalizeExistingPath(childCwd);
 
     if (parentCanonicalPath === childCanonicalPath) {
       return yield* gitManagerError(
@@ -1319,6 +1319,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         headSelector,
         state: "open",
         limit: 1,
+        ...(repository ? { repository } : {}),
       });
       const normalizedPullRequests = pullRequests.map(toPullRequestInfo);
 
@@ -1472,7 +1473,6 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     branch: string,
     upstreamRef: string | null,
     headContext: Pick<BranchHeadContext, "isCrossRepository" | "remoteName">,
-    repository?: string | null,
   ) {
     const configured = yield* gitCore.readConfigValue(cwd, `branch.${branch}.gh-merge-base`);
     if (configured) return configured;
@@ -1711,13 +1711,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       };
     }
 
-    const baseBranch = yield* resolveBaseBranch(
-      cwd,
-      branch,
-      details.upstreamRef,
-      headContext,
-      baseRepository,
-    );
+    const baseBranch = yield* resolveBaseBranch(cwd, branch, details.upstreamRef, headContext);
     yield* emit({
       kind: "phase_started",
       phase: "pr",

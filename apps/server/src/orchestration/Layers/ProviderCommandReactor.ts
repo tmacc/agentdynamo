@@ -28,7 +28,6 @@ import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
@@ -288,7 +287,6 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
-  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
   const gitWorkflow = yield* GitWorkflowService;
   const git = yield* GitVcsDriver;
@@ -393,15 +391,13 @@ const make = Effect.gen(function* () {
   });
 
   const resolveProject = Effect.fnUntraced(function* (projectId: ProjectId) {
-    return yield* projectionSnapshotQuery
-      .getProjectShellById(projectId)
-      .pipe(Effect.map(Option.getOrUndefined));
+    const readModel = yield* orchestrationEngine.getReadModel();
+    return readModel.projects.find((project) => project.id === projectId);
   });
 
   const resolveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
-    return yield* projectionSnapshotQuery
-      .getThreadDetailById(threadId)
-      .pipe(Effect.map(Option.getOrUndefined));
+    const readModel = yield* orchestrationEngine.getReadModel();
+    return readModel.threads.find((thread) => thread.id === threadId);
   });
 
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
