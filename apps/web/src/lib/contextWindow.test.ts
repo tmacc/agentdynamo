@@ -5,6 +5,7 @@ import {
   deriveContextCompactionStats,
   deriveLatestContextWindowSnapshot,
   formatContextWindowTokens,
+  projectContextWindowSnapshotToMaxTokens,
 } from "./contextWindow";
 
 function makeActivity(id: string, kind: string, payload: unknown): OrchestrationThreadActivity {
@@ -67,6 +68,23 @@ describe("contextWindow", () => {
 
     expect(snapshot?.usedTokens).toBe(81_659);
     expect(snapshot?.totalProcessedTokens).toBe(748_126);
+  });
+
+  it("reprojects the latest usage against a newly selected model context window", () => {
+    const snapshot = deriveLatestContextWindowSnapshot([
+      makeActivity("activity-1", "context-window.updated", {
+        usedTokens: 50_000,
+        maxTokens: 200_000,
+      }),
+    ]);
+
+    const projected = projectContextWindowSnapshotToMaxTokens(snapshot, 100_000);
+
+    expect(projected?.usedTokens).toBe(50_000);
+    expect(projected?.maxTokens).toBe(100_000);
+    expect(projected?.usedPercentage).toBe(50);
+    expect(projected?.remainingTokens).toBe(50_000);
+    expect(projected?.remainingPercentage).toBe(50);
   });
 
   it("estimates compacted retained tokens from the post-compaction floor", () => {

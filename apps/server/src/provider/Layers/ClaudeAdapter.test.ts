@@ -2963,6 +2963,63 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("emits parsed account usage after local /usage capture", () => {
+    let captureCalls = 0;
+    const harness = makeHarness({
+      captureUsageTui: async () => {
+        captureCalls++;
+        return {
+          ok: true,
+          text: "Current week (all models)\n█████████ 18% used",
+          capturedAtMs: Date.now(),
+          rateLimits: [{ status: "allowed", rateLimitType: "seven_day", utilization: 18 }],
+        };
+      },
+    });
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const accountUsageFiber = yield* Stream.filter(
+        adapter.streamEvents,
+        (event) => event.type === "account.rate-limits.updated",
+      ).pipe(Stream.runHead, Effect.forkChild);
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "/usage",
+        attachments: [],
+      });
+
+      const accountUsageEvent = yield* Fiber.join(accountUsageFiber);
+      assert.equal(accountUsageEvent._tag, "Some");
+      assert.equal(captureCalls, 1);
+      if (
+        accountUsageEvent._tag === "Some" &&
+        accountUsageEvent.value.type === "account.rate-limits.updated"
+      ) {
+        assert.deepEqual(accountUsageEvent.value.payload, {
+          rateLimits: {
+            type: "rate_limit_event",
+            source: "claude-cli-tui-capture",
+            rate_limit_info: {
+              status: "allowed",
+              rateLimitType: "seven_day",
+              utilization: 18,
+            },
+          },
+        });
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("updates model on sendTurn when model override is provided", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

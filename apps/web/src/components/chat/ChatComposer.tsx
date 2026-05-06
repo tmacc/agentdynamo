@@ -121,7 +121,11 @@ import type { UnifiedSettings } from "@t3tools/contracts/settings";
 import type { SessionPhase, Thread } from "../../types";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import type { PendingApproval, PendingUserInput } from "../../session-logic";
-import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
+import {
+  deriveLatestContextWindowSnapshot,
+  projectContextWindowSnapshotToMaxTokens,
+} from "../../lib/contextWindow";
+import { resolveModelContextWindowTokens } from "../../lib/modelContextWindow";
 import { formatProviderSkillDisplayName } from "../../providerSkillPresentation";
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
@@ -842,9 +846,17 @@ export const ChatComposer = memo(
     // ------------------------------------------------------------------
     // Usage meters
     // ------------------------------------------------------------------
+    const selectedModelContextWindowTokens = useMemo(
+      () => resolveModelContextWindowTokens(providerStatuses, selectedModelSelection),
+      [providerStatuses, selectedModelSelection],
+    );
     const activeContextWindow = useMemo(
-      () => deriveLatestContextWindowSnapshot(activeThreadActivities ?? []),
-      [activeThreadActivities],
+      () =>
+        projectContextWindowSnapshotToMaxTokens(
+          deriveLatestContextWindowSnapshot(activeThreadActivities ?? []),
+          selectedModelContextWindowTokens,
+        ),
+      [activeThreadActivities, selectedModelContextWindowTokens],
     );
 
     // ------------------------------------------------------------------

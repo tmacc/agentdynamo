@@ -46,7 +46,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("createDevRunnerEnv", () => {
-    it.effect("defaults Dynamo home to ~/.dynamo when not provided", () =>
+    it.effect("defaults Dynamo home to a worktree-isolated directory when not provided", () =>
       Effect.gen(function* () {
         const path = yield* Path.Path;
         const env = yield* createDevRunnerEnv({
@@ -61,10 +61,63 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           host: undefined,
           port: undefined,
           devUrl: undefined,
+          cwd: "/tmp/dynamo/project-alpha",
         });
 
-        assert.equal(env.DYNAMO_HOME, path.resolve(NodeOS.homedir(), ".dynamo"));
-        assert.equal(env.T3CODE_HOME, path.resolve(NodeOS.homedir(), ".dynamo"));
+        const expectedRoot = path.resolve(NodeOS.homedir(), ".dynamo", "dev-worktrees");
+        assert.ok(env.DYNAMO_HOME?.startsWith(path.join(expectedRoot, "project-alpha-")));
+        assert.equal(env.T3CODE_HOME, env.DYNAMO_HOME);
+      }),
+    );
+
+    it.effect("uses T3CODE_DEV_INSTANCE to separate default homes for concurrent dev runs", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const env = yield* createDevRunnerEnv({
+          mode: "dev:desktop",
+          baseEnv: {},
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: undefined,
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+          cwd: "/tmp/dynamo/project-alpha",
+          devInstance: "desktop-a",
+        });
+
+        const expectedRoot = path.resolve(NodeOS.homedir(), ".dynamo", "dev-worktrees");
+        assert.ok(env.DYNAMO_HOME?.startsWith(path.join(expectedRoot, "desktop-a-")));
+        assert.equal(env.T3CODE_HOME, env.DYNAMO_HOME);
+      }),
+    );
+
+    it.effect("does not treat an inherited ~/.dynamo home as an explicit dev override", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const env = yield* createDevRunnerEnv({
+          mode: "dev",
+          baseEnv: {},
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: path.resolve(NodeOS.homedir(), ".dynamo"),
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+          cwd: "/tmp/dynamo/project-alpha",
+        });
+
+        assert.ok(
+          env.DYNAMO_HOME?.startsWith(
+            path.join(path.resolve(NodeOS.homedir(), ".dynamo", "dev-worktrees"), "project-alpha-"),
+          ),
+        );
       }),
     );
 

@@ -94,6 +94,33 @@ export function deriveLatestContextWindowSnapshot(
   return null;
 }
 
+export function projectContextWindowSnapshotToMaxTokens(
+  snapshot: ContextWindowSnapshot | null,
+  maxTokens: number | null | undefined,
+): ContextWindowSnapshot | null {
+  if (!snapshot) {
+    return null;
+  }
+  if (
+    maxTokens === null ||
+    maxTokens === undefined ||
+    !Number.isFinite(maxTokens) ||
+    maxTokens <= 0
+  ) {
+    return snapshot;
+  }
+
+  const roundedMaxTokens = Math.round(maxTokens);
+  const usedPercentage = Math.min(100, (snapshot.usedTokens / roundedMaxTokens) * 100);
+  return {
+    ...snapshot,
+    maxTokens: roundedMaxTokens,
+    remainingTokens: Math.max(0, Math.round(roundedMaxTokens - snapshot.usedTokens)),
+    usedPercentage,
+    remainingPercentage: Math.max(0, 100 - usedPercentage),
+  };
+}
+
 export function deriveContextCompactionStats(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): ContextCompactionStats {

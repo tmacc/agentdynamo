@@ -58,10 +58,28 @@ function AccountUsageRow(props: { limit: AccountRateLimitSnapshot }) {
   );
 }
 
+function AccountUsageCompactLimit(props: { limit: AccountRateLimitSnapshot }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <span className="font-medium text-foreground">{props.limit.shortLabel}</span>
+      <span className="w-10 min-w-0">
+        <AccountUsageBar limit={props.limit} compact />
+      </span>
+      <span className="tabular-nums">
+        {formatAccountUsagePercentage(props.limit.utilizationPercentage)}
+      </span>
+    </span>
+  );
+}
+
 export function AccountUsageMeter(props: { usage: AccountUsageSnapshot }) {
   const { primary } = props.usage;
+  const compactLimits = props.usage.limits.filter(
+    (limit) => limit.type === "five_hour" || limit.type === "seven_day",
+  );
+  const displayedLimits = compactLimits.length > 0 ? compactLimits : [primary];
   const percentage = formatAccountUsagePercentage(primary.utilizationPercentage);
-  const ariaLabel = `Claude account usage ${primary.label} ${percentage} used`;
+  const ariaLabel = `Account usage ${primary.label} ${percentage} used`;
 
   return (
     <Popover>
@@ -72,14 +90,15 @@ export function AccountUsageMeter(props: { usage: AccountUsageSnapshot }) {
         render={
           <button
             type="button"
-            className="group inline-flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground transition-colors hover:bg-muted/40"
+            className="group inline-flex h-6 items-center gap-2 rounded-md px-2 text-[11px] text-muted-foreground transition-colors hover:bg-muted/40"
             aria-label={ariaLabel}
           >
-            <span className="font-medium text-foreground">{primary.shortLabel}</span>
-            <span className="w-12 min-w-0">
-              <AccountUsageBar limit={primary} compact />
-            </span>
-            <span className="tabular-nums">{percentage}</span>
+            {displayedLimits.map((limit, index) => (
+              <span key={limit.type} className="inline-flex items-center gap-2">
+                {index > 0 ? <span className="h-3 w-px bg-border" aria-hidden="true" /> : null}
+                <AccountUsageCompactLimit limit={limit} />
+              </span>
+            ))}
           </button>
         }
       />
@@ -87,10 +106,10 @@ export function AccountUsageMeter(props: { usage: AccountUsageSnapshot }) {
         <div className="space-y-3 leading-tight">
           <div>
             <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-              Claude account usage
+              Account usage
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
-              Updates from Claude telemetry and optional post-turn CLI refreshes.
+              Updates from provider telemetry and optional post-turn refreshes.
             </div>
           </div>
           <div className="space-y-2.5">

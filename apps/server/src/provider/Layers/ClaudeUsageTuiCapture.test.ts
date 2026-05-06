@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   captureClaudeUsageTui,
+  isClaudeUsageCommandPickerScreen,
+  isClaudeUsageTuiScreen,
   parseClaudeUsageTuiRateLimits,
   readActiveScreen,
   trimTrailingBlankRows,
@@ -51,6 +53,37 @@ describe("ClaudeUsageTuiCapture helpers", () => {
   });
 });
 
+describe("Claude /usage screen detection", () => {
+  const commandPickerText = [
+    "Claude Code v2.1.128",
+    "",
+    "────────────────────────────────────────────────────────────────",
+    "❯ /usage",
+    "────────────────────────────────────────────────────────────────",
+    "/usage                                  Show session cost, plan usage, and activity stats",
+    "/extra-usage                            Configure extra usage to keep working when limits are",
+    "                                        hit",
+    "/context                                Visualize current context usage as a colored grid",
+    "/effort                                 Set effort level for model usage",
+  ].join("\n");
+
+  it("detects the slash-command picker as not being the usage screen", () => {
+    expect(isClaudeUsageCommandPickerScreen(commandPickerText)).toBe(true);
+    expect(isClaudeUsageTuiScreen(commandPickerText)).toBe(false);
+  });
+
+  it("detects the actual usage screen", () => {
+    const usageScreen = [
+      "Claude account usage",
+      "Current session        30%",
+      "Current week            4%",
+    ].join("\n");
+
+    expect(isClaudeUsageCommandPickerScreen(usageScreen)).toBe(false);
+    expect(isClaudeUsageTuiScreen(usageScreen)).toBe(true);
+  });
+});
+
 describe("parseClaudeUsageTuiRateLimits", () => {
   it("extracts known usage windows from labeled TUI rows", () => {
     const parsed = parseClaudeUsageTuiRateLimits(
@@ -70,6 +103,35 @@ describe("parseClaudeUsageTuiRateLimits", () => {
       { status: "allowed", rateLimitType: "seven_day_opus", utilization: 0 },
       { status: "allowed", rateLimitType: "seven_day_sonnet", utilization: 12.5 },
       { status: "allowed", rateLimitType: "overage", utilization: 0 },
+    ]);
+  });
+
+  it("extracts usage when labels and percentages are rendered on separate rows", () => {
+    const parsed = parseClaudeUsageTuiRateLimits(
+      [
+        "Status   Config   Usage   Stats",
+        "",
+        "Session",
+        "Total duration (wall): 3s",
+        "",
+        "Current session",
+        "                                                     0% used",
+        "Resets 4:10pm (America/New_York)",
+        "",
+        "Current week (all models)",
+        "█████████                                          18% used",
+        "Resets 8pm (America/New_York)",
+        "",
+        "Current week (Sonnet only)",
+        "                                                     0% used",
+        "Resets 8pm (America/New_York)",
+      ].join("\n"),
+    );
+
+    expect(parsed).toEqual([
+      { status: "allowed", rateLimitType: "five_hour", utilization: 0 },
+      { status: "allowed", rateLimitType: "seven_day", utilization: 18 },
+      { status: "allowed", rateLimitType: "seven_day_sonnet", utilization: 0 },
     ]);
   });
 
@@ -107,8 +169,6 @@ describeIfClaudeAvailable("captureClaudeUsageTui (integration)", () => {
       );
     }
     expect(result.text.length).toBeGreaterThan(0);
-    expect(result.text.toLowerCase()).toMatch(
-      /current\s+(session|week)|five[- ]?hour|of your usage|extra[- ]usage|esc to cancel/,
-    );
+    expect(isClaudeUsageTuiScreen(result.text)).toBe(true);
   }, 30_000);
 });

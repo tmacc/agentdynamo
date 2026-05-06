@@ -113,6 +113,94 @@ describe("accountUsage", () => {
     );
   });
 
+  it("does not rescale percentages captured from the Claude CLI usage screen", () => {
+    const snapshot = deriveLatestAccountUsageSnapshot([
+      makeActivity("activity-cli-capture", "account.rate-limits.updated", {
+        rateLimits: {
+          source: "claude-cli-tui-capture",
+          rate_limit_info: {
+            rateLimitType: "five_hour",
+            status: "allowed",
+            utilization: 1,
+          },
+        },
+      }),
+    ]);
+
+    expect(snapshot?.primary.utilizationPercentage).toBe(1);
+    expect(formatAccountUsagePercentage(snapshot?.primary.utilizationPercentage ?? null)).toBe(
+      "1%",
+    );
+  });
+
+  it("derives Codex five-hour and weekly usage from app-server rate limit payloads", () => {
+    const snapshot = deriveLatestAccountUsageSnapshot([
+      makeActivity("activity-codex", "account.rate-limits.updated", {
+        rateLimits: {
+          rateLimits: {
+            limitId: "codex",
+            planType: "pro",
+            primary: {
+              resetsAt: 1_778_086_861,
+              usedPercent: 38,
+              windowDurationMins: 300,
+            },
+            secondary: {
+              resetsAt: 1_778_591_685,
+              usedPercent: 12,
+              windowDurationMins: 10_080,
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(snapshot?.primary.type).toBe("five_hour");
+    expect(snapshot?.primary.utilizationPercentage).toBe(38);
+    expect(snapshot?.limits.map((limit) => [limit.type, limit.utilizationPercentage])).toEqual([
+      ["five_hour", 38],
+      ["seven_day", 12],
+    ]);
+  });
+
+  it("filters snapshots by provider so picker changes swap displayed account bars", () => {
+    const activities = [
+      makeActivity("activity-claude", "account.rate-limits.updated", {
+        rateLimits: {
+          source: "claude-cli-tui-capture",
+          rate_limit_info: {
+            rateLimitType: "five_hour",
+            status: "allowed",
+            utilization: 2,
+          },
+        },
+      }),
+      makeActivity(
+        "activity-codex",
+        "account.rate-limits.updated",
+        {
+          rateLimits: {
+            rateLimits: {
+              primary: { usedPercent: 40 },
+              secondary: { usedPercent: 15 },
+            },
+          },
+        },
+        "2026-05-01T17:00:00.000Z",
+      ),
+    ];
+
+    expect(
+      deriveLatestAccountUsageSnapshot(activities, { provider: "claudeAgent" })?.primary
+        .utilizationPercentage,
+    ).toBe(2);
+    expect(
+      deriveLatestAccountUsageSnapshot(activities, { provider: "codex" })?.primary
+        .utilizationPercentage,
+    ).toBe(40);
+    expect(deriveLatestAccountUsageSnapshot(activities, { provider: "cursor" })).toBeNull();
+  });
+
   it("ignores status-only updates when utilization data already exists", () => {
     const snapshot = deriveLatestAccountUsageSnapshot([
       makeActivity(

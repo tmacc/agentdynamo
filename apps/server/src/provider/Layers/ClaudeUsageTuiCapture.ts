@@ -18,15 +18,29 @@
  *
  * @module ClaudeUsageTuiCapture
  */
-import { Terminal } from "@xterm/headless";
 import { createRequire } from "node:module";
+import type { Terminal as HeadlessTerminal } from "@xterm/headless";
+
+const requireFromHere = createRequire(import.meta.url);
+const { Terminal } = requireFromHere("@xterm/headless") as {
+  readonly Terminal: new (options: {
+    readonly cols: number;
+    readonly rows: number;
+    readonly allowProposedApi?: boolean;
+    readonly scrollback?: number;
+  }) => HeadlessTerminal;
+};
 
 const DEFAULT_TUI_COLS = 100;
 const DEFAULT_TUI_ROWS = 40;
 const DEFAULT_TIMEOUT_MS = 12_000;
-const DEFAULT_OUTPUT_IDLE_MS = 350;
+const DEFAULT_OUTPUT_IDLE_MS = 200;
+const READY_WITH_USAGE_IDLE_MS = 120;
 const DEFAULT_USAGE_MARKER_REGEX =
-  /current\s+(session|week)|five[- ]?hour|of your usage|extra[- ]usage|esc to cancel/i;
+  /claude\s+account\s+usage|current\s+(session|week)|five[- ]?hour\s+(limit|usage)|seven[- ]?day\s+(limit|usage)|rate\s+limit\s+usage/i;
+const CLAUDE_USAGE_COMMAND_PICKER_REGEX =
+  /(?:^|\n)\s*\/usage\s+Show session cost, plan usage, and activity stats/i;
+const CLAUDE_COMMAND_PICKER_SIBLING_REGEX = /(?:^|\n)\s*\/(?:stats|extra-usage|context|effort)\b/i;
 
 const USAGE_LINE_PERCENTAGE_REGEX = /(?<![\d.])(\d{1,3}(?:\.\d+)?)\s*%/;
 
@@ -100,7 +114,7 @@ export function trimTrailingBlankRows(rows: ReadonlyArray<string>): Array<string
   return rows.slice(0, lastNonBlank + 1);
 }
 
-export function readActiveScreen(terminal: Terminal): string {
+export function readActiveScreen(terminal: HeadlessTerminal): string {
   const rows: Array<string> = [];
   const buffer = terminal.buffer.active;
   for (let y = 0; y < terminal.rows; y++) {
@@ -108,6 +122,19 @@ export function readActiveScreen(terminal: Terminal): string {
     rows.push(line?.translateToString(true) ?? "");
   }
   return trimTrailingBlankRows(rows).join("\n");
+}
+
+export function isClaudeUsageCommandPickerScreen(text: string): boolean {
+  return (
+    CLAUDE_USAGE_COMMAND_PICKER_REGEX.test(text) && CLAUDE_COMMAND_PICKER_SIBLING_REGEX.test(text)
+  );
+}
+
+export function isClaudeUsageTuiScreen(
+  text: string,
+  marker: RegExp = DEFAULT_USAGE_MARKER_REGEX,
+): boolean {
+  return !isClaudeUsageCommandPickerScreen(text) && marker.test(text);
 }
 
 function rateLimitTypeFromLine(line: string): string | null {
@@ -142,13 +169,18 @@ export function parseClaudeUsageTuiRateLimits(
   text: string,
 ): ReadonlyArray<ClaudeUsageTuiRateLimitInfo> {
   const latestByType = new Map<string, ClaudeUsageTuiRateLimitInfo>();
+  let pendingRateLimitType: string | null = null;
 
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.replaceAll(/[│┃║╎╏]/g, " ").trim();
     if (line.length === 0) {
       continue;
     }
-    const rateLimitType = rateLimitTypeFromLine(line);
+    const lineRateLimitType = rateLimitTypeFromLine(line);
+    const rateLimitType = lineRateLimitType ?? pendingRateLimitType;
+    if (lineRateLimitType) {
+      pendingRateLimitType = lineRateLimitType;
+    }
     if (!rateLimitType) {
       continue;
     }
@@ -161,6 +193,7 @@ export function parseClaudeUsageTuiRateLimits(
       rateLimitType,
       utilization,
     });
+    pendingRateLimitType = null;
   }
 
   return [...latestByType.values()];
@@ -193,7 +226,6 @@ async function loadNodePty(): Promise<NodePtyModule> {
   if (cachedNodePty) return cachedNodePty;
   // node-pty ships native code; load it the same way the existing terminal
   // layer does so we share the spawn-helper resolution path.
-  const requireFromHere = createRequire(import.meta.url);
   cachedNodePty = requireFromHere("node-pty") as NodePtyModule;
   return cachedNodePty;
 }
@@ -258,13 +290,13 @@ export async function captureClaudeUsageTui(
     rows,
     allowProposedApi: true,
     scrollback: 0,
-    convertEol: false,
   });
 
   let lastDataAtMs = Date.now();
   let totalBytes = 0;
   let sawMarker = false;
   let usageSent = false;
+  let commandPickerConfirmed = false;
   let resolved = false;
 
   return await new Promise<ClaudeUsageTuiResult>((resolve) => {
@@ -296,9 +328,6 @@ export async function captureClaudeUsageTui(
       lastDataAtMs = Date.now();
       totalBytes += chunk.length;
       terminal.write(chunk);
-      if (!sawMarker && marker.test(chunk)) {
-        sawMarker = true;
-      }
     });
 
     pty.onExit(() => {
@@ -353,18 +382,33 @@ export async function captureClaudeUsageTui(
         return;
       }
       sendUsageOnceReady();
+      const text = readActiveScreen(terminal);
+      if (usageSent && !commandPickerConfirmed && isClaudeUsageCommandPickerScreen(text)) {
+        commandPickerConfirmed = true;
+        try {
+          // Recent Claude Code versions can stop on the slash-command picker
+          // after `/usage`. A second Enter commits the highlighted /usage item.
+          pty.write("\r");
+        } catch {
+          // Process already dying - exit handler will resolve.
+        }
+        return;
+      }
+      if (!sawMarker && isClaudeUsageTuiScreen(text, marker)) {
+        sawMarker = true;
+      }
+      const parsedRateLimits = sawMarker ? parseClaudeUsageTuiRateLimits(text) : [];
       if (
         usageSent &&
         sawMarker &&
-        now - lastDataAtMs >= idleMs &&
+        now - lastDataAtMs >= (parsedRateLimits.length > 0 ? READY_WITH_USAGE_IDLE_MS : idleMs) &&
         terminal.buffer.active.length > 0
       ) {
-        const text = readActiveScreen(terminal);
         finish({
           ok: true,
           text,
           capturedAtMs: now,
-          rateLimits: parseClaudeUsageTuiRateLimits(text),
+          rateLimits: parsedRateLimits,
         });
       }
     }, 50);

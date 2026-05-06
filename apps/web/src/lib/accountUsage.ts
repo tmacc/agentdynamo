@@ -10,6 +10,7 @@ export type AccountRateLimitType =
 export type AccountRateLimitStatus = "allowed" | "allowed_warning" | "rejected" | string;
 
 export interface AccountRateLimitSnapshot {
+  readonly provider: AccountUsageProviderScope;
   readonly type: AccountRateLimitType | string;
   readonly label: string;
   readonly shortLabel: string;
@@ -29,6 +30,12 @@ export interface AccountUsageSnapshot {
   readonly updatedAt: string;
 }
 
+export type AccountUsageProviderScope = "codex" | "claudeAgent" | "cursor" | "opencode" | string;
+
+export interface AccountUsageDerivationOptions {
+  readonly provider?: AccountUsageProviderScope | null;
+}
+
 const RATE_LIMIT_ORDER: ReadonlyArray<AccountRateLimitType> = [
   "five_hour",
   "seven_day",
@@ -39,7 +46,7 @@ const RATE_LIMIT_ORDER: ReadonlyArray<AccountRateLimitType> = [
 
 const RATE_LIMIT_LABELS: Record<AccountRateLimitType, { label: string; shortLabel: string }> = {
   five_hour: { label: "Five hour", shortLabel: "5h" },
-  seven_day: { label: "Current week", shortLabel: "Week" },
+  seven_day: { label: "Current week", shortLabel: "7d" },
   seven_day_opus: { label: "Weekly Opus", shortLabel: "Opus" },
   seven_day_sonnet: { label: "Weekly Sonnet", shortLabel: "Sonnet" },
   overage: { label: "Extra usage", shortLabel: "Extra" },
@@ -65,10 +72,13 @@ function labelsForType(type: string): { label: string; shortLabel: string } {
   return RATE_LIMIT_LABELS[type as AccountRateLimitType] ?? { label: type, shortLabel: type };
 }
 
-function normalizePercentage(value: unknown): number | null {
+function normalizePercentage(value: unknown, source: string | null): number | null {
   const numericValue = asFiniteNumber(value);
   if (numericValue === null) {
     return null;
+  }
+  if (source === "claude-cli-tui-capture") {
+    return Math.max(0, Math.min(100, numericValue));
   }
   const percentage = numericValue <= 1 ? numericValue * 100 : numericValue;
   return Math.max(0, Math.min(100, percentage));
@@ -82,44 +92,70 @@ function normalizeEpochMillis(value: unknown): number | null {
   return numericValue > 1_000_000_000_000 ? numericValue : numericValue * 1000;
 }
 
-function extractRateLimitInfo(payload: unknown): Record<string, unknown> | null {
+function statusFromUsedPercentage(
+  usedPercentage: number | null,
+  rateLimitReachedType: string | null,
+  type: AccountRateLimitType,
+): AccountRateLimitStatus {
+  if (
+    rateLimitReachedType === type ||
+    (type === "five_hour" && rateLimitReachedType === "primary") ||
+    (type === "seven_day" && rateLimitReachedType === "secondary") ||
+    (usedPercentage !== null && usedPercentage >= 100)
+  ) {
+    return "rejected";
+  }
+  if (usedPercentage !== null && usedPercentage >= 80) {
+    return "allowed_warning";
+  }
+  return "allowed";
+}
+
+interface ExtractedRateLimitInfo {
+  readonly info: Record<string, unknown>;
+  readonly source: string | null;
+}
+
+function extractRateLimitInfo(payload: unknown): ExtractedRateLimitInfo | null {
   const record = asRecord(payload);
   if (!record) {
     return null;
   }
 
   const nestedRateLimits = asRecord(record.rateLimits);
+  const nestedRateLimitsSource = asString(nestedRateLimits?.source);
   const nestedRateLimitInfo = asRecord(nestedRateLimits?.rate_limit_info);
   if (nestedRateLimitInfo) {
-    return nestedRateLimitInfo;
+    return { info: nestedRateLimitInfo, source: nestedRateLimitsSource };
   }
 
   const nestedCamelInfo = asRecord(nestedRateLimits?.rateLimitInfo);
   if (nestedCamelInfo) {
-    return nestedCamelInfo;
+    return { info: nestedCamelInfo, source: nestedRateLimitsSource };
   }
 
   const directSnakeInfo = asRecord(record.rate_limit_info);
   if (directSnakeInfo) {
-    return directSnakeInfo;
+    return { info: directSnakeInfo, source: asString(record.source) };
   }
 
   const directCamelInfo = asRecord(record.rateLimitInfo);
   if (directCamelInfo) {
-    return directCamelInfo;
+    return { info: directCamelInfo, source: asString(record.source) };
   }
 
-  return record;
+  return { info: record, source: asString(record.source) };
 }
 
 function rateLimitSnapshotFromActivity(
   activity: OrchestrationThreadActivity,
 ): AccountRateLimitSnapshot | null {
-  const info = extractRateLimitInfo(activity.payload);
-  if (!info) {
+  const extracted = extractRateLimitInfo(activity.payload);
+  if (!extracted) {
     return null;
   }
 
+  const { info, source } = extracted;
   const type = asString(info.rateLimitType);
   if (!type) {
     return null;
@@ -127,11 +163,12 @@ function rateLimitSnapshotFromActivity(
 
   const labels = labelsForType(type);
   return {
+    provider: "claudeAgent",
     type,
     label: labels.label,
     shortLabel: labels.shortLabel,
     status: asString(info.status),
-    utilizationPercentage: normalizePercentage(info.utilization),
+    utilizationPercentage: normalizePercentage(info.utilization, source),
     resetsAt: normalizeEpochMillis(info.resetsAt),
     overageStatus: asString(info.overageStatus),
     overageResetsAt: normalizeEpochMillis(info.overageResetsAt),
@@ -139,6 +176,83 @@ function rateLimitSnapshotFromActivity(
     isUsingOverage: asBoolean(info.isUsingOverage),
     updatedAt: activity.createdAt,
   };
+}
+
+function codexRateLimitWindowSnapshot(input: {
+  readonly type: AccountRateLimitType;
+  readonly window: Record<string, unknown> | null;
+  readonly rateLimitReachedType: string | null;
+  readonly updatedAt: string;
+}): AccountRateLimitSnapshot | null {
+  if (!input.window) {
+    return null;
+  }
+  const usedPercentage = normalizePercentage(input.window.usedPercent, "codex-app-server");
+  if (usedPercentage === null) {
+    return null;
+  }
+  const labels = labelsForType(input.type);
+  return {
+    provider: "codex",
+    type: input.type,
+    label: labels.label,
+    shortLabel: labels.shortLabel,
+    status: statusFromUsedPercentage(usedPercentage, input.rateLimitReachedType, input.type),
+    utilizationPercentage: usedPercentage,
+    resetsAt: normalizeEpochMillis(input.window.resetsAt),
+    overageStatus: null,
+    overageResetsAt: null,
+    overageDisabledReason: null,
+    isUsingOverage: null,
+    updatedAt: input.updatedAt,
+  };
+}
+
+function codexRateLimitSnapshotsFromActivity(
+  activity: OrchestrationThreadActivity,
+): ReadonlyArray<AccountRateLimitSnapshot> {
+  const record = asRecord(activity.payload);
+  if (!record) {
+    return [];
+  }
+  const outerRateLimits = asRecord(record.rateLimits);
+  const rateLimits = asRecord(outerRateLimits?.rateLimits) ?? outerRateLimits;
+  if (!rateLimits) {
+    return [];
+  }
+
+  const primary = asRecord(rateLimits.primary);
+  const secondary = asRecord(rateLimits.secondary);
+  if (!primary && !secondary) {
+    return [];
+  }
+
+  const rateLimitReachedType = asString(rateLimits.rateLimitReachedType);
+  return [
+    codexRateLimitWindowSnapshot({
+      type: "five_hour",
+      window: primary,
+      rateLimitReachedType,
+      updatedAt: activity.createdAt,
+    }),
+    codexRateLimitWindowSnapshot({
+      type: "seven_day",
+      window: secondary,
+      rateLimitReachedType,
+      updatedAt: activity.createdAt,
+    }),
+  ].filter((snapshot): snapshot is AccountRateLimitSnapshot => snapshot !== null);
+}
+
+function rateLimitSnapshotsFromActivity(
+  activity: OrchestrationThreadActivity,
+): ReadonlyArray<AccountRateLimitSnapshot> {
+  const codexSnapshots = codexRateLimitSnapshotsFromActivity(activity);
+  if (codexSnapshots.length > 0) {
+    return codexSnapshots;
+  }
+  const snapshot = rateLimitSnapshotFromActivity(activity);
+  return snapshot ? [snapshot] : [];
 }
 
 function sortRateLimits(
@@ -155,30 +269,34 @@ function sortRateLimits(
 
 export function deriveLatestAccountUsageSnapshot(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
+  options: AccountUsageDerivationOptions = {},
 ): AccountUsageSnapshot | null {
   const latestByType = new Map<string, AccountRateLimitSnapshot>();
+  const providerScope = options.provider ?? null;
 
   for (const activity of activities) {
     if (activity.kind !== "account.rate-limits.updated") {
       continue;
     }
-    const snapshot = rateLimitSnapshotFromActivity(activity);
-    if (!snapshot) {
-      continue;
+    const snapshots = rateLimitSnapshotsFromActivity(activity);
+    for (const snapshot of snapshots) {
+      if (providerScope && snapshot.provider !== providerScope) {
+        continue;
+      }
+      // Only displace an existing entry when the new one carries a utilization
+      // percentage, so a Claude SDK status-only event (which lacks utilization
+      // for low-usage sessions) cannot erase data we captured from the Claude
+      // CLI usage screen.
+      const existing = latestByType.get(snapshot.type);
+      if (
+        existing &&
+        existing.utilizationPercentage !== null &&
+        snapshot.utilizationPercentage === null
+      ) {
+        continue;
+      }
+      latestByType.set(snapshot.type, snapshot);
     }
-    // Only displace an existing entry when the new one carries a utilization
-    // percentage, so a Claude SDK status-only event (which lacks utilization
-    // for low-usage sessions) cannot erase data we captured from the Claude
-    // CLI usage screen.
-    const existing = latestByType.get(snapshot.type);
-    if (
-      existing &&
-      existing.utilizationPercentage !== null &&
-      snapshot.utilizationPercentage === null
-    ) {
-      continue;
-    }
-    latestByType.set(snapshot.type, snapshot);
   }
 
   const limits = sortRateLimits(
