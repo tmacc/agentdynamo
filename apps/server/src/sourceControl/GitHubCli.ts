@@ -169,6 +169,14 @@ function normalizeRepositoryCloneUrls(
   };
 }
 
+function appendRepositoryArg(
+  args: ReadonlyArray<string>,
+  repository: string | null | undefined,
+): ReadonlyArray<string> {
+  const trimmedRepository = repository?.trim();
+  return trimmedRepository ? [...args, "--repo", trimmedRepository] : args;
+}
+
 /**
  * `gh repo create` prints the canonical URL of the new repository on stdout
  * (e.g. `https://github.com/owner/repo`). Reading it back here avoids a
@@ -243,18 +251,21 @@ export const make = Effect.fn("makeGitHubCli")(function* () {
     listOpenPullRequests: (input) =>
       execute({
         cwd: input.cwd,
-        args: [
-          "pr",
-          "list",
-          "--head",
-          input.headSelector,
-          "--state",
-          "open",
-          "--limit",
-          String(input.limit ?? 1),
-          "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
-        ],
+        args: appendRepositoryArg(
+          [
+            "pr",
+            "list",
+            "--head",
+            input.headSelector,
+            "--state",
+            "open",
+            "--limit",
+            String(input.limit ?? 1),
+            "--json",
+            "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          ],
+          input.repository,
+        ),
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
         Effect.flatMap((raw) =>
@@ -339,23 +350,29 @@ export const make = Effect.fn("makeGitHubCli")(function* () {
     createPullRequest: (input) =>
       execute({
         cwd: input.cwd,
-        args: [
-          "pr",
-          "create",
-          "--base",
-          input.baseBranch,
-          "--head",
-          input.headSelector,
-          "--title",
-          input.title,
-          "--body-file",
-          input.bodyFile,
-        ],
+        args: appendRepositoryArg(
+          [
+            "pr",
+            "create",
+            "--base",
+            input.baseBranch,
+            "--head",
+            input.headSelector,
+            "--title",
+            input.title,
+            "--body-file",
+            input.bodyFile,
+          ],
+          input.repository,
+        ),
       }).pipe(Effect.asVoid),
     getDefaultBranch: (input) =>
       execute({
         cwd: input.cwd,
-        args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+        args: appendRepositoryArg(
+          ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+          input.repository,
+        ),
       }).pipe(
         Effect.map((value) => {
           const trimmed = value.stdout.trim();

@@ -444,6 +444,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/server/src/orchestration/Layers/ThreadForkDispatcher.ts`
   - `apps/server/src/orchestration/Layers/ThreadForkMaterializer.ts`
   - `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`
+  - `apps/server/src/server.ts`
   - `apps/server/src/persistence/Migrations/029_ProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Migrations/034_EnsureProjectionThreadContextHandoffs.ts`
   - `apps/server/src/persistence/Services/ProjectionThreadContextHandoffs.ts`
@@ -457,6 +458,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/store.ts`
 - `Important invariants`:
   - Source thread and forked thread must remain distinct.
+  - The server runtime layer must provide `ThreadForkDispatcher` and `ThreadForkMaterializer` alongside their orchestration, projection, Git, VCS status, and setup-script dependencies; otherwise the fork WebSocket RPC fails at runtime with a missing service.
   - Fork origin metadata must survive projection and reload.
   - Timeline UI must show where imported history stops and new fork-local history begins.
   - Fork creation must not break branch/worktree metadata.
@@ -737,6 +739,8 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `packages/contracts/src/git.ts`
   - `packages/contracts/src/ipc.ts`
   - `packages/contracts/src/rpc.ts`
+  - `apps/server/src/sourceControl/GitHubCli.ts`
+  - `apps/server/src/sourceControl/GitHubSourceControlProvider.ts`
   - `apps/server/src/git/Services/GitManager.ts`
   - `apps/server/src/git/Layers/GitManager.ts`
   - `apps/server/src/ws.ts`
@@ -753,6 +757,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - The selected remote must be validated against the current repository remotes before saving or using it.
   - The remembered choice is repo-local git config stored as `dynamo.pullRequestRemote`; reads fall back to legacy `t3.pullRequestRemote` so pre-merge fork choices still work.
   - `gh pr create` should pass the selected base repository explicitly, not rely on GitHub CLI inference.
+  - Every GitHub CLI operation that accepts the selected base repository, including open PR lookup, default-branch lookup, and PR creation, must pass `--repo <owner/repo>` through the real `GitHubCli` adapter, not only test fakes.
   - The selected PR base repository and the current branch's head repository are distinct concepts; fork/head remotes must still produce owner-qualified head selectors such as `owner:branch`.
 - `Merge hotspots`:
   - Git contracts and WebSocket/RPC method lists for PR remote option reads/writes
