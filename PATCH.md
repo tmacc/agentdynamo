@@ -54,6 +54,7 @@
   - Source-control PR creation/listing preserves the selected GitHub target repository through the provider abstraction, including `--repo` for configured Dynamo PR target remotes.
   - Dynamo team worktree review/apply canonicalizes Effect path lookups before same-worktree/common-dir comparison; this preserves the isolated worktree guard after upstream's VCS Effect refactor.
   - WebSocket RPC startup keeps thread-fork dispatch acquisition method-scoped so desktop dev can complete the `/ws` handshake even when fork-only worktree services are not needed during connection bootstrap.
+  - Browser merge repairs keep pending new-worktree base branch selection UI-only until first send, remount the composer slash-command/saved-prompt menus, and restore Dynamo-branded network-access restart copy.
 - `Merge hotspots`:
   - VCS driver, Git workflow, and source-control provider contracts.
   - Team worktree review/apply and patch generation in `apps/server/src/git`.

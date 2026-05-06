@@ -143,8 +143,7 @@ export function BranchToolbarBranchSelector({
     pendingWorktreeBaseMode && pendingWorktreeBaseBranch !== undefined
       ? pendingWorktreeBaseBranch
       : persistedActiveThreadBranch;
-  const isSelectingWorktreeBase =
-    pendingWorktreeBaseMode && onPendingWorktreeBaseBranchChange !== undefined;
+  const isSelectingWorktreeBase = pendingWorktreeBaseMode;
 
   // ---------------------------------------------------------------------------
   // Thread branch mutation (colocated — only this component calls it)
@@ -327,7 +326,11 @@ export function BranchToolbarBranchSelector({
     if (!api || !branchCwd || !activeProjectCwd || isBranchActionPending) return;
 
     if (isSelectingWorktreeBase) {
-      setThreadBranch(refName.name, null);
+      if (onPendingWorktreeBaseBranchChange) {
+        onPendingWorktreeBaseBranchChange(refName.name);
+      } else {
+        setThreadBranch(refName.name, null);
+      }
       setIsBranchMenuOpen(false);
       onComposerFocusRequest?.();
       return;

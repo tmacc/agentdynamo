@@ -2443,6 +2443,20 @@ export const ChatComposer = memo(
                       (environmentUnavailable !== null && activePendingProgress === null)
                     }
                   />
+                  {composerMenuOpen ? (
+                    <div className="absolute bottom-full left-0 right-0 z-30 mb-2">
+                      <ComposerCommandMenu
+                        items={composerMenuItems}
+                        resolvedTheme={resolvedTheme}
+                        isLoading={isComposerMenuLoading}
+                        triggerKind={composerTriggerKind}
+                        emptyStateText={composerMenuEmptyState}
+                        activeItemId={activeComposerMenuItem?.id ?? null}
+                        onHighlightedItemChange={onComposerMenuItemHighlighted}
+                        onSelect={onSelectComposerItem}
+                      />
+                    </div>
+                  ) : null}
                   {showMobilePendingAnswerActions ? (
                     <div
                       data-chat-composer-mobile-pending-actions="true"
@@ -2517,6 +2531,14 @@ export const ChatComposer = memo(
                         setIsComposerModelPickerOpen(open);
                       }}
                       onInstanceModelChange={onProviderModelSelect}
+                    />
+                    <ComposerSavedPromptMenu
+                      compact={isComposerFooterCompact}
+                      disabled={environmentUnavailable !== null || isConnecting}
+                      projectRef={activeProjectRef}
+                      onSelectSnippet={requestSavedPromptSnippetApply}
+                      onRenameSnippet={(snippet) => setRenameSavedPromptSnippetId(snippet.id)}
+                      onRequestDeleteSnippet={requestDeleteSavedPromptSnippet}
                     />
 
                     {isComposerFooterCompact ? (
