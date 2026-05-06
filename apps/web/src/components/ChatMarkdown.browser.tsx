@@ -23,7 +23,7 @@ vi.mock("../localApi", () => ({
   readLocalApi: readLocalApiMock,
 }));
 
-import ChatMarkdown from "./ChatMarkdown";
+import ChatMarkdown, { shouldRenderAsPreformattedText } from "./ChatMarkdown";
 
 describe("ChatMarkdown", () => {
   afterEach(() => {
@@ -134,5 +134,46 @@ describe("ChatMarkdown", () => {
     } finally {
       await screen.unmount();
     }
+  });
+
+  it("renders box-drawing command output as preformatted text", async () => {
+    const screen = await render(
+      <ChatMarkdown
+        text={`┌ Usage ─────┐\n│ Input   123 │\n│ Output   45 │\n└─────────────┘`}
+        cwd="/repo/project"
+      />,
+    );
+
+    try {
+      const pre = page.getByText(/Usage/).element().closest("pre");
+      expect(pre).not.toBeNull();
+      expect(pre?.textContent).toContain("│ Input   123 │");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("renders aligned multi-line command output as preformatted text", async () => {
+    const screen = await render(
+      <ChatMarkdown
+        text={`Model      GPT-5\nInput      123\nOutput      45`}
+        cwd="/repo/project"
+      />,
+    );
+
+    try {
+      const pre = page.getByText(/Model/).element().closest("pre");
+      expect(pre).not.toBeNull();
+      expect(pre?.textContent).toContain("Output      45");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("detects ANSI preformatted output consistently across repeated calls", () => {
+    const ansiText = `\u001b[32mStatus\u001b[0m\nInput      123`;
+
+    expect(shouldRenderAsPreformattedText(ansiText)).toBe(true);
+    expect(shouldRenderAsPreformattedText(ansiText)).toBe(true);
   });
 });

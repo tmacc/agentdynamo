@@ -19,6 +19,7 @@ const BASE_WEB_PORT = 5733;
 const MAX_HASH_OFFSET = 3000;
 const MAX_PORT = 65535;
 const DESKTOP_DEV_LOOPBACK_HOST = "127.0.0.1";
+const DEV_WORKTREE_HOME_DIR = "dev-worktrees";
 const DEV_PORT_PROBE_HOSTS = ["127.0.0.1", "0.0.0.0", "::1", "::"] as const;
 
 export const DEFAULT_APP_HOME = Effect.map(Effect.service(Path.Path), (path) =>
@@ -108,16 +109,53 @@ export function resolveOffset(config: {
   return { offset, source: `hashed T3CODE_DEV_INSTANCE=${seed}` };
 }
 
-function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, never, Path.Path> {
+function sanitizePathSegment(input: string): string {
+  const segment = input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return segment || "worktree";
+}
+
+function resolveDefaultDevBaseDir(input: {
+  readonly cwd: string | undefined;
+  readonly devInstance: string | undefined;
+}): Effect.Effect<string, never, Path.Path> {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
-    const configured = baseDir?.trim();
+    const defaultHome = yield* DEFAULT_APP_HOME;
+    const explicitInstance = input.devInstance?.trim();
+    const seed = explicitInstance
+      ? `instance:${explicitInstance}`
+      : path.resolve(input.cwd ?? process.cwd());
+    const label = explicitInstance ? explicitInstance : path.basename(seed);
+    const hash = (Hash.string(seed) >>> 0).toString(36);
+    return path.join(defaultHome, DEV_WORKTREE_HOME_DIR, `${sanitizePathSegment(label)}-${hash}`);
+  });
+}
+
+function resolveBaseDir(input: {
+  readonly baseDir: string | undefined;
+  readonly cwd: string | undefined;
+  readonly devInstance: string | undefined;
+}): Effect.Effect<string, never, Path.Path> {
+  return Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const configured = input.baseDir?.trim();
+    const defaultHome = yield* DEFAULT_APP_HOME;
 
     if (configured) {
-      return path.resolve(configured);
+      const resolvedConfigured = path.resolve(configured);
+      if (resolvedConfigured !== defaultHome) {
+        return resolvedConfigured;
+      }
     }
 
-    return yield* DEFAULT_APP_HOME;
+    return yield* resolveDefaultDevBaseDir({
+      cwd: input.cwd,
+      devInstance: input.devInstance,
+    });
   });
 }
 
@@ -133,6 +171,8 @@ interface CreateDevRunnerEnvInput {
   readonly host: string | undefined;
   readonly port: number | undefined;
   readonly devUrl: URL | undefined;
+  readonly cwd?: string | undefined;
+  readonly devInstance?: string | undefined;
 }
 
 export function createDevRunnerEnv({
@@ -147,11 +187,17 @@ export function createDevRunnerEnv({
   host,
   port,
   devUrl,
+  cwd,
+  devInstance,
 }: CreateDevRunnerEnvInput): Effect.Effect<NodeJS.ProcessEnv, never, Path.Path> {
   return Effect.gen(function* () {
     const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
     const webPort = BASE_WEB_PORT + webOffset;
-    const resolvedBaseDir = yield* resolveBaseDir(t3Home);
+    const resolvedBaseDir = yield* resolveBaseDir({
+      baseDir: t3Home,
+      cwd,
+      devInstance,
+    });
     const isDesktopMode = mode === "dev:desktop";
 
     const output: NodeJS.ProcessEnv = {
@@ -163,6 +209,8 @@ export function createDevRunnerEnv({
       [APP_HOME_ENV_VAR]: resolvedBaseDir,
       [LEGACY_APP_HOME_ENV_VAR]: resolvedBaseDir,
     };
+
+    output.T3CODE_TELEMETRY_ENABLED = baseEnv.T3CODE_TELEMETRY_ENABLED ?? "0";
 
     if (!isDesktopMode) {
       output.T3CODE_PORT = String(serverPort);
@@ -421,6 +469,8 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       host: input.host,
       port: input.port,
       devUrl: input.devUrl,
+      cwd: process.cwd(),
+      devInstance,
     });
 
     const selectionSuffix =

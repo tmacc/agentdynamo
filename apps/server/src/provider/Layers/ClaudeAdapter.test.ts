@@ -147,6 +147,7 @@ function makeHarness(config?: {
   readonly baseDir?: string;
   readonly claudeConfig?: Partial<ClaudeSettings>;
   readonly instanceId?: ProviderInstanceId;
+  readonly captureUsageTui?: ClaudeAdapterLiveOptions["captureUsageTui"];
 }) {
   const query = new FakeClaudeQuery();
   let createInput:
@@ -162,6 +163,7 @@ function makeHarness(config?: {
       createInput = input;
       return query;
     },
+    ...(config?.captureUsageTui ? { captureUsageTui: config.captureUsageTui } : {}),
     ...(config?.nativeEventLogger
       ? {
           nativeEventLogger: config.nativeEventLogger,
@@ -2893,6 +2895,136 @@ describe("ClaudeAdapterLive", () => {
       );
     },
   );
+
+  it.effect("captures account usage in the background after completed turns when enabled", () => {
+    let captureCalls = 0;
+    const harness = makeHarness({
+      claudeConfig: { refreshUsageAfterTurns: true },
+      captureUsageTui: async () => {
+        captureCalls++;
+        return {
+          ok: true,
+          text: "Current session 42%",
+          capturedAtMs: Date.now(),
+          rateLimits: [
+            { status: "allowed", rateLimitType: "five_hour", utilization: 42, resetsAt: null },
+          ],
+        };
+      },
+    });
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const accountUsageFiber = yield* Stream.filter(
+        adapter.streamEvents,
+        (event) => event.type === "account.rate-limits.updated",
+      ).pipe(Stream.runHead, Effect.forkChild);
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "hello",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-background-usage",
+        uuid: "result-background-usage",
+      } as unknown as SDKMessage);
+
+      const accountUsageEvent = yield* Fiber.join(accountUsageFiber);
+      assert.equal(accountUsageEvent._tag, "Some");
+      assert.equal(captureCalls, 1);
+      if (
+        accountUsageEvent._tag === "Some" &&
+        accountUsageEvent.value.type === "account.rate-limits.updated"
+      ) {
+        assert.deepEqual(accountUsageEvent.value.payload, {
+          rateLimits: {
+            type: "rate_limit_event",
+            source: "claude-cli-tui-capture",
+            rate_limit_info: {
+              status: "allowed",
+              rateLimitType: "five_hour",
+              utilization: 42,
+              resetsAt: null,
+            },
+          },
+        });
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("emits parsed account usage after local /usage capture", () => {
+    let captureCalls = 0;
+    const harness = makeHarness({
+      captureUsageTui: async () => {
+        captureCalls++;
+        return {
+          ok: true,
+          text: "Current week (all models)\n█████████ 18% used",
+          capturedAtMs: Date.now(),
+          rateLimits: [
+            { status: "allowed", rateLimitType: "seven_day", utilization: 18, resetsAt: null },
+          ],
+        };
+      },
+    });
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const accountUsageFiber = yield* Stream.filter(
+        adapter.streamEvents,
+        (event) => event.type === "account.rate-limits.updated",
+      ).pipe(Stream.runHead, Effect.forkChild);
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "/usage",
+        attachments: [],
+      });
+
+      const accountUsageEvent = yield* Fiber.join(accountUsageFiber);
+      assert.equal(accountUsageEvent._tag, "Some");
+      assert.equal(captureCalls, 1);
+      if (
+        accountUsageEvent._tag === "Some" &&
+        accountUsageEvent.value.type === "account.rate-limits.updated"
+      ) {
+        assert.deepEqual(accountUsageEvent.value.payload, {
+          rateLimits: {
+            type: "rate_limit_event",
+            source: "claude-cli-tui-capture",
+            rate_limit_info: {
+              status: "allowed",
+              rateLimitType: "seven_day",
+              utilization: 18,
+              resetsAt: null,
+            },
+          },
+        });
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
 
   it.effect("updates model on sendTurn when model override is provided", () => {
     const harness = makeHarness();

@@ -1,5 +1,10 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import {
   ChevronDownIcon,
   CloudIcon,
@@ -10,8 +15,21 @@ import {
 } from "lucide-react";
 import { memo, useMemo } from "react";
 
-import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
+import {
+  useComposerDraftModelState,
+  useComposerDraftStore,
+  type DraftId,
+} from "../composerDraftStore";
 import { useIsMobile } from "../hooks/useMediaQuery";
+import {
+  deriveLatestAccountUsageSnapshot,
+  type AccountUsageProviderScope,
+} from "../lib/accountUsage";
+import {
+  deriveProviderInstanceEntries,
+  resolveProviderDriverKindForInstanceSelection,
+} from "../providerInstances";
+import { useServerProviders } from "../rpc/serverState";
 import { useStore } from "../store";
 import { createProjectSelectorByRef, createThreadSelectorByRef } from "../storeSelectors";
 import {
@@ -26,6 +44,7 @@ import {
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
+import { AccountUsageMeter } from "./chat/AccountUsageMeter";
 import { Button } from "./ui/button";
 import {
   Menu,
@@ -190,6 +209,23 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   );
 });
 
+function accountUsageScopeFromDriver(
+  provider: ProviderDriverKind | undefined,
+): AccountUsageProviderScope {
+  if (provider === "codex") return "codex";
+  if (provider === "claudeAgent") return "claudeAgent";
+  return "unsupported";
+}
+
+function fallbackAccountUsageProviderFromInstanceId(
+  instanceId: ProviderInstanceId | null | undefined,
+): AccountUsageProviderScope | undefined {
+  const value = instanceId?.toString();
+  if (value === "codex") return "codex";
+  if (value === "claudeAgent") return "claudeAgent";
+  return undefined;
+}
+
 export const BranchToolbar = memo(function BranchToolbar({
   environmentId,
   threadId,
@@ -210,6 +246,12 @@ export const BranchToolbar = memo(function BranchToolbar({
   );
   const serverThreadSelector = useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]);
   const serverThread = useStore(serverThreadSelector);
+  const providerStatuses = useServerProviders();
+  const providerInstanceEntries = useMemo(
+    () => deriveProviderInstanceEntries(providerStatuses),
+    [providerStatuses],
+  );
+  const composerModelDraft = useComposerDraftModelState(draftId ?? threadRef);
   const draftThread = useComposerDraftStore((store) =>
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
@@ -225,6 +267,40 @@ export const BranchToolbar = memo(function BranchToolbar({
   const activeProject = useStore(activeProjectSelector);
   const hasActiveThread = serverThread !== undefined || draftThread !== null;
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
+  const activeProviderInstanceId =
+    composerModelDraft.activeProvider ??
+    serverThread?.session?.providerInstanceId ??
+    serverThread?.modelSelection.instanceId ??
+    null;
+  const activeAccountUsageProvider = useMemo(() => {
+    const activeInstanceId =
+      composerModelDraft.activeProvider ??
+      serverThread?.session?.providerInstanceId ??
+      serverThread?.modelSelection.instanceId ??
+      null;
+    const driver = resolveProviderDriverKindForInstanceSelection(
+      providerInstanceEntries,
+      providerStatuses,
+      activeInstanceId,
+    );
+    return driver
+      ? accountUsageScopeFromDriver(driver)
+      : (fallbackAccountUsageProviderFromInstanceId(activeInstanceId) ?? "unsupported");
+  }, [
+    composerModelDraft.activeProvider,
+    providerInstanceEntries,
+    providerStatuses,
+    serverThread?.modelSelection.instanceId,
+    serverThread?.session?.providerInstanceId,
+  ]);
+  const activeAccountUsage = useMemo(
+    () =>
+      deriveLatestAccountUsageSnapshot(serverThread?.activities ?? [], {
+        provider: activeAccountUsageProvider,
+        instanceId: activeProviderInstanceId,
+      }),
+    [activeAccountUsageProvider, activeProviderInstanceId, serverThread?.activities],
+  );
   const effectiveEnvMode =
     effectiveEnvModeOverride ??
     resolveEffectiveEnvMode({
@@ -277,8 +353,20 @@ export const BranchToolbar = memo(function BranchToolbar({
             activeWorktreePath={activeWorktreePath}
             onEnvModeChange={onEnvModeChange}
           />
+          {activeAccountUsage ? (
+            <>
+              <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
+              <AccountUsageMeter usage={activeAccountUsage} />
+            </>
+          ) : null}
         </div>
       )}
+      {isMobile && activeAccountUsage ? (
+        <>
+          <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
+          <AccountUsageMeter usage={activeAccountUsage} />
+        </>
+      ) : null}
 
       <BranchToolbarBranchSelector
         className="min-w-0 flex-1 justify-end md:ml-auto md:flex-none"

@@ -226,9 +226,18 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    refreshUsageAfterTurns: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({
+        title: "Refresh usage after turns",
+        description:
+          "After Claude finishes a turn, run the official Claude CLI usage view in the background to refresh account usage metrics.",
+        providerSettingsForm: { control: "switch" },
+      }),
+    ),
   },
   {
-    order: ["binaryPath", "homePath", "launchArgs"],
+    order: ["binaryPath", "homePath", "launchArgs", "refreshUsageAfterTurns"],
   },
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
@@ -421,6 +430,7 @@ const ClaudeSettingsPatch = Schema.Struct({
   homePath: Schema.optionalKey(Schema.String),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
   launchArgs: Schema.optionalKey(Schema.String),
+  refreshUsageAfterTurns: Schema.optionalKey(Schema.Boolean),
 });
 
 const CursorSettingsPatch = Schema.Struct({

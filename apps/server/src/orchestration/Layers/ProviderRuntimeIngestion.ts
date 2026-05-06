@@ -1237,6 +1237,24 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "account.rate-limits.updated": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "account.rate-limits.updated",
+          summary: "Account usage updated",
+          payload: event.payload.rateLimits,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...(event.providerInstanceId !== undefined
+            ? { providerInstanceId: event.providerInstanceId }
+            : {}),
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "item.updated": {
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];

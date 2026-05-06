@@ -433,6 +433,14 @@ label:has(> select#reasoning-effort) select {
   font-size: 0.75rem;
 }
 
+.chat-markdown .chat-markdown-preformatted {
+  white-space: pre-wrap;
+  overflow-wrap: normal;
+  word-break: normal;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  line-height: 1.45;
+}
+
 .markdown-file-link-tooltip-scroll {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--border) 78%, transparent) transparent;

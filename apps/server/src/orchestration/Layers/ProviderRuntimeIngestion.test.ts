@@ -2623,6 +2623,49 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("projects account rate limit updates into thread activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "account.rate-limits.updated",
+      eventId: asEventId("evt-account-rate-limits-updated"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        rateLimits: {
+          type: "rate_limit_event",
+          rate_limit_info: {
+            status: "allowed",
+            rateLimitType: "five_hour",
+            utilization: 0.15,
+            resetsAt: 1_777_777_777_000,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "account.rate-limits.updated",
+      ),
+    );
+
+    const usageActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.kind === "account.rate-limits.updated",
+    );
+    expect(usageActivity).toBeDefined();
+    expect(usageActivity?.summary).toBe("Account usage updated");
+    expect(usageActivity?.payload).toMatchObject({
+      rate_limit_info: {
+        status: "allowed",
+        rateLimitType: "five_hour",
+        utilization: 0.15,
+      },
+    });
+  });
+
   it("projects Codex camelCase token usage payloads into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

@@ -14,6 +14,7 @@ import {
   type PermissionResult,
   type PermissionUpdate,
   type SDKMessage,
+  type SDKRateLimitInfo,
   type SDKResultMessage,
   type SettingSource,
   type SDKUserMessage,
@@ -75,6 +76,11 @@ import {
   resolveClaudeApiModelId,
   resolveClaudeEffort,
 } from "./ClaudeProvider.ts";
+import {
+  captureClaudeUsageTui,
+  type ClaudeUsageTuiRateLimitInfo,
+  type ClaudeUsageTuiResult,
+} from "./ClaudeUsageTuiCapture.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -156,6 +162,8 @@ interface ClaudeSessionContext {
   session: ProviderSession;
   readonly promptQueue: Queue.Queue<PromptQueueItem>;
   readonly query: ClaudeQueryRuntime;
+  readonly claudeBinaryPath: string;
+  readonly runFork: (effect: Effect.Effect<void, never, never>) => Fiber.Fiber<void, never>;
   streamFiber: Fiber.Fiber<void, Error> | undefined;
   readonly startedAt: string;
   readonly basePermissionMode: PermissionMode | undefined;
@@ -171,6 +179,9 @@ interface ClaudeSessionContext {
   turnState: ClaudeTurnState | undefined;
   lastKnownContextWindow: number | undefined;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
+  readonly latestRateLimitInfoByType: Map<string, SDKRateLimitInfo>;
+  usageRefreshInFlight: boolean;
+  lastUsageRefreshAtMs: number | undefined;
   lastAssistantUuid: string | undefined;
   lastThreadStartedId: string | undefined;
   stopped: boolean;
@@ -191,6 +202,7 @@ export interface ClaudeAdapterLiveOptions {
     readonly prompt: AsyncIterable<SDKUserMessage>;
     readonly options: ClaudeQueryOptions;
   }) => ClaudeQueryRuntime;
+  readonly captureUsageTui?: typeof captureClaudeUsageTui;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
 }
@@ -578,6 +590,129 @@ Use Dynamo's team coordinator MCP tools only when the request needs Dynamo-manag
 
 If the user specifies providers or models for Dynamo-managed work, pass those requested values to team_spawn_child. Do not silently substitute unavailable requested models with same-provider alternatives. If a provider or model is omitted for a Dynamo-managed child, omit it in the tool call and let Dynamo choose.
 </dynamo_team_coordinator>`;
+const CLAUDE_USAGE_SLASH_COMMAND = "/usage";
+const CLAUDE_RATE_LIMIT_LABELS: Record<string, string> = {
+  five_hour: "Current session",
+  seven_day: "Current week",
+  seven_day_opus: "Current week (Opus only)",
+  seven_day_sonnet: "Current week (Sonnet only)",
+  overage: "Extra usage",
+};
+const CLAUDE_RATE_LIMIT_ORDER = [
+  "five_hour",
+  "seven_day",
+  "seven_day_opus",
+  "seven_day_sonnet",
+  "overage",
+] as const;
+const CLAUDE_RATE_LIMIT_TYPES = new Set<string>(CLAUDE_RATE_LIMIT_ORDER);
+const CLAUDE_BACKGROUND_USAGE_REFRESH_MIN_INTERVAL_MS = 60_000;
+
+function isClaudeUsageSlashCommand(input: string | undefined): boolean {
+  return input?.trim().toLowerCase() === CLAUDE_USAGE_SLASH_COMMAND;
+}
+
+function normalizeRateLimitUtilization(value: number | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  const percentage = value <= 1 ? value * 100 : value;
+  return Math.max(0, Math.min(100, percentage));
+}
+
+function formatRateLimitPercentage(value: number | null): string {
+  if (value === null) {
+    return "unknown";
+  }
+  if (value < 10) {
+    return `${value.toFixed(1).replace(/\.0$/, "")}%`;
+  }
+  return `${Math.round(value)}%`;
+}
+
+function formatRateLimitReset(value: number | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+
+  const millis = value > 1_000_000_000_000 ? value : value * 1000;
+  const resetDate = new Date(millis);
+  if (Number.isNaN(resetDate.getTime())) {
+    return null;
+  }
+
+  const now = new Date();
+  const sameYear = resetDate.getFullYear() === now.getFullYear();
+  const sameDay = resetDate.toDateString() === now.toDateString();
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(resetDate);
+
+  if (sameDay) {
+    return time;
+  }
+
+  const date = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  }).format(resetDate);
+  return `${date} at ${time}`;
+}
+
+function statusTextForRateLimit(info: SDKRateLimitInfo): string {
+  if (info.rateLimitType === "overage") {
+    if (info.isUsingOverage) return "using extra usage";
+    if (info.overageDisabledReason) return "not enabled";
+    if (info.overageStatus) return info.overageStatus.replaceAll("_", " ");
+  }
+  return info.status.replaceAll("_", " ");
+}
+
+function formatClaudeAccountUsageText(context: ClaudeSessionContext): string {
+  const limits = CLAUDE_RATE_LIMIT_ORDER.flatMap((limitType) => {
+    const info = context.latestRateLimitInfoByType.get(limitType);
+    return info ? [{ limitType, info }] : [];
+  });
+  const unknownLimits = [...context.latestRateLimitInfoByType.entries()]
+    .filter(([limitType]) => !CLAUDE_RATE_LIMIT_TYPES.has(limitType))
+    .map(([limitType, info]) => ({ limitType, info }));
+  const allLimits = [...limits, ...unknownLimits];
+
+  if (allLimits.length === 0) {
+    return [
+      "Claude account usage",
+      "",
+      "Claude has not emitted subscription rate-limit data for this session yet.",
+      "Run a Claude turn and try /usage again.",
+    ].join("\n");
+  }
+
+  const labelWidth = Math.max(
+    18,
+    ...allLimits.map(({ limitType }) => (CLAUDE_RATE_LIMIT_LABELS[limitType] ?? limitType).length),
+  );
+  const percentageWidth = 8;
+  const lines = [
+    "Claude account usage",
+    "",
+    ...allLimits.map(({ limitType, info }) => {
+      const label = CLAUDE_RATE_LIMIT_LABELS[limitType] ?? limitType;
+      const percentage = formatRateLimitPercentage(normalizeRateLimitUtilization(info.utilization));
+      const reset = formatRateLimitReset(
+        info.rateLimitType === "overage" ? info.overageResetsAt : info.resetsAt,
+      );
+      const detailParts = [statusTextForRateLimit(info)];
+      if (reset) {
+        detailParts.push(`resets ${reset}`);
+      }
+      return `${label.padEnd(labelWidth)}  ${percentage.padStart(percentageWidth)}  ${detailParts.join(" - ")}`;
+    }),
+  ];
+
+  return lines.join("\n");
+}
 
 function buildPromptText(
   input: ProviderSendTurnInput,
@@ -1010,6 +1145,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         prompt: input.prompt,
         options: input.options,
       }) as ClaudeQueryRuntime);
+  const captureUsageTui = options?.captureUsageTui ?? captureClaudeUsageTui;
 
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
@@ -1020,6 +1156,111 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
   const offerRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
     Queue.offer(runtimeEventQueue, event).pipe(Effect.asVoid);
+
+  const emitCapturedUsageRateLimits = Effect.fn("emitCapturedUsageRateLimits")(function* (
+    context: ClaudeSessionContext,
+    rateLimits: ReadonlyArray<ClaudeUsageTuiRateLimitInfo>,
+    turnId?: TurnId,
+  ) {
+    for (const rateLimit of rateLimits) {
+      const sdkInfo = rateLimit as SDKRateLimitInfo;
+      context.latestRateLimitInfoByType.set(rateLimit.rateLimitType, sdkInfo);
+      const stamp = yield* makeEventStamp();
+      yield* offerRuntimeEvent({
+        type: "account.rate-limits.updated",
+        eventId: stamp.eventId,
+        provider: PROVIDER,
+        providerInstanceId: boundInstanceId,
+        createdAt: stamp.createdAt,
+        threadId: context.session.threadId,
+        ...(turnId ? { turnId } : {}),
+        payload: {
+          rateLimits: {
+            type: "rate_limit_event",
+            source: "claude-cli-tui-capture",
+            rate_limit_info: sdkInfo,
+          },
+        },
+        providerRefs: nativeProviderRefs(context),
+      });
+    }
+  });
+
+  const applyUsageCaptureResult = Effect.fn("applyUsageCaptureResult")(function* (
+    context: ClaudeSessionContext,
+    result: ClaudeUsageTuiResult,
+    turnId?: TurnId,
+  ) {
+    if (!result.ok) {
+      return;
+    }
+    context.lastUsageRefreshAtMs = result.capturedAtMs;
+    if (result.rateLimits.length === 0) {
+      yield* Effect.logDebug("claude.usage-refresh.no-rate-limits", {
+        threadId: context.session.threadId,
+      });
+      return;
+    }
+    yield* emitCapturedUsageRateLimits(context, result.rateLimits, turnId);
+  });
+
+  const runBackgroundUsageRefresh = Effect.fn("runBackgroundUsageRefresh")(function* (
+    context: ClaudeSessionContext,
+    turnId: TurnId,
+  ) {
+    const result = yield* Effect.promise(() =>
+      captureUsageTui({
+        binaryPath: context.claudeBinaryPath,
+        cwd: context.session.cwd ?? process.cwd(),
+        timeoutMs: 12_000,
+      }),
+    );
+    if (!result.ok) {
+      yield* Effect.logDebug("claude.usage-refresh.capture-failed", {
+        threadId: context.session.threadId,
+        reason: result.reason,
+        message: result.message,
+      });
+      return;
+    }
+    yield* applyUsageCaptureResult(context, result, turnId);
+  });
+
+  const scheduleBackgroundUsageRefresh = Effect.fn("scheduleBackgroundUsageRefresh")(function* (
+    context: ClaudeSessionContext,
+    turnId: TurnId,
+  ) {
+    if (!claudeSettings.refreshUsageAfterTurns || context.stopped || context.usageRefreshInFlight) {
+      return;
+    }
+    const now = Date.now();
+    if (
+      context.lastUsageRefreshAtMs !== undefined &&
+      now - context.lastUsageRefreshAtMs < CLAUDE_BACKGROUND_USAGE_REFRESH_MIN_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    context.usageRefreshInFlight = true;
+    context.lastUsageRefreshAtMs = now;
+    yield* Effect.sync(() => {
+      context.runFork(
+        runBackgroundUsageRefresh(context, turnId).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logDebug("claude.usage-refresh.failed", {
+              threadId: context.session.threadId,
+              cause,
+            }),
+          ),
+          Effect.ensuring(
+            Effect.sync(() => {
+              context.usageRefreshInFlight = false;
+            }),
+          ),
+        ),
+      );
+    });
+  });
 
   const logNativeSdkMessage = Effect.fn("logNativeSdkMessage")(function* (
     context: ClaudeSessionContext,
@@ -1583,6 +1824,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       ...(status === "failed" && errorMessage ? { lastError: errorMessage } : {}),
     };
     yield* updateResumeCursor(context);
+    if (status === "completed") {
+      yield* scheduleBackgroundUsageRefresh(context, turnState.turnId);
+    }
   });
 
   const handleStreamEvent = Effect.fn("handleStreamEvent")(function* (
@@ -2312,6 +2556,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     if (message.type === "rate_limit_event") {
+      const limitType = message.rate_limit_info.rateLimitType ?? "unknown";
+      context.latestRateLimitInfoByType.set(limitType, message.rate_limit_info);
       yield* offerRuntimeEvent({
         ...base,
         type: "account.rate-limits.updated",
@@ -3002,6 +3248,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         session,
         promptQueue,
         query: queryRuntime,
+        claudeBinaryPath,
+        runFork,
         streamFiber: undefined,
         startedAt,
         basePermissionMode: permissionMode,
@@ -3014,6 +3262,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         turnState: undefined,
         lastKnownContextWindow: undefined,
         lastKnownTokenUsage: undefined,
+        latestRateLimitInfoByType: new Map(),
+        usageRefreshInFlight: false,
+        lastUsageRefreshAtMs: undefined,
         lastAssistantUuid: resumeState?.resumeSessionAt,
         lastThreadStartedId: undefined,
         stopped: false,
@@ -3166,6 +3417,49 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       payload: modelSelection?.model ? { model: modelSelection.model } : {},
       providerRefs: {},
     });
+
+    if (isClaudeUsageSlashCommand(input.input)) {
+      const captureResult = yield* Effect.promise(() =>
+        captureUsageTui({
+          binaryPath: context.claudeBinaryPath,
+          cwd: context.session.cwd ?? process.cwd(),
+        }),
+      );
+
+      const usageText = captureResult.ok
+        ? captureResult.text
+        : [
+            `Couldn't capture the Claude /usage screen: ${captureResult.message}`,
+            "",
+            "Showing the latest known rate-limit telemetry from this session instead:",
+            "",
+            formatClaudeAccountUsageText(context),
+            ...(captureResult.partialText && captureResult.partialText.trim().length > 0
+              ? ["", "Partial CLI output:", "", captureResult.partialText]
+              : []),
+          ].join("\n");
+
+      const assistantBlock = yield* createSyntheticAssistantTextBlock(context, usageText);
+      if (assistantBlock) {
+        yield* completeAssistantTextBlock(context, assistantBlock.block, {
+          force: true,
+          rawMethod: "claude.local_usage",
+          rawPayload: captureResult.ok
+            ? { source: "claude-cli-tui-capture" }
+            : { source: "latest-rate-limit-events", reason: captureResult.reason },
+        });
+      }
+      context.lastUsageRefreshAtMs = Date.now();
+      yield* applyUsageCaptureResult(context, captureResult, turnId);
+      yield* completeTurn(context, "completed");
+      return {
+        threadId: context.session.threadId,
+        turnId,
+        ...(context.session.resumeCursor !== undefined
+          ? { resumeCursor: context.session.resumeCursor }
+          : {}),
+      };
+    }
 
     const message = yield* buildUserMessageEffect(input, {
       fileSystem,

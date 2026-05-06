@@ -58,6 +58,10 @@ interface ChatMarkdownProps {
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
+const ANSI_ESCAPE_PATTERN = `${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`;
+const ANSI_ESCAPE_REGEX = new RegExp(ANSI_ESCAPE_PATTERN, "g");
+const ANSI_ESCAPE_TEST_REGEX = new RegExp(ANSI_ESCAPE_PATTERN);
+const BOX_DRAWING_OR_BLOCK_CHAR_REGEX = /[┌┐└┘├┤┬┴┼│─═║╔╗╚╝╠╣╦╩╬█▁▂▃▄▅▆▇▉▊▋▌▍▎▏░▒▓]/u;
 const MAX_HIGHLIGHT_CACHE_ENTRIES = 500;
 const MAX_HIGHLIGHT_CACHE_MEMORY_BYTES = 50 * 1024 * 1024;
 const highlightedCodeCache = new LRUCache<string>(
@@ -357,6 +361,30 @@ function normalizeMarkdownLinkHrefKey(href: string): string {
   return rewriteMarkdownFileUriHref(href.trim()) ?? href.trim();
 }
 
+function sanitizePreformattedText(text: string): string {
+  return text.replaceAll(ANSI_ESCAPE_REGEX, "");
+}
+
+export function shouldRenderAsPreformattedText(text: string): boolean {
+  if (BOX_DRAWING_OR_BLOCK_CHAR_REGEX.test(text) || ANSI_ESCAPE_TEST_REGEX.test(text)) {
+    return true;
+  }
+
+  const nonEmptyLines = text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+$/g, ""))
+    .filter((line) => line.length > 0);
+  if (nonEmptyLines.length < 2) {
+    return false;
+  }
+
+  const alignedLineCount = nonEmptyLines.filter((line) => {
+    return /^\s{2,}\S/.test(line) || /\S {2,}\S/.test(line);
+  }).length;
+
+  return alignedLineCount >= 2;
+}
+
 const MarkdownFileLink = memo(function MarkdownFileLink({
   href,
   targetPath,
@@ -505,6 +533,11 @@ function areMarkdownFileLinkPropsEqual(
 function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const shouldRenderPreformatted = useMemo(() => shouldRenderAsPreformattedText(text), [text]);
+  const sanitizedPreformattedText = useMemo(
+    () => (shouldRenderPreformatted ? sanitizePreformattedText(text) : text),
+    [shouldRenderPreformatted, text],
+  );
   const markdownFileLinkMetaByHref = useMemo(() => {
     const metaByHref = new Map<
       string,
@@ -589,6 +622,14 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
       resolvedTheme,
     ],
   );
+
+  if (shouldRenderPreformatted) {
+    return (
+      <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">
+        <pre className="chat-markdown-preformatted">{sanitizedPreformattedText}</pre>
+      </div>
+    );
+  }
 
   return (
     <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">

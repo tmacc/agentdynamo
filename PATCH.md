@@ -112,6 +112,76 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ## Fork Feature Inventory
 
+### Slash-command preformatted output rendering
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: Codex slash-command responses such as `/usage` render command-style visual layouts again. Outputs that rely on preserved whitespace, alignment, box-drawing glyphs, or ANSI-styled terminal formatting are shown in a monospace preformatted block instead of being flattened through markdown paragraph rendering.
+- `Why it exists`: Codex app-server currently delivers slash-command completions as plain assistant text. Treating that text as markdown collapses significant whitespace and strips the layout cues those commands use.
+- `Key fork files`:
+  - `apps/web/src/components/ChatMarkdown.tsx`
+  - `apps/web/src/components/ChatMarkdown.browser.tsx`
+  - `apps/web/src/index.css`
+- `Important invariants`:
+  - Normal prose and markdown responses must keep using the markdown renderer.
+  - Only command-style text with strong preformatted signals should bypass markdown.
+  - Preformatted rendering must preserve line breaks and alignment while remaining soft-wrapped inside the chat column.
+  - ANSI color/style escape sequences should be stripped rather than displayed literally.
+- `Merge hotspots`:
+  - Shared assistant markdown rendering
+  - Any upstream changes to Codex slash-command payload formatting
+- `Verification`:
+  - Run `/usage` in a Codex-backed thread and confirm the usage card/chart layout is visible instead of flattened text.
+  - Run another slash command with aligned columns or box-drawing output and confirm spacing is preserved.
+  - Confirm normal markdown replies still render links, lists, tables, and code fences as before.
+
+### Claude account usage meter and /usage TUI capture
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: Sending `/usage` in a Claude-backed thread spawns the official `claude` CLI in a hidden PTY, drives the `/usage` slash command, captures the rendered TUI screen with a headless terminal emulator, and returns it to the chat as preformatted text — i.e. the same usage screen the user sees in the Claude Code CLI. The captured TUI is also parsed best-effort into durable `account.rate-limits.updated` activities so the toolbar meter can reuse the same source. Claude provider settings include an opt-in `Refresh usage after turns` toggle; when enabled, Dynamo runs the same official-CLI capture in the background after a completed Claude turn, throttled and single-flight, and updates the meter only when recognizable percentages are parsed. Codex usage is sourced from Codex app-server's first-party `account/rateLimits/updated` notifications, mapping its primary window to `5h` and secondary window to `7d`. The branch toolbar (next to the worktree selector, below the input box) shows compact five-hour and weekly usage bars when known; hovering it shows all known limits with utilization, status, and reset time. The meter only appears when telemetry actually carries a utilization value, so the chrome stays clean instead of rendering "N/A" placeholders for the common low-usage state.
+- `Why it exists`: Claude Code's `/usage` is an interactive TUI overlay that is not exposed through `--print`/stream-json or the Claude Agent SDK. We need to spawn the real CLI to render it. The fork already spawns the official `claude` binary as the SDK's transport (via `pathToClaudeCodeExecutable`), so reusing the binary for `/usage` keeps the integration in the same first-party-usage pattern Anthropic has signaled is permitted, instead of impersonating the CLI to private endpoints.
+- `Key fork files`:
+  - `apps/server/src/provider/Layers/ClaudeUsageTuiCapture.ts`
+  - `apps/server/src/provider/Layers/ClaudeUsageTuiCapture.test.ts`
+  - `apps/server/src/provider/Layers/ClaudeAdapter.ts`
+  - `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`
+  - `packages/contracts/src/settings.ts`
+  - `apps/web/src/lib/accountUsage.ts`
+  - `apps/web/src/lib/accountUsage.test.ts`
+  - `apps/web/src/lib/contextWindow.ts`
+  - `apps/web/src/lib/contextWindow.test.ts`
+  - `apps/web/src/components/chat/AccountUsageMeter.tsx`
+  - `apps/web/src/components/BranchToolbar.tsx`
+  - `apps/web/src/components/settings/ProviderInstanceCard.tsx`
+  - `apps/web/src/components/chat/ChatComposer.tsx`
+  - `apps/server/package.json` (adds `@xterm/headless` for screen capture)
+- `Important invariants`:
+  - The TUI capture must always tear down the spawned `claude` process, even on timeout or marker-not-seen failures, and it must not block other turns.
+  - The capture must use the same `claudeBinaryPath` the rest of the adapter uses (resolved from `ServerSettingsService`), so user-configured Claude installs are honored.
+  - The capture must run with `--add-dir <session.cwd>` and `--dangerously-skip-permissions` so the workspace trust dialog does not deadlock the readiness wait.
+  - The capture must clear `CLAUDECODE` from the spawned env so a nested invocation isn't rejected when the server itself is launched from a Claude Code session.
+  - The capture must distinguish Claude Code's slash-command picker from the actual `/usage` screen. If the picker appears with `/usage` highlighted, send a second Enter and keep waiting; never return the command picker as successful usage output.
+  - The TUI parser must handle Claude Code layouts where the rate-limit label and percentage render on separate rows, because current CLI builds show rows like `Current week (all models)` followed by a bar row containing `18% used`.
+  - Parsed Claude TUI limits must include utilization-derived status (`allowed`, `allowed_warning`, `rejected`) and should preserve the five-hour reset timestamp when the TUI provides one. Weekly TUI reset rows show time-of-day without a date, so they must not be converted into fabricated absolute timestamps.
+  - Values parsed from the Claude CLI `/usage` screen are already percentage values. Do not run them through SDK fractional-utilization scaling; otherwise `1% used` becomes a false `100%` meter.
+  - On capture failure the `/usage` response must fall back to the SDK rate-limit text so the user always sees something, with the failure reason included.
+  - Background post-turn refresh must stay opt-in per Claude provider instance, must not block turn completion, must be single-flight and throttled per session, and must keep prior durable meter data when the TUI parser cannot recognize percentages.
+  - The meter must filter out status-only `rate_limit_event` payloads (no utilization) so the meter only renders real percentages.
+  - The compact toolbar meter should show both five-hour and seven-day usage when both are known; detailed Opus/Sonnet/extra usage remains in the hover breakdown.
+  - Codex meter data must come from Codex app-server `account/rateLimits/updated` payloads, not a separate OpenAI HTTP endpoint. The app-server payload's `primary.usedPercent` is the five-hour window and `secondary.usedPercent` is the weekly window.
+  - Account usage activities must carry `providerInstanceId` when available, and the toolbar must scope usage to the exact provider instance currently selected in the model picker, including unsent draft changes. Legacy unscoped activity can be used as fallback, but it must not override exact-instance data or make one Claude/Codex account show another account's usage.
+  - Context-window usage must keep the latest observed used-token count but reproject it against the currently selected model's max context window, including unsent picker changes, so the context percent updates before the next turn is sent.
+- `Merge hotspots`:
+  - Claude SDK slash command handling
+  - Branch toolbar layout next to the worktree selector
+  - Provider instance settings UI and Claude driver config schema
+  - Any change to how `claudeBinaryPath` is resolved or stored on the session context
+- `Verification`:
+  - Send `/usage` in a Claude-backed thread and confirm the response shows the same screen as running `/usage` in the standalone Claude CLI.
+  - Enable `Refresh usage after turns` for a Claude provider instance, run a normal Claude turn, and confirm the branch toolbar meter updates after the turn completes without adding a chat message.
+  - Run with `claude` not on PATH (or set a deliberately broken `binaryPath`) and confirm the response surfaces a clear capture-failed message and the SDK fallback text.
+  - Open a Claude-backed thread and confirm the branch toolbar meter appears only after the SDK emits a `rate_limit_event` with utilization (i.e. the meter stays hidden in low-usage sessions instead of rendering N/A).
+  - On macOS/Linux, run `bun run --cwd apps/server test src/provider/Layers/ClaudeUsageTuiCapture.test.ts` without `CLAUDE_BINARY_PATH` and confirm the live CLI capture is skipped. Set `CLAUDE_BINARY_PATH` to a logged-in `claude` binary to opt into the integration test and confirm it reports success.
+
 ### New worktree thread base branch default
 
 - `Status`: Present on current fork.
@@ -683,6 +753,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Marketing page titles, release names, and generated checkpoint commit author/committer names should say Dynamo.
   - Marketing homepage and download page copy should stay Dynamo-specific: no visible T3 Code branding, no `t3code` release/cache naming, and no product screenshots containing old T3 UI.
   - Default runtime state should live under `~/.dynamo`, including `userdata/state.sqlite`, logs, settings, keybindings, and worktrees.
+  - Dev runner defaults are worktree-isolated: unless `--home-dir`, `DYNAMO_HOME`, or `T3CODE_HOME` points at a custom non-default directory, `scripts/dev-runner.ts` places each worktree under `~/.dynamo/dev-worktrees/<label>-<hash>`. An inherited default `~/.dynamo` value is treated as unset in dev mode because Dynamo-launched terminals often carry it automatically. This prevents `bun run dev`, `bun run dev:server`, and `bun run dev:desktop` from sharing one SQLite database across branches with different migration histories. `T3CODE_DEV_INSTANCE` participates in that default home key so intentionally concurrent dev runs can opt into separate state as well as separate ports. Dev runner also defaults `T3CODE_TELEMETRY_ENABLED=0` unless explicitly set, so local dev sessions do not repeatedly log PostHog transport failures when offline or firewalled.
   - `DYNAMO_HOME` is the primary home override. `T3CODE_HOME` remains a fallback alias and is set to the same path for child processes that still expect it.
   - Desktop Chromium profile/userData should use Dynamo-specific folders so upstream T3 Code and Dynamo do not share local profile state.
   - Browser local-storage keys should use `dynamo:*`. Do not read, migrate, or remove upstream `t3code:*` keys unless we intentionally add a user-approved migration path.
