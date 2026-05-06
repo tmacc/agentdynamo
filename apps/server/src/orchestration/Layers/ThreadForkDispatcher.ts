@@ -9,8 +9,8 @@ import {
   toSafeThreadAttachmentSegment,
 } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
-import { GitCore, type GitCoreShape } from "../../git/Services/GitCore.ts";
-import { GitStatusBroadcaster } from "../../git/Services/GitStatusBroadcaster.ts";
+import { GitVcsDriver, type GitVcsDriverShape } from "../../vcs/GitVcsDriver.ts";
+import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScriptRunner.ts";
@@ -169,7 +169,7 @@ const removeTemporaryIndexDir = (dir: string) =>
   }).pipe(Effect.ignoreCause({ log: true }), Effect.asVoid);
 
 function buildSourceWorkspaceDirtyPatch(input: {
-  readonly git: GitCoreShape;
+  readonly git: GitVcsDriverShape;
   readonly sourceWorkspaceCwd: string;
   readonly baseSha: string;
 }): Effect.Effect<string, OrchestrationForkThreadError> {
@@ -222,7 +222,7 @@ function buildSourceWorkspaceDirtyPatch(input: {
 }
 
 function resolveSourceWorkspaceHeadSha(input: {
-  readonly git: GitCoreShape;
+  readonly git: GitVcsDriverShape;
   readonly sourceWorkspaceCwd: string;
 }): Effect.Effect<string, OrchestrationForkThreadError> {
   return input.git
@@ -261,7 +261,7 @@ interface SourceForkSnapshot {
 }
 
 function resolveSourceForkSnapshot(input: {
-  readonly git: GitCoreShape;
+  readonly git: GitVcsDriverShape;
   readonly sourceWorkspaceCwd: string;
   readonly requestedBaseBranch?: string | null | undefined;
   readonly sourceThreadBranch: string | null;
@@ -309,7 +309,7 @@ function resolveSourceForkSnapshot(input: {
 }
 
 function applySourceWorkspaceDirtyPatch(input: {
-  readonly git: GitCoreShape;
+  readonly git: GitVcsDriverShape;
   readonly worktreePath: string;
   readonly patch: string;
 }): Effect.Effect<void, OrchestrationForkThreadError> {
@@ -346,7 +346,7 @@ function applySourceWorkspaceDirtyPatch(input: {
 }
 
 const cleanupForkWorktree = (input: {
-  readonly git: GitCoreShape;
+  readonly git: GitVcsDriverShape;
   readonly cwd: string;
   readonly worktreePath: string;
   readonly branch: string;
@@ -379,8 +379,8 @@ const makeThreadForkDispatcher = Effect.gen(function* () {
   const materializer = yield* ThreadForkMaterializer;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const serverConfig = yield* ServerConfig;
-  const git = yield* GitCore;
-  const gitStatusBroadcaster = yield* GitStatusBroadcaster;
+  const git = yield* GitVcsDriver;
+  const gitStatusBroadcaster = yield* VcsStatusBroadcaster;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
 
   const forkThread: ThreadForkDispatcherShape["forkThread"] = (input) =>
@@ -461,8 +461,8 @@ const makeThreadForkDispatcher = Effect.gen(function* () {
           const worktree = yield* git
             .createWorktree({
               cwd: sourceProject.value.workspaceRoot,
-              branch: sourceSnapshot.headSha,
-              newBranch: buildTemporaryWorktreeBranchName(),
+              refName: sourceSnapshot.headSha,
+              newRefName: buildTemporaryWorktreeBranchName(),
               path: null,
             })
             .pipe(
@@ -470,7 +470,7 @@ const makeThreadForkDispatcher = Effect.gen(function* () {
                 toForkThreadError(cause, "Failed to prepare the fork worktree."),
               ),
             );
-          branch = worktree.worktree.branch;
+          branch = worktree.worktree.refName;
           worktreePath = worktree.worktree.path;
           cleanupWorkspace = cleanupForkWorktree({
             git,

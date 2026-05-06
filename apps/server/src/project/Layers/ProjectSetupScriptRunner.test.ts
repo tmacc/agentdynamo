@@ -1,64 +1,77 @@
-import { Effect, Layer, Stream } from "effect";
+import { ProjectId, ThreadId, type OrchestrationProject } from "@t3tools/contracts";
+import { Effect, Layer, Option, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { ProjectId, ThreadId, type OrchestrationReadModel } from "@t3tools/contracts";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { makeOrchestrationReadModel } from "../../testing/vcsFixtures.ts";
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
 import { ProjectSetupScriptRunner } from "../Services/ProjectSetupScriptRunner.ts";
 import { WorktreeSetupRuntime } from "../Services/WorktreeSetupRuntime.ts";
 import { ProjectSetupScriptRunnerLive } from "./ProjectSetupScriptRunner.ts";
 
+const makeProject = (
+  scripts: OrchestrationProject["scripts"],
+  worktreeSetup: OrchestrationProject["worktreeSetup"] = null,
+): OrchestrationProject => ({
+  id: ProjectId.make("project-1"),
+  title: "Project",
+  workspaceRoot: "/repo/project",
+  defaultModelSelection: null,
+  scripts,
+  worktreeSetup,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  deletedAt: null,
+});
+
 const emptySnapshot = (
-  scripts: OrchestrationReadModel["projects"][number]["scripts"],
-  worktreeSetup: OrchestrationReadModel["projects"][number]["worktreeSetup"] = null,
-): OrchestrationReadModel =>
-  ({
-    snapshotSequence: 1,
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    projects: [
-      {
-        id: "project-1",
-        title: "Project",
-        workspaceRoot: "/repo/project",
-        defaultModelSelection: null,
-        scripts,
-        worktreeSetup,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-        deletedAt: null,
-      },
-    ],
+  scripts: OrchestrationProject["scripts"],
+  worktreeSetup: OrchestrationProject["worktreeSetup"] = null,
+) =>
+  makeOrchestrationReadModel({
+    projects: [makeProject(scripts, worktreeSetup)],
     threads: [],
-    providerSessions: [],
-    providerStatuses: [],
-    pendingApprovals: [],
-    latestTurnByThreadId: {},
-  }) as unknown as OrchestrationReadModel;
+  });
+
+const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
+  Layer.succeed(ProjectionSnapshotQuery, {
+    getCommandReadModel: () => Effect.die("unused"),
+    getSnapshot: () => Effect.die("unused"),
+    getShellSnapshot: () => Effect.die("unused"),
+    getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 1 }),
+    getCounts: () => Effect.die("unused"),
+    getActiveProjectByWorkspaceRoot: (workspaceRoot) =>
+      Effect.succeed(
+        workspaceRoot === project.workspaceRoot ? Option.some(project) : Option.none(),
+      ),
+    getProjectShellById: (projectId) =>
+      Effect.succeed(projectId === project.id ? Option.some(project) : Option.none()),
+    getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
+    getThreadCheckpointContext: () => Effect.die("unused"),
+    getThreadShellById: () => Effect.die("unused"),
+    getThreadDetailById: () => Effect.die("unused"),
+    getTeamTaskTrace: () => Effect.die("unused"),
+  });
+
+const unusedWorktreeSetupRuntimeLayer = Layer.succeed(WorktreeSetupRuntime, {
+  materializeProjectHelpers: () => Effect.die(new Error("unused")),
+  prepareWorktreeRuntime: () => Effect.die(new Error("unused")),
+  runSetupForThread: () => Effect.die(new Error("unused")),
+  runDevForThread: () => Effect.die(new Error("unused")),
+});
 
 describe("ProjectSetupScriptRunner", () => {
   it("returns no-script when no setup script exists", async () => {
     const open = vi.fn();
     const write = vi.fn();
+    const project = makeProject([]);
     const runner = await Effect.runPromise(
       Effect.service(ProjectSetupScriptRunner).pipe(
         Effect.provide(
           ProjectSetupScriptRunnerLive.pipe(
-            Layer.provideMerge(
-              Layer.succeed(WorktreeSetupRuntime, {
-                materializeProjectHelpers: () => Effect.die(new Error("unused")),
-                prepareWorktreeRuntime: () => Effect.die(new Error("unused")),
-                runSetupForThread: () => Effect.die(new Error("unused")),
-                runDevForThread: () => Effect.die(new Error("unused")),
-              }),
-            ),
-            Layer.provideMerge(
-              Layer.succeed(OrchestrationEngineService, {
-                getReadModel: () => Effect.succeed(emptySnapshot([])),
-                readEvents: () => Stream.empty,
-                dispatch: () => Effect.die(new Error("unused")),
-                streamDomainEvents: Stream.empty,
-              }),
-            ),
+            Layer.provideMerge(makeProjectionSnapshotQueryLayer(project)),
+            Layer.provideMerge(unusedWorktreeSetupRuntimeLayer),
             Layer.provideMerge(
               Layer.succeed(TerminalManager, {
                 open,
@@ -109,6 +122,37 @@ describe("ProjectSetupScriptRunner", () => {
                 runSetupForThread,
                 runDevForThread: () => Effect.die(new Error("unused")),
               }),
+            ),
+            Layer.provideMerge(
+              makeProjectionSnapshotQueryLayer(
+                makeProject(
+                  [
+                    {
+                      id: "setup",
+                      name: "Setup",
+                      command: "bun install",
+                      icon: "configure",
+                      runOnWorktreeCreate: true,
+                    },
+                  ],
+                  {
+                    version: 1,
+                    status: "configured",
+                    scanFingerprint: "fingerprint-1",
+                    packageManager: "bun",
+                    framework: "vite",
+                    installCommand: "bun install",
+                    devCommand: "bun run dev",
+                    envStrategy: "none",
+                    envSourcePath: null,
+                    portCount: 5,
+                    storageMode: "dynamo-managed",
+                    autoRunSetupOnWorktreeCreate: true,
+                    createdAt: "2026-01-01T00:00:00.000Z",
+                    updatedAt: "2026-01-01T00:00:00.000Z",
+                  },
+                ),
+              ),
             ),
             Layer.provideMerge(
               Layer.succeed(OrchestrationEngineService, {
@@ -197,37 +241,21 @@ describe("ProjectSetupScriptRunner", () => {
       }),
     );
     const write = vi.fn(() => Effect.void);
+    const project = makeProject([
+      {
+        id: "setup",
+        name: "Setup",
+        command: "bun install",
+        icon: "configure",
+        runOnWorktreeCreate: true,
+      },
+    ]);
     const runner = await Effect.runPromise(
       Effect.service(ProjectSetupScriptRunner).pipe(
         Effect.provide(
           ProjectSetupScriptRunnerLive.pipe(
-            Layer.provideMerge(
-              Layer.succeed(WorktreeSetupRuntime, {
-                materializeProjectHelpers: () => Effect.die(new Error("unused")),
-                prepareWorktreeRuntime: () => Effect.die(new Error("unused")),
-                runSetupForThread: () => Effect.die(new Error("unused")),
-                runDevForThread: () => Effect.die(new Error("unused")),
-              }),
-            ),
-            Layer.provideMerge(
-              Layer.succeed(OrchestrationEngineService, {
-                getReadModel: () =>
-                  Effect.succeed(
-                    emptySnapshot([
-                      {
-                        id: "setup",
-                        name: "Setup",
-                        command: "bun install",
-                        icon: "configure",
-                        runOnWorktreeCreate: true,
-                      },
-                    ]),
-                  ),
-                readEvents: () => Stream.empty,
-                dispatch: () => Effect.die(new Error("unused")),
-                streamDomainEvents: Stream.empty,
-              }),
-            ),
+            Layer.provideMerge(makeProjectionSnapshotQueryLayer(project)),
+            Layer.provideMerge(unusedWorktreeSetupRuntimeLayer),
             Layer.provideMerge(
               Layer.succeed(TerminalManager, {
                 open,

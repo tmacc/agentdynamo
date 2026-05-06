@@ -26,13 +26,6 @@ import type { OrchestrationEventStoreError } from "../../persistence/Errors.ts";
  */
 export interface OrchestrationEngineShape {
   /**
-   * Read the current in-memory orchestration read model.
-   *
-   * @returns Effect containing the latest read model.
-   */
-  readonly getReadModel: () => Effect.Effect<OrchestrationReadModel, never, never>;
-
-  /**
    * Replay persisted orchestration events from an exclusive sequence cursor.
    *
    * @param fromSequenceExclusive - Sequence cursor (exclusive).
@@ -55,6 +48,8 @@ export interface OrchestrationEngineShape {
     command: OrchestrationCommand,
   ) => Effect.Effect<{ sequence: number }, OrchestrationDispatchError, never>;
 
+  readonly getReadModel: () => Effect.Effect<OrchestrationReadModel>;
+
   /**
    * Stream persisted domain events in dispatch order.
    *
@@ -70,7 +65,7 @@ export interface OrchestrationEngineShape {
  * ```ts
  * const program = Effect.gen(function* () {
  *   const engine = yield* OrchestrationEngineService
- *   return yield* engine.getReadModel()
+ *   return yield* engine.dispatch(command)
  * })
  * ```
  */

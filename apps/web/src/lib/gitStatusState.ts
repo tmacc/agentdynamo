@@ -1,8 +1,9 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   type EnvironmentId,
-  type GitManagerServiceError,
   type GitStatusResult,
+  type GitManagerServiceError,
+  type VcsStatusResult,
 } from "@t3tools/contracts";
 import { Cause } from "effect";
 import { Atom } from "effect/unstable/reactivity";
@@ -17,13 +18,13 @@ import { buildStableGitStatusSnapshot, type GitStatusSnapshotCache } from "./git
 import type { WsRpcClient } from "~/rpc/wsRpcClient";
 
 interface GitStatusState {
-  readonly data: GitStatusResult | null;
+  readonly data: VcsStatusResult | null;
   readonly error: GitManagerServiceError | null;
   readonly cause: Cause.Cause<GitManagerServiceError> | null;
   readonly isPending: boolean;
 }
 
-type GitStatusClient = Pick<WsRpcClient["git"], "onStatus" | "refreshStatus">;
+type GitStatusClient = Pick<WsRpcClient["vcs"], "onStatus" | "refreshStatus">;
 interface ResolvedGitStatusClient {
   readonly clientIdentity: string;
   readonly client: GitStatusClient;
@@ -59,7 +60,7 @@ const EMPTY_GIT_STATUS_SNAPSHOTS: ReadonlyMap<string, GitStatusResult | null> = 
 const watchedGitStatuses = new Map<string, WatchedGitStatus>();
 const knownGitStatusKeys = new Set<string>();
 const gitStatusSnapshotListeners = new Map<string, Set<() => void>>();
-const gitStatusRefreshInFlight = new Map<string, Promise<GitStatusResult>>();
+const gitStatusRefreshInFlight = new Map<string, Promise<VcsStatusResult>>();
 const gitStatusLastRefreshAtByKey = new Map<string, number>();
 
 const GIT_STATUS_REFRESH_DEBOUNCE_MS = 1_000;
@@ -86,7 +87,7 @@ function readResolvedGitStatusClient(target: GitStatusTarget): ResolvedGitStatus
   }
   const connection = readEnvironmentConnection(target.environmentId);
   return connection
-    ? { clientIdentity: connection.environmentId, client: connection.client.git }
+    ? { clientIdentity: connection.environmentId, client: connection.client.vcs }
     : null;
 }
 
@@ -122,7 +123,7 @@ export function watchGitStatus(target: GitStatusTarget, client?: GitStatusClient
 export function refreshGitStatus(
   target: GitStatusTarget,
   client?: GitStatusClient,
-): Promise<GitStatusResult | null> {
+): Promise<VcsStatusResult | null> {
   const targetKey = getGitStatusTargetKey(target);
   if (targetKey === null || target.cwd === null) {
     return Promise.resolve(null);
@@ -319,7 +320,7 @@ function subscribeToGitStatus(targetKey: string, cwd: string, client: GitStatusC
   markGitStatusPending(targetKey);
   return client.onStatus(
     { cwd },
-    (status: GitStatusResult) => {
+    (status: VcsStatusResult) => {
       appAtomRegistry.set(gitStatusStateAtom(targetKey), {
         data: status,
         error: null,

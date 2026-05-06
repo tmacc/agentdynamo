@@ -8,8 +8,6 @@ import {
 } from "@t3tools/contracts";
 import { Effect, Layer } from "effect";
 
-import { GitCore } from "../../git/Services/GitCore.ts";
-import { GitStatusBroadcaster } from "../../git/Services/GitStatusBroadcaster.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import {
   resolveThreadWorkspaceContext,
@@ -18,6 +16,8 @@ import {
 import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScriptRunner.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { GitVcsDriver } from "../../vcs/GitVcsDriver.ts";
+import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { renderTeamChildPrompt } from "../teamContext.ts";
 import { isMaterializedDynamoTeamTask } from "../teamTaskGuards.ts";
 import { selectTeamWorkerModel } from "../teamModelSelection.ts";
@@ -84,8 +84,8 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerRegistry = yield* ProviderRegistry;
   const serverSettings = yield* ServerSettingsService;
-  const git = yield* GitCore;
-  const gitStatusBroadcaster = yield* GitStatusBroadcaster;
+  const git = yield* GitVcsDriver;
+  const gitStatusBroadcaster = yield* VcsStatusBroadcaster;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
 
   const resolveParent = Effect.fn("team.resolveParent")(function* (parentThreadId: ThreadId) {
@@ -172,7 +172,7 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
       const workspace = yield* resolveThreadWorkspaceContext({
         thread: parentThread,
         projects: readModel.projects,
-      }).pipe(Effect.provideService(GitCore, git));
+      }).pipe(Effect.provideService(GitVcsDriver, git));
       const cwd = workspace.cwd ?? project.workspaceRoot;
       const requestedWorkspaceMode = input.workspaceMode ?? "auto";
       const isGitProject = workspace.isGitRepo;
@@ -287,11 +287,11 @@ const makeTeamOrchestrationService = Effect.gen(function* () {
         if (rendered.policy.resolvedWorkspaceMode === "worktree" && isGitProject) {
           const worktree = yield* git.createWorktree({
             cwd,
-            branch: workspace.worktreeBaseRef,
-            newBranch: branch,
+            refName: workspace.worktreeBaseRef,
+            newRefName: branch,
             path: null,
           });
-          childBranch = worktree.worktree.branch;
+          childBranch = worktree.worktree.refName;
           childWorktreePath = worktree.worktree.path;
           createdDedicatedWorktree = true;
           yield* git.seedWorktreeFromSnapshot({

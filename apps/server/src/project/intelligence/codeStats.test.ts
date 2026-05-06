@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { GitCoreShape } from "../../git/Services/GitCore.ts";
+import type { VcsDriverShape } from "../../vcs/VcsDriver.ts";
 import { collectProjectCodeStats } from "./codeStats.ts";
 
 const tempDirs: string[] = [];
@@ -26,12 +26,12 @@ function gitMock(input: {
   insideWorkTree: boolean;
   paths?: ReadonlyArray<string>;
   truncated?: boolean;
-}): GitCoreShape {
+}): VcsDriverShape {
   return {
     isInsideWorkTree: () => Effect.succeed(input.insideWorkTree),
     listWorkspaceFiles: () =>
       Effect.succeed({ paths: input.paths ?? [], truncated: input.truncated ?? false }),
-  } as unknown as GitCoreShape;
+  } as unknown as VcsDriverShape;
 }
 
 afterEach(() => {
