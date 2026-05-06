@@ -123,7 +123,11 @@ const makeAnalyticsService = Effect.gen(function* () {
         ),
       );
     }
-  }).pipe(Effect.catch((cause) => Effect.logError("Failed to flush telemetry", { cause })));
+  }).pipe(
+    Effect.catch((cause) =>
+      Effect.logDebug("Failed to flush telemetry; buffered events will be retried.", { cause }),
+    ),
+  );
 
   const record: AnalyticsServiceShape["record"] = Effect.fn("record")(
     function* (event, properties) {

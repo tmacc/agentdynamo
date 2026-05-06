@@ -134,6 +134,40 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run another slash command with aligned columns or box-drawing output and confirm spacing is preserved.
   - Confirm normal markdown replies still render links, lists, tables, and code fences as before.
 
+### Desktop main-process workspace dependency packaging
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: `bun dev:desktop` can load the Electron main process after a clean or production-style install instead of crashing on unresolved workspace packages such as `@t3tools/client-runtime`.
+- `Why it exists`: The Electron main bundle is emitted as CommonJS and may preserve unresolved imports as runtime `require(...)` calls when tsdown cannot resolve workspace packages. Packages used by the desktop main process must therefore be installable runtime dependencies, not dev-only dependencies.
+- `Key fork files`:
+  - `apps/desktop/package.json`
+  - `apps/desktop/tsdown.config.ts`
+- `Important invariants`:
+  - Workspace packages imported by `apps/desktop/src/main.ts` or its runtime dependency graph belong in `dependencies`.
+  - Desktop builds must not leave unresolved `@t3tools/client-runtime`, `@t3tools/ssh`, or `@t3tools/tailscale` imports in `dist-electron/main.cjs`.
+- `Merge hotspots`:
+  - Desktop package dependency classification
+  - Electron main-process bundling config
+- `Verification`:
+  - Run `bun --filter @t3tools/desktop build` and confirm there are no unresolved workspace import warnings.
+  - Run `bun dev:desktop` and confirm Electron loads the desktop app.
+
+### Telemetry flush failure resilience
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: Desktop and server dev sessions do not spam error-level logs when PostHog telemetry flushes fail because the network or telemetry endpoint is unavailable.
+- `Why it exists`: Telemetry is best effort. Network failures should not look like product failures or make desktop dev unusable while offline.
+- `Key fork files`:
+  - `apps/server/src/telemetry/Layers/AnalyticsService.ts`
+- `Important invariants`:
+  - Failed telemetry batches remain buffered for retry.
+  - Flush failures are debug-level diagnostics, not repeated error-level operational failures.
+- `Merge hotspots`:
+  - Analytics/telemetry layer
+  - Desktop/server dev bootstrap environment
+- `Verification`:
+  - Run desktop dev with telemetry unable to reach PostHog and confirm no repeated `ERROR ... Failed to flush telemetry` output appears.
+
 ### Claude account usage meter and /usage TUI capture
 
 - `Status`: Present on current fork.
