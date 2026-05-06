@@ -12,6 +12,7 @@ import { memo, useMemo } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { useIsMobile } from "../hooks/useMediaQuery";
+import { deriveLatestAccountUsageSnapshot } from "../lib/accountUsage";
 import { useStore } from "../store";
 import { createProjectSelectorByRef, createThreadSelectorByRef } from "../storeSelectors";
 import {
@@ -26,6 +27,7 @@ import {
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
+import { AccountUsageMeter } from "./chat/AccountUsageMeter";
 import { Button } from "./ui/button";
 import {
   Menu,
@@ -209,6 +211,10 @@ export const BranchToolbar = memo(function BranchToolbar({
   const activeProject = useStore(activeProjectSelector);
   const hasActiveThread = serverThread !== undefined || draftThread !== null;
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
+  const activeAccountUsage = useMemo(
+    () => deriveLatestAccountUsageSnapshot(serverThread?.activities ?? []),
+    [serverThread?.activities],
+  );
   const effectiveEnvMode =
     effectiveEnvModeOverride ??
     resolveEffectiveEnvMode({
@@ -261,8 +267,20 @@ export const BranchToolbar = memo(function BranchToolbar({
             activeWorktreePath={activeWorktreePath}
             onEnvModeChange={onEnvModeChange}
           />
+          {activeAccountUsage ? (
+            <>
+              <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
+              <AccountUsageMeter usage={activeAccountUsage} />
+            </>
+          ) : null}
         </div>
       )}
+      {isMobile && activeAccountUsage ? (
+        <>
+          <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
+          <AccountUsageMeter usage={activeAccountUsage} />
+        </>
+      ) : null}
 
       <BranchToolbarBranchSelector
         className="min-w-0 flex-1 justify-end md:ml-auto md:flex-none"

@@ -115,6 +115,7 @@ export const ClaudeSettings = Schema.Struct({
   homePath: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   launchArgs: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  refreshUsageAfterTurns: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
 });
 export type ClaudeSettings = typeof ClaudeSettings.Type;
 
@@ -238,6 +239,7 @@ const ClaudeSettingsPatch = Schema.Struct({
   homePath: Schema.optionalKey(Schema.String),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
   launchArgs: Schema.optionalKey(Schema.String),
+  refreshUsageAfterTurns: Schema.optionalKey(Schema.Boolean),
 });
 
 const CursorSettingsPatch = Schema.Struct({

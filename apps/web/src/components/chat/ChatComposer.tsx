@@ -819,7 +819,7 @@ export const ChatComposer = memo(
     }, [modelOptionsByInstance, selectedInstanceId, selectedModelForPicker, selectedProvider]);
 
     // ------------------------------------------------------------------
-    // Context window
+    // Usage meters
     // ------------------------------------------------------------------
     const activeContextWindow = useMemo(
       () => deriveLatestContextWindowSnapshot(activeThreadActivities ?? []),
