@@ -323,8 +323,18 @@ const ProjectIntelligenceResolverLayerLive = ProjectIntelligenceResolverLive.pip
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
+const TeamOrchestrationServiceLayerLive = TeamOrchestrationServiceLive.pipe(
+  Layer.provideMerge(OrchestrationLayerLive),
+  Layer.provideMerge(ProviderRegistryLayerLive),
+  Layer.provideMerge(ServerSettingsLive),
+  Layer.provideMerge(GitLayerLive),
+  Layer.provideMerge(VcsStatusBroadcaster.layer.pipe(Layer.provide(GitWorkflowLayerLive))),
+  Layer.provideMerge(ProjectSetupScriptRunnerLayerLive),
+);
+
 const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
+  Layer.provideMerge(TeamOrchestrationServiceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
   Layer.provideMerge(ProjectIntelligenceResolverLayerLive),
   Layer.provideMerge(RepositoryIdentityResolverLive),

@@ -156,6 +156,26 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run --cwd scripts test build-desktop-artifact.test.ts` and confirm staged desktop runtime dependency filtering omits `workspace:*` packages.
   - Run `bun dev:desktop` and confirm Electron loads the desktop app.
 
+### Desktop dev backend readiness gate
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: `bun dev:desktop` waits for the desktop backend to be reachable before loading the Vite renderer, preventing the dev desktop window from opening to a blank screen when the renderer wins the startup race.
+- `Why it exists`: The Electron renderer bootstraps its local environment from the desktop backend. In dev mode the window previously loaded immediately after spawning the backend child, so a slow or rebuilding backend could make React fail during initial bootstrap and leave the shell blank.
+- `Key fork files`:
+  - `apps/desktop/src/main.ts`
+  - `apps/desktop/src/serverListeningDetector.ts`
+- `Important invariants`:
+  - Packaged desktop startup must keep waiting for backend readiness before opening the first window.
+  - Dev startup must use the same backend readiness helper and still open a window after a readiness timeout so DevTools remain available for diagnosis.
+  - Backend readiness cancellation must continue to abort the HTTP polling path when the listening detector wins.
+  - Backend readiness promise rejections must be internally observed so backend restart loops do not produce unhandled promise rejections after the initial bootstrap wait has completed.
+- `Merge hotspots`:
+  - Desktop bootstrap flow
+  - Backend readiness and restart handling
+- `Verification`:
+  - Run `bun dev:desktop` and confirm the first Electron window does not appear until the backend has logged/listened successfully.
+  - Confirm the renderer can bootstrap without a blank screen on cold desktop dev startup.
+
 ### Telemetry flush failure resilience
 
 - `Status`: Present on current fork.
@@ -171,6 +191,23 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Desktop/server dev bootstrap environment
 - `Verification`:
   - Run desktop dev with telemetry unable to reach PostHog and confirm no repeated `ERROR ... Failed to flush telemetry` output appears.
+
+### macOS notarization retry resilience
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: Signed macOS desktop artifact builds retry transient Apple notarytool throttling failures such as `503 Slow Down` instead of failing the release on the first service-side throttle.
+- `Why it exists`: Apple notarization can return temporary `serviceUnavailable`/`SlowDown` responses under request pressure, especially when CI builds multiple signed macOS artifacts close together.
+- `Key fork files`:
+  - `scripts/build-desktop-artifact.ts`
+- `Important invariants`:
+  - Retries apply only to signed macOS electron-builder runs.
+  - Retry detection must stay specific to notarization throttling/service unavailability so real packaging/signing errors fail immediately.
+- `Merge hotspots`:
+  - Desktop artifact signing/notarization flow
+  - electron-builder invocation
+- `Verification`:
+  - Run `bun run --cwd scripts test build-desktop-artifact.test.ts` and confirm transient notary throttling is detected.
+  - Run a signed macOS artifact build in CI and confirm `503 Slow Down` responses are retried.
 
 ### Claude account usage meter and /usage TUI capture
 
@@ -270,6 +307,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/server/src/team/Layers/TeamTaskReactor.ts`
   - `apps/server/src/team/Layers/TeamCoordinatorAccess.ts`
   - `apps/server/src/team/http.ts`
+  - `apps/server/src/server.ts`
   - `apps/server/src/persistence/Migrations/036_ProjectionThreadTeamTasks.ts`
   - `apps/server/src/persistence/Migrations/037_TeamCoordinatorAccessGrants.ts`
   - `apps/server/src/persistence/Migrations/038_EnsureProjectionThreadTeamTasks.ts`
@@ -293,6 +331,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Team delegation is only allowed from top-level threads; child threads must not recursively delegate in v1.
   - Team agents are enabled by default, with a default max of ten active child agents per parent.
   - Coordinator tools are injected only into supported top-level provider sessions, currently Codex and Claude, using MCP server name `dynamo_team`.
+  - The server runtime layer must provide `TeamOrchestrationService` alongside its Git, terminal/worktree setup, provider registry, VCS status, settings, and orchestration dependencies; missing any of these prevents the desktop backend from booting and hides the team MCP tools.
   - The `/api/team-mcp` route must behave like a normal MCP server during provider startup: authenticated POST requests support `initialize`, `notifications/initialized`, `ping`, `tools/list`, and `tools/call`, plus a lightweight GET health response.
   - Team agents can be disabled through server settings; disabling prevents coordinator tool injection and rejects team spawn attempts.
   - Codex coordinator sessions must receive explicit developer instructions to use Dynamo's team MCP tools instead of Codex-native subagents for team/delegation requests.

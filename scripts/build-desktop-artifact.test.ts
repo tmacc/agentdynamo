@@ -4,6 +4,7 @@ import { ConfigProvider, Effect, Option } from "effect";
 
 import {
   createBuildConfig,
+  isTransientMacNotarizationFailure,
   resolveBuildOptions,
   resolveDesktopBuildIconAssets,
   resolveDesktopProductName,
@@ -78,6 +79,22 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it("falls back to the default mock update port when the configured port is blank", () => {
     assert.equal(resolveMockUpdateServerUrl(undefined), "http://localhost:3000");
     assert.equal(resolveMockUpdateServerUrl(4123), "http://localhost:4123");
+  });
+
+  it("detects transient Apple notarytool throttling failures", () => {
+    assert.equal(
+      isTransientMacNotarizationFailure(`
+        Failed to notarize via notarytool.
+        Error: Unhandled error, code: serviceUnavailable, body:
+        <h1>503 Slow Down</h1>
+        <li>Message: Please reduce your request rate.</li>
+      `),
+      true,
+    );
+    assert.equal(
+      isTransientMacNotarizationFailure("packaging failed: missing apps/server/dist/bin.mjs"),
+      false,
+    );
   });
 
   it("omits bundled workspace packages from staged desktop runtime dependencies", () => {

@@ -16,6 +16,7 @@ export class ServerListeningDetector {
       resolvePromise = resolve;
       rejectPromise = reject;
     });
+    this.promise.catch(() => undefined);
 
     this.resolvePromise = () => {
       if (this.settled) {

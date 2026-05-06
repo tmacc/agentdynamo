@@ -73,6 +73,8 @@ const PLATFORM_CONFIG: Record<typeof BuildPlatform.Type, PlatformConfig> = {
 
 const MAC_SIGNING_ENTITLEMENTS = "apps/desktop/resources/entitlements.mac.plist";
 const MAC_INHERITED_SIGNING_ENTITLEMENTS = "apps/desktop/resources/entitlements.mac.inherit.plist";
+const MAC_NOTARIZATION_RETRY_ATTEMPTS = 3;
+const MAC_NOTARIZATION_RETRY_BASE_DELAY_MS = 30_000;
 
 interface BuildCliInput {
   readonly platform: Option.Option<typeof BuildPlatform.Type>;
@@ -363,6 +365,65 @@ const runCommand = Effect.fn("runCommand")(function* (command: ChildProcess.Comm
   if (exitCode !== 0) {
     return yield* new BuildScriptError({
       message: `Command exited with non-zero exit code (${exitCode})`,
+    });
+  }
+});
+
+function writeCollectedCommandOutput(result: { readonly stdout: string; readonly stderr: string }) {
+  return Effect.sync(() => {
+    if (result.stdout.length > 0) {
+      process.stdout.write(result.stdout);
+    }
+    if (result.stderr.length > 0) {
+      process.stderr.write(result.stderr);
+    }
+  });
+}
+
+export function isTransientMacNotarizationFailure(output: string): boolean {
+  return (
+    /notari[sz]e|notarytool/i.test(output) &&
+    /503 Slow Down|serviceUnavailable|SlowDown|Please reduce your request rate/i.test(output)
+  );
+}
+
+const runElectronBuilderCommand = Effect.fn("runElectronBuilderCommand")(function* (
+  command: ChildProcess.Command,
+  input: {
+    readonly platform: typeof BuildPlatform.Type;
+    readonly signed: boolean;
+    readonly verbose: boolean;
+  },
+) {
+  const maxAttempts =
+    input.platform === "mac" && input.signed ? MAC_NOTARIZATION_RETRY_ATTEMPTS : 1;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = yield* spawnAndCollectOutput(command);
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    if (result.exitCode === 0) {
+      if (input.verbose) {
+        yield* writeCollectedCommandOutput(result);
+      }
+      return;
+    }
+
+    yield* writeCollectedCommandOutput(result);
+
+    if (attempt < maxAttempts && isTransientMacNotarizationFailure(output)) {
+      const delayMs = MAC_NOTARIZATION_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+      yield* Effect.logWarning(
+        `[desktop-artifact] Apple notarization was throttled; retrying electron-builder in ${Math.round(
+          delayMs / 1000,
+        )}s (${attempt + 1}/${maxAttempts}).`,
+      );
+      yield* Effect.sleep(`${delayMs} millis`);
+      continue;
+    }
+
+    return yield* new BuildScriptError({
+      message: `Command exited with non-zero exit code (${result.exitCode})`,
     });
   }
 });
@@ -880,14 +941,18 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* Effect.log(
     `[desktop-artifact] Building ${options.platform}/${options.target} (arch=${options.arch}, version=${appVersion})...`,
   );
-  yield* runCommand(
+  yield* runElectronBuilderCommand(
     ChildProcess.make({
       cwd: stageAppDir,
       env: buildEnv,
-      ...commandOutputOptions(options.verbose),
       // Windows needs shell mode to resolve .cmd shims.
       shell: process.platform === "win32",
     })`bun x --install=fallback electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`,
+    {
+      platform: options.platform,
+      signed: options.signed,
+      verbose: options.verbose,
+    },
   );
 
   const stageDistDir = path.join(stageAppDir, "dist");
