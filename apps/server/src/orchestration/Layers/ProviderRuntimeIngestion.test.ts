@@ -2965,7 +2965,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.readModel,
       (entry) =>
         (entry.teamTasks ?? []).filter((task) => task.source === "native-provider").length === 2,
     );

@@ -48,7 +48,8 @@
 - `Merge notes`:
   - `GitVcsDriver` and `GitVcsDriverCore` now carry Dynamo child-worktree seed/snapshot/review/apply helpers on top of upstream's pluggable VCS interfaces.
   - Fork Git RPC contracts retain compatibility fields such as branch/default-branch/origin metadata while upstream source-control methods are available for new provider flows.
-  - Server production typecheck excludes `apps/server/src/**/*.test.ts`; several upstream/fork test fixtures still need follow-up migration from legacy Git manager assumptions to the VCS driver API before test files can be included in the production typecheck again.
+  - Migration `053_CanonicalizePrototypeInteractionMode` maps Dynamo's historical `prototype` interaction mode rows/events to upstream's merged `plan` interaction mode so existing fork databases continue to boot after the sync. It intentionally skips ids `049`-`052` because older Dynamo dev databases already recorded those fork-local ids before this upstream sync.
+  - WebSocket RPC startup keeps thread-fork dispatch acquisition method-scoped so desktop dev can complete the `/ws` handshake even when fork-only worktree services are not needed during connection bootstrap.
 - `Merge hotspots`:
   - VCS driver, Git workflow, and source-control provider contracts.
   - Team worktree review/apply and patch generation in `apps/server/src/git`.

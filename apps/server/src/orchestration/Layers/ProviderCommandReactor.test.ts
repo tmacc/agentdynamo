@@ -5,7 +5,6 @@ import path from "node:path";
 import {
   ProviderDriverKind,
   ProviderInstanceId,
-  type GitStatusResult,
   type ModelSelection,
   type OrchestrationTeamTask,
   type ProviderRuntimeEvent,
@@ -53,32 +52,17 @@ import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { GitVcsDriver, type GitVcsDriverShape } from "../../vcs/GitVcsDriver.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService, type GitWorkflowServiceShape } from "../../git/GitWorkflowService.ts";
+import { TeamCoordinatorAccess } from "../../team/Services/TeamCoordinatorAccess.ts";
+import { makeGitStatusResult } from "../../testing/vcsFixtures.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asTeamTaskId = (value: string): TeamTaskId => TeamTaskId.make(value);
-
-const gitStatus = (overrides: Partial<GitStatusResult> = {}): GitStatusResult => ({
-  isRepo: true,
-  hasOriginRemote: true,
-  isDefaultBranch: false,
-  branch: "t3code/1234abcd",
-  hasWorkingTreeChanges: false,
-  workingTree: {
-    files: [],
-    insertions: 0,
-    deletions: 0,
-  },
-  hasUpstream: true,
-  aheadCount: 0,
-  behindCount: 0,
-  pr: null,
-  ...overrides,
-});
 
 function teamTask(overrides: Partial<OrchestrationTeamTask> = {}): OrchestrationTeamTask {
   const now = "2026-01-01T00:00:00.000Z";
@@ -302,8 +286,8 @@ describe("ProviderCommandReactor", () => {
             : "renamed-branch",
       }),
     );
-    const status = vi.fn<GitCoreShape["status"]>(() =>
-      Effect.succeed(gitStatus({ branch: input?.gitStatusBranch ?? "t3code/1234abcd" })),
+    const status = vi.fn<GitVcsDriverShape["status"]>(() =>
+      Effect.succeed(makeGitStatusResult({ branch: input?.gitStatusBranch ?? "t3code/1234abcd" })),
     );
     const refreshStatus = vi.fn((_: string) =>
       Effect.succeed({
@@ -400,8 +384,13 @@ describe("ProviderCommandReactor", () => {
         } satisfies Partial<GitWorkflowServiceShape>),
       ),
       Layer.provideMerge(
+        Layer.mock(GitVcsDriver)({
+          status,
+        } satisfies Partial<GitVcsDriverShape>),
+      ),
+      Layer.provideMerge(
         Layer.succeed(VcsStatusBroadcaster, {
-          getStatus: () => Effect.die("getStatus should not be called in this test"),
+          getStatus: status,
           refreshLocalStatus: () =>
             Effect.die("refreshLocalStatus should not be called in this test"),
           refreshStatus,

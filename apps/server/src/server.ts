@@ -42,8 +42,6 @@ import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRun
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor.ts";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
-import { ThreadForkDispatcherLive } from "./orchestration/Layers/ThreadForkDispatcher.ts";
-import { ThreadForkMaterializerLive } from "./orchestration/Layers/ThreadForkMaterializer.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
 import { ServerSettingsLive } from "./serverSettings.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
@@ -225,7 +223,7 @@ const GitManagerLayerLive = GitManager.layer.pipe(
   Layer.provideMerge(ProjectSetupScriptRunnerLive),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
-  Layer.provideMerge(TextGeneration.layer),
+  Layer.provideMerge(TextGenerationLayerLive),
 );
 
 const GitLayerLive = Layer.empty.pipe(
@@ -292,6 +290,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ProviderRuntimeLayerLive),
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(PersistenceLayerLive),
+  Layer.provideMerge(TeamCoordinatorAccessLive),
   Layer.provideMerge(KeybindingsLive),
   Layer.provideMerge(ProviderRegistryLayerLive),
   // The instance registry is the new routing keystone — text generation,

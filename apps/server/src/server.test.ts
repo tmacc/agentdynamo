@@ -21,6 +21,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   ResolvedKeybindingRule,
+  TeamTaskId,
   ThreadId,
   WS_METHODS,
   WsRpcGroup,
@@ -553,7 +554,7 @@ const buildAppUnderTest = (options?: {
         })
       : VcsStatusBroadcaster.layer.pipe(Layer.provide(gitWorkflowLayer));
 
-    const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
+    const servedRoutesBaseLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
       disableLogger: true,
     }).pipe(
@@ -627,10 +628,14 @@ const buildAppUnderTest = (options?: {
         Layer.mock(OrchestrationEngineService)({
           readEvents: () => Stream.empty,
           dispatch: () => Effect.succeed({ sequence: 0 }),
+          getReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           streamDomainEvents: Stream.empty,
           ...options?.layers?.orchestrationEngine,
         }),
       ),
+    );
+
+    const servedRoutesLayer = servedRoutesBaseLayer.pipe(
       Layer.provide(
         Layer.mock(TeamCoordinatorAccess)({
           issueGrant: () =>
@@ -678,6 +683,13 @@ const buildAppUnderTest = (options?: {
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
+          getTeamTaskTrace: (input) =>
+            Effect.succeed({
+              snapshotSequence: 0,
+              parentThreadId: input.parentThreadId,
+              taskId: input.taskId ?? TeamTaskId.make("team-task-test"),
+              items: [],
+            }),
           ...options?.layers?.projectionSnapshotQuery,
         }),
       ),

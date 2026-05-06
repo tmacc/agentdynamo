@@ -229,7 +229,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const sourceControlRepositories = yield* SourceControlRepositoryService;
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
-      const threadForkDispatcher = yield* ThreadForkDispatcher;
       const serverCommandId = (tag: string) =>
         CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 
@@ -695,10 +694,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [ORCHESTRATION_WS_METHODS.forkThread]: (input) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.forkThread,
-            enqueueAndExecuteForkThread({
-              startup,
-              threadForkDispatcher,
-              forkInput: input,
+            Effect.gen(function* () {
+              const threadForkDispatcher = yield* ThreadForkDispatcher;
+              return yield* enqueueAndExecuteForkThread({
+                startup,
+                threadForkDispatcher,
+                forkInput: input,
+              });
             }).pipe(
               Effect.mapError((cause) =>
                 Schema.is(OrchestrationForkThreadError)(cause)
