@@ -66,6 +66,11 @@ function applyMessageEvent(
       : existing?.attachments !== undefined
         ? { attachments: existing.attachments }
         : {}),
+    ...(payload.renderMode !== undefined
+      ? { renderMode: payload.renderMode }
+      : existing?.renderMode !== undefined
+        ? { renderMode: existing.renderMode }
+        : {}),
     turnId: payload.turnId,
     streaming: payload.streaming,
     createdAt: existing?.createdAt ?? payload.createdAt,

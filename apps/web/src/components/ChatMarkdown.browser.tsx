@@ -153,11 +153,28 @@ describe("ChatMarkdown", () => {
     }
   });
 
-  it("renders aligned multi-line command output as preformatted text", async () => {
+  it("keeps aligned assistant prose in markdown by default", async () => {
     const screen = await render(
       <ChatMarkdown
         text={`Model      GPT-5\nInput      123\nOutput      45`}
         cwd="/repo/project"
+      />,
+    );
+
+    try {
+      const pre = page.getByText(/Model/).element().closest("pre");
+      expect(pre).toBeNull();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("renders explicit preformatted assistant output as preformatted text", async () => {
+    const screen = await render(
+      <ChatMarkdown
+        text={`Model      GPT-5\nInput      123\nOutput      45`}
+        cwd="/repo/project"
+        renderMode="preformatted"
       />,
     );
 

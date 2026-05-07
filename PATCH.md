@@ -227,6 +227,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/components/chat/AccountUsageMeter.tsx`
   - `apps/web/src/components/BranchToolbar.tsx`
   - `apps/web/src/components/settings/ProviderInstanceCard.tsx`
+  - `apps/web/src/components/settings/ProviderSettingsForm.tsx`
   - `apps/web/src/components/chat/ChatComposer.tsx`
   - `apps/server/package.json` (adds `@xterm/headless` for screen capture)
 - `Important invariants`:
@@ -240,6 +241,8 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Values parsed from the Claude CLI `/usage` screen are already percentage values. Do not run them through SDK fractional-utilization scaling; otherwise `1% used` becomes a false `100%` meter.
   - On capture failure the `/usage` response must fall back to the SDK rate-limit text so the user always sees something, with the failure reason included.
   - Background post-turn refresh must stay opt-in per Claude provider instance, must not block turn completion, must be single-flight and throttled per session, and must keep prior durable meter data when the TUI parser cannot recognize percentages.
+  - Claude provider instance settings must render the `Refresh usage after turns` switch only from the shared provider settings schema/form. Do not add a second Claude-specific hand-rendered switch in `ProviderInstanceCard`.
+  - Claude `/usage` assistant text must carry explicit `renderMode: "preformatted"` through provider runtime, orchestration events, projections, and the web message model so TUI formatting survives reloads without forcing normal assistant prose into a pre block.
   - The meter must filter out status-only `rate_limit_event` payloads (no utilization) so the meter only renders real percentages.
   - The compact toolbar meter should show both five-hour and seven-day usage when both are known; detailed Opus/Sonnet/extra usage remains in the hover breakdown.
   - Codex meter data must come from Codex app-server `account/rateLimits/updated` payloads, not a separate OpenAI HTTP endpoint. The app-server payload's `primary.usedPercent` is the five-hour window and `secondary.usedPercent` is the weekly window; both are already percentage values and must not be rescaled as fractional SDK utilization.
@@ -255,7 +258,42 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Enable `Refresh usage after turns` for a Claude provider instance, run a normal Claude turn, and confirm the branch toolbar meter updates after the turn completes without adding a chat message.
   - Run with `claude` not on PATH (or set a deliberately broken `binaryPath`) and confirm the response surfaces a clear capture-failed message and the SDK fallback text.
   - Open a Claude-backed thread and confirm the branch toolbar meter appears only after the SDK emits a `rate_limit_event` with utilization (i.e. the meter stays hidden in low-usage sessions instead of rendering N/A).
+  - Open Claude provider settings and confirm `Refresh usage after turns` appears once.
+  - Confirm normal assistant responses with aligned spacing render as markdown while `/usage` still renders as preformatted text.
   - On macOS/Linux, run `bun run --cwd apps/server test src/provider/Layers/ClaudeUsageTuiCapture.test.ts` without `CLAUDE_BINARY_PATH` and confirm the live CLI capture is skipped. Set `CLAUDE_BINARY_PATH` to a logged-in `claude` binary to opt into the integration test and confirm it reports success.
+
+### Composer pending prompt single-render and explicit assistant render mode
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: Pending approval prompts and Plan-mode `request_user_input` prompts render once in the composer on desktop. Assistant responses render as markdown by default; only explicit preformatted outputs such as Claude `/usage`, ANSI terminal output, or box-drawing TUI output render as full-message preformatted blocks.
+- `Why it exists`: The composer previously had two non-collapsed pending prompt render paths, which made Plan-mode prompts and approval prompts appear duplicated. The markdown renderer also treated ordinary multi-line aligned prose as terminal output, making some normal assistant responses look like code/document blocks.
+- `Key fork files`:
+  - `apps/web/src/components/chat/ChatComposer.tsx`
+  - `apps/web/src/components/ChatMarkdown.tsx`
+  - `apps/web/src/components/chat/MessagesTimeline.tsx`
+  - `apps/web/src/store.ts`
+  - `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`
+  - `apps/server/src/persistence/Services/ProjectionThreadMessages.ts`
+  - `apps/server/src/persistence/Layers/ProjectionThreadMessages.ts`
+  - `apps/server/src/persistence/Migrations/055_ProjectionThreadMessageRenderMode.ts`
+  - `packages/contracts/src/providerRuntime.ts`
+  - `packages/contracts/src/orchestration.ts`
+- `Important invariants`:
+  - There must be exactly one non-collapsed composer header for pending approvals, pending user input, or plan follow-up prompts.
+  - Mobile collapsed pending controls remain separate because they include layout-specific compact controls.
+  - Missing `renderMode` means markdown. Do not infer preformatted rendering from generic aligned whitespace.
+  - Persisted projected assistant messages must preserve explicit `renderMode` across reloads, forks, and streaming completion events.
+- `Merge hotspots`:
+  - Composer layout around pending prompts and footer actions.
+  - Orchestration message schemas and projection thread message persistence.
+  - Chat markdown rendering heuristics.
+- `Verification`:
+  - In a Plan-mode thread with a pending `request_user_input`, confirm the active question renders once and still submits answers.
+  - In a supervised thread with a pending approval, confirm `PENDING APPROVAL` and approval actions render once and still dispatch a decision.
+  - Confirm `/usage` output still renders preformatted after a reload.
+  - Confirm normal assistant prose with aligned columns or repeated spaces renders as markdown, unless it is explicitly marked preformatted or contains ANSI/box-drawing terminal markers.
 
 ### New worktree thread base branch default
 

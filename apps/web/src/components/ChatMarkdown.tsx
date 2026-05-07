@@ -29,6 +29,7 @@ import { useTheme } from "../hooks/useTheme";
 import { resolveMarkdownFileLinkMeta, rewriteMarkdownFileUriHref } from "../markdown-links";
 import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
+import type { ChatMessageRenderMode } from "../types";
 
 class CodeHighlightErrorBoundary extends React.Component<
   { fallback: ReactNode; children: ReactNode },
@@ -55,6 +56,7 @@ interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
   isStreaming?: boolean;
+  renderMode?: ChatMessageRenderMode | undefined;
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -366,23 +368,7 @@ function sanitizePreformattedText(text: string): string {
 }
 
 export function shouldRenderAsPreformattedText(text: string): boolean {
-  if (BOX_DRAWING_OR_BLOCK_CHAR_REGEX.test(text) || ANSI_ESCAPE_TEST_REGEX.test(text)) {
-    return true;
-  }
-
-  const nonEmptyLines = text
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\s+$/g, ""))
-    .filter((line) => line.length > 0);
-  if (nonEmptyLines.length < 2) {
-    return false;
-  }
-
-  const alignedLineCount = nonEmptyLines.filter((line) => {
-    return /^\s{2,}\S/.test(line) || /\S {2,}\S/.test(line);
-  }).length;
-
-  return alignedLineCount >= 2;
+  return BOX_DRAWING_OR_BLOCK_CHAR_REGEX.test(text) || ANSI_ESCAPE_TEST_REGEX.test(text);
 }
 
 const MarkdownFileLink = memo(function MarkdownFileLink({
@@ -530,10 +516,13 @@ function areMarkdownFileLinkPropsEqual(
   );
 }
 
-function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
+function ChatMarkdown({ text, cwd, isStreaming = false, renderMode }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
-  const shouldRenderPreformatted = useMemo(() => shouldRenderAsPreformattedText(text), [text]);
+  const shouldRenderPreformatted = useMemo(
+    () => renderMode === "preformatted" || shouldRenderAsPreformattedText(text),
+    [renderMode, text],
+  );
   const sanitizedPreformattedText = useMemo(
     () => (shouldRenderPreformatted ? sanitizePreformattedText(text) : text),
     [shouldRenderPreformatted, text],

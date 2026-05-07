@@ -953,6 +953,74 @@ describe("incremental orchestration updates", () => {
     );
   });
 
+  it("preserves explicit assistant render mode across streaming completion", () => {
+    const state = makeState(makeThread());
+    const messageId = MessageId.make("message-preformatted");
+    const turnId = TurnId.make("turn-preformatted");
+
+    const withDelta = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.message-sent", {
+        threadId: ThreadId.make("thread-1"),
+        messageId,
+        role: "assistant",
+        text: "Model      GPT-5\nInput      123",
+        renderMode: "preformatted",
+        turnId,
+        streaming: true,
+        createdAt: "2026-02-27T00:00:01.000Z",
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    const completed = applyOrchestrationEvent(
+      withDelta,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId: ThreadId.make("thread-1"),
+          messageId,
+          role: "assistant",
+          text: "",
+          turnId,
+          streaming: false,
+          createdAt: "2026-02-27T00:00:02.000Z",
+          updatedAt: "2026-02-27T00:00:02.000Z",
+        },
+        { sequence: 2 },
+      ),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(completed)[0]?.messages[0]).toMatchObject({
+      text: "Model      GPT-5\nInput      123",
+      renderMode: "preformatted",
+      streaming: false,
+    });
+  });
+
+  it("leaves assistant messages without render mode as markdown by default", () => {
+    const state = makeState(makeThread());
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.message-sent", {
+        threadId: ThreadId.make("thread-1"),
+        messageId: MessageId.make("message-markdown"),
+        role: "assistant",
+        text: "Model      GPT-5\nInput      123",
+        turnId: TurnId.make("turn-markdown"),
+        streaming: true,
+        createdAt: "2026-02-27T00:00:01.000Z",
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(next)[0]?.messages[0]?.renderMode).toBeUndefined();
+  });
+
   it("applies replay batches in sequence and updates session state", () => {
     const thread = makeThread({
       latestTurn: {

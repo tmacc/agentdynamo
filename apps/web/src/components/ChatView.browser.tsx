@@ -915,6 +915,40 @@ function createSnapshotWithPendingUserInput(): OrchestrationReadModel {
   };
 }
 
+function createSnapshotWithPendingApproval(): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: "msg-approval-target" as MessageId,
+    targetText: "approval thread",
+  });
+
+  return {
+    ...snapshot,
+    threads: snapshot.threads.map((thread) =>
+      thread.id === THREAD_ID
+        ? Object.assign({}, thread, {
+            activities: [
+              {
+                id: EventId.make("activity-approval-requested"),
+                tone: "approval",
+                kind: "approval.requested",
+                summary: "Command approval requested",
+                payload: {
+                  requestId: "req-browser-approval",
+                  requestKind: "command",
+                  detail: "bun lint",
+                },
+                turnId: null,
+                sequence: 1,
+                createdAt: isoAt(1_000),
+              },
+            ],
+            updatedAt: isoAt(1_000),
+          })
+        : thread,
+    ),
+  };
+}
+
 function createSnapshotWithPlanFollowUpPrompt(options?: {
   modelSelection?: { instanceId: ProviderInstanceId; model: string };
   planMarkdown?: string;
@@ -6093,6 +6127,75 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await mounted.setContainerSize(COMPACT_FOOTER_VIEWPORT);
       await expectComposerActionsContained();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders a pending plan-mode user input prompt only once on desktop", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithPendingUserInput(),
+    });
+
+    try {
+      await waitForButtonContainingText("Tight");
+      const promptCopies = Array.from(document.querySelectorAll("p")).filter(
+        (entry) => entry.textContent === "What should this change cover?",
+      );
+      expect(promptCopies).toHaveLength(1);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders a pending approval prompt and actions only once on desktop", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithPendingApproval(),
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      await waitForButtonByText("Approve once");
+      const approvalLabels = Array.from(document.querySelectorAll("span")).filter(
+        (entry) => entry.textContent === "PENDING APPROVAL",
+      );
+      expect(approvalLabels).toHaveLength(1);
+      expect(
+        Array.from(document.querySelectorAll("button")).filter((button) =>
+          button.textContent?.includes("Approve once"),
+        ),
+      ).toHaveLength(1);
+
+      (await waitForButtonByText("Approve once")).click();
+
+      await vi.waitFor(() => {
+        const dispatchRequest = wsRequests.find(
+          (request) =>
+            request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+            request.type === "thread.approval.respond",
+        ) as
+          | {
+              _tag: string;
+              type?: string;
+              requestId?: string;
+              decision?: string;
+            }
+          | undefined;
+
+        expect(dispatchRequest).toMatchObject({
+          requestId: "req-browser-approval",
+          decision: "accept",
+        });
+      });
     } finally {
       await mounted.cleanup();
     }

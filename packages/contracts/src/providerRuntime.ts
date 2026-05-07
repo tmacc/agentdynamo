@@ -399,6 +399,9 @@ const TurnDiffUpdatedPayload = Schema.Struct({
 });
 export type TurnDiffUpdatedPayload = typeof TurnDiffUpdatedPayload.Type;
 
+export const AssistantContentRenderMode = Schema.Literals(["markdown", "preformatted"]);
+export type AssistantContentRenderMode = typeof AssistantContentRenderMode.Type;
+
 export const ItemLifecyclePayload = Schema.Struct({
   itemType: CanonicalItemType,
   status: Schema.optional(RuntimeItemStatus),
@@ -411,6 +414,7 @@ export type ItemLifecyclePayload = typeof ItemLifecyclePayload.Type;
 const ContentDeltaPayload = Schema.Struct({
   streamKind: RuntimeContentStreamKind,
   delta: Schema.String,
+  renderMode: Schema.optional(AssistantContentRenderMode),
   contentIndex: Schema.optional(Schema.Int),
   summaryIndex: Schema.optional(Schema.Int),
 });

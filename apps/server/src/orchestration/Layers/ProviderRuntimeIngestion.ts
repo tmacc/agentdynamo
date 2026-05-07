@@ -15,6 +15,7 @@ import {
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationMessage,
+  type OrchestrationMessageRenderMode,
   type OrchestrationNativeSubagentTraceItem,
   type OrchestrationProposedPlanId,
   type OrchestrationTeamTask,
@@ -1347,6 +1348,15 @@ const make = Effect.gen(function* () {
     lookup: () => Effect.succeed(""),
   });
 
+  const assistantRenderModeByMessageId = yield* Cache.make<
+    MessageId,
+    OrchestrationMessageRenderMode
+  >({
+    capacity: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
+    timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
+    lookup: () => Effect.succeed("markdown" as const),
+  });
+
   const assistantSegmentStateByTurnKey = yield* Cache.make<string, AssistantSegmentState>({
     capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
     timeToLive: TURN_MESSAGE_IDS_BY_TURN_TTL,
@@ -1495,10 +1505,28 @@ const make = Effect.gen(function* () {
       });
     });
 
-  const appendBufferedAssistantText = (messageId: MessageId, delta: string) =>
+  const rememberAssistantRenderMode = (
+    messageId: MessageId,
+    renderMode: OrchestrationMessageRenderMode | undefined,
+  ) =>
+    renderMode === "preformatted"
+      ? Cache.set(assistantRenderModeByMessageId, messageId, renderMode)
+      : Effect.void;
+
+  const readAssistantRenderMode = (messageId: MessageId) =>
+    Cache.getOption(assistantRenderModeByMessageId, messageId).pipe(
+      Effect.map((mode) => Option.getOrUndefined(mode)),
+    );
+
+  const appendBufferedAssistantText = (
+    messageId: MessageId,
+    delta: string,
+    renderMode: OrchestrationMessageRenderMode | undefined,
+  ) =>
     Cache.getOption(bufferedAssistantTextByMessageId, messageId).pipe(
       Effect.flatMap((existingText) =>
         Effect.gen(function* () {
+          yield* rememberAssistantRenderMode(messageId, renderMode);
           const nextText = Option.match(existingText, {
             onNone: () => delta,
             onSome: (text) => `${text}${delta}`,
@@ -1552,7 +1580,10 @@ const make = Effect.gen(function* () {
     Cache.invalidate(bufferedProposedPlanById, planId);
 
   const clearAssistantMessageState = (messageId: MessageId) =>
-    clearBufferedAssistantText(messageId);
+    Effect.all([
+      clearBufferedAssistantText(messageId),
+      Cache.invalidate(assistantRenderModeByMessageId, messageId),
+    ]).pipe(Effect.asVoid);
 
   const flushBufferedAssistantMessage = (input: {
     event: ProviderRuntimeEvent;
@@ -1567,6 +1598,7 @@ const make = Effect.gen(function* () {
       if (!hasRenderableAssistantText(bufferedText)) {
         return false;
       }
+      const renderMode = yield* readAssistantRenderMode(input.messageId);
 
       yield* orchestrationEngine.dispatch({
         type: "thread.message.assistant.delta",
@@ -1574,6 +1606,7 @@ const make = Effect.gen(function* () {
         threadId: input.threadId,
         messageId: input.messageId,
         delta: bufferedText,
+        ...(renderMode === "preformatted" ? { renderMode } : {}),
         ...(input.turnId ? { turnId: input.turnId } : {}),
         createdAt: input.createdAt,
       });
@@ -1633,6 +1666,7 @@ const make = Effect.gen(function* () {
             ? input.fallbackText!
             : "";
       const hasRenderableText = hasRenderableAssistantText(text);
+      const renderMode = yield* readAssistantRenderMode(input.messageId);
 
       if (hasRenderableText) {
         yield* orchestrationEngine.dispatch({
@@ -1641,6 +1675,7 @@ const make = Effect.gen(function* () {
           threadId: input.threadId,
           messageId: input.messageId,
           delta: text,
+          ...(renderMode === "preformatted" ? { renderMode } : {}),
           ...(input.turnId ? { turnId: input.turnId } : {}),
           createdAt: input.createdAt,
         });
@@ -2037,10 +2072,11 @@ const make = Effect.gen(function* () {
         }
       }
 
-      const assistantDelta =
+      const assistantContentDeltaPayload =
         event.type === "content.delta" && event.payload.streamKind === "assistant_text"
-          ? event.payload.delta
+          ? event.payload
           : undefined;
+      const assistantDelta = assistantContentDeltaPayload?.delta;
       const proposedPlanDelta =
         event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
 
@@ -2060,14 +2096,20 @@ const make = Effect.gen(function* () {
           (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
         );
         if (assistantDeliveryMode === "buffered") {
-          const spillChunk = yield* appendBufferedAssistantText(assistantMessageId, assistantDelta);
+          const spillChunk = yield* appendBufferedAssistantText(
+            assistantMessageId,
+            assistantDelta,
+            assistantContentDeltaPayload.renderMode,
+          );
           if (spillChunk.length > 0) {
+            const renderMode = yield* readAssistantRenderMode(assistantMessageId);
             yield* orchestrationEngine.dispatch({
               type: "thread.message.assistant.delta",
               commandId: providerCommandId(event, "assistant-delta-buffer-spill"),
               threadId: thread.id,
               messageId: assistantMessageId,
               delta: spillChunk,
+              ...(renderMode === "preformatted" ? { renderMode } : {}),
               ...(turnId ? { turnId } : {}),
               createdAt: now,
             });
@@ -2079,6 +2121,9 @@ const make = Effect.gen(function* () {
             threadId: thread.id,
             messageId: assistantMessageId,
             delta: assistantDelta,
+            ...(assistantContentDeltaPayload.renderMode === "preformatted"
+              ? { renderMode: assistantContentDeltaPayload.renderMode }
+              : {}),
             ...(turnId ? { turnId } : {}),
             createdAt: now,
           });

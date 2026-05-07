@@ -865,7 +865,7 @@ function setRuntimeError(environmentId: EnvironmentId, error: unknown) {
   });
 }
 
-function coalesceOrchestrationUiEvents(
+export function coalesceOrchestrationUiEvents(
   events: ReadonlyArray<OrchestrationEvent>,
 ): OrchestrationEvent[] {
   if (events.length < 2) {
@@ -886,6 +886,11 @@ function coalesceOrchestrationUiEvents(
         payload: {
           ...event.payload,
           attachments: event.payload.attachments ?? previous.payload.attachments,
+          ...(event.payload.renderMode !== undefined
+            ? { renderMode: event.payload.renderMode }
+            : previous.payload.renderMode !== undefined
+              ? { renderMode: previous.payload.renderMode }
+              : {}),
           createdAt: previous.payload.createdAt,
           text:
             !event.payload.streaming && event.payload.text.length > 0

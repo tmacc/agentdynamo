@@ -80,11 +80,6 @@ function readConfigStringArray(config: unknown, key: string): ReadonlyArray<stri
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
-function readConfigBoolean(config: unknown, key: string): boolean {
-  if (config === null || typeof config !== "object") return false;
-  return (config as Record<string, unknown>)[key] === true;
-}
-
 /**
  * Set `key` to an arbitrary value on the opaque config blob. Unlike
  * provider settings field updates, does not drop empty-looking values — the
@@ -524,12 +519,6 @@ export function ProviderInstanceCard({
     );
   };
 
-  const updateConfigBoolean = (key: string, value: boolean) => {
-    const nextConfig = nextConfigBlobWithValue(instance.config, key, value);
-    const { config: _omit, ...rest } = instance;
-    onUpdate({ ...rest, config: nextConfig } as ProviderInstanceConfig);
-  };
-
   const updateCustomModels = (next: ReadonlyArray<string>) => {
     const nextConfig = nextConfigBlobWithValue(instance.config, "customModels", [...next]);
     const { config: _omit, ...rest } = instance;
@@ -702,29 +691,6 @@ export function ProviderInstanceCard({
                 variant="card"
                 onChange={updateConfig}
               />
-            ) : null}
-
-            {driverKind === "claudeAgent" ? (
-              <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <span className="text-xs font-medium text-foreground">
-                      Refresh usage after turns
-                    </span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      After Claude finishes a turn, run the official CLI usage screen in the
-                      background and update the toolbar meter when percentages can be parsed.
-                    </span>
-                  </div>
-                  <Switch
-                    checked={readConfigBoolean(instance.config, "refreshUsageAfterTurns")}
-                    onCheckedChange={(checked) =>
-                      updateConfigBoolean("refreshUsageAfterTurns", Boolean(checked))
-                    }
-                    aria-label={`Refresh ${displayName} usage after turns`}
-                  />
-                </div>
-              </div>
             ) : null}
 
             {driverOption !== undefined ? (

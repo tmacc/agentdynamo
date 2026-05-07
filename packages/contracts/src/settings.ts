@@ -231,7 +231,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
       Schema.annotateKey({
         title: "Refresh usage after turns",
         description:
-          "After Claude finishes a turn, run the official Claude CLI usage view in the background to refresh account usage metrics.",
+          "After Claude finishes a turn, run the official CLI usage screen in the background and update the toolbar meter when percentages can be parsed.",
         providerSettingsForm: { control: "switch" },
       }),
     ),

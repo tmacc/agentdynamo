@@ -669,6 +669,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {
         streamKind: "assistant_text",
         delta: "hello",
+        renderMode: "preformatted",
       },
     });
     harness.emit({
@@ -708,6 +709,7 @@ describe("ProviderRuntimeIngestion", () => {
       (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-1",
     );
     expect(message?.text).toBe("hello world");
+    expect(message?.renderMode).toBe("preformatted");
     expect(message?.streaming).toBe(false);
   });
 

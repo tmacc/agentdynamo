@@ -1,10 +1,44 @@
 import { describe, expect, it } from "vitest";
+import type { OrchestrationEvent } from "@t3tools/contracts";
 
 import {
+  coalesceOrchestrationUiEvents,
   shouldApplyProjectionEvent,
   shouldApplyProjectionSnapshot,
   shouldApplyTerminalEvent,
 } from "./service";
+
+function makeMessageEvent(input: {
+  sequence: number;
+  messageId: string;
+  text: string;
+  streaming: boolean;
+  renderMode?: "markdown" | "preformatted";
+}): OrchestrationEvent {
+  return {
+    sequence: input.sequence,
+    eventId: `event-${input.sequence}`,
+    type: "thread.message-sent",
+    aggregateKind: "thread",
+    aggregateId: "thread-1",
+    occurredAt: `2026-05-07T00:00:0${input.sequence}.000Z`,
+    commandId: `cmd-${input.sequence}`,
+    causationEventId: null,
+    correlationId: null,
+    metadata: {},
+    payload: {
+      threadId: "thread-1",
+      messageId: input.messageId,
+      role: "assistant",
+      text: input.text,
+      ...(input.renderMode !== undefined ? { renderMode: input.renderMode } : {}),
+      turnId: "turn-1",
+      streaming: input.streaming,
+      createdAt: `2026-05-07T00:00:0${input.sequence}.000Z`,
+      updatedAt: `2026-05-07T00:00:0${input.sequence}.000Z`,
+    },
+  } as OrchestrationEvent;
+}
 
 describe("shouldApplyTerminalEvent", () => {
   it("applies terminal events for draft-only threads", () => {
@@ -144,5 +178,76 @@ describe("shouldApplyProjectionEvent", () => {
         sequence: 6,
       }),
     ).toBe(true);
+  });
+});
+
+describe("coalesceOrchestrationUiEvents", () => {
+  it("preserves previous render mode when a later coalesced message omits it", () => {
+    const events = coalesceOrchestrationUiEvents([
+      makeMessageEvent({
+        sequence: 1,
+        messageId: "assistant:msg-1",
+        text: "A",
+        streaming: true,
+        renderMode: "preformatted",
+      }),
+      makeMessageEvent({
+        sequence: 2,
+        messageId: "assistant:msg-1",
+        text: "B",
+        streaming: true,
+      }),
+    ]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toMatchObject({
+      text: "AB",
+      renderMode: "preformatted",
+    });
+  });
+
+  it("lets a later explicit render mode win when coalescing", () => {
+    const events = coalesceOrchestrationUiEvents([
+      makeMessageEvent({
+        sequence: 1,
+        messageId: "assistant:msg-1",
+        text: "A",
+        streaming: true,
+        renderMode: "preformatted",
+      }),
+      makeMessageEvent({
+        sequence: 2,
+        messageId: "assistant:msg-1",
+        text: "B",
+        streaming: true,
+        renderMode: "markdown",
+      }),
+    ]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toMatchObject({
+      text: "AB",
+      renderMode: "markdown",
+    });
+  });
+
+  it("does not coalesce message events for different messages", () => {
+    const events = coalesceOrchestrationUiEvents([
+      makeMessageEvent({
+        sequence: 1,
+        messageId: "assistant:msg-1",
+        text: "A",
+        streaming: true,
+        renderMode: "preformatted",
+      }),
+      makeMessageEvent({
+        sequence: 2,
+        messageId: "assistant:msg-2",
+        text: "B",
+        streaming: true,
+      }),
+    ]);
+
+    expect(events).toHaveLength(2);
   });
 });

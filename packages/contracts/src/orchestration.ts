@@ -287,11 +287,15 @@ export type OrchestrationProject = typeof OrchestrationProject.Type;
 export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
 
+export const OrchestrationMessageRenderMode = Schema.Literals(["markdown", "preformatted"]);
+export type OrchestrationMessageRenderMode = typeof OrchestrationMessageRenderMode.Type;
+
 export const OrchestrationMessage = Schema.Struct({
   id: MessageId,
   role: OrchestrationMessageRole,
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  renderMode: Schema.optional(OrchestrationMessageRenderMode),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
@@ -1195,6 +1199,7 @@ const ThreadMessageAssistantDeltaCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   delta: Schema.String,
+  renderMode: Schema.optional(OrchestrationMessageRenderMode),
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
@@ -1420,6 +1425,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   role: OrchestrationMessageRole,
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  renderMode: Schema.optional(OrchestrationMessageRenderMode),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
