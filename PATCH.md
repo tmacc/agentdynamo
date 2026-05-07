@@ -959,6 +959,29 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/store.test.ts` in `apps/web`.
   - Launch `bun run dev:desktop`; verify generic same-provider subagent prompts can use provider-native delegation, then verify explicit cross-provider or Dynamo-visible child requests spawn Dynamo team agents and appear in the Agents drawer.
 
+### 2026-05-07 - Treat missing checkpoint placeholders as completed turns
+
+- `Status`: active
+- `Area`: orchestration | team | projection
+- `User-visible impact`: Codex child agents in Dynamo-managed or cross-provider team workflows should no longer be finalized as cancelled while the child runtime is still working through a provisional missing-checkpoint placeholder.
+- `Why this patch exists`: Provider runtime ingestion can emit `thread.turn-diff-completed` with `status: "missing"` before checkpoint capture replaces it with a real git-backed checkpoint. That placeholder means "completed turn without a captured checkpoint yet"; it is not a cancellation or interruption signal.
+- `Key files`:
+  - `apps/server/src/orchestration/projector.ts`
+  - `apps/server/src/orchestration/projector.test.ts`
+  - `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`
+  - `apps/server/src/team/Layers/TeamTaskReactor.ts`
+- `Important invariants`:
+  - In-memory and SQL projections must both map checkpoint `status: "error"` to latest-turn `error`, and both `status: "ready"` and `status: "missing"` to latest-turn `completed`.
+  - Missing checkpoint summaries must still be retained as `status: "missing"` so the checkpoint reactor can replace placeholders with real checkpoints.
+  - Team task finalization must not treat missing checkpoint placeholders as child cancellation.
+- `Merge hotspots`:
+  - In-memory orchestration projector latest-turn state mapping
+  - SQL projection turn-status mapping
+  - Team task reactor child final-state handling
+- `Verification`:
+  - Run `bun run test src/orchestration/projector.test.ts` in `apps/server`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck` at the repo root.
+
 ### 2026-04-29 - Guard worktree branch metadata during bootstrap
 
 - `Status`: active
