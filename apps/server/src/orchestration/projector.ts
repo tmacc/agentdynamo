@@ -44,7 +44,6 @@ const MAX_THREAD_CHECKPOINTS = 500;
 
 function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
   if (status === "error") return "error" as const;
-  if (status === "missing") return "interrupted" as const;
   return "completed" as const;
 }
 
