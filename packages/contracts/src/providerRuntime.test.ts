@@ -69,6 +69,28 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.payload.planMarkdown).toBe("# Ship it");
   });
 
+  it("decodes assistant content render mode on content deltas", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "content.delta",
+      eventId: "event-render-mode-1",
+      provider: "claudeAgent",
+      createdAt: "2026-02-28T00:00:00.000Z",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      payload: {
+        streamKind: "assistant_text",
+        delta: "Claude account usage\nInput      10",
+        renderMode: "preformatted",
+      },
+    });
+
+    expect(parsed.type).toBe("content.delta");
+    if (parsed.type !== "content.delta") {
+      throw new Error("expected content.delta");
+    }
+    expect(parsed.payload.renderMode).toBe("preformatted");
+  });
+
   it("decodes user-input.requested with structured questions", () => {
     const parsed = decodeRuntimeEvent({
       type: "user-input.requested",

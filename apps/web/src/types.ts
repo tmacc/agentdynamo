@@ -46,12 +46,14 @@ export interface ChatImageAttachment {
 }
 
 export type ChatAttachment = ChatImageAttachment;
+export type ChatMessageRenderMode = "markdown" | "preformatted";
 
 export interface ChatMessage {
   id: MessageId;
   role: "user" | "assistant" | "system";
   text: string;
   attachments?: ChatAttachment[];
+  renderMode?: ChatMessageRenderMode;
   turnId?: TurnId | null;
   createdAt: string;
   completedAt?: string | undefined;

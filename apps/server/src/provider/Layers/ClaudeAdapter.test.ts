@@ -2986,8 +2986,12 @@ describe("ClaudeAdapterLive", () => {
       const adapter = yield* ClaudeAdapter;
       const accountUsageFiber = yield* Stream.filter(
         adapter.streamEvents,
-        (event) => event.type === "account.rate-limits.updated",
-      ).pipe(Stream.runHead, Effect.forkChild);
+        (event) =>
+          event.type === "account.rate-limits.updated" ||
+          (event.type === "content.delta" &&
+            event.payload.streamKind === "assistant_text" &&
+            event.payload.delta.includes("Current week")),
+      ).pipe(Stream.take(2), Stream.runCollect, Effect.forkChild);
 
       const session = yield* adapter.startSession({
         threadId: THREAD_ID,
@@ -3000,14 +3004,22 @@ describe("ClaudeAdapterLive", () => {
         attachments: [],
       });
 
-      const accountUsageEvent = yield* Fiber.join(accountUsageFiber);
-      assert.equal(accountUsageEvent._tag, "Some");
+      const usageEvents = Array.from(yield* Fiber.join(accountUsageFiber));
+      const accountUsageEvent = usageEvents.find(
+        (event) => event.type === "account.rate-limits.updated",
+      );
+      const usageTextEvent = usageEvents.find((event) => event.type === "content.delta");
+      assert.ok(accountUsageEvent);
+      assert.ok(usageTextEvent);
       assert.equal(captureCalls, 1);
+      if (usageTextEvent.type === "content.delta") {
+        assert.equal(usageTextEvent.payload.renderMode, "preformatted");
+      }
       if (
-        accountUsageEvent._tag === "Some" &&
-        accountUsageEvent.value.type === "account.rate-limits.updated"
+        accountUsageEvent !== undefined &&
+        accountUsageEvent.type === "account.rate-limits.updated"
       ) {
-        assert.deepEqual(accountUsageEvent.value.payload, {
+        assert.deepEqual(accountUsageEvent.payload, {
           rateLimits: {
             type: "rate_limit_event",
             source: "claude-cli-tui-capture",

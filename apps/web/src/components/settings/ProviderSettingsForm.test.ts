@@ -36,6 +36,22 @@ describe("ProviderSettingsForm helpers", () => {
     });
   });
 
+  it("derives Claude usage refresh as one schema-owned switch field", () => {
+    const claude = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("claudeAgent")];
+    expect(claude).toBeDefined();
+
+    const fields = deriveProviderSettingsFields(claude!);
+    const usageRefreshFields = fields.filter((field) => field.key === "refreshUsageAfterTurns");
+
+    expect(usageRefreshFields).toHaveLength(1);
+    expect(usageRefreshFields[0]).toMatchObject({
+      key: "refreshUsageAfterTurns",
+      label: "Refresh usage after turns",
+      control: "switch",
+      defaultBooleanValue: false,
+    });
+  });
+
   it("preserves unknown config keys while omitting empty configurable fields", () => {
     const opencode = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("opencode")];
     expect(opencode).toBeDefined();

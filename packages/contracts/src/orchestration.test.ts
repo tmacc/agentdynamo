@@ -81,6 +81,53 @@ it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
   }),
 );
 
+it.effect("parses assistant message render mode on message commands and events", () =>
+  Effect.gen(function* () {
+    const command = yield* decodeOrchestrationCommand({
+      type: "thread.message.assistant.delta",
+      commandId: "command-render-mode-1",
+      threadId: "thread-1",
+      messageId: "message-1",
+      delta: "Model      GPT-5",
+      renderMode: "preformatted",
+      turnId: "turn-1",
+      createdAt: "2026-02-28T00:00:00.000Z",
+    });
+    assert.strictEqual(command.type, "thread.message.assistant.delta");
+    if (command.type === "thread.message.assistant.delta") {
+      assert.strictEqual(command.renderMode, "preformatted");
+    }
+
+    const event = yield* decodeOrchestrationEvent({
+      sequence: 1,
+      eventId: "event-render-mode-1",
+      aggregateKind: "thread",
+      aggregateId: "thread-1",
+      occurredAt: "2026-02-28T00:00:00.000Z",
+      commandId: null,
+      causationEventId: null,
+      correlationId: null,
+      metadata: {},
+      type: "thread.message-sent",
+      payload: {
+        threadId: "thread-1",
+        messageId: "message-1",
+        role: "assistant",
+        text: "Model      GPT-5",
+        renderMode: "preformatted",
+        turnId: "turn-1",
+        streaming: true,
+        createdAt: "2026-02-28T00:00:00.000Z",
+        updatedAt: "2026-02-28T00:00:00.000Z",
+      },
+    });
+    assert.strictEqual(event.type, "thread.message-sent");
+    if (event.type === "thread.message-sent") {
+      assert.strictEqual(event.payload.renderMode, "preformatted");
+    }
+  }),
+);
+
 it.effect("parses turn diff input with whitespace ignoring enabled", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeTurnDiffInput({

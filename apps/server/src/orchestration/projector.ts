@@ -410,6 +410,7 @@ export function projectEvent(
             role: payload.role,
             text: payload.text,
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
+            ...(payload.renderMode !== undefined ? { renderMode: payload.renderMode } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
             createdAt: payload.createdAt,
@@ -436,6 +437,11 @@ export function projectEvent(
                     ...(message.attachments !== undefined
                       ? { attachments: message.attachments }
                       : {}),
+                    ...(message.renderMode !== undefined
+                      ? { renderMode: message.renderMode }
+                      : entry.renderMode !== undefined
+                        ? { renderMode: entry.renderMode }
+                        : {}),
                   }
                 : entry,
             )

@@ -131,6 +131,7 @@ interface AssistantTextBlockState {
   readonly blockIndex: number;
   emittedTextDelta: boolean;
   fallbackText: string;
+  renderMode?: "markdown" | "preformatted";
   streamClosed: boolean;
   completionEmitted: boolean;
 }
@@ -1344,6 +1345,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     blockIndex: number,
     options?: {
       readonly fallbackText?: string;
+      readonly renderMode?: "markdown" | "preformatted";
       readonly streamClosed?: boolean;
     },
   ) {
@@ -1360,6 +1362,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       if (options?.streamClosed) {
         existing.streamClosed = true;
       }
+      if (options?.renderMode === "preformatted") {
+        existing.renderMode = options.renderMode;
+      }
       return { blockIndex, block: existing };
     }
 
@@ -1368,6 +1373,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       blockIndex,
       emittedTextDelta: false,
       fallbackText: options?.fallbackText ?? "",
+      ...(options?.renderMode ? { renderMode: options.renderMode } : {}),
       streamClosed: options?.streamClosed ?? false,
       completionEmitted: false,
     };
@@ -1377,7 +1383,11 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   });
 
   const createSyntheticAssistantTextBlock = Effect.fn("createSyntheticAssistantTextBlock")(
-    function* (context: ClaudeSessionContext, fallbackText: string) {
+    function* (
+      context: ClaudeSessionContext,
+      fallbackText: string,
+      options?: { readonly renderMode?: "markdown" | "preformatted" },
+    ) {
       const turnState = context.turnState;
       if (!turnState) {
         return undefined;
@@ -1387,6 +1397,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       turnState.nextSyntheticAssistantBlockIndex -= 1;
       return yield* ensureAssistantTextBlock(context, blockIndex, {
         fallbackText,
+        ...(options?.renderMode ? { renderMode: options.renderMode } : {}),
         streamClosed: true,
       });
     },
@@ -1423,6 +1434,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         payload: {
           streamKind: "assistant_text",
           delta: block.fallbackText,
+          ...(block.renderMode === "preformatted" ? { renderMode: block.renderMode } : {}),
         },
         providerRefs: nativeProviderRefs(context),
         ...(options?.rawMethod || options?.rawPayload
@@ -3439,7 +3451,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               : []),
           ].join("\n");
 
-      const assistantBlock = yield* createSyntheticAssistantTextBlock(context, usageText);
+      const assistantBlock = yield* createSyntheticAssistantTextBlock(context, usageText, {
+        renderMode: "preformatted",
+      });
       if (assistantBlock) {
         yield* completeAssistantTextBlock(context, assistantBlock.block, {
           force: true,
