@@ -81,6 +81,49 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resolveMockUpdateServerUrl(4123), "http://localhost:4123");
   });
 
+  it.effect("disables electron-builder publish auto-detection without an update repo", () =>
+    Effect.gen(function* () {
+      const previousUpdateRepository = process.env.T3CODE_DESKTOP_UPDATE_REPOSITORY;
+      const previousGitHubRepository = process.env.GITHUB_REPOSITORY;
+      const previousGitHubToken = process.env.GH_TOKEN;
+
+      try {
+        delete process.env.T3CODE_DESKTOP_UPDATE_REPOSITORY;
+        delete process.env.GITHUB_REPOSITORY;
+        process.env.GH_TOKEN = "token";
+
+        const buildConfig = yield* createBuildConfig(
+          "mac",
+          "dmg",
+          "0.0.17",
+          false,
+          false,
+          undefined,
+        );
+
+        assert.equal(buildConfig.publish, null);
+      } finally {
+        if (previousUpdateRepository === undefined) {
+          delete process.env.T3CODE_DESKTOP_UPDATE_REPOSITORY;
+        } else {
+          process.env.T3CODE_DESKTOP_UPDATE_REPOSITORY = previousUpdateRepository;
+        }
+
+        if (previousGitHubRepository === undefined) {
+          delete process.env.GITHUB_REPOSITORY;
+        } else {
+          process.env.GITHUB_REPOSITORY = previousGitHubRepository;
+        }
+
+        if (previousGitHubToken === undefined) {
+          delete process.env.GH_TOKEN;
+        } else {
+          process.env.GH_TOKEN = previousGitHubToken;
+        }
+      }
+    }),
+  );
+
   it("detects transient Apple notarytool throttling failures", () => {
     assert.equal(
       isTransientMacNotarizationFailure(`

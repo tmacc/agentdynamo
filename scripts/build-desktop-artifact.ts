@@ -670,6 +670,8 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         url: resolveMockUpdateServerUrl(mockUpdateServerPort),
       },
     ];
+  } else {
+    buildConfig.publish = null;
   }
 
   if (platform === "mac") {

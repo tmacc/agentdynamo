@@ -209,6 +209,23 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run --cwd scripts test build-desktop-artifact.test.ts` and confirm transient notary throttling is detected.
   - Run a signed macOS artifact build in CI and confirm `503 Slow Down` responses are retried.
 
+### Desktop artifact publish autodetection guard
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: Local desktop artifact builds such as `bun run dist:desktop:dmg:arm64` succeed even when the developer shell contains `GH_TOKEN` or `GITHUB_TOKEN` but no desktop update repository is configured.
+- `Why it exists`: Electron Builder 26 can auto-detect GitHub publishing from token environment variables while still running with `--publish never`. In the staged app outside the git checkout, missing repository metadata can resolve to a null publish config and crash update-info generation after the DMG/ZIP are built.
+- `Key fork files`:
+  - `scripts/build-desktop-artifact.ts`
+- `Important invariants`:
+  - When neither `T3CODE_DESKTOP_UPDATE_REPOSITORY`/`GITHUB_REPOSITORY` nor mock updates are configured, staged build metadata must set `build.publish` to `null`.
+  - Explicit update repositories and mock update server builds must still produce publish config so updater metadata can be generated.
+- `Merge hotspots`:
+  - Desktop artifact staging package generation
+  - Electron Builder publish/update config
+- `Verification`:
+  - Run `bun run --cwd scripts test build-desktop-artifact.test.ts`.
+  - Run `bun run dist:desktop:dmg:arm64` from a shell with `GH_TOKEN` set and no update repository env configured.
+
 ### Claude account usage meter and /usage TUI capture
 
 - `Status`: Present on current fork.
