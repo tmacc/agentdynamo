@@ -5,8 +5,10 @@ import {
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
   type ResolvedKeybindingsConfig,
   THREAD_JUMP_KEYBINDING_COMMANDS,
+  TILE_FOCUS_INDEX_KEYBINDING_COMMANDS,
   type ModelPickerJumpKeybindingCommand,
   type ThreadJumpKeybindingCommand,
+  type TileFocusIndexKeybindingCommand,
 } from "@t3tools/contracts";
 import { isMacPlatform } from "./lib/utils";
 
@@ -30,6 +32,7 @@ export interface ShortcutModifierStateLike {
 export interface ShortcutMatchContext {
   terminalFocus: boolean;
   terminalOpen: boolean;
+  tileMode: boolean;
   [key: string]: boolean;
 }
 
@@ -112,6 +115,7 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
   return {
     terminalFocus: false,
     terminalOpen: false,
+    tileMode: false,
     ...options?.context,
   };
 }
@@ -298,6 +302,19 @@ export function shouldShowThreadJumpHintsForModifiers(
   }
 
   return false;
+}
+
+export function tileFocusIndexCommandForIndex(
+  index: number,
+): TileFocusIndexKeybindingCommand | null {
+  return TILE_FOCUS_INDEX_KEYBINDING_COMMANDS[index] ?? null;
+}
+
+export function tileFocusIndexFromCommand(command: string): number | null {
+  const index = TILE_FOCUS_INDEX_KEYBINDING_COMMANDS.indexOf(
+    command as TileFocusIndexKeybindingCommand,
+  );
+  return index === -1 ? null : index;
 }
 
 export function modelPickerJumpCommandForIndex(

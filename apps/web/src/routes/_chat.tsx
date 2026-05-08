@@ -15,14 +15,17 @@ import {
   startSeededThreadForCard,
 } from "../lib/chatThreadActions";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { resolveShortcutCommand } from "../keybindings";
+import { resolveShortcutCommand, tileFocusIndexFromCommand } from "../keybindings";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
+import { selectFocusedTile, selectIsTileMode, useTileViewStore } from "../tileViewStore";
+import { buildThreadRouteParams } from "../threadRoutes";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
 import { useSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "~/rpc/serverState";
 
 function ChatRouteGlobalShortcuts() {
+  const navigate = useNavigate();
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
@@ -34,6 +37,7 @@ function ChatRouteGlobalShortcuts() {
       : false,
   );
   const appSettings = useSettings();
+  const tileMode = useTileViewStore(selectIsTileMode);
 
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
@@ -42,6 +46,7 @@ function ChatRouteGlobalShortcuts() {
         context: {
           terminalFocus: isTerminalFocused(),
           terminalOpen,
+          tileMode,
         },
       });
 
@@ -53,6 +58,74 @@ function ChatRouteGlobalShortcuts() {
         event.preventDefault();
         clearSelection();
         return;
+      }
+
+      if (command === "tile.split") {
+        event.preventDefault();
+        event.stopPropagation();
+        useTileViewStore.getState().openSplitPicker("shortcut");
+        return;
+      }
+
+      if (command === "tile.focusNext") {
+        event.preventDefault();
+        event.stopPropagation();
+        useTileViewStore.getState().cycleFocus(1);
+        return;
+      }
+
+      if (command === "tile.focusPrev") {
+        event.preventDefault();
+        event.stopPropagation();
+        useTileViewStore.getState().cycleFocus(-1);
+        return;
+      }
+
+      if (command === "tile.close") {
+        event.preventDefault();
+        event.stopPropagation();
+        const state = useTileViewStore.getState();
+        const focused = state.focusedIndex;
+        const removed = state.closeTile(focused);
+        if (removed && useTileViewStore.getState().tiles.length === 0) {
+          void navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(removed.target.threadRef),
+            replace: true,
+          }).catch(() => undefined);
+        }
+        return;
+      }
+
+      if (command === "tile.exit") {
+        event.preventDefault();
+        event.stopPropagation();
+        const state = useTileViewStore.getState();
+        const focusedTile = selectFocusedTile(state);
+        state.exitTileMode();
+        if (focusedTile) {
+          void navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(focusedTile.target.threadRef),
+            replace: true,
+          }).catch(() => undefined);
+        } else {
+          void navigate({ to: "/", replace: true }).catch(() => undefined);
+        }
+        return;
+      }
+
+      if (command !== null) {
+        const tileIndex = tileFocusIndexFromCommand(command);
+        if (tileIndex !== null) {
+          const state = useTileViewStore.getState();
+          if (tileIndex < state.tiles.length) {
+            event.preventDefault();
+            event.stopPropagation();
+            state.focusByIndex(tileIndex);
+          }
+          return;
+        }
       }
 
       if (command === "chat.newLocal") {
@@ -99,6 +172,8 @@ function ChatRouteGlobalShortcuts() {
     selectedThreadKeysSize,
     terminalOpen,
     appSettings.defaultThreadEnvMode,
+    tileMode,
+    navigate,
   ]);
 
   return null;

@@ -88,6 +88,9 @@ import { readLocalApi } from "../localApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
+import { useTileViewStore } from "../tileViewStore";
+import { serializeTileRouteSearch } from "../tileRouteSearch";
+import { SidebarMultiSelectToolbar } from "./sidebar/SidebarMultiSelectToolbar";
 
 import { useThreadActions } from "../hooks/useThreadActions";
 import {
@@ -1613,6 +1616,22 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (isMobile) {
         setOpenMobile(false);
       }
+
+      // Tile-mode: clicking a thread replaces the focused tile in place
+      // (matches VSCode editor-group behavior). Modifier-clicks above
+      // already returned, so we only reach here on a plain click.
+      const tileState = useTileViewStore.getState();
+      if (tileState.tiles.length > 0) {
+        tileState.replaceFocused({ kind: "server", threadRef });
+        const stateAfter = useTileViewStore.getState();
+        const serialized = serializeTileRouteSearch({
+          tiles: stateAfter.tiles.map((entry) => entry.target.threadRef),
+          focusedIndex: stateAfter.focusedIndex,
+        });
+        void router.navigate({ to: "/tiled", search: serialized, replace: true });
+        return;
+      }
+
       void router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
@@ -1640,11 +1659,31 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
       const clicked = await api.contextMenu.show(
         [
+          { id: "open-tiled", label: `Open ${count} in tile view` },
           { id: "mark-unread", label: `Mark unread (${count})` },
           { id: "delete", label: `Delete (${count})`, destructive: true },
         ],
         position,
       );
+
+      if (clicked === "open-tiled") {
+        const targets: Array<{ kind: "server"; threadRef: ScopedThreadRef }> = [];
+        for (const key of threadKeys) {
+          const ref = parseScopedThreadKey(key);
+          if (ref) targets.push({ kind: "server", threadRef: ref });
+        }
+        if (targets.length > 0) {
+          useTileViewStore.getState().openTiles(targets, 0);
+          const stateAfter = useTileViewStore.getState();
+          const serialized = serializeTileRouteSearch({
+            tiles: stateAfter.tiles.map((entry) => entry.target.threadRef),
+            focusedIndex: stateAfter.focusedIndex,
+          });
+          clearSelection();
+          void router.navigate({ to: "/tiled", search: serialized });
+        }
+        return;
+      }
 
       if (clicked === "mark-unread") {
         for (const threadKey of threadKeys) {
@@ -1683,6 +1722,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       deleteThread,
       markThreadUnread,
       removeFromSelection,
+      router,
     ],
   );
 
@@ -3427,6 +3467,7 @@ export default function Sidebar() {
           <SidebarChromeFooter />
         </>
       )}
+      <SidebarMultiSelectToolbar />
     </>
   );
 }
