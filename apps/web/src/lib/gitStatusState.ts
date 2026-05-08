@@ -62,8 +62,10 @@ const knownGitStatusKeys = new Set<string>();
 const gitStatusSnapshotListeners = new Map<string, Set<() => void>>();
 const gitStatusRefreshInFlight = new Map<string, Promise<VcsStatusResult>>();
 const gitStatusLastRefreshAtByKey = new Map<string, number>();
+const optimisticPrExpiresAtByKey = new Map<string, number>();
 
 const GIT_STATUS_REFRESH_DEBOUNCE_MS = 1_000;
+const OPTIMISTIC_PR_RETENTION_MS = 2 * 60_000;
 
 const gitStatusStateAtom = Atom.family((key: string) => {
   knownGitStatusKeys.add(key);
@@ -152,6 +154,34 @@ export function refreshGitStatus(
   return refreshPromise;
 }
 
+export function applyOptimisticGitStatusPr(
+  target: GitStatusTarget,
+  pr: NonNullable<VcsStatusResult["pr"]>,
+): void {
+  const targetKey = getGitStatusTargetKey(target);
+  if (targetKey === null) {
+    return;
+  }
+
+  const atom = gitStatusStateAtom(targetKey);
+  const current = appAtomRegistry.get(atom);
+  if (current.data === null || current.data.refName !== pr.headRef) {
+    return;
+  }
+
+  appAtomRegistry.set(atom, {
+    ...current,
+    data: {
+      ...current.data,
+      pr,
+    },
+    error: null,
+    cause: null,
+  });
+  optimisticPrExpiresAtByKey.set(targetKey, Date.now() + OPTIMISTIC_PR_RETENTION_MS);
+  notifyGitStatusSnapshotListeners(targetKey);
+}
+
 export function resetGitStatusStateForTests(): void {
   for (const watched of watchedGitStatuses.values()) {
     watched.unsubscribe();
@@ -160,6 +190,7 @@ export function resetGitStatusStateForTests(): void {
   gitStatusSnapshotListeners.clear();
   gitStatusRefreshInFlight.clear();
   gitStatusLastRefreshAtByKey.clear();
+  optimisticPrExpiresAtByKey.clear();
 
   for (const key of knownGitStatusKeys) {
     appAtomRegistry.set(gitStatusStateAtom(key), INITIAL_GIT_STATUS_STATE);
@@ -321,8 +352,9 @@ function subscribeToGitStatus(targetKey: string, cwd: string, client: GitStatusC
   return client.onStatus(
     { cwd },
     (status: VcsStatusResult) => {
+      const nextStatus = mergeOptimisticPr(targetKey, status);
       appAtomRegistry.set(gitStatusStateAtom(targetKey), {
-        data: status,
+        data: nextStatus,
         error: null,
         cause: null,
         isPending: false,
@@ -335,6 +367,26 @@ function subscribeToGitStatus(targetKey: string, cwd: string, client: GitStatusC
       },
     },
   );
+}
+
+function mergeOptimisticPr(targetKey: string, status: VcsStatusResult): VcsStatusResult {
+  const optimisticPrExpiresAt = optimisticPrExpiresAtByKey.get(targetKey);
+  if (optimisticPrExpiresAt === undefined) {
+    return status;
+  }
+
+  const currentPr = appAtomRegistry.get(gitStatusStateAtom(targetKey)).data?.pr ?? null;
+  if (
+    status.pr === null &&
+    currentPr?.state === "open" &&
+    currentPr.headRef === status.refName &&
+    Date.now() < optimisticPrExpiresAt
+  ) {
+    return { ...status, pr: currentPr };
+  }
+
+  optimisticPrExpiresAtByKey.delete(targetKey);
+  return status;
 }
 
 function markGitStatusPending(targetKey: string): void {

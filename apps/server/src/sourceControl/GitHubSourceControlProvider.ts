@@ -162,10 +162,16 @@ export const make = Effect.fn("makeGitHubSourceControlProvider")(function* () {
     kind: "github",
     listChangeRequests,
     getChangeRequest: (input) =>
-      github.getPullRequest(input).pipe(
-        Effect.map(toChangeRequest),
-        Effect.mapError((error) => providerError("getChangeRequest", error)),
-      ),
+      github
+        .getPullRequest({
+          cwd: input.cwd,
+          reference: input.reference,
+          ...(input.repository !== undefined ? { repository: input.repository } : {}),
+        })
+        .pipe(
+          Effect.map(toChangeRequest),
+          Effect.mapError((error) => providerError("getChangeRequest", error)),
+        ),
     createChangeRequest: (input) =>
       github
         .createPullRequest({

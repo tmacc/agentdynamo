@@ -1,5 +1,5 @@
 import { scopeProjectRef, scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
-import type { VcsStatusResult } from "@t3tools/contracts";
+import type { GitResolvePullRequestResult, VcsStatusResult } from "@t3tools/contracts";
 import { CloudIcon, GitPullRequestIcon, TerminalIcon } from "lucide-react";
 import { useMemo } from "react";
 import { usePrimaryEnvironmentId } from "../environments/primary";
@@ -78,6 +78,25 @@ export function resolveThreadPr(
   }
 
   return gitStatus.pr ?? null;
+}
+
+export function resolvedPullRequestToThreadPr(
+  threadBranch: string | null,
+  result: GitResolvePullRequestResult | null | undefined,
+): ThreadPr | null {
+  const pullRequest = result?.pullRequest;
+  if (!threadBranch || !pullRequest || pullRequest.headBranch !== threadBranch) {
+    return null;
+  }
+
+  return {
+    number: pullRequest.number,
+    title: pullRequest.title,
+    url: pullRequest.url,
+    baseRef: pullRequest.baseBranch,
+    headRef: pullRequest.headBranch,
+    state: pullRequest.state,
+  };
 }
 
 export function terminalStatusFromRunningIds(

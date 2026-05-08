@@ -13,6 +13,7 @@ import {
 import {
   ChangeRequestStatusIcon,
   prStatusIndicator,
+  resolvedPullRequestToThreadPr,
   resolveThreadPr,
   terminalStatusFromRunningIds,
   ThreadStatusLabel,
@@ -53,6 +54,7 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime";
 import { Link, useLocation, useNavigate, useParams, useRouter } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   type SidebarProjectSortOrder,
   type SidebarThreadSortOrder,
@@ -84,6 +86,7 @@ import {
 import { useModelPickerOpen } from "../modelPickerOpenState";
 import { useShortcutModifierState } from "../shortcutModifierState";
 import { useGitStatus } from "../lib/gitStatusState";
+import { gitResolvePullRequestQueryOptions } from "../lib/gitReactQuery";
 import { readLocalApi } from "../localApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
@@ -370,7 +373,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       lastVisitedAt,
     },
   });
-  const pr = resolveThreadPr(thread.branch, gitStatus.data);
+  const gitStatusPr = resolveThreadPr(thread.branch, gitStatus.data);
+  const resolvedBranchPrQuery = useQuery({
+    ...gitResolvePullRequestQueryOptions({
+      environmentId: thread.environmentId,
+      cwd: gitCwd,
+      reference: thread.branch,
+    }),
+    enabled: thread.branch !== null && gitStatusPr === null,
+    retry: false,
+  });
+  const resolvedBranchPr = resolvedPullRequestToThreadPr(thread.branch, resolvedBranchPrQuery.data);
+  const pr = gitStatusPr ?? resolvedBranchPr;
   const prStatus = prStatusIndicator(pr, gitStatus.data?.sourceControlProvider);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const isConfirmingArchive = confirmingArchiveThreadKey === threadKey && !isThreadRunning;

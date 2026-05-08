@@ -62,6 +62,7 @@ export interface SourceControlProviderShape {
   readonly getChangeRequest: (input: {
     readonly cwd: string;
     readonly context?: SourceControlProviderContext;
+    readonly repository?: string | null;
     readonly reference: string;
   }) => Effect.Effect<ChangeRequest, SourceControlProviderError>;
   readonly createChangeRequest: (input: {

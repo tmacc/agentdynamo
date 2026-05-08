@@ -11,7 +11,7 @@ import type {
   SourceControlRepositoryVisibility,
   VcsStatusResult,
 } from "@t3tools/contracts";
-import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Option } from "effect";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
@@ -70,11 +70,12 @@ import {
   gitMutationKeys,
   gitPullMutationOptions,
   gitPullRequestRemoteOptionsQueryOptions,
+  gitResolvePullRequestQueryOptions,
   gitRunStackedActionMutationOptions,
   gitSetPullRequestRemoteMutationOptions,
   sourceControlPublishRepositoryMutationOptions,
 } from "~/lib/gitReactQuery";
-import { refreshGitStatus, useGitStatus } from "~/lib/gitStatusState";
+import { applyOptimisticGitStatusPr, refreshGitStatus, useGitStatus } from "~/lib/gitStatusState";
 import { useSourceControlDiscovery } from "~/lib/sourceControlDiscoveryState";
 import { newCommandId, randomUUID } from "~/lib/utils";
 import { resolvePathLinkTarget } from "~/terminal-links";
@@ -84,6 +85,7 @@ import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
 import { useStore } from "~/store";
 import { createThreadSelectorByRef } from "~/storeSelectors";
+import { resolvedPullRequestToThreadPr } from "./ThreadStatusIndicators";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -229,6 +231,31 @@ function formatElapsedDescription(startedAtMs: number | null): string | undefine
   const minutes = Math.floor(elapsedSeconds / 60);
   const seconds = elapsedSeconds % 60;
   return `Running for ${minutes}m ${seconds}s`;
+}
+
+function prStatusFromGitActionResult(
+  result: GitRunStackedActionResult,
+): NonNullable<VcsStatusResult["pr"]> | null {
+  if (result.pr.status !== "created" && result.pr.status !== "opened_existing") {
+    return null;
+  }
+  if (
+    !result.pr.number ||
+    !result.pr.url ||
+    !result.pr.title ||
+    !result.pr.baseBranch ||
+    !result.pr.headBranch
+  ) {
+    return null;
+  }
+  return {
+    number: result.pr.number,
+    title: result.pr.title,
+    url: result.pr.url,
+    baseRef: result.pr.baseBranch,
+    headRef: result.pr.headBranch,
+    state: "open",
+  };
 }
 
 function resolveProgressDescription(progress: ActiveGitActionProgress): string | undefined {
@@ -1077,7 +1104,26 @@ export default function GitActionsControl({
   // Default to true while loading so we don't flash init controls.
   const isRepo = gitStatus?.isRepo ?? true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
-  const gitStatusForActions = gitStatus;
+  const activeThreadBranch = activeServerThread?.branch ?? activeDraftThread?.branch ?? null;
+  const pullRequestLookupBranch = gitStatus?.refName ?? activeThreadBranch;
+  const resolvedPullRequestQuery = useQuery({
+    ...gitResolvePullRequestQueryOptions({
+      environmentId: activeEnvironmentId,
+      cwd: gitCwd,
+      reference: pullRequestLookupBranch,
+    }),
+    enabled: gitStatus !== null && gitStatus.pr === null && pullRequestLookupBranch !== null,
+    retry: false,
+  });
+  const resolvedPullRequestPr = resolvedPullRequestToThreadPr(
+    pullRequestLookupBranch,
+    resolvedPullRequestQuery.data,
+  );
+  const gitStatusForActions = useMemo(() => {
+    return gitStatus && resolvedPullRequestPr
+      ? { ...gitStatus, pr: resolvedPullRequestPr }
+      : gitStatus;
+  }, [gitStatus, resolvedPullRequestPr]);
 
   const allFiles = gitStatusForActions?.workingTree.files ?? [];
   const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));
@@ -1454,6 +1500,13 @@ export default function GitActionsControl({
         const result = await promise;
         activeGitActionProgressRef.current = null;
         syncThreadBranchAfterGitAction(result);
+        const optimisticPr = prStatusFromGitActionResult(result);
+        if (optimisticPr) {
+          applyOptimisticGitStatusPr(
+            { environmentId: activeEnvironmentId, cwd: gitCwd },
+            optimisticPr,
+          );
+        }
         const closeResultToast = () => {
           toastManager.close(resolvedProgressToastId);
         };
