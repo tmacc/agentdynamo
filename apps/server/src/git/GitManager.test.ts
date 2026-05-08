@@ -4091,4 +4091,53 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       ]);
     }),
   );
+
+  it.effect("create_pr waits for provider PR discovery after creation", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/pr-discovery-delay"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      fs.writeFileSync(path.join(repoDir, "delayed-pr.txt"), "delayed pr\n");
+      yield* runGit(repoDir, ["add", "delayed-pr.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Delayed PR discovery"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/pr-discovery-delay"]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            JSON.stringify([]),
+            JSON.stringify([]),
+            JSON.stringify([
+              {
+                number: 202,
+                title: "Delayed PR discovery",
+                url: "https://github.com/example/project/pull/202",
+                baseRefName: "main",
+                headRefName: "feature/pr-discovery-delay",
+                state: "OPEN",
+                isCrossRepository: false,
+              },
+            ]),
+          ],
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+      });
+
+      expect(result.pr).toEqual({
+        status: "created",
+        url: "https://github.com/example/project/pull/202",
+        number: 202,
+        baseBranch: "main",
+        headBranch: "feature/pr-discovery-delay",
+        title: "Delayed PR discovery",
+      });
+      expect(ghCalls.filter((call) => call.startsWith("pr list "))).toHaveLength(3);
+    }),
+  );
 });
