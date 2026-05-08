@@ -1,5 +1,6 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
+import { LayoutGridIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import ChatView from "../ChatView";
@@ -16,7 +17,17 @@ import {
   type TileRouteSearch,
 } from "../../tileRouteSearch";
 import { buildThreadRouteParams } from "../../threadRoutes";
+import { Button } from "../ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "../ui/empty";
 import { SidebarInset } from "../ui/sidebar";
+import { SplitWithPicker } from "./SplitWithPicker";
 import { TileGrid } from "./TileGrid";
 import { TilePane } from "./TilePane";
 
@@ -127,12 +138,35 @@ export function TileShell({ search }: { search: TileRouteSearch }) {
       );
     }
     return (
-      <SidebarInset className="flex h-svh min-h-0 flex-col items-center justify-center gap-2 overflow-hidden bg-background text-foreground md:h-dvh">
-        <div className="text-sm text-muted-foreground">No tiles open.</div>
-        <div className="text-xs text-muted-foreground/70">
-          Press <kbd className="rounded border border-border px-1 font-mono text-[10px]">⌘\</kbd> to
-          split with a thread.
-        </div>
+      <SidebarInset className="flex h-svh min-h-0 overflow-hidden bg-background text-foreground md:h-dvh">
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <LayoutGridIcon />
+            </EmptyMedia>
+            <EmptyTitle>Tile View</EmptyTitle>
+            <EmptyDescription>
+              Open multiple agent threads in one workspace and switch the shared composer between
+              tiles.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <SplitWithPicker
+              currentThreadRef={null}
+              trigger={
+                <Button size="sm">
+                  <LayoutGridIcon className="size-4" />
+                  Pick threads
+                </Button>
+              }
+            />
+            <div className="text-xs text-muted-foreground/70">
+              Press{" "}
+              <kbd className="rounded border border-border px-1 font-mono text-[10px]">⌘\</kbd> to
+              add a thread.
+            </div>
+          </EmptyContent>
+        </Empty>
       </SidebarInset>
     );
   }

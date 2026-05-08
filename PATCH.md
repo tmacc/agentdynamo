@@ -115,13 +115,14 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 ### Tiled multi-thread view
 
 - `Status`: In progress on current feature branch.
-- `User-visible behavior`: Users can open multiple server threads in a tiled grid with one shared header and composer targeting the focused tile. The grid can be opened from sidebar multi-select actions, the header split picker, keyboard shortcuts, and direct `/tiled?threads=...&focus=...` URLs.
+- `User-visible behavior`: Users can open multiple server threads in a tiled grid with one shared header and composer targeting the focused tile. The grid is a first-class sidebar Workspace destination ("Tile View") and can also be opened from sidebar multi-select actions, the header split picker, keyboard shortcuts, and direct `/tiled?threads=...&focus=...` URLs.
 - `Why it exists`: Dynamo users often supervise multiple agent threads concurrently. Tiled view keeps the active human input single-threaded while preserving visual continuity across running, waiting, and completed agent threads.
 - `Key fork files`:
   - `apps/web/src/tileViewStore.ts`
   - `apps/web/src/tileRouteSearch.ts`
   - `apps/web/src/components/tile/*`
   - `apps/web/src/components/sidebar/SidebarMultiSelectToolbar.tsx`
+  - `apps/web/src/components/sidebar/SidebarWorkspacesSection.tsx`
   - `apps/web/src/components/ChatView.tsx`
   - `apps/web/src/components/Sidebar.tsx`
   - `apps/web/src/components/chat/ChatHeader.tsx`
@@ -132,6 +133,8 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Important invariants`:
   - The URL is the source of truth for tiled route hydration; stale in-memory tile state must not overwrite a newly navigated `/tiled` URL.
   - Store-driven user mutations must still serialize back to the URL so refresh, back/forward, and sharing remain predictable.
+  - Sidebar thread clicks should replace the focused tile only while the current route is `/tiled`; stale in-memory tile state must not pull users back into a hidden tiled workspace from normal thread routes.
+  - The sidebar "Tile View" workspace entry should reopen the in-memory tiled workspace within the current app session, or show the empty tiled workspace when no tiles are stored.
   - Adding a thread through the split picker must focus the selected thread by scoped thread key after merge/dedupe, not by a caller-computed array index.
   - Opening an already tiled thread should focus the existing tile instead of duplicating it.
   - The shared composer/header must always target the focused tile only; there is no broadcast input behavior.

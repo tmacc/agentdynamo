@@ -94,6 +94,7 @@ import { retainThreadDetailSubscription } from "../environments/runtime/service"
 import { useTileViewStore } from "../tileViewStore";
 import { serializeTileRouteSearch } from "../tileRouteSearch";
 import { SidebarMultiSelectToolbar } from "./sidebar/SidebarMultiSelectToolbar";
+import { SidebarWorkspacesSection } from "./sidebar/SidebarWorkspacesSection";
 
 import { useThreadActions } from "../hooks/useThreadActions";
 import {
@@ -954,6 +955,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   }));
   const { updateSettings } = useUpdateSettings();
   const router = useRouter();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const isTiledRoute = pathname === "/tiled";
   const { isMobile, setOpenMobile } = useSidebar();
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
   const toggleProject = useUiStateStore((state) => state.toggleProject);
@@ -1635,7 +1638,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       // (matches VSCode editor-group behavior). Modifier-clicks above
       // already returned, so we only reach here on a plain click.
       const tileState = useTileViewStore.getState();
-      if (tileState.tiles.length > 0) {
+      if (isTiledRoute && tileState.tiles.length > 0) {
         tileState.replaceFocused({ kind: "server", threadRef });
         const stateAfter = useTileViewStore.getState();
         const serialized = serializeTileRouteSearch({
@@ -1654,6 +1657,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     },
     [
       clearSelection,
+      isTiledRoute,
       isMobile,
       rangeSelectTo,
       router,
@@ -2688,6 +2692,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
           </Alert>
         </SidebarGroup>
       ) : null}
+      <SidebarWorkspacesSection />
       <SidebarGroup className="px-2 py-2">
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
