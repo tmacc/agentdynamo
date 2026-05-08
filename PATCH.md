@@ -795,6 +795,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `packages/contracts/src/git.ts`
   - `packages/contracts/src/ipc.ts`
   - `packages/contracts/src/rpc.ts`
+  - `apps/server/src/sourceControl/SourceControlProvider.ts`
   - `apps/server/src/sourceControl/GitHubCli.ts`
   - `apps/server/src/sourceControl/GitHubSourceControlProvider.ts`
   - `apps/server/src/git/GitManager.ts`
@@ -806,6 +807,9 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/web/src/rpc/wsRpcClient.ts`
   - `apps/web/src/environmentApi.ts`
   - `apps/web/src/components/GitActionsControl.tsx`
+  - `apps/web/src/components/GitActionsControl.logic.ts`
+  - `apps/web/src/components/Sidebar.tsx`
+  - `apps/web/src/components/ThreadStatusIndicators.tsx`
 - `Important invariants`:
   - PR creation must not silently choose between multiple different GitHub target repositories.
   - If zero GitHub remotes are detected, preserve the existing GitHub CLI inference path instead of blocking local/test repositories.
@@ -815,10 +819,12 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - The selected remote must be validated against the current repository remotes before saving or using it.
   - The remembered choice is repo-local git config stored as `dynamo.pullRequestRemote`; reads fall back to legacy `t3.pullRequestRemote` so pre-merge fork choices still work.
   - `gh pr create` should pass the selected base repository explicitly, not rely on GitHub CLI inference.
-  - Every GitHub CLI operation that accepts the selected base repository, including open PR lookup, default-branch lookup, and PR creation, must pass `--repo <owner/repo>` through the real `GitHubCli` adapter, not only test fakes.
+  - Every GitHub CLI operation that accepts the selected base repository, including direct PR lookup, open PR lookup, default-branch lookup, and PR creation, must pass `--repo <owner/repo>` through the real `GitHubCli` adapter, not only test fakes.
   - The selected PR base repository and the current branch's head repository are distinct concepts; fork/head remotes must still produce owner-qualified head selectors such as `owner:branch`.
   - After PR creation, Dynamo should tolerate short source-control provider discovery lag before returning action metadata, so sidebar/topbar PR state can be populated with URL and number instead of falling back to another Create PR action.
   - When a PR action result includes open PR metadata, the web git-status state should reflect that PR immediately and briefly retain it through same-branch `pr: null` refreshes, so the topbar changes to View PR and sidebar rows show the PR icon without waiting for provider polling to converge.
+  - Existing sidebar threads with branch metadata must be able to resolve their branch to PR metadata even when that branch is not the currently checked-out ref in the repository.
+  - The active thread topbar must also use branch-resolved PR metadata when git status has not populated `pr`, so the quick action and menu switch from Create PR to View PR for existing branch PRs.
 - `Merge hotspots`:
   - Git contracts and WebSocket/RPC method lists for PR remote option reads/writes
   - `GitManager` PR creation flow, especially base repository, head selector, existing PR lookup, and base branch resolution
@@ -832,7 +838,10 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Confirm a single-origin repository and a multi-remote same-repository checkout still create PRs without extra UI.
   - Confirm a fork-head branch still uses an owner-qualified `--head` selector while targeting the selected base repo.
   - Run `bun run --cwd apps/server test src/git/GitManager.test.ts` and confirm delayed provider PR discovery still returns created PR metadata.
+  - Run `bun run --cwd apps/server test src/sourceControl/GitHubCli.test.ts src/sourceControl/GitHubSourceControlProvider.test.ts` and confirm direct PR lookup preserves the selected repository.
+  - Run `bun run --cwd apps/web test src/components/GitActionsControl.logic.test.ts src/components/ThreadStatusIndicators.test.ts src/lib/gitStatusState.test.ts` and confirm PR-driven action labels remain correct.
   - Run `bun run --cwd apps/web test src/lib/gitStatusState.test.ts` and confirm optimistic PR metadata survives an immediate null status refresh.
+  - Run `bun run --cwd apps/web test src/components/ThreadStatusIndicators.test.ts` and confirm branch-resolved PR metadata only maps to matching thread branches.
 
 ### Dynamo branding
 

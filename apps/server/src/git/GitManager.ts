@@ -1860,9 +1860,11 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   const resolvePullRequest: GitManagerShape["resolvePullRequest"] = Effect.fn("resolvePullRequest")(
     function* (input) {
+      const baseRepositoryContext = yield* resolvePullRequestBaseRepository(input.cwd);
       const pullRequest = yield* (yield* sourceControlProvider(input.cwd))
         .getChangeRequest({
           cwd: input.cwd,
+          repository: baseRepositoryContext.repositoryNameWithOwner,
           reference: normalizePullRequestReference(input.reference),
         })
         .pipe(Effect.map((resolved) => toResolvedPullRequest(resolved)));
@@ -1925,8 +1927,10 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     return yield* Effect.gen(function* () {
       const normalizedReference = normalizePullRequestReference(input.reference);
       const rootWorktreePath = yield* canonicalizeExistingPath(input.cwd);
+      const baseRepositoryContext = yield* resolvePullRequestBaseRepository(input.cwd);
       const pullRequestSummary = yield* (yield* sourceControlProvider(input.cwd)).getChangeRequest({
         cwd: input.cwd,
+        repository: baseRepositoryContext.repositoryNameWithOwner,
         reference: normalizedReference,
       });
       const pullRequest = toResolvedPullRequest(pullRequestSummary);

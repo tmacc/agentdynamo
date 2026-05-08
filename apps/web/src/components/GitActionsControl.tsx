@@ -11,7 +11,7 @@ import type {
   SourceControlRepositoryVisibility,
   VcsStatusResult,
 } from "@t3tools/contracts";
-import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Option } from "effect";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
@@ -70,6 +70,7 @@ import {
   gitMutationKeys,
   gitPullMutationOptions,
   gitPullRequestRemoteOptionsQueryOptions,
+  gitResolvePullRequestQueryOptions,
   gitRunStackedActionMutationOptions,
   gitSetPullRequestRemoteMutationOptions,
   sourceControlPublishRepositoryMutationOptions,
@@ -84,6 +85,7 @@ import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
 import { useStore } from "~/store";
 import { createThreadSelectorByRef } from "~/storeSelectors";
+import { resolvedPullRequestToThreadPr } from "./ThreadStatusIndicators";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -1102,7 +1104,26 @@ export default function GitActionsControl({
   // Default to true while loading so we don't flash init controls.
   const isRepo = gitStatus?.isRepo ?? true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
-  const gitStatusForActions = gitStatus;
+  const activeThreadBranch = activeServerThread?.branch ?? activeDraftThread?.branch ?? null;
+  const pullRequestLookupBranch = gitStatus?.refName ?? activeThreadBranch;
+  const resolvedPullRequestQuery = useQuery({
+    ...gitResolvePullRequestQueryOptions({
+      environmentId: activeEnvironmentId,
+      cwd: gitCwd,
+      reference: pullRequestLookupBranch,
+    }),
+    enabled: gitStatus !== null && gitStatus.pr === null && pullRequestLookupBranch !== null,
+    retry: false,
+  });
+  const resolvedPullRequestPr = resolvedPullRequestToThreadPr(
+    pullRequestLookupBranch,
+    resolvedPullRequestQuery.data,
+  );
+  const gitStatusForActions = useMemo(() => {
+    return gitStatus && resolvedPullRequestPr
+      ? { ...gitStatus, pr: resolvedPullRequestPr }
+      : gitStatus;
+  }, [gitStatus, resolvedPullRequestPr]);
 
   const allFiles = gitStatusForActions?.workingTree.files ?? [];
   const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));

@@ -589,13 +589,16 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
       getPullRequest: (input) =>
         execute({
           cwd: input.cwd,
-          args: [
-            "pr",
-            "view",
-            input.reference,
-            "--json",
-            "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
-          ],
+          args: appendRepositoryArg(
+            [
+              "pr",
+              "view",
+              input.reference,
+              "--json",
+              "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+            ],
+            input.repository ?? undefined,
+          ),
         }).pipe(Effect.map((result) => JSON.parse(result.stdout) as GitHubPullRequestSummary)),
       getRepositoryCloneUrls: (input) =>
         execute({
@@ -3186,6 +3189,43 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         state: "open",
       });
       expect(ghCalls.some((call) => call.startsWith("pr view 42 "))).toBe(true);
+    }),
+  );
+
+  it.effect("resolves pull requests against the selected base repository explicitly", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo.git"]);
+      yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
+      yield* runGit(repoDir, ["config", "--local", "dynamo.pullRequestRemote", "origin"]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          pullRequest: {
+            number: 46,
+            title: "Track PR status",
+            url: "https://github.com/tmacc/agentdynamo/pull/46",
+            baseRefName: "main",
+            headRefName: "t3code/pr-tracking-test",
+            state: "open",
+          },
+        },
+      });
+
+      const result = yield* resolvePullRequest(manager, {
+        cwd: repoDir,
+        reference: "t3code/pr-tracking-test",
+      });
+
+      expect(result.pullRequest.number).toBe(46);
+      expect(
+        ghCalls.some(
+          (call) =>
+            call.includes("pr view t3code/pr-tracking-test --json") &&
+            call.includes("--repo tmacc/agentdynamo"),
+        ),
+      ).toBe(true);
     }),
   );
 

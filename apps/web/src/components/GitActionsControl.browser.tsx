@@ -111,6 +111,10 @@ vi.mock("~/lib/gitReactQuery", () => ({
     queryKey: ["git", "pull-request-remote-options"],
     queryFn: () => Promise.resolve({ requiresSelection: false, candidates: [] }),
   })),
+  gitResolvePullRequestQueryOptions: vi.fn(() => ({
+    queryKey: ["git", "pull-request"],
+    queryFn: () => Promise.resolve(null),
+  })),
   gitRunStackedActionMutationOptions: vi.fn(() => ({ __kind: "run-stacked-action" })),
   gitSetPullRequestRemoteMutationOptions: vi.fn(() => ({ __kind: "set-pull-request-remote" })),
   invalidateGitQueries: invalidateGitQueriesSpy,

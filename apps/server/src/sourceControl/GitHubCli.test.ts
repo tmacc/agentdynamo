@@ -132,6 +132,50 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("passes an explicit repository when viewing a pull request", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            JSON.stringify({
+              number: 46,
+              title: "Track PR status",
+              url: "https://github.com/tmacc/agentdynamo/pull/46",
+              baseRefName: "main",
+              headRefName: "t3code/pr-tracking-test",
+              state: "OPEN",
+              mergedAt: null,
+              isCrossRepository: false,
+            }),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      yield* gh.getPullRequest({
+        cwd: "/repo",
+        reference: "t3code/pr-tracking-test",
+        repository: "tmacc/agentdynamo",
+      });
+
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "pr",
+          "view",
+          "t3code/pr-tracking-test",
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "--repo",
+          "tmacc/agentdynamo",
+        ],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("skips invalid entries when parsing pr lists", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(

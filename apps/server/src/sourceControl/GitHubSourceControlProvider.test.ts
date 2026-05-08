@@ -22,9 +22,12 @@ function makeProvider(github: Partial<GitHubCli.GitHubCliShape>) {
 
 it.effect("maps GitHub PR summaries into provider-neutral change requests", () =>
   Effect.gen(function* () {
+    let getPullRequestInput: Parameters<GitHubCli.GitHubCliShape["getPullRequest"]>[0] | null =
+      null;
     const provider = yield* makeProvider({
-      getPullRequest: () =>
-        Effect.succeed({
+      getPullRequest: (input) => {
+        getPullRequestInput = input;
+        return Effect.succeed({
           number: 42,
           title: "Add GitHub provider",
           url: "https://github.com/pingdotgg/t3code/pull/42",
@@ -34,14 +37,21 @@ it.effect("maps GitHub PR summaries into provider-neutral change requests", () =
           isCrossRepository: true,
           headRepositoryNameWithOwner: "fork/t3code",
           headRepositoryOwnerLogin: "fork",
-        }),
+        });
+      },
     });
 
     const changeRequest = yield* provider.getChangeRequest({
       cwd: "/repo",
       reference: "42",
+      repository: "pingdotgg/t3code",
     });
 
+    assert.deepStrictEqual(getPullRequestInput, {
+      cwd: "/repo",
+      reference: "42",
+      repository: "pingdotgg/t3code",
+    });
     assert.deepStrictEqual(changeRequest, {
       provider: "github",
       number: 42,
