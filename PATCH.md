@@ -388,6 +388,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Coordinator tools are injected only into supported top-level provider sessions, currently Codex and Claude, using MCP server name `dynamo_team`.
   - The server runtime layer must provide `TeamOrchestrationService` alongside its Git, terminal/worktree setup, provider registry, VCS status, settings, and orchestration dependencies; missing any of these prevents the desktop backend from booting and hides the team MCP tools.
   - The `/api/team-mcp` route must behave like a normal MCP server during provider startup: authenticated POST requests support `initialize`, `notifications/initialized`, `ping`, `tools/list`, and `tools/call`, plus a lightweight GET health response.
+  - Team MCP tool results must keep `structuredContent` object-shaped for all tools. Domain arrays such as child task lists are wrapped as `{ tasks, count }` in structured output while text content may still render the raw array for model-readable compatibility.
   - Team agents can be disabled through server settings; disabling prevents coordinator tool injection and rejects team spawn attempts.
   - Codex coordinator sessions must receive explicit developer instructions to use Dynamo's team MCP tools instead of Codex-native subagents for team/delegation requests.
   - The MCP route exposes underscore aliases such as `team_spawn_child` in addition to dotted names so provider tool bridges with stricter tool-name rules can still surface the tools.
@@ -1013,6 +1014,29 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/provider/Layers/ClaudeAdapter.test.ts` in `apps/server`.
   - Run `bun run test src/store.test.ts` in `apps/web`.
   - Launch `bun run dev:desktop`; verify generic same-provider subagent prompts can use provider-native delegation, then verify explicit cross-provider or Dynamo-visible child requests spawn Dynamo team agents and appear in the Agents drawer.
+
+### 2026-05-08 - Object-shaped Dynamo team MCP structured outputs
+
+- `Status`: active
+- `Area`: team | provider | MCP
+- `User-visible impact`: Claude/Opus coordinators can read Codex child-agent list/wait results from Dynamo's `dynamo_team` MCP tools instead of failing MCP schema validation when child task summaries are available.
+- `Why this patch exists`: The MCP SDK used by Claude validates `CallToolResult.structuredContent` as a JSON object/record. Dynamo team `list_children` and `wait_for_children` correctly return arrays at the service/domain layer, but the MCP route was passing those arrays through as top-level `structuredContent`, which Claude rejected while Codex tolerated it.
+- `Key files`:
+  - `apps/server/src/team/http.ts`
+  - `apps/server/src/server.test.ts`
+- `Important invariants`:
+  - `/api/team-mcp` must never return a top-level array or scalar in `structuredContent`.
+  - `team_list_children`, `team.list_children`, `team_wait_for_children`, and `team.wait_for_children` wrap task arrays as `{ tasks, count }` in `structuredContent`.
+  - The textual MCP content for list/wait remains a pretty-printed rendering of the raw task array for compatibility with providers that read text output.
+  - Object-returning tools such as spawn, send-message, and close-child keep their stable top-level structured fields.
+  - Future team MCP tools must either return object-shaped structured output directly or be wrapped before reaching `CallToolResult.structuredContent`.
+- `Merge hotspots`:
+  - `apps/server/src/team/http.ts`
+  - MCP tool declaration schemas and aliases
+  - Provider startup behavior for Claude/Codex `dynamo_team` tools
+- `Verification`:
+  - Run `bun run test src/server.test.ts` in `apps/server`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck` at the repo root.
 
 ### 2026-05-07 - Treat missing checkpoint placeholders as completed turns
 
