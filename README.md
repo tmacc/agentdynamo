@@ -3,7 +3,7 @@
 Dynamo is a minimal desktop/web GUI for working with coding agents. It supports Codex, Claude, and OpenCode provider sessions, tracking conversation state, coordinating agent work, and managing project worktrees from one interface.
 
 > [!WARNING]
-> Dynamo is early alpha software. Expect bugs, rough edges, and occasional breaking changes.
+> Dynamo is early alpha software. Expect bugs, rough edges, and occasional breaking changes while the workflow evolves.
 
 ## Install
 
