@@ -1,0 +1,42 @@
+{
+  "name": "@t3tools/wsl",
+  "version": "0.0.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./command": {
+      "types": "./src/command.ts",
+      "import": "./src/command.ts"
+    },
+    "./errors": {
+      "types": "./src/errors.ts",
+      "import": "./src/errors.ts"
+    },
+    "./probe": {
+      "types": "./src/probe.ts",
+      "import": "./src/probe.ts"
+    },
+    "./tunnel": {
+      "types": "./src/tunnel.ts",
+      "import": "./src/tunnel.ts"
+    },
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@t3tools/contracts": "workspace:*",
+    "@t3tools/ssh": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

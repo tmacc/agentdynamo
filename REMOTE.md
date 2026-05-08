@@ -96,12 +96,31 @@ By default this configures Tailscale Serve on HTTPS port 443 and advertises
 npx t3 serve --tailscale-serve --tailscale-serve-port 8443
 ```
 
-> Note
-> The GUIs do not currently support adding projects on remote environments.
-> For now, use `t3 project ...` on the server machine instead.
-> Full GUI support for remote project management is coming soon.
+### Option 3: Desktop-Managed WSL Launch
 
-### Option 3: Desktop-Managed SSH Launch
+Use this on Windows when your AI agent tools and projects live inside WSL.
+
+1. Open **Settings** -> **Connections**.
+2. Under **Remote Environments**, choose **Add environment**.
+3. Select **WSL**.
+4. Pick a distro, such as Ubuntu. The default distro is selected automatically when WSL reports one.
+5. Confirm the launch. The desktop app starts or reuses `t3 serve` inside that distro, pairs it, and saves it as a normal environment.
+
+The Windows desktop app still owns the local shell/bootstrap backend. The WSL environment owns the actual T3 server, projects, files, git state, terminals, and provider sessions. Project paths must be Linux paths such as `~/work/app`; Windows paths like `C:\Work\App` are rejected for WSL environments.
+
+On first launch, the Windows desktop app may show a dismissable in-app banner when no providers are detected on Windows but WSL is available. If Claude Code, Codex, or `t3` is detected inside a distro, the banner can connect that distro directly. Otherwise it opens the WSL setup flow.
+
+Editor opening from WSL supports VS Code and VS Code Insiders through their Remote WSL bridge. Other editors are not supported for WSL path opens in this release.
+
+Troubleshooting:
+
+- If no distros are found, install WSL and a distro such as Ubuntu, then refresh the WSL list.
+- If launch fails because Node/npm are missing, install Node inside the selected distro.
+- If provider turns fail, authenticate Codex or Claude Code inside WSL, not only on Windows.
+- If Windows cannot reach the WSL server on `127.0.0.1`, check WSL localhost forwarding and networking mode.
+- If project creation rejects a path, use a Linux path inside WSL, such as `~/projects/app`.
+
+### Option 4: Desktop-Managed SSH Launch
 
 Use this when you want the desktop app to start or reuse T3 Code on another machine over SSH.
 

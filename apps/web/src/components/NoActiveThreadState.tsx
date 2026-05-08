@@ -2,6 +2,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
 import { SidebarInset, SidebarTrigger } from "./ui/sidebar";
 import { isElectron } from "../env";
 import { cn } from "~/lib/utils";
+import { WslSuggestionBanner } from "./onboarding/WslSuggestionBanner";
 
 export function NoActiveThreadState() {
   return (
@@ -30,13 +31,18 @@ export function NoActiveThreadState() {
         </header>
 
         <Empty className="flex-1">
-          <div className="w-full max-w-lg rounded-3xl border border-border/55 bg-card/20 px-8 py-12 shadow-sm/5">
-            <EmptyHeader className="max-w-none">
-              <EmptyTitle className="text-foreground text-xl">Pick a thread to continue</EmptyTitle>
-              <EmptyDescription className="mt-2 text-sm text-muted-foreground/78">
-                Select an existing thread or create a new one to get started.
-              </EmptyDescription>
-            </EmptyHeader>
+          <div className="flex w-full max-w-lg flex-col items-center gap-4">
+            <WslSuggestionBanner />
+            <div className="w-full rounded-3xl border border-border/55 bg-card/20 px-8 py-12 shadow-sm/5">
+              <EmptyHeader className="max-w-none">
+                <EmptyTitle className="text-foreground text-xl">
+                  Pick a thread to continue
+                </EmptyTitle>
+                <EmptyDescription className="mt-2 text-sm text-muted-foreground/78">
+                  Select an existing thread or create a new one to get started.
+                </EmptyDescription>
+              </EmptyHeader>
+            </div>
           </div>
         </Empty>
       </div>

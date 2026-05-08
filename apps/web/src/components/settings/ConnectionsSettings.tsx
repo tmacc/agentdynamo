@@ -14,6 +14,8 @@ import {
   type AdvertisedEndpoint,
   type DesktopDiscoveredSshHost,
   type DesktopSshEnvironmentTarget,
+  type DesktopWslDistribution,
+  type DesktopWslEnvironmentTarget,
   type DesktopServerExposureState,
   type EnvironmentId,
 } from "@t3tools/contracts";
@@ -90,7 +92,9 @@ import {
   useSavedEnvironmentRuntimeStore,
   addSavedEnvironment,
   connectDesktopSshEnvironment,
+  connectDesktopWslEnvironment,
   disconnectSavedEnvironment,
+  getSavedEnvironmentDesktopTarget,
   getPrimaryEnvironmentConnection,
   reconnectSavedEnvironment,
   removeSavedEnvironment,
@@ -100,6 +104,7 @@ import { resolveServerConfigVersionMismatch } from "~/versionSkew";
 import { useServerConfig } from "~/rpc/serverState";
 
 const DEFAULT_TAILSCALE_SERVE_PORT = 443;
+type SavedBackendMode = "remote" | "wsl" | "ssh";
 
 const accessTimestampFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -196,6 +201,10 @@ function getSavedBackendStatusTooltip(
 function formatDesktopSshTarget(target: NonNullable<SavedEnvironmentRecord["desktopSsh"]>): string {
   const authority = target.username ? `${target.username}@${target.hostname}` : target.hostname;
   return target.port ? `${authority}:${target.port}` : authority;
+}
+
+function formatDesktopWslTarget(target: DesktopWslEnvironmentTarget): string {
+  return `WSL: ${target.distributionName}`;
 }
 
 function parseManualDesktopSshTarget(input: {
@@ -1289,8 +1298,10 @@ function SavedBackendListRow({
   const displayLabel = descriptorLabel ?? record.label;
   const statusTooltip = getSavedBackendStatusTooltip(runtime, record, nowMs);
   const versionMismatch = resolveServerConfigVersionMismatch(runtime?.serverConfig);
+  const desktopTarget = getSavedEnvironmentDesktopTarget(record);
   const metadataBits = [
-    record.desktopSsh ? `SSH ${formatDesktopSshTarget(record.desktopSsh)}` : null,
+    desktopTarget?.kind === "ssh" ? `SSH ${formatDesktopSshTarget(desktopTarget.ssh)}` : null,
+    desktopTarget?.kind === "wsl" ? formatDesktopWslTarget(desktopTarget.wsl) : null,
     roleLabel,
     record.lastConnectedAt
       ? `Last connected ${formatAccessTimestamp(record.lastConnectedAt)}`
@@ -1439,6 +1450,15 @@ export function ConnectionsSettings() {
   const [isLoadingDiscoveredSshHosts, setIsLoadingDiscoveredSshHosts] = useState(false);
   const [discoveredSshHostsError, setDiscoveredSshHostsError] = useState<string | null>(null);
   const [connectingSshHostAlias, setConnectingSshHostAlias] = useState<string | null>(null);
+  const [discoveredWslDistributions, setDiscoveredWslDistributions] = useState<
+    ReadonlyArray<DesktopWslDistribution>
+  >([]);
+  const [hasLoadedWslDistributions, setHasLoadedWslDistributions] = useState(false);
+  const [isLoadingWslDistributions, setIsLoadingWslDistributions] = useState(false);
+  const [wslDiscoveryError, setWslDiscoveryError] = useState<string | null>(null);
+  const [connectingWslDistributionName, setConnectingWslDistributionName] = useState<string | null>(
+    null,
+  );
 
   const [desktopServerExposureState, setDesktopServerExposureState] =
     useState<DesktopServerExposureState | null>(null);
@@ -1464,7 +1484,7 @@ export function ConnectionsSettings() {
   >(null);
   const [isRevokingOtherDesktopClients, setIsRevokingOtherDesktopClients] = useState(false);
   const [addBackendDialogOpen, setAddBackendDialogOpen] = useState(false);
-  const [savedBackendMode, setSavedBackendMode] = useState<"remote" | "ssh">("remote");
+  const [savedBackendMode, setSavedBackendMode] = useState<SavedBackendMode>("remote");
   const [savedBackendHost, setSavedBackendHost] = useState("");
   const [savedBackendPairingCode, setSavedBackendPairingCode] = useState("");
   const [savedBackendSshHost, setSavedBackendSshHost] = useState("");
@@ -1521,6 +1541,13 @@ export function ConnectionsSettings() {
     Number.isInteger(parsedTailscaleServePort) &&
     parsedTailscaleServePort >= 1 &&
     parsedTailscaleServePort <= 65_535;
+  const isWindowsDesktop =
+    Boolean(desktopBridge?.discoverWslDistributions) &&
+    typeof navigator !== "undefined" &&
+    /win/i.test(navigator.platform);
+  const hasSavedWslEnvironment = Object.values(savedEnvironmentsById).some(
+    (record) => getSavedEnvironmentDesktopTarget(record)?.kind === "wsl",
+  );
 
   const pendingTailscaleServeBaseUrl = useMemo(() => {
     if (!pendingTailscaleServeEndpoint) return null;
@@ -1709,7 +1736,68 @@ export function ConnectionsSettings() {
     }
   }, []);
 
+  const loadWslDistributions = useCallback(async () => {
+    if (!desktopBridge?.discoverWslDistributions) {
+      setDiscoveredWslDistributions([]);
+      setHasLoadedWslDistributions(false);
+      setWslDiscoveryError(null);
+      return;
+    }
+    setIsLoadingWslDistributions(true);
+    setWslDiscoveryError(null);
+    try {
+      const distributions = await desktopBridge.discoverWslDistributions();
+      setDiscoveredWslDistributions(distributions);
+      setHasLoadedWslDistributions(true);
+    } catch (error) {
+      setWslDiscoveryError(
+        error instanceof Error
+          ? error.message
+          : "WSL is not installed or wsl.exe is unavailable on PATH.",
+      );
+      setHasLoadedWslDistributions(true);
+    } finally {
+      setIsLoadingWslDistributions(false);
+    }
+  }, [desktopBridge]);
+
+  const handleConnectWslDistribution = useCallback(async (target: DesktopWslEnvironmentTarget) => {
+    setConnectingWslDistributionName(target.distributionName);
+    setSavedBackendError(null);
+    setWslDiscoveryError(null);
+    try {
+      const record = await connectDesktopWslEnvironment(target, {
+        label: target.distributionName,
+      });
+      setAddBackendDialogOpen(false);
+      toastManager.add({
+        type: "success",
+        title: "Environment connected",
+        description: `${record.label} is ready in WSL.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to connect WSL.";
+      setWslDiscoveryError(message);
+      setSavedBackendError(message);
+    } finally {
+      setConnectingWslDistributionName(null);
+    }
+  }, []);
+
   const handleAddSavedBackend = useCallback(async () => {
+    if (savedBackendMode === "wsl") {
+      const defaultDistribution =
+        discoveredWslDistributions.find(
+          (distribution) => distribution.isDefault && distribution.state !== "installing",
+        ) ?? discoveredWslDistributions.find((distribution) => distribution.state !== "installing");
+      if (!defaultDistribution) {
+        setSavedBackendError("No ready WSL distributions were found.");
+        return;
+      }
+      await handleConnectWslDistribution({ distributionName: defaultDistribution.name });
+      return;
+    }
+
     if (savedBackendMode === "ssh") {
       setIsAddingSavedBackend(true);
       setSavedBackendError(null);
@@ -1783,6 +1871,8 @@ export function ConnectionsSettings() {
     savedBackendSshHost,
     savedBackendSshPort,
     savedBackendSshUsername,
+    discoveredWslDistributions,
+    handleConnectWslDistribution,
   ]);
 
   const handleConnectSavedBackend = useCallback(async (environmentId: EnvironmentId) => {
@@ -1920,6 +2010,23 @@ export function ConnectionsSettings() {
     hasLoadedDiscoveredSshHosts,
     isLoadingDiscoveredSshHosts,
     loadDiscoveredSshHosts,
+    savedBackendMode,
+  ]);
+
+  useEffect(() => {
+    if (!desktopBridge || !addBackendDialogOpen || savedBackendMode !== "wsl") {
+      return;
+    }
+    if (hasLoadedWslDistributions || isLoadingWslDistributions) {
+      return;
+    }
+    void loadWslDistributions();
+  }, [
+    addBackendDialogOpen,
+    desktopBridge,
+    hasLoadedWslDistributions,
+    isLoadingWslDistributions,
+    loadWslDistributions,
     savedBackendMode,
   ]);
 
@@ -2117,7 +2224,7 @@ export function ConnectionsSettings() {
   }, []);
 
   const renderConnectionModeCard = (input: {
-    readonly mode: "remote" | "ssh";
+    readonly mode: SavedBackendMode;
     readonly title: string;
     readonly description: string;
     readonly icon?: ReactNode;
@@ -2292,6 +2399,94 @@ export function ConnectionsSettings() {
             unsavedDiscoveredSshHosts.length === 0 ? (
               <div className={ITEM_ROW_CLASSNAME}>
                 <p className="text-xs text-muted-foreground">No new SSH hosts were discovered.</p>
+              </div>
+            ) : null}
+          </div>
+        </ScrollArea>
+      </div>
+    </div>
+  );
+  const renderWslFields = () => (
+    <div className="space-y-4">
+      {wslDiscoveryError || savedBackendError ? (
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {wslDiscoveryError ?? savedBackendError}
+        </div>
+      ) : null}
+      <div className="overflow-hidden rounded-lg border border-border/60">
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/30 px-3 py-2">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-foreground">WSL distributions</p>
+            <p className="text-[11px] text-muted-foreground">
+              Projects use Linux paths inside the selected distro.
+            </p>
+          </div>
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={isLoadingWslDistributions}
+            onClick={() => void loadWslDistributions()}
+          >
+            {isLoadingWslDistributions ? (
+              <RefreshCwIcon className="size-3 animate-spin" />
+            ) : (
+              <RefreshCwIcon className="size-3" />
+            )}
+            Refresh
+          </Button>
+        </div>
+        <ScrollArea scrollFade className="max-h-64">
+          <div>
+            {discoveredWslDistributions.map((distribution) => {
+              const isConnecting = connectingWslDistributionName === distribution.name;
+              const disabled =
+                distribution.state === "installing" ||
+                isConnecting ||
+                connectingWslDistributionName !== null;
+              return (
+                <div key={distribution.name} className={ITEM_ROW_CLASSNAME}>
+                  <div className={ITEM_ROW_INNER_CLASSNAME}>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {distribution.name}
+                        {distribution.isDefault ? (
+                          <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                            Default
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {distribution.state} · WSL {distribution.version ?? "?"}
+                      </p>
+                    </div>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={disabled}
+                      onClick={() =>
+                        void handleConnectWslDistribution({
+                          distributionName: distribution.name,
+                        })
+                      }
+                    >
+                      {isConnecting ? (
+                        <Spinner className="size-3" />
+                      ) : (
+                        <PlusIcon className="size-3" />
+                      )}
+                      {isConnecting ? "Connecting…" : "Add"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+            {hasLoadedWslDistributions &&
+            !isLoadingWslDistributions &&
+            discoveredWslDistributions.length === 0 ? (
+              <div className={ITEM_ROW_CLASSNAME}>
+                <p className="text-xs text-muted-foreground">
+                  No WSL distributions were found. Install Ubuntu or another distro, then refresh.
+                </p>
               </div>
             ) : null}
           </div>
@@ -2684,6 +2879,14 @@ export function ConnectionsSettings() {
                       description: "Enter a backend host and pairing code.",
                       icon: <ChevronsLeftRightEllipsisIcon aria-hidden className="size-4" />,
                     })}
+                    {isWindowsDesktop
+                      ? renderConnectionModeCard({
+                          mode: "wsl",
+                          title: "WSL",
+                          description: "Run Codex and Claude Code inside a Linux distro.",
+                          icon: <TerminalIcon aria-hidden className="size-4" />,
+                        })
+                      : null}
                     {desktopBridge
                       ? renderConnectionModeCard({
                           mode: "ssh",
@@ -2694,7 +2897,11 @@ export function ConnectionsSettings() {
                       : null}
                   </div>
                   <AnimatedHeight>
-                    {savedBackendMode === "ssh" ? renderSshFields() : renderRemoteModeBody()}
+                    {savedBackendMode === "ssh"
+                      ? renderSshFields()
+                      : savedBackendMode === "wsl"
+                        ? renderWslFields()
+                        : renderRemoteModeBody()}
                   </AnimatedHeight>
                 </div>
               </DialogPanel>
@@ -2702,6 +2909,32 @@ export function ConnectionsSettings() {
           </Dialog>
         }
       >
+        {isWindowsDesktop && !hasSavedWslEnvironment ? (
+          <div className={ITEM_ROW_CLASSNAME}>
+            <div className={ITEM_ROW_INNER_CLASSNAME}>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground">
+                  Use WSL for Windows development
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Run provider backends inside Linux while keeping the desktop UI on Windows.
+                </p>
+              </div>
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  setSavedBackendMode("wsl");
+                  setAddBackendDialogOpen(true);
+                }}
+              >
+                <PlusIcon className="size-3" />
+                Add WSL environment
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         {savedEnvironmentIds.map((environmentId) => (
           <SavedBackendListRow
             key={environmentId}

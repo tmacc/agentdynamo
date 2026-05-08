@@ -112,6 +112,37 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ## Fork Feature Inventory
 
+### Desktop-managed WSL backend targets
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: Windows desktop users can add a WSL environment from **Settings -> Connections -> Add environment -> WSL**. Dynamo discovers installed distros, launches or reuses a Linux-native backend inside the selected distro, pairs it through the saved-environment model, reconnects it after app restart, and opens WSL paths in VS Code/Insiders. When no Windows host providers are detected but WSL is available, the empty/start screen shows a dismissable first-run WSL suggestion banner.
+- `Why it exists`: Windows users commonly install Codex, Claude Code, Node tooling, and project checkouts inside WSL. Treating WSL as a managed backend target gives provider sessions Linux paths and process semantics without scattering `wsl.exe` command wrappers through normal project/file flows.
+- `Key fork files`:
+  - `packages/wsl/src/*`
+  - `apps/desktop/src/wslEnvironment.ts`
+  - `apps/desktop/src/providerProbe.ts`
+  - `apps/web/src/environments/runtime/*`
+  - `apps/web/src/components/settings/ConnectionsSettings.tsx`
+  - `apps/web/src/components/onboarding/WslSuggestionBanner.tsx`
+  - `REMOTE.md`
+- `Important invariants`:
+  - The Windows desktop app keeps its local backend as the shell/bootstrap owner.
+  - WSL managed backends bind inside WSL on `127.0.0.1`; do not add LAN binding or `netsh portproxy` in this path.
+  - WSL project creation and browsing must use Linux paths. Windows absolute paths must not be injected into WSL project creation.
+  - Saved SSH records remain backward compatible through `desktopSsh`, while new managed records use `desktopTarget`.
+  - WSL editor opens support only VS Code and VS Code Insiders in v1.
+  - The first-run banner is Windows desktop only, non-modal, and appears only when Windows host providers are missing and WSL is detected.
+- `Merge hotspots`:
+  - Saved environment persistence/contracts.
+  - Desktop IPC/preload bridge methods.
+  - Remote/SSH backend launch scripts that WSL reuses.
+  - Connections settings and empty-state onboarding UI.
+  - Editor opening helpers and project path validation.
+- `Verification`:
+  - Run `bun --filter @t3tools/wsl test`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Manual Windows smoke: add Ubuntu through the WSL flow, add a `~/...` project, confirm provider/terminal cwd is Linux, open VS Code attached to `WSL: Ubuntu`, relaunch and confirm reconnect.
+
 ### Slash-command preformatted output rendering
 
 - `Status`: Present on current fork.

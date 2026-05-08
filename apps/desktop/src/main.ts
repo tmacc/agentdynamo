@@ -81,6 +81,8 @@ import {
   resolveDesktopServerExposure,
 } from "./serverExposure.ts";
 import { DesktopSshEnvironmentBridge, resolveRemoteT3CliPackageSpec } from "./sshEnvironment.ts";
+import { probeProviderAvailability } from "./providerProbe.ts";
+import { DesktopWslEnvironmentBridge } from "./wslEnvironment.ts";
 import { syncShellEnvironment } from "./syncShellEnvironment.ts";
 import { waitForBackendStartupReady } from "./backendStartupReadiness.ts";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState.ts";
@@ -133,6 +135,7 @@ const GET_SERVER_EXPOSURE_STATE_CHANNEL = "desktop:get-server-exposure-state";
 const SET_SERVER_EXPOSURE_MODE_CHANNEL = "desktop:set-server-exposure-mode";
 const SET_TAILSCALE_SERVE_ENABLED_CHANNEL = "desktop:set-tailscale-serve-enabled";
 const GET_ADVERTISED_ENDPOINTS_CHANNEL = "desktop:get-advertised-endpoints";
+const PROBE_PROVIDER_AVAILABILITY_CHANNEL = "desktop:probe-provider-availability";
 const BASE_DIR =
   process.env[APP_HOME_ENV_VAR]?.trim() ||
   process.env[LEGACY_APP_HOME_ENV_VAR]?.trim() ||
@@ -465,7 +468,12 @@ function relaunchDesktopApp(reason: string): void {
           `desktop relaunch backend shutdown warning message=${formatErrorMessage(error)}`,
         );
       })
-      .then(() => desktopSshEnvironmentBridge.dispose().catch(() => undefined))
+      .then(() =>
+        Promise.all([
+          desktopSshEnvironmentBridge.dispose().catch(() => undefined),
+          desktopWslEnvironmentBridge?.dispose().catch(() => undefined),
+        ]),
+      )
       .finally(() => {
         restoreStdIoCapture?.();
         if (isDevelopment) {
@@ -738,6 +746,23 @@ const desktopSshEnvironmentBridge = new DesktopSshEnvironmentBridge({
     };
   },
 });
+const desktopWslEnvironmentBridge =
+  process.platform === "win32"
+    ? new DesktopWslEnvironmentBridge({
+        resolveCliRunner: (): RemoteT3RunnerOptions => {
+          if (isDevelopment && DEV_REMOTE_T3_SERVER_ENTRY_PATH.length > 0) {
+            return { nodeScriptPath: DEV_REMOTE_T3_SERVER_ENTRY_PATH };
+          }
+          return {
+            packageSpec: resolveRemoteT3CliPackageSpec({
+              appVersion: app.getVersion(),
+              updateChannel: desktopSettings.updateChannel,
+              isDevelopment,
+            }),
+          };
+        },
+      })
+    : null;
 
 function resolveUpdaterErrorContext(): DesktopUpdateErrorContext {
   if (updateInstallInFlight) return "install";
@@ -1801,6 +1826,16 @@ function registerIpcHandlers(): void {
   );
 
   desktopSshEnvironmentBridge.registerIpcHandlers(ipcMain);
+  desktopWslEnvironmentBridge?.registerIpcHandlers(ipcMain);
+
+  ipcMain.removeHandler(PROBE_PROVIDER_AVAILABILITY_CHANNEL);
+  ipcMain.handle(PROBE_PROVIDER_AVAILABILITY_CHANNEL, async (_event, rawOptions: unknown) =>
+    probeProviderAvailability(
+      typeof rawOptions === "object" && rawOptions !== null
+        ? { force: (rawOptions as { force?: unknown }).force === true }
+        : undefined,
+    ),
+  );
 
   ipcMain.removeHandler(GET_SERVER_EXPOSURE_STATE_CHANNEL);
   ipcMain.handle(GET_SERVER_EXPOSURE_STATE_CHANNEL, async () => getDesktopServerExposureState());
@@ -2295,6 +2330,7 @@ app.on("before-quit", () => {
   cancelBackendReadinessWait();
   stopBackend();
   void desktopSshEnvironmentBridge.dispose().catch(() => undefined);
+  void desktopWslEnvironmentBridge?.dispose().catch(() => undefined);
   restoreStdIoCapture?.();
 });
 

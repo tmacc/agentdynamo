@@ -596,6 +596,7 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
                 <ChatMarkdown
                   text={messageText}
                   cwd={ctx.markdownCwd}
+                  environmentId={ctx.activeThreadEnvironmentId}
                   isStreaming={Boolean(row.message.streaming)}
                   renderMode={row.message.renderMode}
                 />

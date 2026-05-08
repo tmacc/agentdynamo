@@ -21,7 +21,7 @@ import remarkGfm from "remark-gfm";
 import { VscodeEntryIcon } from "./chat/VscodeEntryIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { stackedThreadToast, toastManager } from "./ui/toast";
-import { openInPreferredEditor } from "../editorPreferences";
+import { openEnvironmentPathInPreferredEditor, openInPreferredEditor } from "../editorPreferences";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
@@ -30,6 +30,7 @@ import { resolveMarkdownFileLinkMeta, rewriteMarkdownFileUriHref } from "../mark
 import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
 import type { ChatMessageRenderMode } from "../types";
+import type { EnvironmentId } from "@t3tools/contracts";
 
 class CodeHighlightErrorBoundary extends React.Component<
   { fallback: ReactNode; children: ReactNode },
@@ -55,6 +56,7 @@ class CodeHighlightErrorBoundary extends React.Component<
 interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
+  environmentId?: EnvironmentId | undefined;
   isStreaming?: boolean;
   renderMode?: ChatMessageRenderMode | undefined;
 }
@@ -274,6 +276,7 @@ function UncachedShikiCodeBlock({
 }
 
 interface MarkdownFileLinkProps {
+  environmentId?: EnvironmentId | undefined;
   href: string;
   targetPath: string;
   displayPath: string;
@@ -372,6 +375,7 @@ export function shouldRenderAsPreformattedText(text: string): boolean {
 }
 
 const MarkdownFileLink = memo(function MarkdownFileLink({
+  environmentId,
   href,
   targetPath,
   displayPath,
@@ -381,6 +385,19 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   className,
 }: MarkdownFileLinkProps) {
   const handleOpen = useCallback(() => {
+    if (environmentId) {
+      void openEnvironmentPathInPreferredEditor({ environmentId, targetPath }).catch((error) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Unable to open file",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      });
+      return;
+    }
+
     const api = readLocalApi();
     if (!api) {
       toastManager.add({
@@ -399,7 +416,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         }),
       );
     });
-  }, [targetPath]);
+  }, [environmentId, targetPath]);
 
   const handleCopy = useCallback((value: string, title: string) => {
     if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
@@ -516,7 +533,13 @@ function areMarkdownFileLinkPropsEqual(
   );
 }
 
-function ChatMarkdown({ text, cwd, isStreaming = false, renderMode }: ChatMarkdownProps) {
+function ChatMarkdown({
+  text,
+  cwd,
+  environmentId,
+  isStreaming = false,
+  renderMode,
+}: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const shouldRenderPreformatted = useMemo(
@@ -571,6 +594,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false, renderMode }: ChatMarkdo
 
         return (
           <MarkdownFileLink
+            environmentId={environmentId}
             href={href ?? fileLinkMeta.targetPath}
             targetPath={fileLinkMeta.targetPath}
             displayPath={fileLinkMeta.displayPath}
@@ -605,6 +629,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false, renderMode }: ChatMarkdo
     }),
     [
       diffThemeName,
+      environmentId,
       fileLinkParentSuffixByPath,
       isStreaming,
       markdownFileLinkMetaByHref,

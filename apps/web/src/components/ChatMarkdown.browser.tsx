@@ -13,6 +13,7 @@ const { openInPreferredEditorMock, readLocalApiMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("../editorPreferences", () => ({
+  openEnvironmentPathInPreferredEditor: vi.fn(async () => "vscode"),
   openInPreferredEditor: openInPreferredEditorMock,
 }));
 

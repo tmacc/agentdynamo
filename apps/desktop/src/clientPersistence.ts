@@ -89,13 +89,33 @@ function isPersistedSavedEnvironmentStorageRecord(
     typeof value.wsBaseUrl === "string" &&
     typeof value.createdAt === "string" &&
     (value.lastConnectedAt === null || typeof value.lastConnectedAt === "string") &&
-    (value.desktopSsh === undefined ||
-      (Predicate.isObject(value.desktopSsh) &&
-        typeof value.desktopSsh.alias === "string" &&
-        typeof value.desktopSsh.hostname === "string" &&
-        (value.desktopSsh.username === null || typeof value.desktopSsh.username === "string") &&
-        (value.desktopSsh.port === null || typeof value.desktopSsh.port === "number"))) &&
+    (value.desktopSsh === undefined || isDesktopSshTarget(value.desktopSsh)) &&
+    (value.desktopTarget === undefined || isDesktopManagedTarget(value.desktopTarget)) &&
     (value.encryptedBearerToken === undefined || typeof value.encryptedBearerToken === "string")
+  );
+}
+
+function isDesktopSshTarget(value: unknown): boolean {
+  return (
+    Predicate.isObject(value) &&
+    typeof value.alias === "string" &&
+    typeof value.hostname === "string" &&
+    (value.username === null || typeof value.username === "string") &&
+    (value.port === null || typeof value.port === "number")
+  );
+}
+
+function isDesktopManagedTarget(value: unknown): boolean {
+  if (!Predicate.isObject(value) || typeof value.kind !== "string") {
+    return false;
+  }
+  if (value.kind === "ssh") {
+    return isDesktopSshTarget(value.ssh);
+  }
+  return (
+    value.kind === "wsl" &&
+    Predicate.isObject(value.wsl) &&
+    typeof value.wsl.distributionName === "string"
   );
 }
 
@@ -123,7 +143,11 @@ function toPersistedSavedEnvironmentRecord(
     createdAt: record.createdAt,
     lastConnectedAt: record.lastConnectedAt,
   };
-  return record.desktopSsh ? { ...nextRecord, desktopSsh: record.desktopSsh } : nextRecord;
+  return {
+    ...nextRecord,
+    ...(record.desktopTarget ? { desktopTarget: record.desktopTarget } : {}),
+    ...(record.desktopSsh ? { desktopSsh: record.desktopSsh } : {}),
+  };
 }
 
 export function readClientSettings(settingsPath: string): ClientSettings | null {
@@ -242,10 +266,16 @@ export function writeSavedEnvironmentRegistry(
             wsBaseUrl: record.wsBaseUrl,
             createdAt: record.createdAt,
             lastConnectedAt: record.lastConnectedAt,
+            ...(record.desktopTarget ? { desktopTarget: record.desktopTarget } : {}),
             ...(record.desktopSsh ? { desktopSsh: record.desktopSsh } : {}),
             encryptedBearerToken,
           }
-        : record;
+        : {
+            ...record,
+            ...(record.desktopTarget?.kind === "ssh" && !record.desktopSsh
+              ? { desktopSsh: record.desktopTarget.ssh }
+              : {}),
+          };
     }),
   } satisfies SavedEnvironmentRegistryDocument);
 }
@@ -298,7 +328,7 @@ export function writeSavedEnvironmentSecret(input: {
       const encryptedBearerToken = input.secretStorage
         .encryptString(input.secret)
         .toString("base64");
-      const nextRecord = {
+      const nextRecord: PersistedSavedEnvironmentStorageRecord = {
         environmentId: record.environmentId,
         label: record.label,
         httpBaseUrl: record.httpBaseUrl,
@@ -307,7 +337,13 @@ export function writeSavedEnvironmentSecret(input: {
         lastConnectedAt: record.lastConnectedAt,
         encryptedBearerToken,
       };
-      return record.desktopSsh ? { ...nextRecord, desktopSsh: record.desktopSsh } : nextRecord;
+      if (record.desktopTarget) {
+        nextRecord.desktopTarget = record.desktopTarget;
+      }
+      if (record.desktopSsh) {
+        nextRecord.desktopSsh = record.desktopSsh;
+      }
+      return nextRecord;
     }),
   } satisfies SavedEnvironmentRegistryDocument);
   return found;

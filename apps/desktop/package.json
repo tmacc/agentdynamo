@@ -21,6 +21,7 @@
     "@t3tools/shared": "workspace:*",
     "@t3tools/ssh": "workspace:*",
     "@t3tools/tailscale": "workspace:*",
+    "@t3tools/wsl": "workspace:*",
     "effect": "catalog:",
     "electron": "40.9.3",
     "electron-updater": "^6.6.2"

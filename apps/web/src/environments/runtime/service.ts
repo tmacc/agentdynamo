@@ -1,7 +1,10 @@
 import {
   type AuthSessionRole,
+  type DesktopManagedEnvironmentTarget,
   type DesktopSshEnvironmentBootstrap,
   type DesktopSshEnvironmentTarget,
+  type DesktopWslEnvironmentBootstrap,
+  type DesktopWslEnvironmentTarget,
   type EnvironmentId,
   type OrchestrationEvent,
   type OrchestrationShellSnapshot,
@@ -621,32 +624,53 @@ function isSshHttpAuthError(error: unknown, status: number): boolean {
   return readSshHttpErrorStatus(error) === status;
 }
 
-function isDesktopSshTargetEqual(
-  left: DesktopSshEnvironmentTarget | undefined,
-  right: DesktopSshEnvironmentTarget | undefined,
-): boolean {
-  if (!left || !right) {
-    return false;
-  }
-
-  return (
-    left.alias === right.alias &&
-    left.hostname === right.hostname &&
-    left.username === right.username &&
-    left.port === right.port
-  );
+function toDesktopSshTarget(
+  target: DesktopManagedEnvironmentTarget | null,
+): DesktopSshEnvironmentTarget | null {
+  return target?.kind === "ssh" ? target.ssh : null;
 }
 
-function findSavedEnvironmentRecordByDesktopSshTarget(
-  target: DesktopSshEnvironmentTarget | undefined,
-): SavedEnvironmentRecord | null {
-  if (!target) {
-    return null;
-  }
+function toDesktopWslTarget(
+  target: DesktopManagedEnvironmentTarget | null,
+): DesktopWslEnvironmentTarget | null {
+  return target?.kind === "wsl" ? target.wsl : null;
+}
 
+function getRecordDesktopTarget(
+  record: Pick<SavedEnvironmentRecord, "desktopTarget" | "desktopSsh">,
+): DesktopManagedEnvironmentTarget | null {
+  if (record.desktopTarget) return record.desktopTarget;
+  return record.desktopSsh ? { kind: "ssh", ssh: record.desktopSsh } : null;
+}
+
+function areDesktopTargetsEqual(
+  left: DesktopManagedEnvironmentTarget | null,
+  right: DesktopManagedEnvironmentTarget | null,
+): boolean {
+  if (!left || !right || left.kind !== right.kind) {
+    return false;
+  }
+  if (left.kind === "ssh" && right.kind === "ssh") {
+    return (
+      left.ssh.alias === right.ssh.alias &&
+      left.ssh.hostname === right.ssh.hostname &&
+      left.ssh.username === right.ssh.username &&
+      left.ssh.port === right.ssh.port
+    );
+  }
+  if (left.kind === "wsl" && right.kind === "wsl") {
+    return left.wsl.distributionName === right.wsl.distributionName;
+  }
+  return false;
+}
+
+function findSavedEnvironmentRecordByDesktopTarget(
+  target: DesktopManagedEnvironmentTarget | undefined,
+): SavedEnvironmentRecord | null {
+  if (!target) return null;
   return (
     listSavedEnvironmentRecords().find((record) =>
-      isDesktopSshTargetEqual(record.desktopSsh, target),
+      areDesktopTargetsEqual(getRecordDesktopTarget(record), target),
     ) ?? null
   );
 }
@@ -705,6 +729,20 @@ async function resolveDesktopSshEnvironmentBootstrap(
   return await desktopBridge.ensureSshEnvironment(target, options);
 }
 
+async function resolveDesktopWslEnvironmentBootstrap(
+  target: DesktopWslEnvironmentTarget,
+  options?: { readonly issuePairingToken?: boolean },
+): Promise<DesktopWslEnvironmentBootstrap> {
+  const desktopBridge = window.desktopBridge;
+  if (!desktopBridge) {
+    throw new Error("WSL launch is only available in the Windows desktop app.");
+  }
+  if (!desktopBridge.ensureWslEnvironment) {
+    throw new Error("This desktop app version does not support WSL environments.");
+  }
+  return await desktopBridge.ensureWslEnvironment(target, options);
+}
+
 function getDesktopSshBridge() {
   const desktopBridge = window.desktopBridge;
   if (!desktopBridge) {
@@ -717,12 +755,36 @@ async function fetchDesktopSshEnvironmentDescriptor(httpBaseUrl: string) {
   return await getDesktopSshBridge().fetchSshEnvironmentDescriptor(httpBaseUrl);
 }
 
+async function fetchDesktopWslEnvironmentDescriptor(httpBaseUrl: string) {
+  const bridge = getDesktopSshBridge();
+  if (!bridge.fetchWslEnvironmentDescriptor) {
+    throw new Error("This desktop app version does not support WSL environments.");
+  }
+  return await bridge.fetchWslEnvironmentDescriptor(httpBaseUrl);
+}
+
 async function bootstrapDesktopSshBearerSession(httpBaseUrl: string, credential: string) {
   return await getDesktopSshBridge().bootstrapSshBearerSession(httpBaseUrl, credential);
 }
 
+async function bootstrapDesktopWslBearerSession(httpBaseUrl: string, credential: string) {
+  const bridge = getDesktopSshBridge();
+  if (!bridge.bootstrapWslBearerSession) {
+    throw new Error("This desktop app version does not support WSL environments.");
+  }
+  return await bridge.bootstrapWslBearerSession(httpBaseUrl, credential);
+}
+
 async function fetchDesktopSshSessionState(httpBaseUrl: string, bearerToken: string) {
   return await getDesktopSshBridge().fetchSshSessionState(httpBaseUrl, bearerToken);
+}
+
+async function fetchDesktopWslSessionState(httpBaseUrl: string, bearerToken: string) {
+  const bridge = getDesktopSshBridge();
+  if (!bridge.fetchWslSessionState) {
+    throw new Error("This desktop app version does not support WSL environments.");
+  }
+  return await bridge.fetchWslSessionState(httpBaseUrl, bearerToken);
 }
 
 async function resolveDesktopSshWebSocketConnectionUrl(
@@ -731,6 +793,21 @@ async function resolveDesktopSshWebSocketConnectionUrl(
   bearerToken: string,
 ) {
   const issued = await getDesktopSshBridge().issueSshWebSocketToken(httpBaseUrl, bearerToken);
+  const url = new URL(wsBaseUrl, window.location.origin);
+  url.searchParams.set("wsToken", issued.token);
+  return url.toString();
+}
+
+async function resolveDesktopWslWebSocketConnectionUrl(
+  wsBaseUrl: string,
+  httpBaseUrl: string,
+  bearerToken: string,
+) {
+  const bridge = getDesktopSshBridge();
+  if (!bridge.issueWslWebSocketToken) {
+    throw new Error("This desktop app version does not support WSL environments.");
+  }
+  const issued = await bridge.issueWslWebSocketToken(httpBaseUrl, bearerToken);
   const url = new URL(wsBaseUrl, window.location.origin);
   url.searchParams.set("wsToken", issued.token);
   return url.toString();
@@ -745,7 +822,10 @@ async function prepareSavedEnvironmentRecordForConnection(
   readonly remotePort: number | null;
   readonly remoteServerKind: "external" | "managed" | null;
 }> {
-  if (!record.desktopSsh) {
+  const desktopTarget = getRecordDesktopTarget(record);
+  const sshTarget = toDesktopSshTarget(desktopTarget);
+  const wslTarget = toDesktopWslTarget(desktopTarget);
+  if (!sshTarget && !wslTarget) {
     return {
       record,
       pairingToken: null,
@@ -754,18 +834,24 @@ async function prepareSavedEnvironmentRecordForConnection(
     };
   }
 
-  const bootstrap = await resolveDesktopSshEnvironmentBootstrap(record.desktopSsh, options);
+  const bootstrap = sshTarget
+    ? await resolveDesktopSshEnvironmentBootstrap(sshTarget, options)
+    : await resolveDesktopWslEnvironmentBootstrap(wslTarget!, options);
+  const nextDesktopTarget: DesktopManagedEnvironmentTarget = sshTarget
+    ? { kind: "ssh", ssh: bootstrap.target as DesktopSshEnvironmentTarget }
+    : { kind: "wsl", wsl: bootstrap.target as DesktopWslEnvironmentTarget };
   const nextRecord: SavedEnvironmentRecord = {
     ...record,
     httpBaseUrl: bootstrap.httpBaseUrl,
     wsBaseUrl: bootstrap.wsBaseUrl,
-    desktopSsh: bootstrap.target,
+    desktopTarget: nextDesktopTarget,
+    ...(nextDesktopTarget.kind === "ssh" ? { desktopSsh: nextDesktopTarget.ssh } : {}),
   };
 
   if (
     nextRecord.httpBaseUrl !== record.httpBaseUrl ||
     nextRecord.wsBaseUrl !== record.wsBaseUrl ||
-    !isDesktopSshTargetEqual(nextRecord.desktopSsh, record.desktopSsh)
+    !areDesktopTargetsEqual(getRecordDesktopTarget(nextRecord), desktopTarget)
   ) {
     await persistSavedEnvironmentRecord(nextRecord);
     useSavedEnvironmentRegistryStore.getState().upsert(nextRecord);
@@ -779,7 +865,7 @@ async function prepareSavedEnvironmentRecordForConnection(
   };
 }
 
-async function issueDesktopSshBearerSession(record: SavedEnvironmentRecord): Promise<{
+async function issueDesktopManagedBearerSession(record: SavedEnvironmentRecord): Promise<{
   readonly record: SavedEnvironmentRecord;
   readonly bearerToken: string;
   readonly role: AuthSessionRole | null;
@@ -790,12 +876,19 @@ async function issueDesktopSshBearerSession(record: SavedEnvironmentRecord): Pro
   });
   if (!prepared.pairingToken) {
     await persistSavedEnvironmentRegistryRollback(registrySnapshot);
-    throw new Error("Desktop SSH launch did not return a pairing token.");
+    const preparedTarget = getRecordDesktopTarget(prepared.record);
+    throw new Error(
+      preparedTarget?.kind === "wsl"
+        ? "Desktop WSL launch did not return a pairing token."
+        : "Desktop SSH launch did not return a pairing token.",
+    );
   }
 
-  const bearerSession = await bootstrapDesktopSshBearerSession(
-    prepared.record.httpBaseUrl,
-    prepared.pairingToken,
+  const preparedTarget = getRecordDesktopTarget(prepared.record);
+  const bearerSession = await (
+    preparedTarget?.kind === "wsl"
+      ? bootstrapDesktopWslBearerSession(prepared.record.httpBaseUrl, prepared.pairingToken)
+      : bootstrapDesktopSshBearerSession(prepared.record.httpBaseUrl, prepared.pairingToken)
   ).catch(async (error) => {
     await persistSavedEnvironmentRegistryRollback(registrySnapshot);
     const detail = [
@@ -1159,17 +1252,26 @@ function createSavedEnvironmentClient(
         if (!record) {
           throw new Error(`Saved environment ${environmentId} not found.`);
         }
-        return record.desktopSsh
-          ? await resolveDesktopSshWebSocketConnectionUrl(
-              record.wsBaseUrl,
-              record.httpBaseUrl,
-              bearerToken,
-            )
-          : await resolveRemoteWebSocketConnectionUrl({
-              wsBaseUrl: record.wsBaseUrl,
-              httpBaseUrl: record.httpBaseUrl,
-              bearerToken,
-            });
+        const desktopTarget = getRecordDesktopTarget(record);
+        if (desktopTarget?.kind === "ssh") {
+          return await resolveDesktopSshWebSocketConnectionUrl(
+            record.wsBaseUrl,
+            record.httpBaseUrl,
+            bearerToken,
+          );
+        }
+        if (desktopTarget?.kind === "wsl") {
+          return await resolveDesktopWslWebSocketConnectionUrl(
+            record.wsBaseUrl,
+            record.httpBaseUrl,
+            bearerToken,
+          );
+        }
+        return await resolveRemoteWebSocketConnectionUrl({
+          wsBaseUrl: record.wsBaseUrl,
+          httpBaseUrl: record.httpBaseUrl,
+          bearerToken,
+        });
       },
       {
         getConnectionLabel: () => getSavedEnvironmentRecord(environmentId)?.label ?? null,
@@ -1229,12 +1331,14 @@ async function refreshSavedEnvironmentMetadata(
 
   const [serverConfig, sessionState] = await Promise.all([
     configHint ? Promise.resolve(configHint) : client.server.getConfig(),
-    record.desktopSsh
+    getRecordDesktopTarget(record)?.kind === "ssh"
       ? fetchDesktopSshSessionState(record.httpBaseUrl, bearerToken)
-      : fetchRemoteSessionState({
-          httpBaseUrl: record.httpBaseUrl,
-          bearerToken,
-        }),
+      : getRecordDesktopTarget(record)?.kind === "wsl"
+        ? fetchDesktopWslSessionState(record.httpBaseUrl, bearerToken)
+        : fetchRemoteSessionState({
+            httpBaseUrl: record.httpBaseUrl,
+            bearerToken,
+          }),
   ]);
 
   useSavedEnvironmentRuntimeStore.getState().patch(record.environmentId, {
@@ -1325,8 +1429,8 @@ async function ensureSavedEnvironmentConnection(
       let bearerToken =
         options?.bearerToken ?? (await readSavedEnvironmentBearerToken(record.environmentId));
       if (!bearerToken) {
-        if (record.desktopSsh) {
-          const issued = await issueDesktopSshBearerSession(record);
+        if (getRecordDesktopTarget(record)) {
+          const issued = await issueDesktopManagedBearerSession(record);
           activeRecord = issued.record;
           bearerToken = issued.bearerToken;
           roleHint = issued.role;
@@ -1404,20 +1508,21 @@ async function ensureSavedEnvironmentConnection(
             initialServerConfig,
           );
         } catch (error) {
-          const isAuthError = activeRecord.desktopSsh
+          const activeDesktopTarget = getRecordDesktopTarget(activeRecord);
+          const isAuthError = activeDesktopTarget
             ? isSshHttpAuthError(error, 401)
             : isRemoteEnvironmentAuthHttpError(error) && error.status === 401;
           if (!isAuthError) {
             throw error;
           }
-          if (!activeRecord.desktopSsh) {
+          if (!activeDesktopTarget) {
             await removeSavedEnvironmentBearerToken(activeRecord.environmentId);
             throw new Error("Saved environment credential expired. Pair it again.", {
               cause: error,
             });
           }
 
-          const issued = await issueDesktopSshBearerSession(activeRecord);
+          const issued = await issueDesktopManagedBearerSession(activeRecord);
           activeRecord = issued.record;
           bearerToken = issued.bearerToken;
           roleHint = issued.role;
@@ -1574,8 +1679,13 @@ export async function disconnectSavedEnvironment(environmentId: EnvironmentId): 
   }
   setRuntimeDisconnected(environmentId);
 
-  if (record?.desktopSsh && typeof window !== "undefined") {
-    await window.desktopBridge?.disconnectSshEnvironment(record.desktopSsh);
+  const desktopTarget = record ? getRecordDesktopTarget(record) : null;
+  if (desktopTarget && typeof window !== "undefined") {
+    if (desktopTarget.kind === "ssh") {
+      await window.desktopBridge?.disconnectSshEnvironment(desktopTarget.ssh);
+    } else {
+      await window.desktopBridge?.disconnectWslEnvironment?.(desktopTarget.wsl);
+    }
     await removeSavedEnvironmentBearerToken(environmentId);
   }
 }
@@ -1603,14 +1713,14 @@ export async function reconnectSavedEnvironment(environmentId: EnvironmentId): P
 
   setRuntimeConnecting(environmentId);
   try {
-    if (record.desktopSsh) {
+    if (getRecordDesktopTarget(record)) {
       await prepareSavedEnvironmentRecordForConnection(record);
     }
     await connection.reconnect();
   } catch (error) {
-    if (record.desktopSsh) {
+    if (getRecordDesktopTarget(record)) {
       try {
-        const issued = await issueDesktopSshBearerSession(
+        const issued = await issueDesktopManagedBearerSession(
           getSavedEnvironmentRecord(environmentId) ?? record,
         );
         await removeConnection(environmentId).catch(() => false);
@@ -1646,6 +1756,7 @@ export async function addSavedEnvironment(input: {
   readonly pairingUrl?: string;
   readonly host?: string;
   readonly pairingCode?: string;
+  readonly desktopTarget?: DesktopManagedEnvironmentTarget;
   readonly desktopSsh?: DesktopSshEnvironmentTarget;
 }): Promise<SavedEnvironmentRecord> {
   const resolvedTarget = resolveRemotePairingTarget({
@@ -1653,25 +1764,42 @@ export async function addSavedEnvironment(input: {
     ...(input.host !== undefined ? { host: input.host } : {}),
     ...(input.pairingCode !== undefined ? { pairingCode: input.pairingCode } : {}),
   });
-  const descriptor = input.desktopSsh
-    ? await fetchDesktopSshEnvironmentDescriptor(resolvedTarget.httpBaseUrl)
-    : await fetchRemoteEnvironmentDescriptor({
-        httpBaseUrl: resolvedTarget.httpBaseUrl,
-      });
+  const inputDesktopTarget =
+    input.desktopTarget ??
+    (input.desktopSsh ? { kind: "ssh" as const, ssh: input.desktopSsh } : undefined);
+  const descriptor =
+    inputDesktopTarget?.kind === "ssh"
+      ? await fetchDesktopSshEnvironmentDescriptor(resolvedTarget.httpBaseUrl)
+      : inputDesktopTarget?.kind === "wsl"
+        ? await fetchDesktopWslEnvironmentDescriptor(resolvedTarget.httpBaseUrl)
+        : await fetchRemoteEnvironmentDescriptor({
+            httpBaseUrl: resolvedTarget.httpBaseUrl,
+          });
   const environmentId = descriptor.environmentId;
   const registrySnapshot = snapshotSavedEnvironmentRegistry([environmentId]);
   const existingRecord =
     getSavedEnvironmentRecord(environmentId) ??
-    findSavedEnvironmentRecordByDesktopSshTarget(input.desktopSsh);
+    findSavedEnvironmentRecordByDesktopTarget(inputDesktopTarget);
   const staleDesktopSshRecord =
     existingRecord && existingRecord.environmentId !== environmentId ? existingRecord : null;
 
-  const bearerSession = input.desktopSsh
-    ? await bootstrapDesktopSshBearerSession(resolvedTarget.httpBaseUrl, resolvedTarget.credential)
-    : await bootstrapRemoteBearerSession({
-        httpBaseUrl: resolvedTarget.httpBaseUrl,
-        credential: resolvedTarget.credential,
-      });
+  const bearerSession =
+    inputDesktopTarget?.kind === "ssh"
+      ? await bootstrapDesktopSshBearerSession(
+          resolvedTarget.httpBaseUrl,
+          resolvedTarget.credential,
+        )
+      : inputDesktopTarget?.kind === "wsl"
+        ? await bootstrapDesktopWslBearerSession(
+            resolvedTarget.httpBaseUrl,
+            resolvedTarget.credential,
+          )
+        : await bootstrapRemoteBearerSession({
+            httpBaseUrl: resolvedTarget.httpBaseUrl,
+            credential: resolvedTarget.credential,
+          });
+  const existingDesktopTarget = existingRecord ? getRecordDesktopTarget(existingRecord) : null;
+  const recordDesktopTarget = inputDesktopTarget ?? existingDesktopTarget ?? undefined;
 
   const record: SavedEnvironmentRecord = {
     environmentId,
@@ -1680,9 +1808,8 @@ export async function addSavedEnvironment(input: {
     httpBaseUrl: resolvedTarget.httpBaseUrl,
     createdAt: existingRecord?.createdAt ?? isoNow(),
     lastConnectedAt: isoNow(),
-    ...((input.desktopSsh ?? existingRecord?.desktopSsh)
-      ? { desktopSsh: input.desktopSsh ?? existingRecord?.desktopSsh }
-      : {}),
+    ...(recordDesktopTarget ? { desktopTarget: recordDesktopTarget } : {}),
+    ...(recordDesktopTarget?.kind === "ssh" ? { desktopSsh: recordDesktopTarget.ssh } : {}),
   };
 
   await persistSavedEnvironmentRecord(record);
@@ -1722,6 +1849,36 @@ export async function connectDesktopSshEnvironment(
     host: bootstrap.httpBaseUrl,
     pairingCode: bootstrap.pairingToken,
     desktopSsh: bootstrap.target,
+    desktopTarget: { kind: "ssh", ssh: bootstrap.target },
+  }).catch((error) => {
+    const detail = [
+      `local ${bootstrap.httpBaseUrl}`,
+      `remote port ${bootstrap.remotePort ?? "unknown"}`,
+      bootstrap.remoteServerKind ? `remote server ${bootstrap.remoteServerKind}` : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message} (${detail})`);
+  });
+}
+
+export async function connectDesktopWslEnvironment(
+  target: DesktopWslEnvironmentTarget,
+  options?: { label?: string },
+): Promise<SavedEnvironmentRecord> {
+  const bootstrap = await resolveDesktopWslEnvironmentBootstrap(target, {
+    issuePairingToken: true,
+  });
+  if (!bootstrap.pairingToken) {
+    throw new Error("Desktop WSL launch did not return a pairing token.");
+  }
+
+  return await addSavedEnvironment({
+    label: options?.label?.trim() || bootstrap.target.distributionName,
+    host: bootstrap.httpBaseUrl,
+    pairingCode: bootstrap.pairingToken,
+    desktopTarget: { kind: "wsl", wsl: bootstrap.target },
   }).catch((error) => {
     const detail = [
       `local ${bootstrap.httpBaseUrl}`,

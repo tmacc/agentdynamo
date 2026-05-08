@@ -36,6 +36,15 @@ const FETCH_SSH_ENVIRONMENT_DESCRIPTOR_CHANNEL = "desktop:fetch-ssh-environment-
 const BOOTSTRAP_SSH_BEARER_SESSION_CHANNEL = "desktop:bootstrap-ssh-bearer-session";
 const FETCH_SSH_SESSION_STATE_CHANNEL = "desktop:fetch-ssh-session-state";
 const ISSUE_SSH_WEBSOCKET_TOKEN_CHANNEL = "desktop:issue-ssh-websocket-token";
+const DISCOVER_WSL_DISTRIBUTIONS_CHANNEL = "desktop:discover-wsl-distributions";
+const ENSURE_WSL_ENVIRONMENT_CHANNEL = "desktop:ensure-wsl-environment";
+const DISCONNECT_WSL_ENVIRONMENT_CHANNEL = "desktop:disconnect-wsl-environment";
+const FETCH_WSL_ENVIRONMENT_DESCRIPTOR_CHANNEL = "desktop:fetch-wsl-environment-descriptor";
+const BOOTSTRAP_WSL_BEARER_SESSION_CHANNEL = "desktop:bootstrap-wsl-bearer-session";
+const FETCH_WSL_SESSION_STATE_CHANNEL = "desktop:fetch-wsl-session-state";
+const ISSUE_WSL_WEBSOCKET_TOKEN_CHANNEL = "desktop:issue-wsl-websocket-token";
+const OPEN_WSL_PATH_IN_EDITOR_CHANNEL = "desktop:open-wsl-path-in-editor";
+const PROBE_PROVIDER_AVAILABILITY_CHANNEL = "desktop:probe-provider-availability";
 const SSH_PASSWORD_PROMPT_CHANNEL = "desktop:ssh-password-prompt";
 const RESOLVE_SSH_PASSWORD_PROMPT_CHANNEL = "desktop:resolve-ssh-password-prompt";
 const GET_SERVER_EXPOSURE_STATE_CHANNEL = "desktop:get-server-exposure-state";
@@ -162,6 +171,22 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(FETCH_SSH_SESSION_STATE_CHANNEL, httpBaseUrl, bearerToken),
   issueSshWebSocketToken: (httpBaseUrl, bearerToken) =>
     ipcRenderer.invoke(ISSUE_SSH_WEBSOCKET_TOKEN_CHANNEL, httpBaseUrl, bearerToken),
+  discoverWslDistributions: () => ipcRenderer.invoke(DISCOVER_WSL_DISTRIBUTIONS_CHANNEL),
+  ensureWslEnvironment: (target, options) =>
+    ipcRenderer.invoke(ENSURE_WSL_ENVIRONMENT_CHANNEL, target, options),
+  disconnectWslEnvironment: (target) =>
+    ipcRenderer.invoke(DISCONNECT_WSL_ENVIRONMENT_CHANNEL, target),
+  fetchWslEnvironmentDescriptor: (httpBaseUrl) =>
+    ipcRenderer.invoke(FETCH_WSL_ENVIRONMENT_DESCRIPTOR_CHANNEL, httpBaseUrl),
+  bootstrapWslBearerSession: (httpBaseUrl, credential) =>
+    ipcRenderer.invoke(BOOTSTRAP_WSL_BEARER_SESSION_CHANNEL, httpBaseUrl, credential),
+  fetchWslSessionState: (httpBaseUrl, bearerToken) =>
+    ipcRenderer.invoke(FETCH_WSL_SESSION_STATE_CHANNEL, httpBaseUrl, bearerToken),
+  issueWslWebSocketToken: (httpBaseUrl, bearerToken) =>
+    ipcRenderer.invoke(ISSUE_WSL_WEBSOCKET_TOKEN_CHANNEL, httpBaseUrl, bearerToken),
+  openWslPathInEditor: (input) => ipcRenderer.invoke(OPEN_WSL_PATH_IN_EDITOR_CHANNEL, input),
+  probeProviderAvailability: (options) =>
+    ipcRenderer.invoke(PROBE_PROVIDER_AVAILABILITY_CHANNEL, options),
   onSshPasswordPrompt: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, request: unknown) => {
       if (typeof request !== "object" || request === null) return;

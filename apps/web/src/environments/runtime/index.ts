@@ -1,8 +1,12 @@
 export {
   getEnvironmentHttpBaseUrl,
+  getSavedEnvironmentDesktopTarget,
   getSavedEnvironmentRecord,
   getSavedEnvironmentRuntimeState,
   hasSavedEnvironmentRegistryHydrated,
+  isDesktopTargetEqual,
+  isSshSavedEnvironment,
+  isWslSavedEnvironment,
   listSavedEnvironmentRecords,
   resetSavedEnvironmentRegistryStoreForTests,
   resetSavedEnvironmentRuntimeStoreForTests,
@@ -17,6 +21,7 @@ export {
 export {
   addSavedEnvironment,
   connectDesktopSshEnvironment,
+  connectDesktopWslEnvironment,
   disconnectSavedEnvironment,
   ensureEnvironmentConnectionBootstrapped,
   getPrimaryEnvironmentConnection,

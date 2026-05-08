@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { openInPreferredEditor } from "../../editorPreferences";
+import { openEnvironmentPathInPreferredEditor } from "../../editorPreferences";
 import { projectIntelligenceSurfaceQueryOptions } from "../../lib/projectIntelligenceReactQuery";
 import {
   formatNumber,
@@ -28,7 +28,6 @@ import {
   HEALTH_LABELS,
   shouldShowOpenInEditor,
 } from "../../projectIntelligencePresentation";
-import { readLocalApi } from "../../localApi";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
@@ -62,8 +61,7 @@ export function ProjectIntelligenceSurfaceDetail(props: ProjectIntelligenceSurfa
 
   const handleOpenInEditor = useCallback(async () => {
     if (!shouldShowOpenInEditor(surface) || !surface.openPath) return;
-    const api = readLocalApi();
-    if (!api) {
+    if (!props.environmentId) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
@@ -74,7 +72,10 @@ export function ProjectIntelligenceSurfaceDetail(props: ProjectIntelligenceSurfa
       return;
     }
     try {
-      await openInPreferredEditor(api, surface.openPath);
+      await openEnvironmentPathInPreferredEditor({
+        environmentId: props.environmentId,
+        targetPath: surface.openPath,
+      });
     } catch (error) {
       toastManager.add(
         stackedThreadToast({
@@ -84,7 +85,7 @@ export function ProjectIntelligenceSurfaceDetail(props: ProjectIntelligenceSurfa
         }),
       );
     }
-  }, [surface]);
+  }, [props.environmentId, surface]);
 
   return (
     <aside

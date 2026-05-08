@@ -27,6 +27,7 @@
         "@t3tools/shared": "workspace:*",
         "@t3tools/ssh": "workspace:*",
         "@t3tools/tailscale": "workspace:*",
+        "@t3tools/wsl": "workspace:*",
         "effect": "catalog:",
         "electron": "40.9.3",
         "electron-updater": "^6.6.2",
@@ -236,6 +237,20 @@
       "devDependencies": {
         "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/wsl": {
+      "name": "@t3tools/wsl",
+      "version": "0.0.0-alpha.1",
+      "dependencies": {
+        "@t3tools/contracts": "workspace:*",
+        "@t3tools/ssh": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
         "@types/node": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
@@ -795,6 +810,8 @@
     "@t3tools/tailscale": ["@t3tools/tailscale@workspace:packages/tailscale"],
 
     "@t3tools/web": ["@t3tools/web@workspace:apps/web"],
+
+    "@t3tools/wsl": ["@t3tools/wsl@workspace:packages/wsl"],
 
     "@tailwindcss/node": ["@tailwindcss/node@4.2.1", "", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "enhanced-resolve": "^5.19.0", "jiti": "^2.6.1", "lightningcss": "1.31.1", "magic-string": "^0.30.21", "source-map-js": "^1.2.1", "tailwindcss": "4.2.1" } }, "sha512-jlx6sLk4EOwO6hHe1oCGm1Q4AN/s0rSrTTPBGPM0/RQ6Uylwq17FuU8IeJJKEjtc6K6O07zsvP+gDO6MMWo7pg=="],
 

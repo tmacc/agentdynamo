@@ -1,6 +1,7 @@
 import { getKnownEnvironmentHttpBaseUrl } from "@t3tools/client-runtime";
 import type {
   AuthSessionRole,
+  DesktopManagedEnvironmentTarget,
   EnvironmentId,
   ExecutionEnvironmentDescriptor,
   PersistedSavedEnvironmentRecord,
@@ -18,6 +19,7 @@ export interface SavedEnvironmentRecord {
   readonly httpBaseUrl: string;
   readonly createdAt: string;
   readonly lastConnectedAt: string | null;
+  readonly desktopTarget?: PersistedSavedEnvironmentRecord["desktopTarget"];
   readonly desktopSsh?: PersistedSavedEnvironmentRecord["desktopSsh"];
 }
 
@@ -46,8 +48,43 @@ export function toPersistedSavedEnvironmentRecord(
     wsBaseUrl: record.wsBaseUrl,
     createdAt: record.createdAt,
     lastConnectedAt: record.lastConnectedAt,
+    ...(record.desktopTarget ? { desktopTarget: record.desktopTarget } : {}),
     ...(record.desktopSsh ? { desktopSsh: record.desktopSsh } : {}),
   };
+}
+
+export function getSavedEnvironmentDesktopTarget(
+  record: Pick<SavedEnvironmentRecord, "desktopTarget" | "desktopSsh">,
+): DesktopManagedEnvironmentTarget | null {
+  if (record.desktopTarget) return record.desktopTarget;
+  return record.desktopSsh ? { kind: "ssh", ssh: record.desktopSsh } : null;
+}
+
+export function isDesktopTargetEqual(
+  left: DesktopManagedEnvironmentTarget | null | undefined,
+  right: DesktopManagedEnvironmentTarget | null | undefined,
+): boolean {
+  if (!left || !right || left.kind !== right.kind) return false;
+  if (left.kind === "ssh" && right.kind === "ssh") {
+    return (
+      left.ssh.alias === right.ssh.alias &&
+      left.ssh.hostname === right.ssh.hostname &&
+      left.ssh.username === right.ssh.username &&
+      left.ssh.port === right.ssh.port
+    );
+  }
+  if (left.kind === "wsl" && right.kind === "wsl") {
+    return left.wsl.distributionName === right.wsl.distributionName;
+  }
+  return false;
+}
+
+export function isWslSavedEnvironment(record: SavedEnvironmentRecord): boolean {
+  return getSavedEnvironmentDesktopTarget(record)?.kind === "wsl";
+}
+
+export function isSshSavedEnvironment(record: SavedEnvironmentRecord): boolean {
+  return getSavedEnvironmentDesktopTarget(record)?.kind === "ssh";
 }
 
 function valuesOfSavedEnvironmentRegistry(

@@ -199,6 +199,49 @@ export interface DesktopSshEnvironmentBootstrap {
   remoteServerKind?: "external" | "managed";
 }
 
+export interface DesktopWslDistribution {
+  name: string;
+  isDefault: boolean;
+  state: "running" | "stopped" | "installing" | "unknown";
+  version: 1 | 2 | null;
+}
+
+export interface DesktopWslEnvironmentTarget {
+  distributionName: string;
+}
+
+export interface DesktopWslEnvironmentBootstrap {
+  target: DesktopWslEnvironmentTarget;
+  httpBaseUrl: string;
+  wsBaseUrl: string;
+  pairingToken: string | null;
+  remotePort?: number;
+  remoteServerKind?: "external" | "managed";
+}
+
+export type DesktopManagedEnvironmentTarget =
+  | { kind: "ssh"; ssh: DesktopSshEnvironmentTarget }
+  | { kind: "wsl"; wsl: DesktopWslEnvironmentTarget };
+
+export type ProviderId = "claude" | "codex" | "t3";
+
+export interface ProviderProbeWindowsHost {
+  providers: readonly ProviderId[];
+}
+
+export interface ProviderProbeDistro {
+  distributionName: string;
+  reachable: boolean;
+  providers: readonly ProviderId[];
+  hasNode: boolean;
+}
+
+export interface ProviderProbeResult {
+  windowsHost: ProviderProbeWindowsHost;
+  distros: readonly ProviderProbeDistro[];
+  collectedAt: number;
+}
+
 export interface DesktopSshPasswordPromptRequest {
   requestId: string;
   destination: string;
@@ -214,6 +257,7 @@ export interface PersistedSavedEnvironmentRecord {
   httpBaseUrl: string;
   createdAt: string;
   lastConnectedAt: string | null;
+  desktopTarget?: DesktopManagedEnvironmentTarget;
   desktopSsh?: DesktopSshEnvironmentTarget;
 }
 
@@ -270,6 +314,28 @@ export interface DesktopBridge {
     httpBaseUrl: string,
     bearerToken: string,
   ) => Promise<AuthWebSocketTokenResult>;
+  discoverWslDistributions?: () => Promise<readonly DesktopWslDistribution[]>;
+  ensureWslEnvironment?: (
+    target: DesktopWslEnvironmentTarget,
+    options?: { issuePairingToken?: boolean },
+  ) => Promise<DesktopWslEnvironmentBootstrap>;
+  disconnectWslEnvironment?: (target: DesktopWslEnvironmentTarget) => Promise<void>;
+  fetchWslEnvironmentDescriptor?: (httpBaseUrl: string) => Promise<ExecutionEnvironmentDescriptor>;
+  bootstrapWslBearerSession?: (
+    httpBaseUrl: string,
+    credential: string,
+  ) => Promise<AuthBearerBootstrapResult>;
+  fetchWslSessionState?: (httpBaseUrl: string, bearerToken: string) => Promise<AuthSessionState>;
+  issueWslWebSocketToken?: (
+    httpBaseUrl: string,
+    bearerToken: string,
+  ) => Promise<AuthWebSocketTokenResult>;
+  openWslPathInEditor?: (input: {
+    target: DesktopWslEnvironmentTarget;
+    path: string;
+    editor: "vscode" | "vscode-insiders";
+  }) => Promise<void>;
+  probeProviderAvailability?: (options?: { force?: boolean }) => Promise<ProviderProbeResult>;
   onSshPasswordPrompt: (listener: (request: DesktopSshPasswordPromptRequest) => void) => () => void;
   resolveSshPasswordPrompt: (requestId: string, password: string | null) => Promise<void>;
   getServerExposureState: () => Promise<DesktopServerExposureState>;

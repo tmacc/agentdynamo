@@ -96,6 +96,7 @@ vi.mock("~/components/ui/toast", () => ({
 }));
 
 vi.mock("~/editorPreferences", () => ({
+  openEnvironmentPathInPreferredEditor: vi.fn(),
   openInPreferredEditor: vi.fn(),
 }));
 
