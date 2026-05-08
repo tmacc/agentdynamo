@@ -22,7 +22,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   LinkIcon,
-  LayoutGridIcon,
+  KanbanIcon,
   MessageSquareIcon,
   PlusIcon,
   ScanSearchIcon,
@@ -1150,7 +1150,7 @@ function OpenCommandPaletteDialog() {
           Open board for <span className="font-semibold">{resolvedProjectTitle}</span>
         </>
       ),
-      icon: <LayoutGridIcon className={ITEM_ICON_CLASS} />,
+      icon: <KanbanIcon className={ITEM_ICON_CLASS} />,
       run: openBoard,
     });
 
