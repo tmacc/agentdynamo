@@ -145,6 +145,53 @@ describe("TeamTaskShared", () => {
     expect(pillsMarkup).not.toContain("Cancel child agent");
   });
 
+  it("renders the agents sidebar with newest child agents first", () => {
+    const older = task({
+      id: TeamTaskId.make("team-task-older"),
+      title: "Older task",
+      task: "Older work",
+      childThreadId: ThreadId.make("thread-child-older"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const newer = task({
+      id: TeamTaskId.make("team-task-newer"),
+      title: "Newer task",
+      task: "Newer work",
+      childThreadId: ThreadId.make("thread-child-newer"),
+      createdAt: "2026-01-01T00:02:00.000Z",
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(TeamAgentsSidebar, {
+        environmentId: EnvironmentId.make("environment-local"),
+        coordinatorTitle: "Coordinator",
+        coordinatorThreadId: older.parentThreadId,
+        activeThreadId: older.parentThreadId,
+        tasks: [
+          {
+            task: older,
+            diffSummary: null,
+            elapsed: null,
+            childWorktreePath: null,
+          },
+          {
+            task: newer,
+            diffSummary: null,
+            elapsed: null,
+            childWorktreePath: null,
+          },
+        ],
+        timestampFormat: "locale",
+        onOpenThread: () => {},
+        onCancelTask: () => {},
+        onReviewTaskChanges: () => {},
+        onClose: () => {},
+      }),
+    );
+
+    expect(markup.indexOf("Newer task")).toBeLessThan(markup.indexOf("Older task"));
+  });
+
   it("keeps Dynamo task controls visible for dedicated worktree children", () => {
     const dynamo = task({
       workspaceMode: "worktree",

@@ -13,7 +13,7 @@ import {
   PanelRightCloseIcon,
   XIcon,
 } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 
 import { formatTimestamp } from "../../timestampFormat";
 import { Badge } from "../ui/badge";
@@ -61,6 +61,10 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
   onClose: () => void;
 }) {
   const activeCount = tasks.filter((view) => isActiveTeamTask(view.task)).length;
+  const displayedTasks = useMemo(
+    () => tasks.toSorted((left, right) => right.task.createdAt.localeCompare(left.task.createdAt)),
+    [tasks],
+  );
   const [inspectedNativeTaskId, setInspectedNativeTaskId] = useState<TeamTaskId | null>(null);
   const inspectedNativeTask =
     tasks.find(({ task }) => task.id === inspectedNativeTaskId)?.task ?? null;
@@ -140,7 +144,7 @@ export const TeamAgentsSidebar = memo(function TeamAgentsSidebar({
 
           {tasks.length > 0 ? (
             <div className="space-y-2">
-              {tasks.map(({ task, diffSummary, elapsed, childWorktreePath }) => (
+              {displayedTasks.map(({ task, diffSummary, elapsed, childWorktreePath }) => (
                 <AgentCard
                   key={task.id}
                   task={task}
