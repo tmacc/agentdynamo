@@ -8,6 +8,7 @@ import {
   type ResolvedKeybindingRule,
   type ResolvedKeybindingsConfig,
   THREAD_JUMP_KEYBINDING_COMMANDS,
+  TILE_FOCUS_INDEX_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 
 type WhenToken =
@@ -40,6 +41,16 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
     key: `mod+${index + 1}`,
     command,
     when: "modelPickerOpen",
+  })),
+  { key: "mod+\\", command: "tile.split", when: "!terminalFocus" },
+  { key: "mod+]", command: "tile.focusNext", when: "tileMode && !terminalFocus" },
+  { key: "mod+[", command: "tile.focusPrev", when: "tileMode && !terminalFocus" },
+  { key: "mod+w", command: "tile.close", when: "tileMode && !terminalFocus" },
+  { key: "mod+shift+w", command: "tile.exit", when: "tileMode" },
+  ...TILE_FOCUS_INDEX_KEYBINDING_COMMANDS.map((command, index) => ({
+    key: `mod+${index + 1}`,
+    command,
+    when: "tileMode",
   })),
 ];
 

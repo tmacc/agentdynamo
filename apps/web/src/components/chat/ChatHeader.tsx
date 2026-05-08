@@ -11,7 +11,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { DiffIcon, LayersIcon, LayoutGridIcon, TerminalSquareIcon } from "lucide-react";
+import { DiffIcon, KanbanIcon, LayersIcon, TerminalSquareIcon } from "lucide-react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { clearBoardRouteSearchParams } from "~/boardRouteSearch";
 import { Badge } from "../ui/badge";
@@ -20,6 +20,7 @@ import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScr
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
+import { SplitWithPicker } from "../tile/SplitWithPicker";
 import { usePrimaryEnvironmentId } from "../../environments/primary";
 
 interface ChatHeaderProps {
@@ -164,6 +165,16 @@ export const ChatHeader = memo(function ChatHeader({
         <Tooltip>
           <TooltipTrigger
             render={
+              <SplitWithPicker
+                currentThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
+              />
+            }
+          />
+          <TooltipPopup side="bottom">Open another thread alongside this one</TooltipPopup>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
               <Toggle
                 className="shrink-0"
                 pressed={boardOpen}
@@ -186,7 +197,7 @@ export const ChatHeader = memo(function ChatHeader({
                 size="xs"
                 disabled={!activeProjectName}
               >
-                <LayoutGridIcon className="size-3" />
+                <KanbanIcon className="size-3" />
               </Toggle>
             }
           />

@@ -126,6 +126,8 @@ const SHORT_SHA_LENGTH = 7;
 const TOAST_DESCRIPTION_MAX = 72;
 const STATUS_RESULT_CACHE_TTL = Duration.seconds(1);
 const STATUS_RESULT_CACHE_CAPACITY = 2_048;
+const PULL_REQUEST_DISCOVERY_RETRY_ATTEMPTS = 4;
+const PULL_REQUEST_DISCOVERY_RETRY_DELAY_MS = 250;
 const WORKTREE_PATCH_MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
 const PULL_REQUEST_REMOTE_CONFIG_KEY = "dynamo.pullRequestRemote";
 const LEGACY_PULL_REQUEST_REMOTE_CONFIG_KEY = "t3.pullRequestRemote";
@@ -136,6 +138,12 @@ type GitActionProgressEmitter = (event: GitActionProgressPayload) => Effect.Effe
 
 function isNotGitRepositoryError(error: GitCommandError): boolean {
   return error.message.toLowerCase().includes("not a git repository");
+}
+
+function sleepPullRequestDiscoveryRetry() {
+  return Effect.promise<void>(
+    () => new Promise((resolve) => setTimeout(resolve, PULL_REQUEST_DISCOVERY_RETRY_DELAY_MS)),
+  );
 }
 
 interface OpenPrInfo {
@@ -1342,6 +1350,31 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     return null;
   });
 
+  const waitForOpenPr = Effect.fn("waitForOpenPr")(function* (
+    cwd: string,
+    headContext: Pick<
+      BranchHeadContext,
+      | "headBranch"
+      | "headSelectors"
+      | "headRepositoryNameWithOwner"
+      | "headRepositoryOwnerLogin"
+      | "isCrossRepository"
+    >,
+    repository?: string | null,
+  ) {
+    for (let attempt = 0; attempt <= PULL_REQUEST_DISCOVERY_RETRY_ATTEMPTS; attempt += 1) {
+      const pullRequest = yield* findOpenPr(cwd, headContext, repository);
+      if (pullRequest) {
+        return pullRequest;
+      }
+      if (attempt < PULL_REQUEST_DISCOVERY_RETRY_ATTEMPTS) {
+        yield* sleepPullRequestDiscoveryRetry();
+      }
+    }
+
+    return null;
+  });
+
   const findLatestPr = Effect.fn("findLatestPr")(function* (
     cwd: string,
     details: { branch: string; upstreamRef: string | null },
@@ -1754,7 +1787,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       .pipe(
         Effect.as(null as PullRequestInfo | null),
         Effect.catchIf(isExistingPullRequestCreateError, (error) =>
-          findOpenPr(cwd, headContext, baseRepository).pipe(
+          waitForOpenPr(cwd, headContext, baseRepository).pipe(
             Effect.flatMap((existing) =>
               existing ? Effect.succeed(existing) : Effect.fail(error),
             ),
@@ -1774,7 +1807,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       };
     }
 
-    const created = yield* findOpenPr(cwd, headContext, baseRepository);
+    const created = yield* waitForOpenPr(cwd, headContext, baseRepository);
     if (!created) {
       return {
         status: "created" as const,
@@ -1827,9 +1860,11 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   const resolvePullRequest: GitManagerShape["resolvePullRequest"] = Effect.fn("resolvePullRequest")(
     function* (input) {
+      const baseRepositoryContext = yield* resolvePullRequestBaseRepository(input.cwd);
       const pullRequest = yield* (yield* sourceControlProvider(input.cwd))
         .getChangeRequest({
           cwd: input.cwd,
+          repository: baseRepositoryContext.repositoryNameWithOwner,
           reference: normalizePullRequestReference(input.reference),
         })
         .pipe(Effect.map((resolved) => toResolvedPullRequest(resolved)));
@@ -1892,8 +1927,10 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     return yield* Effect.gen(function* () {
       const normalizedReference = normalizePullRequestReference(input.reference);
       const rootWorktreePath = yield* canonicalizeExistingPath(input.cwd);
+      const baseRepositoryContext = yield* resolvePullRequestBaseRepository(input.cwd);
       const pullRequestSummary = yield* (yield* sourceControlProvider(input.cwd)).getChangeRequest({
         cwd: input.cwd,
+        repository: baseRepositoryContext.repositoryNameWithOwner,
         reference: normalizedReference,
       });
       const pullRequest = toResolvedPullRequest(pullRequestSummary);

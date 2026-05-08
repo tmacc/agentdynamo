@@ -112,6 +112,43 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ## Fork Feature Inventory
 
+### Tiled multi-thread view
+
+- `Status`: In progress on current feature branch.
+- `User-visible behavior`: Users can open multiple server threads in a tiled grid with one shared header and composer targeting the focused tile. The grid is a first-class sidebar Workspace destination ("Tile View") and can also be opened from sidebar multi-select actions, the header split picker, keyboard shortcuts, and direct `/tiled?threads=...&focus=...` URLs.
+- `Why it exists`: Dynamo users often supervise multiple agent threads concurrently. Tiled view keeps the active human input single-threaded while preserving visual continuity across running, waiting, and completed agent threads.
+- `Key fork files`:
+  - `apps/web/src/tileViewStore.ts`
+  - `apps/web/src/tileRouteSearch.ts`
+  - `apps/web/src/components/tile/*`
+  - `apps/web/src/components/sidebar/SidebarMultiSelectToolbar.tsx`
+  - `apps/web/src/components/sidebar/SidebarWorkspacesSection.tsx`
+  - `apps/web/src/components/ChatView.tsx`
+  - `apps/web/src/components/Sidebar.tsx`
+  - `apps/web/src/components/chat/ChatHeader.tsx`
+  - `apps/web/src/routes/_chat.tiled.tsx`
+  - `apps/web/src/routes/_chat.tsx`
+  - `packages/contracts/src/keybindings.ts`
+  - `packages/shared/src/keybindings.ts`
+- `Important invariants`:
+  - The URL is the source of truth for tiled route hydration; stale in-memory tile state must not overwrite a newly navigated `/tiled` URL.
+  - Store-driven user mutations must still serialize back to the URL so refresh, back/forward, and sharing remain predictable.
+  - Sidebar thread clicks should replace the focused tile only while the current route is `/tiled`; stale in-memory tile state must not pull users back into a hidden tiled workspace from normal thread routes.
+  - The sidebar "Tile View" workspace entry should reopen the in-memory tiled workspace within the current app session, or show the empty tiled workspace when no tiles are stored.
+  - Adding a thread through the split picker must focus the selected thread by scoped thread key after merge/dedupe, not by a caller-computed array index.
+  - Opening an already tiled thread should focus the existing tile instead of duplicating it.
+  - The shared composer/header must always target the focused tile only; there is no broadcast input behavior.
+- `Merge hotspots`:
+  - Chat view layout and composer/header ownership
+  - Sidebar thread click and multi-select behavior
+  - TanStack route search params and generated route tree
+  - Global keybinding command contracts/default bindings
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Run `bun run test src/tileViewStore.test.ts src/tileRouteSearch.test.ts` from `apps/web`.
+  - Navigate between two different `/tiled?threads=...&focus=...` URLs and confirm the URL-selected layout wins over prior in-memory tile state.
+  - In a 3+ tile grid, use `Split with...` to add a new thread and confirm the new tile is focused; select an already tiled thread and confirm the existing tile is focused without duplication.
+
 ### Slash-command preformatted output rendering
 
 - `Status`: Present on current fork.
@@ -363,7 +400,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 ### Multi-provider subagents
 
 - `Status`: Present on the pre-merge fork at `365ae6d9`. Restored on top of merged baseline `ed85e9ce` as autonomous coordinator-led team agents.
-  - `User-visible behavior`: The user asks for a team/delegation in normal chat. No modal or pre-spawn confirmation appears. The coordinator provider can call Dynamo's `dynamo_team` MCP tools to spawn bounded child threads, omit provider/model when it wants Dynamo to choose, inspect/wait for child work, send follow-ups, and close children. The parent thread shows created child agents, selected provider/model, status, summaries, and open/cancel/review/apply actions. Users can open an Agents drawer from the composer controls to inspect child agents and jump into their chat streams. The Agents drawer participates in the responsive chat right-panel dock: on wide screens it can sit beside the Plan panel, compact layouts replace the active right panel, and Plan/Agents widths are resizable and persisted independently. Child agent chats show an explicit child-agent banner with a back-to-coordinator action. Users can message a child agent directly; the follow-up is logged on the coordinator thread. Users can explicitly review a child diff and apply that child worktree patch into the coordinator worktree; Dynamo never auto-merges child changes. Users can turn team agents off from General settings.
+  - `User-visible behavior`: The user asks for a team/delegation in normal chat. No modal or pre-spawn confirmation appears. The coordinator provider can call Dynamo's `dynamo_team` MCP tools to spawn bounded child threads, omit provider/model when it wants Dynamo to choose, inspect/wait for child work, send follow-ups, and close children. The parent thread shows created child agents, selected provider/model, status, summaries, and open/cancel/review/apply actions. Users can open an Agents drawer from the composer controls to inspect child agents and jump into their chat streams. The Agents drawer shows the newest child agents first and participates in the responsive chat right-panel dock: on wide screens it can sit beside the Plan panel, compact layouts replace the active right panel, and Plan/Agents widths are resizable and persisted independently. Child agent chats show an explicit child-agent banner with a back-to-coordinator action. Users can message a child agent directly; the follow-up is logged on the coordinator thread. Users can explicitly review a child diff and apply that child worktree patch into the coordinator worktree; Dynamo never auto-merges child changes. Users can turn team agents off from General settings.
 - `Why it exists`: Lets Dynamo coordinate real parallel agent work inside the product while keeping provider/model choice, worktree isolation, lifecycle state, and UI visibility under Dynamo's control.
 - `Key fork files`:
   - `packages/contracts/src/orchestration.ts`
@@ -407,6 +444,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Coordinator tools are injected only into supported top-level provider sessions, currently Codex and Claude, using MCP server name `dynamo_team`.
   - The server runtime layer must provide `TeamOrchestrationService` alongside its Git, terminal/worktree setup, provider registry, VCS status, settings, and orchestration dependencies; missing any of these prevents the desktop backend from booting and hides the team MCP tools.
   - The `/api/team-mcp` route must behave like a normal MCP server during provider startup: authenticated POST requests support `initialize`, `notifications/initialized`, `ping`, `tools/list`, and `tools/call`, plus a lightweight GET health response.
+  - Team MCP tool results must keep `structuredContent` object-shaped for all tools. Domain arrays such as child task lists are wrapped as `{ tasks, count }` in structured output while text content may still render the raw array for model-readable compatibility.
   - Team agents can be disabled through server settings; disabling prevents coordinator tool injection and rejects team spawn attempts.
   - Codex coordinator sessions must receive explicit developer instructions to use Dynamo's team MCP tools instead of Codex-native subagents for team/delegation requests.
   - The MCP route exposes underscore aliases such as `team_spawn_child` in addition to dotted names so provider tool bridges with stricter tool-name rules can still surface the tools.
@@ -425,7 +463,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Child prompts must distinguish isolated child worktrees from shared coordinator workspaces so shared children are not instructed to assume branch/worktree isolation.
   - Parent UI must show child status changes and final summaries without requiring a refresh.
   - Child agent threads should not appear as independent top-level sidebar rows; they are reached through the coordinator's Agents drawer and durable inline team blocks.
-  - The Agents drawer is the primary team roster/control surface. It should show role/topic, provider/model, status, latest summary/error, worktree/setup metadata, and open/cancel actions.
+  - The Agents drawer is the primary team roster/control surface. It should show role/topic, provider/model, status, latest summary/error, worktree/setup metadata, and open/cancel actions, with newest child agents at the top.
   - The Agents drawer should share the chat right-panel dock with the Plan panel on wide layouts, replace the active right panel on compact layouts, and keep its width independently resizable/persistent.
   - Child agent chats must make parent navigation obvious with a child-agent banner and `Back to coordinator` action.
   - Child composer copy must make clear that typed follow-ups go directly to the child agent. Direct child follow-ups must emit `thread.team-task.send-message` so the coordinator history records `team.task.message.sent`.
@@ -451,7 +489,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Confirm child gets a distinct branch/worktree in a Git project.
   - Confirm child setup follows task-kind policy.
   - Confirm inline child task blocks appear in the parent and open/cancel actions work.
-  - Confirm the Agents drawer opens from the composer, shows model/status/summary for every child, and opens child chat streams.
+  - Confirm the Agents drawer opens from the composer, shows model/status/summary for every child, lists newest child agents first, and opens child chat streams.
   - Confirm child chat streams show the child-agent banner, `Back to coordinator`, and child-specific composer copy.
   - Confirm typing into a child chat sends only to that child and appends a parent-side `team.task.message.sent` activity.
   - Confirm typing into a completed child chat reopens that task as running until the new child turn settles.
@@ -813,15 +851,21 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `packages/contracts/src/git.ts`
   - `packages/contracts/src/ipc.ts`
   - `packages/contracts/src/rpc.ts`
+  - `apps/server/src/sourceControl/SourceControlProvider.ts`
   - `apps/server/src/sourceControl/GitHubCli.ts`
   - `apps/server/src/sourceControl/GitHubSourceControlProvider.ts`
+  - `apps/server/src/git/GitManager.ts`
   - `apps/server/src/git/Services/GitManager.ts`
   - `apps/server/src/git/Layers/GitManager.ts`
   - `apps/server/src/ws.ts`
   - `apps/web/src/lib/gitReactQuery.ts`
+  - `apps/web/src/lib/gitStatusState.ts`
   - `apps/web/src/rpc/wsRpcClient.ts`
   - `apps/web/src/environmentApi.ts`
   - `apps/web/src/components/GitActionsControl.tsx`
+  - `apps/web/src/components/GitActionsControl.logic.ts`
+  - `apps/web/src/components/Sidebar.tsx`
+  - `apps/web/src/components/ThreadStatusIndicators.tsx`
 - `Important invariants`:
   - PR creation must not silently choose between multiple different GitHub target repositories.
   - If zero GitHub remotes are detected, preserve the existing GitHub CLI inference path instead of blocking local/test repositories.
@@ -831,8 +875,12 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - The selected remote must be validated against the current repository remotes before saving or using it.
   - The remembered choice is repo-local git config stored as `dynamo.pullRequestRemote`; reads fall back to legacy `t3.pullRequestRemote` so pre-merge fork choices still work.
   - `gh pr create` should pass the selected base repository explicitly, not rely on GitHub CLI inference.
-  - Every GitHub CLI operation that accepts the selected base repository, including open PR lookup, default-branch lookup, and PR creation, must pass `--repo <owner/repo>` through the real `GitHubCli` adapter, not only test fakes.
+  - Every GitHub CLI operation that accepts the selected base repository, including direct PR lookup, open PR lookup, default-branch lookup, and PR creation, must pass `--repo <owner/repo>` through the real `GitHubCli` adapter, not only test fakes.
   - The selected PR base repository and the current branch's head repository are distinct concepts; fork/head remotes must still produce owner-qualified head selectors such as `owner:branch`.
+  - After PR creation, Dynamo should tolerate short source-control provider discovery lag before returning action metadata, so sidebar/topbar PR state can be populated with URL and number instead of falling back to another Create PR action.
+  - When a PR action result includes open PR metadata, the web git-status state should reflect that PR immediately and briefly retain it through same-branch `pr: null` refreshes, so the topbar changes to View PR and sidebar rows show the PR icon without waiting for provider polling to converge.
+  - Existing sidebar threads with branch metadata must be able to resolve their branch to PR metadata even when that branch is not the currently checked-out ref in the repository.
+  - The active thread topbar must also use branch-resolved PR metadata when git status has not populated `pr`, so the quick action and menu switch from Create PR to View PR for existing branch PRs.
 - `Merge hotspots`:
   - Git contracts and WebSocket/RPC method lists for PR remote option reads/writes
   - `GitManager` PR creation flow, especially base repository, head selector, existing PR lookup, and base branch resolution
@@ -845,6 +893,11 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Change/remove the saved remote and confirm Dynamo asks again or reports an actionable validation error.
   - Confirm a single-origin repository and a multi-remote same-repository checkout still create PRs without extra UI.
   - Confirm a fork-head branch still uses an owner-qualified `--head` selector while targeting the selected base repo.
+  - Run `bun run --cwd apps/server test src/git/GitManager.test.ts` and confirm delayed provider PR discovery still returns created PR metadata.
+  - Run `bun run --cwd apps/server test src/sourceControl/GitHubCli.test.ts src/sourceControl/GitHubSourceControlProvider.test.ts` and confirm direct PR lookup preserves the selected repository.
+  - Run `bun run --cwd apps/web test src/components/GitActionsControl.logic.test.ts src/components/ThreadStatusIndicators.test.ts src/lib/gitStatusState.test.ts` and confirm PR-driven action labels remain correct.
+  - Run `bun run --cwd apps/web test src/lib/gitStatusState.test.ts` and confirm optimistic PR metadata survives an immediate null status refresh.
+  - Run `bun run --cwd apps/web test src/components/ThreadStatusIndicators.test.ts` and confirm branch-resolved PR metadata only maps to matching thread branches.
 
 ### Dynamo branding
 
@@ -1032,6 +1085,29 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/provider/Layers/ClaudeAdapter.test.ts` in `apps/server`.
   - Run `bun run test src/store.test.ts` in `apps/web`.
   - Launch `bun run dev:desktop`; verify generic same-provider subagent prompts can use provider-native delegation, then verify explicit cross-provider or Dynamo-visible child requests spawn Dynamo team agents and appear in the Agents drawer.
+
+### 2026-05-08 - Object-shaped Dynamo team MCP structured outputs
+
+- `Status`: active
+- `Area`: team | provider | MCP
+- `User-visible impact`: Claude/Opus coordinators can read Codex child-agent list/wait results from Dynamo's `dynamo_team` MCP tools instead of failing MCP schema validation when child task summaries are available.
+- `Why this patch exists`: The MCP SDK used by Claude validates `CallToolResult.structuredContent` as a JSON object/record. Dynamo team `list_children` and `wait_for_children` correctly return arrays at the service/domain layer, but the MCP route was passing those arrays through as top-level `structuredContent`, which Claude rejected while Codex tolerated it.
+- `Key files`:
+  - `apps/server/src/team/http.ts`
+  - `apps/server/src/server.test.ts`
+- `Important invariants`:
+  - `/api/team-mcp` must never return a top-level array or scalar in `structuredContent`.
+  - `team_list_children`, `team.list_children`, `team_wait_for_children`, and `team.wait_for_children` wrap task arrays as `{ tasks, count }` in `structuredContent`.
+  - The textual MCP content for list/wait remains a pretty-printed rendering of the raw task array for compatibility with providers that read text output.
+  - Object-returning tools such as spawn, send-message, and close-child keep their stable top-level structured fields.
+  - Future team MCP tools must either return object-shaped structured output directly or be wrapped before reaching `CallToolResult.structuredContent`.
+- `Merge hotspots`:
+  - `apps/server/src/team/http.ts`
+  - MCP tool declaration schemas and aliases
+  - Provider startup behavior for Claude/Codex `dynamo_team` tools
+- `Verification`:
+  - Run `bun run test src/server.test.ts` in `apps/server`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck` at the repo root.
 
 ### 2026-05-07 - Treat missing checkpoint placeholders as completed turns
 

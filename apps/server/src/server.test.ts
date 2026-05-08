@@ -12,6 +12,7 @@ import {
   MessageId,
   OpenError,
   OrchestrationForkThreadError,
+  type OrchestrationTeamTask,
   type OrchestrationThreadShell,
   TerminalNotRunningError,
   type OrchestrationCommand,
@@ -962,6 +963,79 @@ const splitHeaderTokens = (value: string | null) =>
     .filter((token) => token.length > 0)
     .toSorted();
 
+const makeTeamTask = (overrides: Partial<OrchestrationTeamTask> = {}): OrchestrationTeamTask => {
+  const now = new Date(0).toISOString();
+  return {
+    id: TeamTaskId.make("team-task-test"),
+    parentThreadId: defaultThreadId,
+    childThreadId: ThreadId.make("team-thread-test"),
+    title: "Review plan",
+    task: "Review the implementation plan.",
+    roleLabel: "Reviewer",
+    kind: "review",
+    modelSelection: defaultModelSelection,
+    modelSelectionMode: "user-specified",
+    modelSelectionReason: "Selected for MCP route test.",
+    workspaceMode: "shared",
+    resolvedWorkspaceMode: "shared",
+    setupMode: "skip",
+    resolvedSetupMode: "skip",
+    source: "dynamo",
+    childThreadMaterialized: true,
+    nativeProviderRef: null,
+    status: "completed",
+    latestSummary: "Review complete.",
+    errorText: null,
+    createdAt: now,
+    startedAt: now,
+    completedAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+};
+
+const callTeamMcp = (input: {
+  readonly method?: string;
+  readonly name?: string;
+  readonly arguments?: Record<string, unknown>;
+}) =>
+  Effect.gen(function* () {
+    const url = yield* getHttpServerUrl("/api/team-mcp");
+    const response = yield* Effect.promise(() =>
+      fetch(url, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: input.method ?? "tools/call",
+          ...(input.name !== undefined
+            ? { params: { name: input.name, arguments: input.arguments ?? {} } }
+            : {}),
+        }),
+      }),
+    );
+    const body = (yield* Effect.promise(() => response.json())) as {
+      readonly result?: {
+        readonly tools?: ReadonlyArray<{
+          readonly name: string;
+          readonly outputSchema?: {
+            readonly type?: string;
+            readonly properties?: Record<string, { readonly type?: string }>;
+          };
+        }>;
+        readonly content?: ReadonlyArray<{ readonly type: string; readonly text: string }>;
+        readonly structuredContent?: Record<string, unknown>;
+        readonly isError?: boolean;
+      };
+      readonly error?: unknown;
+    };
+    return { response, body };
+  });
+
 const getWsServerUrl = (
   pathname = "",
   options?: { authenticated?: boolean; credential?: string },
@@ -980,6 +1054,141 @@ const getWsServerUrl = (
   });
 
 it.layer(NodeServices.layer)("server router seam", (it) => {
+  it.effect("returns MCP-valid structured content for team_list_children", () =>
+    Effect.gen(function* () {
+      const task = makeTeamTask();
+      yield* buildAppUnderTest({
+        layers: {
+          teamOrchestrationService: {
+            listChildren: () => Effect.succeed([task]),
+          },
+        },
+      });
+
+      const { response, body } = yield* callTeamMcp({ name: "team_list_children" });
+      const structuredContent = body.result?.structuredContent;
+      const tasks = structuredContent?.tasks as ReadonlyArray<OrchestrationTeamTask> | undefined;
+
+      assert.equal(response.status, 200);
+      assert.isFalse(Array.isArray(structuredContent));
+      assert.equal(body.result?.isError, false);
+      assert.equal(structuredContent?.count, 1);
+      assert.equal(tasks?.[0]?.id, task.id);
+      assert.equal(body.result?.content?.[0]?.text, JSON.stringify([task], null, 2));
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("returns MCP-valid structured content for team_wait_for_children", () =>
+    Effect.gen(function* () {
+      const task = makeTeamTask({ id: TeamTaskId.make("team-task-wait") });
+      yield* buildAppUnderTest({
+        layers: {
+          teamOrchestrationService: {
+            waitForChildren: () => Effect.succeed([task]),
+          },
+        },
+      });
+
+      const { response, body } = yield* callTeamMcp({ name: "team_wait_for_children" });
+      const structuredContent = body.result?.structuredContent;
+      const tasks = structuredContent?.tasks as ReadonlyArray<OrchestrationTeamTask> | undefined;
+
+      assert.equal(response.status, 200);
+      assert.isFalse(Array.isArray(structuredContent));
+      assert.equal(body.result?.isError, false);
+      assert.equal(structuredContent?.count, 1);
+      assert.equal(tasks?.[0]?.id, task.id);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("keeps dotted and underscore wait aliases structurally identical", () =>
+    Effect.gen(function* () {
+      const task = makeTeamTask({ id: TeamTaskId.make("team-task-alias") });
+      yield* buildAppUnderTest({
+        layers: {
+          teamOrchestrationService: {
+            waitForChildren: () => Effect.succeed([task]),
+          },
+        },
+      });
+
+      const underscore = yield* callTeamMcp({ name: "team_wait_for_children" });
+      const dotted = yield* callTeamMcp({ name: "team.wait_for_children" });
+
+      assert.deepEqual(
+        dotted.body.result?.structuredContent,
+        underscore.body.result?.structuredContent,
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("keeps team_spawn_child structured content object-shaped", () =>
+    Effect.gen(function* () {
+      const task = makeTeamTask({ status: "queued", startedAt: null, completedAt: null });
+      yield* buildAppUnderTest({
+        layers: {
+          teamOrchestrationService: {
+            spawnChild: () =>
+              Effect.succeed({
+                task,
+                modelSelection: task.modelSelection,
+                childThreadId: task.childThreadId,
+              }),
+          },
+        },
+      });
+
+      const { response, body } = yield* callTeamMcp({
+        name: "team_spawn_child",
+        arguments: { title: "Review plan", task: "Review the implementation plan." },
+      });
+      const structuredContent = body.result?.structuredContent;
+
+      assert.equal(response.status, 200);
+      assert.isFalse(Array.isArray(structuredContent));
+      assert.equal((structuredContent?.task as OrchestrationTeamTask | undefined)?.id, task.id);
+      assert.deepEqual(structuredContent?.modelSelection, task.modelSelection);
+      assert.equal(structuredContent?.childThreadId, task.childThreadId);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("advertises object output schemas for team MCP tools", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const { response, body } = yield* callTeamMcp({ method: "tools/list" });
+      const tools = body.result?.tools ?? [];
+      const listTool = tools.find((tool) => tool.name === "team_list_children");
+      const waitTool = tools.find((tool) => tool.name === "team.wait_for_children");
+
+      assert.equal(response.status, 200);
+      assert.equal(listTool?.outputSchema?.type, "object");
+      assert.equal(listTool?.outputSchema?.properties?.tasks?.type, "array");
+      assert.equal(waitTool?.outputSchema?.type, "object");
+      assert.equal(waitTool?.outputSchema?.properties?.tasks?.type, "array");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("returns MCP-valid structured content for team tool failures", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          teamOrchestrationService: {
+            waitForChildren: () => Effect.fail(new Error("wait failed")),
+          },
+        },
+      });
+
+      const { response, body } = yield* callTeamMcp({ name: "team_wait_for_children" });
+      const structuredContent = body.result?.structuredContent;
+
+      assert.equal(response.status, 200);
+      assert.isFalse(Array.isArray(structuredContent));
+      assert.equal(body.result?.isError, true);
+      assert.equal(structuredContent?.error, "Team tool failed.");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("serves static index content for GET / when staticDir is configured", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

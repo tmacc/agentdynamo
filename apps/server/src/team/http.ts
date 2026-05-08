@@ -32,11 +32,59 @@ function emptyResponse() {
   return HttpServerResponse.empty({ status: 204 });
 }
 
-const toolResult = (result: unknown, isError = false) => ({
-  content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-  structuredContent: result,
+interface TeamMcpCallResult {
+  readonly textPayload: unknown;
+  readonly structuredContent: Record<string, unknown>;
+}
+
+function toMcpStructuredContent(value: unknown): Record<string, unknown> {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return { result: value };
+}
+
+const toolResult = (result: TeamMcpCallResult, isError = false) => ({
+  content: [{ type: "text", text: JSON.stringify(result.textPayload, null, 2) }],
+  structuredContent: toMcpStructuredContent(result.structuredContent),
   isError,
 });
+
+const mcpResult = (value: unknown): TeamMcpCallResult => ({
+  textPayload: value,
+  structuredContent: toMcpStructuredContent(value),
+});
+
+const mcpTaskCollectionResult = (tasks: unknown[]): TeamMcpCallResult => ({
+  textPayload: tasks,
+  structuredContent: { tasks, count: tasks.length },
+});
+
+const teamTaskObjectSchema = {
+  type: "object",
+  additionalProperties: true,
+} as const;
+
+const teamTaskCollectionOutputSchema = {
+  type: "object",
+  properties: {
+    tasks: { type: "array", items: teamTaskObjectSchema },
+    count: { type: "integer", minimum: 0 },
+  },
+  required: ["tasks", "count"],
+  additionalProperties: false,
+} as const;
+
+const teamChildActionOutputSchema = {
+  type: "object",
+  properties: {
+    task: teamTaskObjectSchema,
+    modelSelection: { type: "object", additionalProperties: true },
+    childThreadId: { type: "string" },
+  },
+  required: ["task", "modelSelection", "childThreadId"],
+  additionalProperties: true,
+} as const;
 
 function spawnChildSchema() {
   return {
@@ -91,21 +139,25 @@ function buildTools(providers: ReadonlyArray<ServerProvider>) {
       name: "team.spawn_child",
       description: `Spawn a bounded child agent task. Provider and model are optional; Dynamo chooses the best available worker when omitted. ${workerModelDescription}`,
       inputSchema: spawnChildSchema(),
+      outputSchema: teamChildActionOutputSchema,
     },
     {
       name: "team_spawn_child",
       description: `Spawn a bounded Dynamo child agent task. Use this for team/delegation/subagent requests. Provider and model are optional; Dynamo chooses the best available worker when omitted. ${workerModelDescription}`,
       inputSchema: spawnChildSchema(),
+      outputSchema: teamChildActionOutputSchema,
     },
     {
       name: "team.list_children",
       description: "List child agent tasks for this coordinator thread.",
       inputSchema: { type: "object", properties: {}, additionalProperties: true },
+      outputSchema: teamTaskCollectionOutputSchema,
     },
     {
       name: "team_list_children",
       description: "List Dynamo child agent tasks for this coordinator thread.",
       inputSchema: { type: "object", properties: {}, additionalProperties: true },
+      outputSchema: teamTaskCollectionOutputSchema,
     },
     {
       name: "team.wait_for_children",
@@ -115,6 +167,7 @@ function buildTools(providers: ReadonlyArray<ServerProvider>) {
         properties: { timeoutSeconds: { type: "integer", minimum: 1, maximum: 300 } },
         additionalProperties: true,
       },
+      outputSchema: teamTaskCollectionOutputSchema,
     },
     {
       name: "team_wait_for_children",
@@ -124,6 +177,7 @@ function buildTools(providers: ReadonlyArray<ServerProvider>) {
         properties: { timeoutSeconds: { type: "integer", minimum: 1, maximum: 300 } },
         additionalProperties: true,
       },
+      outputSchema: teamTaskCollectionOutputSchema,
     },
     {
       name: "team.send_child_message",
@@ -134,6 +188,7 @@ function buildTools(providers: ReadonlyArray<ServerProvider>) {
         required: ["taskId", "message"],
         additionalProperties: false,
       },
+      outputSchema: teamChildActionOutputSchema,
     },
     {
       name: "team_send_child_message",
@@ -144,6 +199,7 @@ function buildTools(providers: ReadonlyArray<ServerProvider>) {
         required: ["taskId", "message"],
         additionalProperties: false,
       },
+      outputSchema: teamChildActionOutputSchema,
     },
     {
       name: "team.close_child",
@@ -154,6 +210,7 @@ function buildTools(providers: ReadonlyArray<ServerProvider>) {
         required: ["taskId"],
         additionalProperties: false,
       },
+      outputSchema: teamChildActionOutputSchema,
     },
     {
       name: "team_close_child",
@@ -164,6 +221,7 @@ function buildTools(providers: ReadonlyArray<ServerProvider>) {
         required: ["taskId"],
         additionalProperties: false,
       },
+      outputSchema: teamChildActionOutputSchema,
     },
   ];
 }
@@ -230,52 +288,62 @@ export const teamMcpRouteLayer = HttpRouter.add(
       switch (name) {
         case "team.spawn_child":
         case "team_spawn_child":
-          return yield* team.spawnChild({
-            parentThreadId: parentThreadId.value,
-            title: String(args.title ?? "Child task"),
-            task: String(args.task ?? ""),
-            ...(typeof args.roleLabel === "string" ? { roleLabel: args.roleLabel } : {}),
-            ...(typeof args.taskKind === "string" ? { taskKind: args.taskKind as never } : {}),
-            ...(typeof args.contextBrief === "string" ? { contextBrief: args.contextBrief } : {}),
-            ...(Array.isArray(args.relevantFiles)
-              ? {
-                  relevantFiles: args.relevantFiles.filter(
-                    (entry): entry is string => typeof entry === "string",
-                  ),
-                }
-              : {}),
-            ...(typeof args.provider === "string" ? { provider: args.provider as never } : {}),
-            ...(typeof args.model === "string" ? { model: args.model } : {}),
-            ...(typeof args.workspaceMode === "string"
-              ? { workspaceMode: args.workspaceMode as never }
-              : {}),
-            ...(typeof args.setupMode === "string" ? { setupMode: args.setupMode as never } : {}),
-          });
+          return mcpResult(
+            yield* team.spawnChild({
+              parentThreadId: parentThreadId.value,
+              title: String(args.title ?? "Child task"),
+              task: String(args.task ?? ""),
+              ...(typeof args.roleLabel === "string" ? { roleLabel: args.roleLabel } : {}),
+              ...(typeof args.taskKind === "string" ? { taskKind: args.taskKind as never } : {}),
+              ...(typeof args.contextBrief === "string" ? { contextBrief: args.contextBrief } : {}),
+              ...(Array.isArray(args.relevantFiles)
+                ? {
+                    relevantFiles: args.relevantFiles.filter(
+                      (entry): entry is string => typeof entry === "string",
+                    ),
+                  }
+                : {}),
+              ...(typeof args.provider === "string" ? { provider: args.provider as never } : {}),
+              ...(typeof args.model === "string" ? { model: args.model } : {}),
+              ...(typeof args.workspaceMode === "string"
+                ? { workspaceMode: args.workspaceMode as never }
+                : {}),
+              ...(typeof args.setupMode === "string" ? { setupMode: args.setupMode as never } : {}),
+            }),
+          );
         case "team.list_children":
-        case "team_list_children":
-          return yield* team.listChildren({ parentThreadId: parentThreadId.value });
+        case "team_list_children": {
+          const tasks = yield* team.listChildren({ parentThreadId: parentThreadId.value });
+          return mcpTaskCollectionResult([...tasks]);
+        }
         case "team.wait_for_children":
-        case "team_wait_for_children":
-          return yield* team.waitForChildren({
+        case "team_wait_for_children": {
+          const tasks = yield* team.waitForChildren({
             parentThreadId: parentThreadId.value,
             ...(typeof args.timeoutSeconds === "number"
               ? { timeoutSeconds: args.timeoutSeconds }
               : {}),
           });
+          return mcpTaskCollectionResult([...tasks]);
+        }
         case "team.send_child_message":
         case "team_send_child_message":
-          return yield* team.sendChildMessage({
-            parentThreadId: parentThreadId.value,
-            taskId: String(args.taskId ?? "") as never,
-            message: String(args.message ?? ""),
-          });
+          return mcpResult(
+            yield* team.sendChildMessage({
+              parentThreadId: parentThreadId.value,
+              taskId: String(args.taskId ?? "") as never,
+              message: String(args.message ?? ""),
+            }),
+          );
         case "team.close_child":
         case "team_close_child":
-          return yield* team.closeChild({
-            parentThreadId: parentThreadId.value,
-            taskId: String(args.taskId ?? "") as never,
-            ...(typeof args.reason === "string" ? { reason: args.reason } : {}),
-          });
+          return mcpResult(
+            yield* team.closeChild({
+              parentThreadId: parentThreadId.value,
+              taskId: String(args.taskId ?? "") as never,
+              ...(typeof args.reason === "string" ? { reason: args.reason } : {}),
+            }),
+          );
         default:
           throw new Error(`Unknown tool '${name ?? "unknown"}'.`);
       }
@@ -283,7 +351,7 @@ export const teamMcpRouteLayer = HttpRouter.add(
 
     const result = yield* Effect.exit(runTool);
     if (Exit.isFailure(result)) {
-      return jsonRpcResult(id, toolResult({ error: "Team tool failed." }, true));
+      return jsonRpcResult(id, toolResult(mcpResult({ error: "Team tool failed." }), true));
     }
     return jsonRpcResult(id, toolResult(result.value));
   }),

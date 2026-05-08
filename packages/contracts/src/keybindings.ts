@@ -20,6 +20,29 @@ export const THREAD_JUMP_KEYBINDING_COMMANDS = [
 ] as const;
 export type ThreadJumpKeybindingCommand = (typeof THREAD_JUMP_KEYBINDING_COMMANDS)[number];
 
+export const TILE_FOCUS_INDEX_KEYBINDING_COMMANDS = [
+  "tile.focus.1",
+  "tile.focus.2",
+  "tile.focus.3",
+  "tile.focus.4",
+  "tile.focus.5",
+  "tile.focus.6",
+  "tile.focus.7",
+  "tile.focus.8",
+  "tile.focus.9",
+] as const;
+export type TileFocusIndexKeybindingCommand = (typeof TILE_FOCUS_INDEX_KEYBINDING_COMMANDS)[number];
+
+export const TILE_KEYBINDING_COMMANDS = [
+  "tile.split",
+  "tile.focusNext",
+  "tile.focusPrev",
+  "tile.close",
+  "tile.exit",
+  ...TILE_FOCUS_INDEX_KEYBINDING_COMMANDS,
+] as const;
+export type TileKeybindingCommand = (typeof TILE_KEYBINDING_COMMANDS)[number];
+
 export const MODEL_PICKER_JUMP_KEYBINDING_COMMANDS = [
   "modelPicker.jump.1",
   "modelPicker.jump.2",
@@ -59,6 +82,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "editor.openFavorite",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
+  ...TILE_KEYBINDING_COMMANDS,
 ] as const;
 
 export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([

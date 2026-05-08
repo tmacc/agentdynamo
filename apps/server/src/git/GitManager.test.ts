@@ -589,13 +589,16 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
       getPullRequest: (input) =>
         execute({
           cwd: input.cwd,
-          args: [
-            "pr",
-            "view",
-            input.reference,
-            "--json",
-            "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
-          ],
+          args: appendRepositoryArg(
+            [
+              "pr",
+              "view",
+              input.reference,
+              "--json",
+              "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+            ],
+            input.repository ?? undefined,
+          ),
         }).pipe(Effect.map((result) => JSON.parse(result.stdout) as GitHubPullRequestSummary)),
       getRepositoryCloneUrls: (input) =>
         execute({
@@ -3189,6 +3192,43 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("resolves pull requests against the selected base repository explicitly", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["remote", "add", "origin", "git@github.com:tmacc/agentdynamo.git"]);
+      yield* runGit(repoDir, ["remote", "add", "upstream", "git@github.com:pingdotgg/t3code.git"]);
+      yield* runGit(repoDir, ["config", "--local", "dynamo.pullRequestRemote", "origin"]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          pullRequest: {
+            number: 46,
+            title: "Track PR status",
+            url: "https://github.com/tmacc/agentdynamo/pull/46",
+            baseRefName: "main",
+            headRefName: "t3code/pr-tracking-test",
+            state: "open",
+          },
+        },
+      });
+
+      const result = yield* resolvePullRequest(manager, {
+        cwd: repoDir,
+        reference: "t3code/pr-tracking-test",
+      });
+
+      expect(result.pullRequest.number).toBe(46);
+      expect(
+        ghCalls.some(
+          (call) =>
+            call.includes("pr view t3code/pr-tracking-test --json") &&
+            call.includes("--repo tmacc/agentdynamo"),
+        ),
+      ).toBe(true);
+    }),
+  );
+
   it.effect("prepares pull request threads in local mode by checking out the PR branch", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -4089,6 +4129,55 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           label: "Creating pull request...",
         }),
       ]);
+    }),
+  );
+
+  it.effect("create_pr waits for provider PR discovery after creation", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/pr-discovery-delay"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      fs.writeFileSync(path.join(repoDir, "delayed-pr.txt"), "delayed pr\n");
+      yield* runGit(repoDir, ["add", "delayed-pr.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Delayed PR discovery"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/pr-discovery-delay"]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            JSON.stringify([]),
+            JSON.stringify([]),
+            JSON.stringify([
+              {
+                number: 202,
+                title: "Delayed PR discovery",
+                url: "https://github.com/example/project/pull/202",
+                baseRefName: "main",
+                headRefName: "feature/pr-discovery-delay",
+                state: "OPEN",
+                isCrossRepository: false,
+              },
+            ]),
+          ],
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+      });
+
+      expect(result.pr).toEqual({
+        status: "created",
+        url: "https://github.com/example/project/pull/202",
+        number: 202,
+        baseBranch: "main",
+        headBranch: "feature/pr-discovery-delay",
+        title: "Delayed PR discovery",
+      });
+      expect(ghCalls.filter((call) => call.startsWith("pr list "))).toHaveLength(3);
     }),
   );
 });
