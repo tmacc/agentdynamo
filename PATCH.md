@@ -808,6 +808,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - CI install steps that run in pull requests should avoid lifecycle scripts unless the workflow explicitly needs them.
   - Desktop preload verification must match the actual desktop build output (`apps/desktop/dist-electron/preload.cjs`).
   - Release manifest merge steps must call the script that exists in the current tree: `scripts/merge-update-manifests.ts --platform mac`.
+  - The release workflow keeps upstream's scheduled nightly cadence (`0 */3 * * *`) and skips scheduled nightlies when `main` has not changed since the last `v*-nightly.*` or legacy `nightly-v*` tag.
   - Optional release steps such as CLI publishing and release finalization must remain gated by repository variables/secrets.
   - `AGENTS.md` must keep directing agents to update `PATCH.md` for upstream-touching fork behavior.
 - `Merge hotspots`:
