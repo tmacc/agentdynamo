@@ -118,6 +118,7 @@ vi.mock("~/lib/gitReactQuery", () => ({
 }));
 
 vi.mock("~/lib/gitStatusState", () => ({
+  applyOptimisticGitStatusPr: vi.fn(),
   refreshGitStatus: refreshGitStatusSpy,
   resetGitStatusStateForTests: () => undefined,
   useGitStatus: vi.fn(() => ({

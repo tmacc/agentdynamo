@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WsRpcClient } from "../rpc/wsRpcClient";
 import { resetAppAtomRegistryForTests } from "../rpc/atomRegistry";
 import {
+  applyOptimisticGitStatusPr,
   getGitStatusSnapshot,
   resetGitStatusStateForTests,
   refreshGitStatus,
@@ -228,6 +229,50 @@ describe("gitStatusState", () => {
       cause: null,
       isPending: false,
     });
+
+    release();
+  });
+
+  it("applies optimistic PR metadata and retains it through an immediate null refresh", () => {
+    const release = watchGitStatus(TARGET, gitClient);
+    emitGitStatus(BASE_STATUS);
+
+    const pr = {
+      number: 123,
+      title: "Add PR tracking",
+      url: "https://github.com/example/project/pull/123",
+      baseRef: "main",
+      headRef: "feature/push-status",
+      state: "open" as const,
+    };
+    applyOptimisticGitStatusPr(TARGET, pr);
+
+    expect(getGitStatusSnapshot(TARGET).data?.pr).toEqual(pr);
+
+    emitGitStatus({
+      ...BASE_STATUS,
+      pr: null,
+    });
+
+    expect(getGitStatusSnapshot(TARGET).data?.pr).toEqual(pr);
+
+    release();
+  });
+
+  it("does not apply optimistic PR metadata to a different checked out branch", () => {
+    const release = watchGitStatus(TARGET, gitClient);
+    emitGitStatus(BASE_STATUS);
+
+    applyOptimisticGitStatusPr(TARGET, {
+      number: 123,
+      title: "Add PR tracking",
+      url: "https://github.com/example/project/pull/123",
+      baseRef: "main",
+      headRef: "feature/other",
+      state: "open",
+    });
+
+    expect(getGitStatusSnapshot(TARGET).data?.pr).toBeNull();
 
     release();
   });

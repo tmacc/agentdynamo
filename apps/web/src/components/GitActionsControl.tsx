@@ -74,7 +74,7 @@ import {
   gitSetPullRequestRemoteMutationOptions,
   sourceControlPublishRepositoryMutationOptions,
 } from "~/lib/gitReactQuery";
-import { refreshGitStatus, useGitStatus } from "~/lib/gitStatusState";
+import { applyOptimisticGitStatusPr, refreshGitStatus, useGitStatus } from "~/lib/gitStatusState";
 import { useSourceControlDiscovery } from "~/lib/sourceControlDiscoveryState";
 import { newCommandId, randomUUID } from "~/lib/utils";
 import { resolvePathLinkTarget } from "~/terminal-links";
@@ -229,6 +229,31 @@ function formatElapsedDescription(startedAtMs: number | null): string | undefine
   const minutes = Math.floor(elapsedSeconds / 60);
   const seconds = elapsedSeconds % 60;
   return `Running for ${minutes}m ${seconds}s`;
+}
+
+function prStatusFromGitActionResult(
+  result: GitRunStackedActionResult,
+): NonNullable<VcsStatusResult["pr"]> | null {
+  if (result.pr.status !== "created" && result.pr.status !== "opened_existing") {
+    return null;
+  }
+  if (
+    !result.pr.number ||
+    !result.pr.url ||
+    !result.pr.title ||
+    !result.pr.baseBranch ||
+    !result.pr.headBranch
+  ) {
+    return null;
+  }
+  return {
+    number: result.pr.number,
+    title: result.pr.title,
+    url: result.pr.url,
+    baseRef: result.pr.baseBranch,
+    headRef: result.pr.headBranch,
+    state: "open",
+  };
 }
 
 function resolveProgressDescription(progress: ActiveGitActionProgress): string | undefined {
@@ -1454,6 +1479,13 @@ export default function GitActionsControl({
         const result = await promise;
         activeGitActionProgressRef.current = null;
         syncThreadBranchAfterGitAction(result);
+        const optimisticPr = prStatusFromGitActionResult(result);
+        if (optimisticPr) {
+          applyOptimisticGitStatusPr(
+            { environmentId: activeEnvironmentId, cwd: gitCwd },
+            optimisticPr,
+          );
+        }
         const closeResultToast = () => {
           toastManager.close(resolvedProgressToastId);
         };

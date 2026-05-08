@@ -802,6 +802,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `apps/server/src/git/Layers/GitManager.ts`
   - `apps/server/src/ws.ts`
   - `apps/web/src/lib/gitReactQuery.ts`
+  - `apps/web/src/lib/gitStatusState.ts`
   - `apps/web/src/rpc/wsRpcClient.ts`
   - `apps/web/src/environmentApi.ts`
   - `apps/web/src/components/GitActionsControl.tsx`
@@ -817,6 +818,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Every GitHub CLI operation that accepts the selected base repository, including open PR lookup, default-branch lookup, and PR creation, must pass `--repo <owner/repo>` through the real `GitHubCli` adapter, not only test fakes.
   - The selected PR base repository and the current branch's head repository are distinct concepts; fork/head remotes must still produce owner-qualified head selectors such as `owner:branch`.
   - After PR creation, Dynamo should tolerate short source-control provider discovery lag before returning action metadata, so sidebar/topbar PR state can be populated with URL and number instead of falling back to another Create PR action.
+  - When a PR action result includes open PR metadata, the web git-status state should reflect that PR immediately and briefly retain it through same-branch `pr: null` refreshes, so the topbar changes to View PR and sidebar rows show the PR icon without waiting for provider polling to converge.
 - `Merge hotspots`:
   - Git contracts and WebSocket/RPC method lists for PR remote option reads/writes
   - `GitManager` PR creation flow, especially base repository, head selector, existing PR lookup, and base branch resolution
@@ -830,6 +832,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Confirm a single-origin repository and a multi-remote same-repository checkout still create PRs without extra UI.
   - Confirm a fork-head branch still uses an owner-qualified `--head` selector while targeting the selected base repo.
   - Run `bun run --cwd apps/server test src/git/GitManager.test.ts` and confirm delayed provider PR discovery still returns created PR metadata.
+  - Run `bun run --cwd apps/web test src/lib/gitStatusState.test.ts` and confirm optimistic PR metadata survives an immediate null status refresh.
 
 ### Dynamo branding
 
