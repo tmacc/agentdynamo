@@ -61,6 +61,7 @@ import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 
 vi.mock("../lib/gitStatusState", () => ({
+  applyOptimisticGitStatusPr: () => undefined,
   useGitStatus: () => ({ data: null, error: null, cause: null, isPending: false }),
   useGitStatusSnapshots: () => new Map(),
   useGitStatuses: () => new Map(),
