@@ -626,6 +626,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Composer insertion and "save prompt" actions must operate on the same store shape.
   - `MessagesTimeline.tsx` must render `<SavedPromptDialog mode="create" …>` driven by `pendingSavedPromptText` at the bottom of its JSX (typically wrapped in a fragment around the `TimelineRowCtx.Provider`). Without it, the per-message `BookmarkPlusIcon` "Save prompt" button silently sets state with no visible UI. Upstream merges that reformat or simplify this return statement must preserve the dialog.
   - `ChatComposer.tsx` renders the saved-prompt menu trigger in the composer's top-right corner (absolute-positioned with `compact popoverSide="bottom" popoverAlign="end"` inside the editor wrapper, not in the bottom controls). The wrapper uses asymmetric right padding (`pr-11 sm:pr-12`) to reserve room for the floating bookmark button. Upstream merges that move the trigger back into the bottom toolbar row must be re-fixed.
+  - `ComposerSavedPromptMenu.tsx` must keep each snippet row constrained to the popover width: prompt title/body text truncate inside the text column, the actions menu button remains visible without horizontal scrolling, overflowing title/body text can marquee on hover, and the hover tooltip must show the full prompt text wrapped rather than clipped.
 - `Merge hotspots`:
   - Composer UI and message actions
   - Client-side persistence/store structure
@@ -635,6 +636,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Quit and relaunch the desktop app; confirm saved prompts are still present even if the backend port changes.
   - Reuse it from the composer.
   - Change scope between project/global.
+  - Add a long saved prompt title/body and confirm the row actions menu remains visible without horizontal scrolling, while hovering the truncated text reveals the full text via marquee and a wrapped tooltip.
   - Reload and confirm snippets persist and remain scoped correctly.
 
 ### Provider switching / handoff

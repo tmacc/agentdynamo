@@ -1,6 +1,6 @@
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { BookmarkIcon, EllipsisIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { type SavedPromptSnippet, useSavedPromptStore } from "~/savedPromptStore";
 import { cn } from "~/lib/utils";
@@ -10,6 +10,7 @@ import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { ScrollArea } from "../ui/scroll-area";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 interface ComposerSavedPromptMenuProps {
   compact: boolean;
@@ -116,31 +117,36 @@ export function ComposerSavedPromptMenu({
                       return (
                         <div
                           key={snippet.id}
-                          className="flex items-start gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-accent"
+                          className="flex min-w-0 items-start gap-2 overflow-hidden rounded-xl px-2 py-2 transition-colors hover:bg-accent"
                         >
                           <button
                             type="button"
-                            className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                            className="flex min-w-0 flex-1 overflow-hidden items-start gap-2 text-left"
                             onClick={() => {
                               onSelectSnippet(snippet);
                               setOpen(false);
                             }}
                           >
-                            <div className="mt-0.5 rounded-md bg-muted/70 p-1 text-muted-foreground/70">
+                            <div className="mt-0.5 shrink-0 rounded-md bg-muted/70 p-1 text-muted-foreground/70">
                               <BookmarkIcon className="size-3.5" />
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className="truncate font-medium text-sm">
-                                  {snippet.title}
-                                </span>
-                                <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                            <div className="min-w-0 flex-1 overflow-hidden">
+                              <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                                <SavedPromptMarqueeText
+                                  text={snippet.title}
+                                  className="font-medium text-sm"
+                                />
+                                <Badge
+                                  variant="outline"
+                                  className="shrink-0 px-1.5 py-0 text-[10px]"
+                                >
                                   {snippet.scope === "project" ? "Project" : "Global"}
                                 </Badge>
                               </div>
-                              <p className="truncate text-muted-foreground text-xs">
-                                {snippet.body}
-                              </p>
+                              <SavedPromptMarqueeText
+                                text={snippet.body}
+                                className="text-muted-foreground text-xs"
+                              />
                             </div>
                           </button>
                           <Menu>
@@ -149,6 +155,7 @@ export function ComposerSavedPromptMenu({
                                 <Button
                                   size="icon-xs"
                                   variant="ghost"
+                                  className="shrink-0"
                                   aria-label={`Actions for ${snippet.title}`}
                                 />
                               }
@@ -207,5 +214,72 @@ export function ComposerSavedPromptMenu({
         )}
       </PopoverPopup>
     </Popover>
+  );
+}
+
+function SavedPromptMarqueeText({ text, className }: { text: string; className?: string }) {
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [hasOverflow, setHasOverflow] = useState(false);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const textElement = textRef.current;
+
+    if (!container || !textElement) {
+      return;
+    }
+
+    const updateOverflow = () => {
+      setHasOverflow(textElement.scrollWidth > container.clientWidth + 1);
+    };
+
+    updateOverflow();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateOverflow);
+      return () => window.removeEventListener("resize", updateOverflow);
+    }
+
+    const resizeObserver = new ResizeObserver(updateOverflow);
+    resizeObserver.observe(container);
+    resizeObserver.observe(textElement);
+
+    return () => resizeObserver.disconnect();
+  }, [text]);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            ref={containerRef}
+            className={cn(
+              "saved-prompt-marquee",
+              hasOverflow ? "saved-prompt-marquee--overflow" : null,
+              className,
+            )}
+          >
+            <span className="saved-prompt-marquee__track">
+              <span ref={textRef} className="saved-prompt-marquee__text">
+                {text}
+              </span>
+              {hasOverflow ? (
+                <span aria-hidden="true" className="saved-prompt-marquee__text">
+                  {text}
+                </span>
+              ) : null}
+            </span>
+          </span>
+        }
+      />
+      <TooltipPopup
+        side="top"
+        align="start"
+        className="max-w-[min(36rem,calc(100vw-2rem))] text-left leading-snug whitespace-pre-wrap wrap-anywhere"
+      >
+        <span className="block max-h-72 overflow-y-auto whitespace-pre-wrap">{text}</span>
+      </TooltipPopup>
+    </Tooltip>
   );
 }
