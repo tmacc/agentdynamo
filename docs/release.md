@@ -7,7 +7,7 @@ This document covers the unified release workflow for stable and nightly desktop
 - Workflow: `.github/workflows/release.yml`
 - Triggers:
   - push tag matching `v*.*.*` for stable releases
-  - scheduled nightly at `09:00 UTC`
+  - scheduled nightly check every 3 hours
   - manual `workflow_dispatch` for either channel
 - Runs quality gates first: lint, typecheck, test.
 - Builds four artifacts in parallel for both channels:
@@ -42,11 +42,11 @@ With that setup, pushed release tags still build the desktop artifacts and publi
 
 - Workflow: `.github/workflows/release.yml`
 - Triggers:
-  - scheduled every day at `09:00 UTC`
+  - scheduled every 3 hours, skipped when `main` has not changed since the last nightly tag
   - manual `workflow_dispatch` with `channel=nightly`
 - Runs the same desktop quality gates and artifact matrix as the tagged release flow.
 - Publishes a GitHub prerelease only:
-  - tag format: `nightly-vX.Y.Z-nightly.YYYYMMDD.<run_number>`
+  - tag format: `vX.Y.Z-nightly.YYYYMMDD.<run_number>`
   - release name includes the short commit SHA
   - `make_latest` is always `false`
 - Uses the next stable patch version as the nightly base. For example, `0.0.17` produces nightlies on `0.0.18-nightly.*`.
