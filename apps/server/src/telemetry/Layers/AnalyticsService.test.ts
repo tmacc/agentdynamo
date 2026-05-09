@@ -14,6 +14,7 @@ import { AnalyticsServiceLayerLive } from "./AnalyticsService.ts";
 interface RecordedBatchRequest {
   readonly path: string;
   readonly body: {
+    readonly api_key?: string;
     readonly batch?: ReadonlyArray<{
       readonly event?: string;
       readonly properties?: {
@@ -25,6 +26,7 @@ interface RecordedBatchRequest {
 }
 
 interface RecordedBatchBody {
+  readonly api_key?: string;
   readonly batch: ReadonlyArray<{
     readonly event?: string;
     readonly properties?: {
@@ -45,9 +47,9 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
       const telemetryLayer = AnalyticsServiceLayerLive.pipe(Layer.provideMerge(serverConfigLayer));
       const configLayer = ConfigProvider.layer(
         ConfigProvider.fromUnknown({
-          T3CODE_TELEMETRY_ENABLED: true,
-          T3CODE_POSTHOG_KEY: "phc_test_key",
-          T3CODE_POSTHOG_HOST: "",
+          DYNAMO_TELEMETRY_ENABLED: true,
+          DYNAMO_POSTHOG_KEY: "phc_dynamo_test_key",
+          DYNAMO_POSTHOG_HOST: "",
           T3CODE_TELEMETRY_FLUSH_BATCH_SIZE: 20,
         }),
       );
@@ -92,6 +94,10 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
       );
       assert.equal(batchRequests.length, 3);
       assert.equal(
+        batchRequests.every((request) => request.body.api_key === "phc_dynamo_test_key"),
+        true,
+      );
+      assert.equal(
         batchRequests.every((request) => request.path === "/batch/" || request.path === "/batch"),
         true,
       );
@@ -114,6 +120,150 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
         ),
         true,
       );
+    }),
+  );
+
+  it.effect("uses the Dynamo PostHog key when no environment key is configured", () =>
+    Effect.gen(function* () {
+      const capturedRequests: Array<RecordedBatchRequest> = [];
+      const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
+        prefix: "t3-telemetry-default-key-",
+      });
+
+      const telemetryLayer = AnalyticsServiceLayerLive.pipe(Layer.provideMerge(serverConfigLayer));
+      const configLayer = ConfigProvider.layer(
+        ConfigProvider.fromUnknown({
+          DYNAMO_TELEMETRY_ENABLED: true,
+          DYNAMO_POSTHOG_HOST: "",
+          T3CODE_TELEMETRY_FLUSH_BATCH_SIZE: 20,
+        }),
+      );
+      const batchServerLayer = HttpServer.serve(
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          if (request.method !== "POST") {
+            return HttpServerResponse.empty({ status: 404 });
+          }
+
+          const payload = yield* request.json.pipe(
+            Effect.map((body) => body as RecordedBatchRequest["body"]),
+            Effect.catch(() => Effect.succeed(null)),
+          );
+
+          capturedRequests.push({ path: request.url, body: payload });
+
+          return HttpServerResponse.jsonUnsafe({});
+        }),
+      );
+      const runtimeLayer = telemetryLayer.pipe(
+        Layer.provide(configLayer),
+        Layer.provideMerge(NodeHttpServer.layerTest),
+      );
+
+      yield* Effect.gen(function* () {
+        yield* Layer.launch(batchServerLayer).pipe(Effect.forkScoped);
+        const analytics = yield* AnalyticsService;
+
+        yield* analytics.record("test.default-key");
+        yield* analytics.flush;
+      }).pipe(Effect.provide(runtimeLayer));
+
+      assert.equal(capturedRequests.length, 1);
+      assert.equal(
+        capturedRequests[0]?.body?.api_key,
+        "phc_zjcrAS9WAN5dhkiPKF8WeJJvdNbHrkwTtyNp9b9rdPbr",
+      );
+    }),
+  );
+
+  it.effect("does not send telemetry when disabled by environment", () =>
+    Effect.gen(function* () {
+      const capturedRequests: Array<RecordedBatchRequest> = [];
+      const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
+        prefix: "t3-telemetry-disabled-",
+      });
+
+      const telemetryLayer = AnalyticsServiceLayerLive.pipe(Layer.provideMerge(serverConfigLayer));
+      const configLayer = ConfigProvider.layer(
+        ConfigProvider.fromUnknown({
+          DYNAMO_TELEMETRY_ENABLED: false,
+          DYNAMO_POSTHOG_HOST: "",
+          T3CODE_TELEMETRY_FLUSH_BATCH_SIZE: 20,
+        }),
+      );
+      const batchServerLayer = HttpServer.serve(
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const payload = yield* request.json.pipe(
+            Effect.map((body) => body as RecordedBatchRequest["body"]),
+            Effect.catch(() => Effect.succeed(null)),
+          );
+
+          capturedRequests.push({ path: request.url, body: payload });
+
+          return HttpServerResponse.jsonUnsafe({});
+        }),
+      );
+      const runtimeLayer = telemetryLayer.pipe(
+        Layer.provide(configLayer),
+        Layer.provideMerge(NodeHttpServer.layerTest),
+      );
+
+      yield* Effect.gen(function* () {
+        yield* Layer.launch(batchServerLayer).pipe(Effect.forkScoped);
+        const analytics = yield* AnalyticsService;
+
+        yield* analytics.record("test.disabled");
+        yield* analytics.flush;
+      }).pipe(Effect.provide(runtimeLayer));
+
+      assert.equal(capturedRequests.length, 0);
+    }),
+  );
+
+  it.effect("keeps legacy T3 Code PostHog env vars as fallback", () =>
+    Effect.gen(function* () {
+      const capturedRequests: Array<RecordedBatchRequest> = [];
+      const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
+        prefix: "t3-telemetry-legacy-key-",
+      });
+
+      const telemetryLayer = AnalyticsServiceLayerLive.pipe(Layer.provideMerge(serverConfigLayer));
+      const configLayer = ConfigProvider.layer(
+        ConfigProvider.fromUnknown({
+          T3CODE_TELEMETRY_ENABLED: true,
+          T3CODE_POSTHOG_KEY: "phc_legacy_test_key",
+          T3CODE_POSTHOG_HOST: "",
+        }),
+      );
+      const batchServerLayer = HttpServer.serve(
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const payload = yield* request.json.pipe(
+            Effect.map((body) => body as RecordedBatchRequest["body"]),
+            Effect.catch(() => Effect.succeed(null)),
+          );
+
+          capturedRequests.push({ path: request.url, body: payload });
+
+          return HttpServerResponse.jsonUnsafe({});
+        }),
+      );
+      const runtimeLayer = telemetryLayer.pipe(
+        Layer.provide(configLayer),
+        Layer.provideMerge(NodeHttpServer.layerTest),
+      );
+
+      yield* Effect.gen(function* () {
+        yield* Layer.launch(batchServerLayer).pipe(Effect.forkScoped);
+        const analytics = yield* AnalyticsService;
+
+        yield* analytics.record("test.legacy-key");
+        yield* analytics.flush;
+      }).pipe(Effect.provide(runtimeLayer));
+
+      assert.equal(capturedRequests.length, 1);
+      assert.equal(capturedRequests[0]?.body?.api_key, "phc_legacy_test_key");
     }),
   );
 });

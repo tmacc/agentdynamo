@@ -58,6 +58,55 @@
   }
 }
 
+@layer components {
+  .saved-prompt-marquee {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .saved-prompt-marquee__track {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .saved-prompt-marquee__text {
+    display: inline;
+  }
+
+  .saved-prompt-marquee--overflow .saved-prompt-marquee__track {
+    display: inline-flex;
+    gap: 2rem;
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+    width: max-content;
+  }
+
+  .saved-prompt-marquee--overflow:is(:hover, :focus-within) .saved-prompt-marquee__track {
+    animation: saved-prompt-marquee 10s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .saved-prompt-marquee--overflow:is(:hover, :focus-within) .saved-prompt-marquee__track {
+      animation: none;
+    }
+  }
+
+  @keyframes saved-prompt-marquee {
+    from {
+      transform: translateX(0);
+    }
+
+    to {
+      transform: translateX(calc(-50% - 1rem));
+    }
+  }
+}
+
 /* Safe-area inset utilities for surfaces that opt into edge-to-edge rendering.
    Insets resolve to 0 when the browser already constrains the layout viewport
    to the safe area. */

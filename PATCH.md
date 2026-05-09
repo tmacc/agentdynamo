@@ -229,6 +229,25 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Verification`:
   - Run desktop dev with telemetry unable to reach PostHog and confirm no repeated `ERROR ... Failed to flush telemetry` output appears.
 
+### Dynamo-owned PostHog telemetry configuration
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: Dynamo telemetry ships with Dynamo's own PostHog project token by default, matching upstream T3 Code's product telemetry model without sending events to upstream's PostHog project. Operators can override the project with `DYNAMO_POSTHOG_KEY`, `DYNAMO_POSTHOG_HOST`, and `DYNAMO_TELEMETRY_ENABLED`; legacy `T3CODE_POSTHOG_KEY`, `T3CODE_POSTHOG_HOST`, and `T3CODE_TELEMETRY_ENABLED` remain fallback aliases for compatibility.
+- `Why it exists`: This fork should preserve upstream-style anonymous product telemetry while routing events to the Dynamo PostHog project instead of upstream T3 Code's account.
+- `Key fork files`:
+  - `apps/server/src/telemetry/Layers/AnalyticsService.ts`
+  - `apps/server/src/telemetry/Layers/AnalyticsService.test.ts`
+- `Important invariants`:
+  - No hardcoded upstream PostHog project token may be used as a runtime default.
+  - The hardcoded default token must be Dynamo's public PostHog project token.
+  - Telemetry remains enabled by default for packaged/runtime usage unless disabled by environment.
+  - Dynamo-prefixed environment variables take precedence over legacy T3 Code aliases.
+- `Merge hotspots`:
+  - Analytics/telemetry layer
+  - Server and desktop release environment configuration
+- `Verification`:
+  - Run `cd apps/server && bun run test src/telemetry/Layers/AnalyticsService.test.ts`.
+
 ### macOS notarization retry resilience
 
 - `Status`: Present on current fork.
@@ -607,6 +626,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Composer insertion and "save prompt" actions must operate on the same store shape.
   - `MessagesTimeline.tsx` must render `<SavedPromptDialog mode="create" …>` driven by `pendingSavedPromptText` at the bottom of its JSX (typically wrapped in a fragment around the `TimelineRowCtx.Provider`). Without it, the per-message `BookmarkPlusIcon` "Save prompt" button silently sets state with no visible UI. Upstream merges that reformat or simplify this return statement must preserve the dialog.
   - `ChatComposer.tsx` renders the saved-prompt menu trigger in the composer's top-right corner (absolute-positioned with `compact popoverSide="bottom" popoverAlign="end"` inside the editor wrapper, not in the bottom controls). The wrapper uses asymmetric right padding (`pr-11 sm:pr-12`) to reserve room for the floating bookmark button. Upstream merges that move the trigger back into the bottom toolbar row must be re-fixed.
+  - `ComposerSavedPromptMenu.tsx` must keep each snippet row constrained to the popover width: prompt title/body text truncate inside the text column, the actions menu button remains visible without horizontal scrolling, overflowing title/body text can marquee on hover, and the hover tooltip must show the full prompt text wrapped rather than clipped.
 - `Merge hotspots`:
   - Composer UI and message actions
   - Client-side persistence/store structure
@@ -616,6 +636,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Quit and relaunch the desktop app; confirm saved prompts are still present even if the backend port changes.
   - Reuse it from the composer.
   - Change scope between project/global.
+  - Add a long saved prompt title/body and confirm the row actions menu remains visible without horizontal scrolling, while hovering the truncated text reveals the full text via marquee and a wrapped tooltip.
   - Reload and confirm snippets persist and remain scoped correctly.
 
 ### Provider switching / handoff
@@ -808,6 +829,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - CI install steps that run in pull requests should avoid lifecycle scripts unless the workflow explicitly needs them.
   - Desktop preload verification must match the actual desktop build output (`apps/desktop/dist-electron/preload.cjs`).
   - Release manifest merge steps must call the script that exists in the current tree: `scripts/merge-update-manifests.ts --platform mac`.
+  - The release workflow keeps upstream's scheduled nightly cadence (`0 */3 * * *`) and skips scheduled nightlies when `main` has not changed since the last `v*-nightly.*` or legacy `nightly-v*` tag.
   - Optional release steps such as CLI publishing and release finalization must remain gated by repository variables/secrets.
   - `AGENTS.md` must keep directing agents to update `PATCH.md` for upstream-touching fork behavior.
 - `Merge hotspots`:
