@@ -7,7 +7,7 @@
  * @module AnalyticsServiceLive
  */
 
-import { Config, DateTime, Effect, Layer, Ref } from "effect";
+import { Config, DateTime, Effect, Layer, Option, Ref } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 import { ServerConfig } from "../../config.ts";
@@ -22,21 +22,48 @@ interface BufferedAnalyticsEvent {
 }
 
 const TelemetryEnvConfig = Config.all({
-  posthogKey: Config.string("T3CODE_POSTHOG_KEY").pipe(
-    Config.withDefault("phc_XOWci4oZP4VvLiEyrFqkFjP4CZn55mjYYBMREK5Wd6m"),
-  ),
-  posthogHost: Config.string("T3CODE_POSTHOG_HOST").pipe(
-    Config.withDefault("https://us.i.posthog.com"),
-  ),
-  enabled: Config.boolean("T3CODE_TELEMETRY_ENABLED").pipe(Config.withDefault(true)),
+  dynamoPosthogKey: Config.string("DYNAMO_POSTHOG_KEY").pipe(Config.option),
+  legacyPosthogKey: Config.string("T3CODE_POSTHOG_KEY").pipe(Config.option),
+  dynamoPosthogHost: Config.string("DYNAMO_POSTHOG_HOST").pipe(Config.option),
+  legacyPosthogHost: Config.string("T3CODE_POSTHOG_HOST").pipe(Config.option),
+  dynamoEnabled: Config.boolean("DYNAMO_TELEMETRY_ENABLED").pipe(Config.option),
+  legacyEnabled: Config.boolean("T3CODE_TELEMETRY_ENABLED").pipe(Config.option),
   flushBatchSize: Config.number("T3CODE_TELEMETRY_FLUSH_BATCH_SIZE").pipe(Config.withDefault(20)),
   maxBufferedEvents: Config.number("T3CODE_TELEMETRY_MAX_BUFFERED_EVENTS").pipe(
     Config.withDefault(1_000),
   ),
 });
 
+const DEFAULT_POSTHOG_KEY = "phc_zjcrAS9WAN5dhkiPKF8WeJJvdNbHrkwTtyNp9b9rdPbr";
+const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
+
+const optionStringToNonEmpty = (value: Option.Option<string>) => {
+  const trimmed = Option.getOrUndefined(value)?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+};
+
+const optionStringToUndefined = (value: Option.Option<string>) =>
+  Option.getOrUndefined(value)?.trim();
+
+const optionBooleanToUndefined = (value: Option.Option<boolean>) => Option.getOrUndefined(value);
+
+const normalizePosthogHost = (value: string) => value.replace(/\/+$/, "");
+
 const makeAnalyticsService = Effect.gen(function* () {
-  const telemetryConfig = yield* TelemetryEnvConfig.asEffect();
+  const rawTelemetryConfig = yield* TelemetryEnvConfig.asEffect();
+  const posthogKey =
+    optionStringToNonEmpty(rawTelemetryConfig.dynamoPosthogKey) ??
+    optionStringToNonEmpty(rawTelemetryConfig.legacyPosthogKey) ??
+    DEFAULT_POSTHOG_KEY;
+  const posthogHost = normalizePosthogHost(
+    optionStringToUndefined(rawTelemetryConfig.dynamoPosthogHost) ??
+      optionStringToUndefined(rawTelemetryConfig.legacyPosthogHost) ??
+      DEFAULT_POSTHOG_HOST,
+  );
+  const telemetryEnabled =
+    optionBooleanToUndefined(rawTelemetryConfig.dynamoEnabled) ??
+    optionBooleanToUndefined(rawTelemetryConfig.legacyEnabled) ??
+    true;
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig;
   const identifier = yield* getTelemetryIdentifier;
@@ -56,8 +83,8 @@ const makeAnalyticsService = Effect.gen(function* () {
         ];
 
         const next =
-          appended.length > telemetryConfig.maxBufferedEvents
-            ? appended.slice(appended.length - telemetryConfig.maxBufferedEvents)
+          appended.length > rawTelemetryConfig.maxBufferedEvents
+            ? appended.slice(appended.length - rawTelemetryConfig.maxBufferedEvents)
             : appended;
 
         return [
@@ -73,10 +100,10 @@ const makeAnalyticsService = Effect.gen(function* () {
   const sendBatch = Effect.fn("sendBatch")(function* (
     events: ReadonlyArray<BufferedAnalyticsEvent>,
   ) {
-    if (!telemetryConfig.enabled || !identifier) return;
+    if (!telemetryEnabled || !identifier) return;
 
     const payload = {
-      api_key: telemetryConfig.posthogKey,
+      api_key: posthogKey,
       batch: events.map((event) => ({
         event: event.event,
         distinct_id: identifier,
@@ -93,7 +120,7 @@ const makeAnalyticsService = Effect.gen(function* () {
       })),
     };
 
-    yield* HttpClientRequest.post(`${telemetryConfig.posthogHost}/batch/`).pipe(
+    yield* HttpClientRequest.post(`${posthogHost}/batch/`).pipe(
       HttpClientRequest.bodyJson(payload),
       Effect.flatMap(httpClient.execute),
       Effect.flatMap(HttpClientResponse.filterStatusOk),
@@ -106,7 +133,7 @@ const makeAnalyticsService = Effect.gen(function* () {
         if (current.length === 0) {
           return [[] as ReadonlyArray<BufferedAnalyticsEvent>, current] as const;
         }
-        const nextBatch = current.slice(0, telemetryConfig.flushBatchSize);
+        const nextBatch = current.slice(0, rawTelemetryConfig.flushBatchSize);
         const remaining = current.slice(nextBatch.length);
         return [nextBatch, remaining] as const;
       });
@@ -131,7 +158,7 @@ const makeAnalyticsService = Effect.gen(function* () {
 
   const record: AnalyticsServiceShape["record"] = Effect.fn("record")(
     function* (event, properties) {
-      if (!telemetryConfig.enabled || !identifier) return;
+      if (!telemetryEnabled || !identifier) return;
 
       const enqueueResult = yield* enqueueBufferedEvent(event, properties);
       if (enqueueResult.dropped) {
