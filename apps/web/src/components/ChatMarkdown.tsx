@@ -367,8 +367,42 @@ function sanitizePreformattedText(text: string): string {
   return text.replaceAll(ANSI_ESCAPE_REGEX, "");
 }
 
+function removeFencedCodeBlocks(text: string): string {
+  const lines = text.split("\n");
+  const outsideFenceLines: string[] = [];
+  let fenceMarker: "`" | "~" | null = null;
+  let fenceLength = 0;
+
+  for (const line of lines) {
+    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+    const marker = fenceMatch?.[1];
+    if (marker) {
+      const markerChar = marker[0] === "`" ? "`" : "~";
+      if (fenceMarker === null) {
+        fenceMarker = markerChar;
+        fenceLength = marker.length;
+        continue;
+      }
+      if (markerChar === fenceMarker && marker.length >= fenceLength) {
+        fenceMarker = null;
+        fenceLength = 0;
+      }
+      continue;
+    }
+
+    if (fenceMarker === null) {
+      outsideFenceLines.push(line);
+    }
+  }
+
+  return outsideFenceLines.join("\n");
+}
+
 export function shouldRenderAsPreformattedText(text: string): boolean {
-  return BOX_DRAWING_OR_BLOCK_CHAR_REGEX.test(text) || ANSI_ESCAPE_TEST_REGEX.test(text);
+  return (
+    ANSI_ESCAPE_TEST_REGEX.test(text) ||
+    BOX_DRAWING_OR_BLOCK_CHAR_REGEX.test(removeFencedCodeBlocks(text))
+  );
 }
 
 const MarkdownFileLink = memo(function MarkdownFileLink({
