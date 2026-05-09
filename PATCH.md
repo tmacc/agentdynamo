@@ -229,6 +229,25 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 - `Verification`:
   - Run desktop dev with telemetry unable to reach PostHog and confirm no repeated `ERROR ... Failed to flush telemetry` output appears.
 
+### Dynamo-owned PostHog telemetry configuration
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: Dynamo telemetry ships with Dynamo's own PostHog project token by default, matching upstream T3 Code's product telemetry model without sending events to upstream's PostHog project. Operators can override the project with `DYNAMO_POSTHOG_KEY`, `DYNAMO_POSTHOG_HOST`, and `DYNAMO_TELEMETRY_ENABLED`; legacy `T3CODE_POSTHOG_KEY`, `T3CODE_POSTHOG_HOST`, and `T3CODE_TELEMETRY_ENABLED` remain fallback aliases for compatibility.
+- `Why it exists`: This fork should preserve upstream-style anonymous product telemetry while routing events to the Dynamo PostHog project instead of upstream T3 Code's account.
+- `Key fork files`:
+  - `apps/server/src/telemetry/Layers/AnalyticsService.ts`
+  - `apps/server/src/telemetry/Layers/AnalyticsService.test.ts`
+- `Important invariants`:
+  - No hardcoded upstream PostHog project token may be used as a runtime default.
+  - The hardcoded default token must be Dynamo's public PostHog project token.
+  - Telemetry remains enabled by default for packaged/runtime usage unless disabled by environment.
+  - Dynamo-prefixed environment variables take precedence over legacy T3 Code aliases.
+- `Merge hotspots`:
+  - Analytics/telemetry layer
+  - Server and desktop release environment configuration
+- `Verification`:
+  - Run `cd apps/server && bun run test src/telemetry/Layers/AnalyticsService.test.ts`.
+
 ### macOS notarization retry resilience
 
 - `Status`: Present on current fork.
