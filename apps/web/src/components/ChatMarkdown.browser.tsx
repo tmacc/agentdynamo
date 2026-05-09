@@ -169,6 +169,27 @@ describe("ChatMarkdown", () => {
     }
   });
 
+  it("keeps markdown prose when a fenced diagram uses box-drawing characters", async () => {
+    const screen = await render(
+      <ChatMarkdown
+        text={`## Tabbed structure\n\nThe pane is organized like this:\n\n\`\`\`\nDesign Mode pane\n├── Header\n└── Inspector\n\`\`\``}
+        cwd="/repo/project"
+      />,
+    );
+
+    try {
+      const headingPre = page
+        .getByRole("heading", { name: "Tabbed structure" })
+        .element()
+        .closest("pre");
+      const diagramPre = page.getByText("Design Mode pane").element().closest("pre");
+      expect(headingPre).toBeNull();
+      expect(diagramPre).not.toBeNull();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("renders explicit preformatted assistant output as preformatted text", async () => {
     const screen = await render(
       <ChatMarkdown
