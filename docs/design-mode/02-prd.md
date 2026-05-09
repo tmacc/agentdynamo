@@ -34,25 +34,25 @@ T3 Code already runs the agent loop. Adding Design Mode turns it from a coding a
 
 ## Framework support
 
-| Framework | v1 | v2 | Notes |
-|---|---|---|---|
-| Vite + React | ✓ | | Primary target |
-| TanStack Start | ✓ | | Vite-based, mostly inherits |
-| Next.js (App Router) | | ✓ | Server Components are hard |
-| Next.js (Pages Router) | | ✓ | Easier than App Router |
-| Remix / React Router | | future | |
-| CRA | | future | Declining audience |
+| Framework              | v1  | v2     | Notes                       |
+| ---------------------- | --- | ------ | --------------------------- |
+| Vite + React           | ✓   |        | Primary target              |
+| TanStack Start         | ✓   |        | Vite-based, mostly inherits |
+| Next.js (App Router)   |     | ✓      | Server Components are hard  |
+| Next.js (Pages Router) |     | ✓      | Easier than App Router      |
+| Remix / React Router   |     | future |                             |
+| CRA                    |     | future | Declining audience          |
 
 ## CSS support
 
-| Approach | v1 | Notes |
-|---|---|---|
-| Tailwind v3 | ✓ | Primary |
-| Tailwind v4 | ✓ | CSS-first config, parse `@theme` blocks |
-| CSS variables | ✓ | Always extracted |
-| CSS Modules | ✓ | Renders fine, less design-system intelligence |
-| styled-components / Emotion | partial | Renders fine, no token extraction in v1 |
-| shadcn/ui | ✓ | Detected as a special case for better primitive identification |
+| Approach                    | v1      | Notes                                                          |
+| --------------------------- | ------- | -------------------------------------------------------------- |
+| Tailwind v3                 | ✓       | Primary                                                        |
+| Tailwind v4                 | ✓       | CSS-first config, parse `@theme` blocks                        |
+| CSS variables               | ✓       | Always extracted                                               |
+| CSS Modules                 | ✓       | Renders fine, less design-system intelligence                  |
+| styled-components / Emotion | partial | Renders fine, no token extraction in v1                        |
+| shadcn/ui                   | ✓       | Detected as a special case for better primitive identification |
 
 ## User flow
 

@@ -24,23 +24,23 @@ packages/
 
 ```ts
 // Project detection
-export type FrameworkKind = 'vite-react' | 'tanstack-start' | 'next-app' | 'next-pages';
+export type FrameworkKind = "vite-react" | "tanstack-start" | "next-app" | "next-pages";
 
 export interface ProjectInfo {
   rootDir: string;
   framework: FrameworkKind;
-  packageManager: 'pnpm' | 'npm' | 'yarn' | 'bun';
+  packageManager: "pnpm" | "npm" | "yarn" | "bun";
   tsConfigPath: string;
   tailwindConfig: TailwindConfigInfo | null;
   cssEntryPoints: string[];
-  componentRoots: string[];     // e.g. ['src/components', 'src/ui']
-  routeRoot: string | null;      // file-based router root, or null
+  componentRoots: string[]; // e.g. ['src/components', 'src/ui']
+  routeRoot: string | null; // file-based router root, or null
 }
 
 export interface TailwindConfigInfo {
   version: 3 | 4;
-  configPath: string | null;     // null for v4 CSS-first
-  cssThemePath: string | null;   // for v4 @theme blocks
+  configPath: string | null; // null for v4 CSS-first
+  cssThemePath: string | null; // for v4 @theme blocks
 }
 
 // Design manifest — the agent's mental model of the project's design system
@@ -56,7 +56,7 @@ export interface DesignManifest {
 }
 
 export interface DesignTokens {
-  colors: Record<string, string>;       // resolved hex/rgb values
+  colors: Record<string, string>; // resolved hex/rgb values
   spacing: Record<string, string>;
   fontSizes: Record<string, string>;
   fontFamilies: Record<string, string[]>;
@@ -64,66 +64,66 @@ export interface DesignTokens {
   shadows: Record<string, string>;
   breakpoints: Record<string, string>;
   cssVariables: Record<string, string>; // from :root
-  custom: Record<string, unknown>;       // anything else from theme.extend
+  custom: Record<string, unknown>; // anything else from theme.extend
 }
 
 export interface PrimitiveComponent {
-  id: string;                       // stable hash of file path + export name
+  id: string; // stable hash of file path + export name
   name: string;
   filePath: string;
-  exportName: string;                // 'default' or named
-  primitivenessScore: number;        // 0..1
+  exportName: string; // 'default' or named
+  primitivenessScore: number; // 0..1
   propTypes: PropSignature[];
   variantPattern: VariantPattern | null;
-  importCount: number;               // how many places use this
-  userConfirmed: boolean;            // overridden via .t3design/overrides.json
+  importCount: number; // how many places use this
+  userConfirmed: boolean; // overridden via .t3design/overrides.json
 }
 
 export interface PropSignature {
   name: string;
-  type: string;                      // TS type as string
+  type: string; // TS type as string
   required: boolean;
   defaultValue: unknown | null;
   jsdoc: string | null;
 }
 
 export type VariantPattern =
-  | { kind: 'cva'; importPath: string }
-  | { kind: 'tv';  importPath: string }   // tailwind-variants
-  | { kind: 'cn-conditional'; helperPath: string }
-  | { kind: 'discriminated-union' }
-  | { kind: 'unknown' };
+  | { kind: "cva"; importPath: string }
+  | { kind: "tv"; importPath: string } // tailwind-variants
+  | { kind: "cn-conditional"; helperPath: string }
+  | { kind: "discriminated-union" }
+  | { kind: "unknown" };
 
 export interface CompositeComponent {
   id: string;
   name: string;
   filePath: string;
-  primitivesUsed: string[];          // primitive ids
+  primitivesUsed: string[]; // primitive ids
   importCount: number;
 }
 
 export interface RouteEntry {
-  urlPath: string;                   // '/settings/profile'
-  filePath: string;                  // 'src/routes/settings/profile.tsx'
+  urlPath: string; // '/settings/profile'
+  filePath: string; // 'src/routes/settings/profile.tsx'
   componentName: string;
-  layoutChain: string[];             // file paths of ancestor layouts
+  layoutChain: string[]; // file paths of ancestor layouts
 }
 
 export interface ClassDialect {
   totalClassStrings: number;
   topClasses: { class: string; count: number }[]; // top 200
-  arbitraryValueRatio: number;       // 0..1, % of strings using []
-  spacingScale: string[];            // sorted unique spacing utilities
-  colorClasses: string[];            // sorted unique color utilities
-  responsivePrefixes: string[];      // 'sm:', 'md:', etc. actually used
+  arbitraryValueRatio: number; // 0..1, % of strings using []
+  spacingScale: string[]; // sorted unique spacing utilities
+  colorClasses: string[]; // sorted unique color utilities
+  responsivePrefixes: string[]; // 'sm:', 'md:', etc. actually used
   perComponent: Record<string, string[]>; // componentId → its classes
 }
 
 export interface CompositionPattern {
   id: string;
-  name: string;                      // 'Card with header and footer', 'Sidebar layout'
+  name: string; // 'Card with header and footer', 'Sidebar layout'
   exampleFiles: string[];
-  structure: string;                 // simplified JSX skeleton
+  structure: string; // simplified JSX skeleton
   primitivesUsed: string[];
   frequency: number;
 }
@@ -155,12 +155,12 @@ export interface ProjectAdapter {
 
 export interface DevServerOpts {
   rootDir: string;
-  port?: number;                     // 0 = auto
+  port?: number; // 0 = auto
   env?: Record<string, string>;
 }
 
 export interface DevServerHandle {
-  url: string;                        // 'http://localhost:5173'
+  url: string; // 'http://localhost:5173'
   port: number;
   pid: number;
   stop(): Promise<void>;
@@ -169,11 +169,11 @@ export interface DevServerHandle {
 }
 
 export interface VirtualRouteOpts {
-  routeId: string;                   // stable id from caller
-  componentImportPath: string;        // resolvable import
+  routeId: string; // stable id from caller
+  componentImportPath: string; // resolvable import
   componentExportName: string;
   initialProps: Record<string, unknown>;
-  wrapperPath?: string;               // optional provider wrapper
+  wrapperPath?: string; // optional provider wrapper
 }
 
 export interface ComponentFileEntry {
@@ -182,7 +182,7 @@ export interface ComponentFileEntry {
 }
 
 export interface HmrUpdate {
-  type: 'update' | 'full-reload' | 'error';
+  type: "update" | "full-reload" | "error";
   file?: string;
   error?: { message: string; stack?: string };
 }
@@ -208,22 +208,29 @@ export interface HmrUpdate {
 ```ts
 // Host → iframe
 type HostCommand =
-  | { v: 1; type: 'enter-select-mode' }
-  | { v: 1; type: 'exit-select-mode' }
-  | { v: 1; type: 'highlight'; fiberId: string }
-  | { v: 1; type: 'navigate'; path: string }
-  | { v: 1; type: 'set-viewport'; width: number; height: number }
-  | { v: 1; type: 'inject-styles'; css: string }     // for live tweaks before AST commit
-  | { v: 1; type: 'reload' };
+  | { v: 1; type: "enter-select-mode" }
+  | { v: 1; type: "exit-select-mode" }
+  | { v: 1; type: "highlight"; fiberId: string }
+  | { v: 1; type: "navigate"; path: string }
+  | { v: 1; type: "set-viewport"; width: number; height: number }
+  | { v: 1; type: "inject-styles"; css: string } // for live tweaks before AST commit
+  | { v: 1; type: "reload" };
 
 // iframe → Host
 type IframeEvent =
-  | { v: 1; type: 'ready' }
-  | { v: 1; type: 'element-selected'; fiberId: string; sourceFile: string; line: number; column: number }
-  | { v: 1; type: 'element-hovered'; fiberId: string; rect: DOMRect }
-  | { v: 1; type: 'navigation'; path: string }
-  | { v: 1; type: 'console-error'; message: string; stack?: string }
-  | { v: 1; type: 'hmr'; file: string };
+  | { v: 1; type: "ready" }
+  | {
+      v: 1;
+      type: "element-selected";
+      fiberId: string;
+      sourceFile: string;
+      line: number;
+      column: number;
+    }
+  | { v: 1; type: "element-hovered"; fiberId: string; rect: DOMRect }
+  | { v: 1; type: "navigation"; path: string }
+  | { v: 1; type: "console-error"; message: string; stack?: string }
+  | { v: 1; type: "hmr"; file: string };
 ```
 
 The iframe-side script is ~200 lines. It is injected by each adapter at dev-server startup, never modifies user source.
@@ -242,17 +249,17 @@ export type ASTOperation =
   | ImportComponentOp;
 
 export interface AddVariantOp {
-  kind: 'add-variant';
+  kind: "add-variant";
   componentPath: string;
-  variantName: string;             // 'destructive'
-  variantValue: string;            // 'bg-red-500 text-white'
+  variantName: string; // 'destructive'
+  variantValue: string; // 'bg-red-500 text-white'
   // The editor detects the project's variant pattern and extends it correctly
 }
 
 export interface ModifyClassStringOp {
-  kind: 'modify-classes';
+  kind: "modify-classes";
   filePath: string;
-  jsxNodeLocator: JsxNodeLocator;  // see below
+  jsxNodeLocator: JsxNodeLocator; // see below
   newClassString: string;
 }
 
@@ -261,22 +268,22 @@ export interface ModifyClassStringOp {
 export type JsxNodeLocator = string[];
 
 export interface CreateMockupRouteOp {
-  kind: 'create-mockup-route';
-  routePath: string;                  // '/mockups/settings-v2'
-  filePath: string;                   // resolved by adapter
-  jsxBody: string;                    // the JSX
+  kind: "create-mockup-route";
+  routePath: string; // '/mockups/settings-v2'
+  filePath: string; // resolved by adapter
+  jsxBody: string; // the JSX
   imports: ImportSpec[];
 }
 
 export interface ImportSpec {
-  source: string;                     // '@/components/ui/button'
+  source: string; // '@/components/ui/button'
   named: string[];
   default?: string;
 }
 
 // Validation
 export interface ValidationError {
-  kind: 'unknown-import' | 'unknown-class' | 'invalid-prop' | 'syntax';
+  kind: "unknown-import" | "unknown-class" | "invalid-prop" | "syntax";
   message: string;
   hint?: string;
 }
@@ -284,12 +291,12 @@ export interface ValidationError {
 export interface ASTEditor {
   validate(op: ASTOperation, manifest: DesignManifest): ValidationError[];
   apply(op: ASTOperation): Promise<AppliedEdit>;
-  preview(op: ASTOperation): Promise<{before: string; after: string}>; // unified diff
+  preview(op: ASTOperation): Promise<{ before: string; after: string }>; // unified diff
 }
 
 export interface AppliedEdit {
   filesChanged: string[];
-  rollback: () => Promise<void>;     // for failed iterations
+  rollback: () => Promise<void>; // for failed iterations
 }
 ```
 
@@ -299,38 +306,38 @@ What the agent receives. This is the most important shape in the system.
 
 ```ts
 export interface DesignContextPayload {
-  turnKind: 'tweak' | 'variant' | 'mockup' | 'inspect';
-  tokens: CompactTokens;             // serialized for prompt, not full manifest
+  turnKind: "tweak" | "variant" | "mockup" | "inspect";
+  tokens: CompactTokens; // serialized for prompt, not full manifest
   availableImports: ImportCatalog;
   classDialect: CompactDialect;
-  exemplars: Exemplar[];             // 0-3 reference compositions
-  selection?: SelectionContext;      // when tweaking
-  constraints: AgentConstraint[];    // hard rules
+  exemplars: Exemplar[]; // 0-3 reference compositions
+  selection?: SelectionContext; // when tweaking
+  constraints: AgentConstraint[]; // hard rules
   userIntent: string;
 }
 
 export interface ImportCatalog {
   primitives: { name: string; importFrom: string; props: PropSignature[] }[];
   composites: { name: string; importFrom: string }[];
-  utilities: { name: string; importFrom: string }[];  // cn, cva, etc.
+  utilities: { name: string; importFrom: string }[]; // cn, cva, etc.
 }
 
 export interface CompactDialect {
-  topClasses: string[];               // top 50 most-used
+  topClasses: string[]; // top 50 most-used
   spacingScale: string[];
-  forbiddenPatterns: string[];        // 'arbitrary-values' if ratio < 5%
+  forbiddenPatterns: string[]; // 'arbitrary-values' if ratio < 5%
   preferredAliases: Record<string, string>;
 }
 
 export interface AgentConstraint {
-  rule: 'only-import-from' | 'only-use-classes' | 'match-pattern' | 'preserve-prop';
+  rule: "only-import-from" | "only-use-classes" | "match-pattern" | "preserve-prop";
   detail: unknown;
 }
 
 export interface Exemplar {
   filePath: string;
-  jsx: string;                        // truncated source
-  whyChosen: string;                  // 'most similar route by primitive overlap'
+  jsx: string; // truncated source
+  whyChosen: string; // 'most similar route by primitive overlap'
 }
 ```
 
@@ -391,6 +398,7 @@ Failures return structured errors that the agent can act on (it gets a chance to
 ## Telemetry
 
 Local-only by default. Optional opt-in to send anonymized:
+
 - Framework + Tailwind version
 - Manifest size buckets
 - Operation success/failure rates

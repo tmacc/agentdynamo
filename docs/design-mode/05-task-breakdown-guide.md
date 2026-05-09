@@ -26,20 +26,25 @@ Every issue should follow this shape:
 **Estimate**: S (1-2h) | M (2-4h) | L (4-8h, prefer to split)
 
 ### Context
+
 1-3 sentences. Reference the doc section that motivates this.
 
 ### Goal
+
 The single outcome.
 
 ### Acceptance criteria
+
 - [ ] Concrete, testable
 - [ ] Concrete, testable
 - [ ] Concrete, testable
 
 ### Implementation notes
+
 Pointers, gotchas, references to specific tech-spec sections. NOT a full design.
 
 ### Out of scope
+
 What this task explicitly does not do (often the next issue).
 ```
 
@@ -54,6 +59,7 @@ What this task explicitly does not do (often the next issue).
 ## Suggested epics (rough groupings — Claude Code can refine)
 
 ### Epic 1: Foundation (Phase 1)
+
 - Monorepo setup for new packages
 - `design-mode-contracts` package with all type stubs from Tech Spec
 - Bridge protocol scaffold (host side + iframe injection script)
@@ -62,6 +68,7 @@ What this task explicitly does not do (often the next issue).
 - ProjectAdapter interface + base test suite
 
 ### Epic 2: Vite Adapter (Phase 1)
+
 - Detect Vite projects
 - Start/stop Vite dev server as child process
 - Parse Vite stdout for URL/port
@@ -69,34 +76,40 @@ What this task explicitly does not do (often the next issue).
 - HMR subscription
 
 ### Epic 3: TanStack Start Adapter (Phase 1, parallel with Vite)
+
 - Detect TanStack Start
 - Inherit ViteBaseAdapter behavior
 - Route enumeration from file-based router
 
 ### Epic 4: Routes browser (Phase 1)
+
 - Sidebar UI listing routes from adapter
 - Click-to-navigate via bridge
 - Loading and error states
 
 ### Epic 5: Click-to-select (Phase 2)
+
 - Embed react-devtools-inline in renderer
 - Iframe-side select-mode overlay
 - Fiber → source file resolution
 - Highlight overlay rendering
 
 ### Epic 6: Component browser (Phase 2)
+
 - Index components via ts-morph + react-docgen-typescript
 - Sidebar tree UI (grouped by directory)
 - Virtual route per component for isolation
 - Wrapper detection (providers from App.tsx)
 
 ### Epic 7: Props panel (Phase 2)
+
 - Leva integration
 - Prop-type → control mapping
 - Props → virtual route props bridge
 - Reset and save controls
 
 ### Epic 8: Design system extractor (Phase 3)
+
 - Tailwind config resolver
 - CSS variable scanner (PostCSS)
 - Primitive scoring heuristic
@@ -106,11 +119,13 @@ What this task explicitly does not do (often the next issue).
 - Overrides file loader
 
 ### Epic 9: Manifest UI (Phase 3)
+
 - Show extracted manifest in a tab
 - Allow user corrections (mark/unmark primitives)
 - Persist to overrides.json
 
 ### Epic 10: AST editor (Phase 4)
+
 - ts-morph wrapper with operation interface
 - Implement each ASTOperation kind
 - JSX node locator system
@@ -118,18 +133,21 @@ What this task explicitly does not do (often the next issue).
 - Validation pipeline
 
 ### Epic 11: Design context packer (Phase 4)
+
 - Per-turn-kind packers (tweak, variant, mockup, inspect)
 - Exemplar selection algorithm
 - Constraint generator
 - Integration into existing T3 Code agent message envelope
 
 ### Epic 12: Mockup mode (Phase 4)
+
 - Mockup-specific UI (separate from inspection)
 - Route generation flow
 - Mockup history in `.t3design/mockups/`
 - Promote-to-real-route action
 
 ### Epic 13: Polish & robustness (Phase 5)
+
 - Screenshot diff on edits
 - Error recovery (dev server crashes, AST validation failures)
 - Performance instrumentation against budgets
