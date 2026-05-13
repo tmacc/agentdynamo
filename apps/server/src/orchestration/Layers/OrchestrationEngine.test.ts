@@ -2,13 +2,13 @@ import {
   CheckpointRef,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  FeatureCardId,
   MessageId,
   ProjectId,
   ThreadId,
   TurnId,
   type OrchestrationEvent,
   ProviderInstanceId,
-  type OrchestrationReadModel,
 } from "@t3tools/contracts";
 import { Effect, Layer, ManagedRuntime, Metric, Option, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
@@ -40,6 +40,7 @@ const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(value);
+const asFeatureCardId = (value: string): FeatureCardId => FeatureCardId.make(value);
 
 async function createOrchestrationSystem() {
   const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
@@ -347,6 +348,60 @@ describe("OrchestrationEngine", () => {
       (await system.readModel()).threads.find((thread) => thread.id === "thread-archive")
         ?.archivedAt,
     ).toBeNull();
+
+    await system.dispose();
+  });
+
+  it("dispatches board card commands through the live card repository", async () => {
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const createdAt = now();
+    const projectId = asProjectId("project-board-card-create");
+    const cardId = asFeatureCardId("card-board-create");
+
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-project-board-card-create"),
+        projectId,
+        title: "Board Card Project",
+        workspaceRoot: "/tmp/project-board-card-create",
+        defaultModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        createdAt,
+      }),
+    );
+
+    await system.run(
+      engine.dispatch({
+        type: "board.card.create",
+        commandId: CommandId.make("cmd-board-card-create"),
+        cardId,
+        projectId,
+        title: "Create board card",
+        description: null,
+        seededPrompt: null,
+        column: "ideas",
+        sortOrder: 1000,
+        linkedThreadId: null,
+        linkedProposedPlanId: null,
+        createdAt,
+      }),
+    );
+
+    const events = await system.run(
+      Stream.runCollect(engine.readEvents(1)).pipe(
+        Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
+      ),
+    );
+    expect(events.map((event) => event.type)).toEqual(["board.card-created"]);
+    expect(events[0]?.payload).toMatchObject({
+      cardId,
+      projectId,
+      title: "Create board card",
+    });
 
     await system.dispose();
   });

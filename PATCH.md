@@ -1185,6 +1185,7 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Coordinator grants keep the 24h TTL but are revoked on replacement, archive, delete, explicit session stop, and stopped session-set events. Do not revoke on recoverable `error` session state.
   - `thread.team-task.spawn` must enforce `teamAgents.enabled` and `maxActiveChildren` inside the serialized decider path; native-provider upserts remain exempt because they mirror provider-created state.
   - Native-provider task final states are sticky. Late active upserts must not clear final status, completion time, error text, or summary.
+  - The orchestration engine must pass the live board card repository into the decider for all `board.card.*` commands so card existence/link invariants execute against projection storage instead of rejecting as unavailable.
   - Board subscriptions must emit a snapshot first, then replay/live board events using projection-specific cursors for board cards and dismissed ghosts.
   - Archived board cards may retain `linkedThreadId`, but only non-archived cards reserve the unique linked-thread slot.
   - Child thread routes should retain parent detail subscriptions when `teamParent` is present; do not add full team task lists to shell snapshots.

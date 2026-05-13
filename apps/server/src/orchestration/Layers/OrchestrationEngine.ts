@@ -191,6 +191,8 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: commandReadModel,
+          boardCardRepository,
+          teamAgents: settings.teamAgents,
         });
         const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
         const committedCommand = yield* sql
