@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      issues: read
+      issues: write
       pull-requests: write
     concurrency:
       group: pr-size-${{ github.event.pull_request.number }}
@@ -192,6 +192,36 @@ jobs:
               return "size:XXL";
             };
 
+            const transientGitHubStatuses = new Set([429, 500, 502, 503, 504]);
+            const sleep = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs));
+
+            const retryGitHubRequest = async (description, operation) => {
+              const maxAttempts = 4;
+
+              for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+                try {
+                  return await operation();
+                } catch (error) {
+                  const status = Number(error.status);
+                  if (!transientGitHubStatuses.has(status) || attempt === maxAttempts) {
+                    throw error;
+                  }
+
+                  const retryAfterSeconds = Number(error.response?.headers?.["retry-after"]);
+                  const delayMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+                    ? retryAfterSeconds * 1000
+                    : 1000 * attempt;
+
+                  core.warning(
+                    `${description} failed with GitHub API status ${status}; retrying in ${delayMs}ms (${attempt}/${maxAttempts}).`,
+                  );
+                  await sleep(delayMs);
+                }
+              }
+
+              throw new Error(`${description} did not complete.`);
+            };
+
             execFileSync("git", ["fetch", "--no-tags", "origin", baseSha], {
               stdio: "inherit",
             });
@@ -243,12 +273,15 @@ jobs:
             const changedLines = nonTestChangedLines === 0 ? testChangedLines : nonTestChangedLines;
             const nextLabelName = resolveSizeLabel(changedLines);
 
-            const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              per_page: 100,
-            });
+            const { data: currentLabels } = await retryGitHubRequest(
+              "List current PR size labels",
+              () => github.rest.issues.listLabelsOnIssue({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                per_page: 100,
+              }),
+            );
 
             for (const label of currentLabels) {
               if (!managedLabelNames.has(label.name) || label.name === nextLabelName) {
@@ -256,12 +289,15 @@ jobs:
               }
 
               try {
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issueNumber,
-                  name: label.name,
-                });
+                await retryGitHubRequest(
+                  `Remove stale PR size label ${label.name}`,
+                  () => github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    name: label.name,
+                  }),
+                );
               } catch (removeError) {
                 if (removeError.status !== 404) {
                   throw removeError;
@@ -270,12 +306,15 @@ jobs:
             }
 
             if (!currentLabels.some((label) => label.name === nextLabelName)) {
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                labels: [nextLabelName],
-              });
+              await retryGitHubRequest(
+                `Add PR size label ${nextLabelName}`,
+                () => github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  labels: [nextLabelName],
+                }),
+              );
             }
 
             const classification =

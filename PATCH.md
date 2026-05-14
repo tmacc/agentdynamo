@@ -193,6 +193,24 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - From `apps/web`, run `bun run test:browser src/components/ChatMarkdown.browser.tsx`.
   - In Codex and Claude-backed threads, ask for a response that mentions a changed file path and confirm the path opens in the preferred editor.
 
+### PR size label workflow resilience
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: The PR Size workflow labels pull requests by effective changed-line count and tolerates transient GitHub API errors while syncing labels.
+- `Why it exists`: GitHub's Issues labels API can return temporary 5xx/429 responses. A transient 502 while adding a `size:*` label should retry instead of failing an otherwise healthy PR check.
+- `Key fork files`:
+  - `.github/workflows/pr-size.yml`
+- `Important invariants`:
+  - The workflow must not execute untrusted PR code; it may fetch refs and inspect git diffs only.
+  - Label API calls should retry only transient GitHub statuses (`429`, `500`, `502`, `503`, `504`) and preserve existing 404 handling for already-removed labels.
+  - The label job requires `issues: write` because labels are mutated through GitHub's Issues API.
+- `Merge hotspots`:
+  - PR size workflow permissions
+  - GitHub API calls in `.github/workflows/pr-size.yml`
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Re-run the PR Size workflow on a pull request and confirm transient label API failures retry before failing.
+
 ### Desktop main-process workspace dependency packaging
 
 - `Status`: Present on current fork.
