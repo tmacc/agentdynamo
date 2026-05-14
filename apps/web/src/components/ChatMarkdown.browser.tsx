@@ -54,6 +54,52 @@ describe("ChatMarkdown", () => {
     }
   });
 
+  it("auto-links bare relative file paths in assistant prose", async () => {
+    const screen = await render(
+      <ChatMarkdown
+        text="Updated apps/web/src/components/ChatMarkdown.tsx:42 and kept https://example.com/docs unchanged."
+        cwd="/repo/project"
+      />,
+    );
+
+    try {
+      const fileLink = page.getByRole("link", { name: "ChatMarkdown.tsx · L42" });
+      await expect.element(fileLink).toBeInTheDocument();
+      await expect
+        .element(fileLink)
+        .toHaveAttribute("href", "apps/web/src/components/ChatMarkdown.tsx:42");
+
+      const webLink = page.getByRole("link", { name: "https://example.com/docs" });
+      await expect.element(webLink).toBeInTheDocument();
+      await expect.element(webLink).toHaveAttribute("href", "https://example.com/docs");
+
+      await fileLink.click();
+
+      await vi.waitFor(() => {
+        expect(openInPreferredEditorMock).toHaveBeenCalledWith(
+          expect.anything(),
+          "/repo/project/apps/web/src/components/ChatMarkdown.tsx:42",
+        );
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("auto-links inline code when it contains exactly one relative file path", async () => {
+    const screen = await render(
+      <ChatMarkdown text="See `apps/web/src/markdown-links.ts:12:3`." cwd="/repo/project" />,
+    );
+
+    try {
+      const link = page.getByRole("link", { name: "markdown-links.ts · L12:C3" });
+      await expect.element(link).toBeInTheDocument();
+      await expect.element(link).toHaveAttribute("href", "apps/web/src/markdown-links.ts:12:3");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("keeps line anchors working after rewriting file uri hrefs", async () => {
     const filePath = "/repo/project/src/utils/permissions/PermissionRule.ts";
     const screen = await render(

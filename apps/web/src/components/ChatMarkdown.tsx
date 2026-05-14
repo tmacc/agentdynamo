@@ -29,6 +29,7 @@ import { useTheme } from "../hooks/useTheme";
 import { resolveMarkdownFileLinkMeta, rewriteMarkdownFileUriHref } from "../markdown-links";
 import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
+import { extractTerminalLinks } from "../terminal-links";
 import type { ChatMessageRenderMode } from "../types";
 
 class CodeHighlightErrorBoundary extends React.Component<
@@ -289,6 +290,24 @@ const MARKDOWN_FILE_LINK_CLASS_NAME =
 const MARKDOWN_FILE_LINK_ICON_CLASS_NAME = "chat-markdown-file-link-icon size-3.5 shrink-0";
 const MARKDOWN_FILE_LINK_LABEL_CLASS_NAME = "chat-markdown-file-link-label truncate";
 
+interface MarkdownAstNode {
+  type: string;
+  children?: MarkdownAstNode[];
+  value?: string;
+  url?: string;
+  title?: string | null;
+}
+
+const AUTO_LINK_SKIP_NODE_TYPES = new Set([
+  "code",
+  "html",
+  "image",
+  "imageReference",
+  "link",
+  "linkReference",
+  "definition",
+]);
+
 function pathParentSegments(path: string): string[] {
   const normalized = path.replaceAll("\\", "/");
   const segments = normalized.split("/").filter((segment) => segment.length > 0);
@@ -359,8 +378,89 @@ function extractMarkdownLinkHrefs(text: string): string[] {
   return hrefs;
 }
 
+function stripMarkdownLinks(text: string): string {
+  return text.replace(MARKDOWN_LINK_HREF_PATTERN, "");
+}
+
+function extractAutoFilePathHrefs(text: string): string[] {
+  return extractTerminalLinks(stripMarkdownLinks(removeFencedCodeBlocks(text)))
+    .filter((match) => match.kind === "path")
+    .map((match) => match.text);
+}
+
 function normalizeMarkdownLinkHrefKey(href: string): string {
   return rewriteMarkdownFileUriHref(href.trim()) ?? href.trim();
+}
+
+function createAutoFileLinkNode(text: string): MarkdownAstNode {
+  return {
+    type: "link",
+    url: text,
+    children: [{ type: "text", value: text }],
+  };
+}
+
+function autoLinkFilePathsInText(value: string): MarkdownAstNode[] {
+  const pathMatches = extractTerminalLinks(value).filter((match) => match.kind === "path");
+  if (pathMatches.length === 0) {
+    return [{ type: "text", value }];
+  }
+
+  const nodes: MarkdownAstNode[] = [];
+  let cursor = 0;
+  for (const match of pathMatches) {
+    if (match.start > cursor) {
+      nodes.push({ type: "text", value: value.slice(cursor, match.start) });
+    }
+    nodes.push(createAutoFileLinkNode(match.text));
+    cursor = match.end;
+  }
+  if (cursor < value.length) {
+    nodes.push({ type: "text", value: value.slice(cursor) });
+  }
+  return nodes;
+}
+
+function shouldAutoLinkInlineCode(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length !== value.length || trimmed.length === 0) return false;
+  const match = extractTerminalLinks(trimmed).find((candidate) => candidate.kind === "path");
+  return match?.start === 0 && match.end === trimmed.length;
+}
+
+function autoLinkFilePathsInNode(node: MarkdownAstNode): void {
+  if (AUTO_LINK_SKIP_NODE_TYPES.has(node.type)) return;
+
+  const children = "children" in node ? node.children : undefined;
+  if (!children) return;
+
+  const nextChildren: MarkdownAstNode[] = [];
+  for (const child of children) {
+    if (child.type === "text" && typeof child.value === "string") {
+      nextChildren.push(...autoLinkFilePathsInText(child.value));
+      continue;
+    }
+
+    if (
+      child.type === "inlineCode" &&
+      typeof child.value === "string" &&
+      shouldAutoLinkInlineCode(child.value)
+    ) {
+      nextChildren.push(createAutoFileLinkNode(child.value));
+      continue;
+    }
+
+    autoLinkFilePathsInNode(child);
+    nextChildren.push(child);
+  }
+
+  node.children = nextChildren;
+}
+
+function remarkAutoLinkFilePaths() {
+  return (tree: MarkdownAstNode) => {
+    autoLinkFilePathsInNode(tree);
+  };
 }
 
 function sanitizePreformattedText(text: string): string {
@@ -566,7 +666,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false, renderMode }: ChatMarkdo
       string,
       NonNullable<ReturnType<typeof resolveMarkdownFileLinkMeta>>
     >();
-    for (const href of extractMarkdownLinkHrefs(text)) {
+    for (const href of [...extractMarkdownLinkHrefs(text), ...extractAutoFilePathHrefs(text)]) {
       const normalizedHref = normalizeMarkdownLinkHrefKey(href);
       if (metaByHref.has(normalizedHref)) continue;
       const meta = resolveMarkdownFileLinkMeta(normalizedHref, cwd);
@@ -657,7 +757,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false, renderMode }: ChatMarkdo
   return (
     <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkAutoLinkFilePaths]}
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >
