@@ -171,6 +171,28 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run another slash command with aligned columns or box-drawing output and confirm spacing is preserved.
   - Confirm normal markdown replies still render links, lists, tables, and code fences as before.
 
+### Assistant file-path autolinking
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: Assistant responses turn path-shaped file mentions such as `apps/web/src/components/ChatMarkdown.tsx:42` into the same editor-opening file chips used for explicit Markdown file links. This improves providers that emit bare or backticked paths instead of `[file](file://...)` links.
+- `Why it exists`: Provider output formats differ. Codex often emits explicit Markdown/file-URI links, while Claude commonly emits bare relative paths or inline-code paths, which previously rendered as inert text.
+- `Key fork files`:
+  - `apps/web/src/components/ChatMarkdown.tsx`
+  - `apps/web/src/components/ChatMarkdown.browser.tsx`
+  - `apps/web/src/terminal-links.ts`
+- `Important invariants`:
+  - Explicit Markdown links and normal web URLs must keep their existing behavior.
+  - Autolinking should only target path-shaped mentions, not arbitrary prose.
+  - Fenced code blocks must remain code blocks; only prose text nodes and exact single-path inline code are upgraded.
+  - Autolinked file mentions must resolve relative to the active workspace cwd and open through the preferred editor.
+- `Merge hotspots`:
+  - Shared assistant markdown rendering
+  - Terminal/path link detection
+  - Provider-specific assistant text formatting
+- `Verification`:
+  - From `apps/web`, run `bun run test:browser src/components/ChatMarkdown.browser.tsx`.
+  - In Codex and Claude-backed threads, ask for a response that mentions a changed file path and confirm the path opens in the preferred editor.
+
 ### Desktop main-process workspace dependency packaging
 
 - `Status`: Present on current fork.
