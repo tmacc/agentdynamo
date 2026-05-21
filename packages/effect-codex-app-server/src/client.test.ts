@@ -3,6 +3,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Effect from "effect/Effect";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
@@ -10,12 +11,35 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 
 import * as CodexClient from "./client.ts";
+import * as CodexSchema from "./schema.ts";
 
 const mockPeerPath = Effect.map(Effect.service(Path.Path), (path) =>
   path.join(import.meta.dirname, "../test/fixtures/codex-app-server-mock-peer.ts"),
 );
 
 it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
+  it.effect("accepts priority service tier in app-server responses", () =>
+    Effect.gen(function* () {
+      const configTier = yield* Schema.decodeUnknownEffect(
+        CodexSchema.V2ConfigReadResponse__ServiceTier,
+      )("priority");
+      const startTier = yield* Schema.decodeUnknownEffect(
+        CodexSchema.V2ThreadStartResponse__ServiceTier,
+      )("priority");
+      const resumeTier = yield* Schema.decodeUnknownEffect(
+        CodexSchema.V2ThreadResumeResponse__ServiceTier,
+      )("priority");
+      const forkTier = yield* Schema.decodeUnknownEffect(
+        CodexSchema.V2ThreadForkResponse__ServiceTier,
+      )("priority");
+
+      assert.equal(configTier, "priority");
+      assert.equal(startTier, "priority");
+      assert.equal(resumeTier, "priority");
+      assert.equal(forkTier, "priority");
+    }),
+  );
+
   const makeHandle = () =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;

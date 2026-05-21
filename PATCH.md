@@ -112,6 +112,25 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ## Fork Feature Inventory
 
+### Codex app-server priority service tier compatibility
+
+- `Status`: active
+- `Area`: provider | codex app-server schema
+- `User-visible impact`: Codex threads using Fast Mode on newer models such as `gpt-5.5` can resume/start without failing schema validation when the app-server reports the canonical `priority` service tier.
+- `Why this patch exists`: Dynamo still sends the app-server-supported request tier `fast`, but newer Codex app-server builds may return `serviceTier: "priority"` in config/thread responses. The checked-in generated Effect schema was stale and only accepted `fast | flex`, causing provider adapter process errors during `thread/resume`.
+- `Key files`:
+  - `packages/effect-codex-app-server/src/_generated/schema.gen.ts`
+  - `packages/effect-codex-app-server/src/client.test.ts`
+- `Important invariants`:
+  - Request parameter schemas remain `fast | flex`; Dynamo should continue sending `fast` for Fast Mode unless the upstream app-server request contract changes.
+  - Response/config read schemas must tolerate `priority` as a read-side value.
+- `Merge hotspots`:
+  - Regenerated Codex app-server schemas may overwrite the local response-tier widening.
+  - Codex provider Fast Mode mapping in `apps/server/src/provider/Layers/CodexAdapter.ts`.
+- `Verification`:
+  - Run `bun run test src/client.test.ts` in `packages/effect-codex-app-server`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+
 ### Tiled multi-thread view
 
 - `Status`: In progress on current feature branch.

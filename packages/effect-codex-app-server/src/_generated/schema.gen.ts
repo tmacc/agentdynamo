@@ -3122,8 +3122,8 @@ export const V2ConfigReadResponse__SandboxWorkspaceWrite = Schema.Struct({
   writable_roots: Schema.optionalKey(Schema.Array(Schema.String).annotate({ default: [] })),
 });
 
-export type V2ConfigReadResponse__ServiceTier = "fast" | "flex";
-export const V2ConfigReadResponse__ServiceTier = Schema.Literals(["fast", "flex"]);
+export type V2ConfigReadResponse__ServiceTier = "fast" | "flex" | "priority";
+export const V2ConfigReadResponse__ServiceTier = Schema.Literals(["fast", "flex", "priority"]);
 
 export type V2ConfigReadResponse__Verbosity = "low" | "medium" | "high";
 export const V2ConfigReadResponse__Verbosity = Schema.Literals(["low", "medium", "high"]).annotate({
@@ -5396,8 +5396,8 @@ export const V2ThreadForkResponse__ReasoningEffort = Schema.Literals([
     "See https://platform.openai.com/docs/guides/reasoning?api-mode=responses#get-started-with-reasoning",
 });
 
-export type V2ThreadForkResponse__ServiceTier = "fast" | "flex";
-export const V2ThreadForkResponse__ServiceTier = Schema.Literals(["fast", "flex"]);
+export type V2ThreadForkResponse__ServiceTier = "fast" | "flex" | "priority";
+export const V2ThreadForkResponse__ServiceTier = Schema.Literals(["fast", "flex", "priority"]);
 
 export type V2ThreadForkResponse__TextElement = {
   readonly byteRange: { readonly end: number; readonly start: number };
@@ -6803,8 +6803,8 @@ export const V2ThreadResumeResponse__ReasoningEffort = Schema.Literals([
     "See https://platform.openai.com/docs/guides/reasoning?api-mode=responses#get-started-with-reasoning",
 });
 
-export type V2ThreadResumeResponse__ServiceTier = "fast" | "flex";
-export const V2ThreadResumeResponse__ServiceTier = Schema.Literals(["fast", "flex"]);
+export type V2ThreadResumeResponse__ServiceTier = "fast" | "flex" | "priority";
+export const V2ThreadResumeResponse__ServiceTier = Schema.Literals(["fast", "flex", "priority"]);
 
 export type V2ThreadResumeResponse__TextElement = {
   readonly byteRange: { readonly end: number; readonly start: number };
@@ -7705,8 +7705,8 @@ export const V2ThreadStartResponse__ReasoningEffort = Schema.Literals([
     "See https://platform.openai.com/docs/guides/reasoning?api-mode=responses#get-started-with-reasoning",
 });
 
-export type V2ThreadStartResponse__ServiceTier = "fast" | "flex";
-export const V2ThreadStartResponse__ServiceTier = Schema.Literals(["fast", "flex"]);
+export type V2ThreadStartResponse__ServiceTier = "fast" | "flex" | "priority";
+export const V2ThreadStartResponse__ServiceTier = Schema.Literals(["fast", "flex", "priority"]);
 
 export type V2ThreadStartResponse__TextElement = {
   readonly byteRange: { readonly end: number; readonly start: number };
