@@ -40,3 +40,6 @@ __screenshots__/
 .tanstack
 squashfs-root/
 .vercel
+.gstack/
+dist-electron/
+.electron-runtime/

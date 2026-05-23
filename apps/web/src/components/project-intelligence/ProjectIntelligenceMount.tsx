@@ -1,5 +1,5 @@
 import type { ProjectIntelligenceViewMode } from "@t3tools/contracts";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { useCallback, useMemo, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 

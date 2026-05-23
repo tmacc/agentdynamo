@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { it } from "@effect/vitest";
-import { Effect, Exit, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Schema from "effect/Schema";
 
 import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -56,6 +58,7 @@ const decodeOrchestrationSession = Schema.decodeUnknownEffect(OrchestrationSessi
 const decodeContextHandoffRenderStats = Schema.decodeUnknownEffect(
   OrchestrationContextHandoffRenderStats,
 );
+const encodeThreadCreatedPayload = Schema.encodeEffect(ThreadCreatedPayload);
 
 function getOptionValue(
   options: ReadonlyArray<{ id: string; value: unknown }> | undefined,
@@ -911,7 +914,7 @@ it.effect(
         updatedAt: "2026-01-01T00:00:00.000Z",
       });
 
-      const encoded = yield* Schema.encodeEffect(ThreadCreatedPayload)(decoded);
+      const encoded = yield* encodeThreadCreatedPayload(decoded);
       assert.deepStrictEqual(encoded.modelSelection.options, [{ id: "fastMode", value: true }]);
     }),
 );

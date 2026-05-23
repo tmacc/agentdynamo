@@ -1,6 +1,7 @@
-import * as OS from "node:os";
-import { Effect, Path } from "effect";
 import { APP_HOME_DIR_NAME } from "@t3tools/shared/branding";
+import * as NodeOS from "node:os";
+import * as Effect from "effect/Effect";
+import * as Path from "effect/Path";
 import {
   readPathFromLoginShell,
   readEnvironmentFromWindowsShell,
@@ -18,7 +19,9 @@ type WindowsCommandAvailabilityChecker = (
 ) => boolean;
 
 function logPathHydrationWarning(message: string, error?: unknown): void {
-  console.warn(`[server] ${message}`, error instanceof Error ? error.message : (error ?? ""));
+  process.stderr.write(
+    `[server] ${message} ${error instanceof Error ? error.message : (error ?? "")}\n`,
+  );
 }
 
 export function fixPath(
@@ -85,10 +88,10 @@ export function fixPath(
 export const expandHomePath = Effect.fn(function* (input: string) {
   const { join } = yield* Path.Path;
   if (input === "~") {
-    return OS.homedir();
+    return NodeOS.homedir();
   }
   if (input.startsWith("~/") || input.startsWith("~\\")) {
-    return join(OS.homedir(), input.slice(2));
+    return join(NodeOS.homedir(), input.slice(2));
   }
   return input;
 });
@@ -96,7 +99,7 @@ export const expandHomePath = Effect.fn(function* (input: string) {
 export const resolveBaseDir = Effect.fn(function* (raw: string | undefined) {
   const { join, resolve } = yield* Path.Path;
   if (!raw || raw.trim().length === 0) {
-    return join(OS.homedir(), APP_HOME_DIR_NAME);
+    return join(NodeOS.homedir(), APP_HOME_DIR_NAME);
   }
   return resolve(yield* expandHomePath(raw.trim()));
 });

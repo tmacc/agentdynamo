@@ -1,6 +1,7 @@
-import { Context } from "effect";
-import type { Effect } from "effect";
 import type { ProjectId, ThreadId } from "@t3tools/contracts";
+import * as Context from "effect/Context";
+import * as Data from "effect/Data";
+import type * as Effect from "effect/Effect";
 
 export interface ProjectSetupScriptRunnerResultNoScript {
   readonly status: "no-script";
@@ -26,10 +27,16 @@ export interface ProjectSetupScriptRunnerInput {
   readonly preferredTerminalId?: string;
 }
 
+export class ProjectSetupScriptRunnerError extends Data.TaggedError(
+  "ProjectSetupScriptRunnerError",
+)<{
+  readonly message: string;
+}> {}
+
 export interface ProjectSetupScriptRunnerShape {
   readonly runForThread: (
     input: ProjectSetupScriptRunnerInput,
-  ) => Effect.Effect<ProjectSetupScriptRunnerResult, Error>;
+  ) => Effect.Effect<ProjectSetupScriptRunnerResult, ProjectSetupScriptRunnerError>;
 }
 
 export class ProjectSetupScriptRunner extends Context.Service<

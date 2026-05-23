@@ -1,5 +1,8 @@
 import { ProjectId, ThreadId, type OrchestrationProject } from "@t3tools/contracts";
-import { Effect, Layer, Option, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 import { describe, expect, it, vi } from "vitest";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
@@ -39,6 +42,7 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
     getCommandReadModel: () => Effect.die("unused"),
     getSnapshot: () => Effect.die("unused"),
     getShellSnapshot: () => Effect.die("unused"),
+    getArchivedShellSnapshot: () => Effect.die("unused"),
     getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 1 }),
     getCounts: () => Effect.die("unused"),
     getActiveProjectByWorkspaceRoot: (workspaceRoot) =>
@@ -49,6 +53,7 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
       Effect.succeed(projectId === project.id ? Option.some(project) : Option.none()),
     getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
     getThreadCheckpointContext: () => Effect.die("unused"),
+    getFullThreadDiffContext: () => Effect.die("unused"),
     getThreadShellById: () => Effect.die("unused"),
     getThreadDetailById: () => Effect.die("unused"),
     getTeamTaskTrace: () => Effect.die("unused"),

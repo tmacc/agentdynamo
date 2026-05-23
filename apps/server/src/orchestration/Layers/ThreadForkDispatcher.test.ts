@@ -27,6 +27,7 @@ import {
 } from "../../git/Services/GitStatusBroadcaster.ts";
 import {
   ProjectSetupScriptRunner,
+  ProjectSetupScriptRunnerError,
   type ProjectSetupScriptRunnerShape,
 } from "../../project/Services/ProjectSetupScriptRunner.ts";
 import {
@@ -74,7 +75,7 @@ function runGit(
       args,
       timeoutMs: 10_000,
       maxOutputBytes: 1024 * 1024,
-      truncateOutputAtMaxBytes: false,
+      appendTruncationMarker: false,
     })
     .pipe(Effect.map((result) => result.stdout.trim()));
 }
@@ -154,6 +155,7 @@ function makeProjectionQuery(input: {
     getCommandReadModel: () => Effect.succeed(makeOrchestrationReadModel()),
     getSnapshot: () => Effect.die("getSnapshot should not be called"),
     getShellSnapshot: () => Effect.die("getShellSnapshot should not be called"),
+    getArchivedShellSnapshot: () => Effect.die("getArchivedShellSnapshot should not be called"),
     getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
     getCounts: () => Effect.die("getCounts should not be called"),
     getActiveProjectByWorkspaceRoot: () =>
@@ -165,6 +167,7 @@ function makeProjectionQuery(input: {
     getFirstActiveThreadIdByProjectId: () =>
       Effect.die("getFirstActiveThreadIdByProjectId should not be called"),
     getThreadCheckpointContext: () => Effect.die("getThreadCheckpointContext should not be called"),
+    getFullThreadDiffContext: () => Effect.die("getFullThreadDiffContext should not be called"),
     getThreadDetailById: () => Effect.die("getThreadDetailById should not be called"),
     getTeamTaskTrace: () => Effect.die("getTeamTaskTrace should not be called"),
     getThreadShellById: (threadId) => {
@@ -401,7 +404,8 @@ it.layer(TestLayer)("ThreadForkDispatcher", (it) => {
           repoDir,
           sourceThread: sourceThreadShell({ branch: "main" }),
           setupScriptRunner: {
-            runForThread: () => Effect.fail(new Error("setup failed")),
+            runForThread: () =>
+              Effect.fail(new ProjectSetupScriptRunnerError({ message: "setup failed" })),
           },
         }).pipe(Effect.result);
 

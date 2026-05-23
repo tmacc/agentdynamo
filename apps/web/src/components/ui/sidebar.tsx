@@ -76,7 +76,7 @@ const SidebarContext = React.createContext<SidebarContextProps | null>(null);
 const SidebarInstanceContext = React.createContext<SidebarInstanceContextProps | null>(null);
 
 function useSidebar() {
-  const context = React.useContext(SidebarContext);
+  const context = React.use(SidebarContext);
   if (!context) {
     throw new Error("useSidebar must be used within a SidebarProvider.");
   }
@@ -147,7 +147,7 @@ function SidebarProvider({
   );
 
   return (
-    <SidebarContext.Provider value={contextValue}>
+    <SidebarContext value={contextValue}>
       <div
         className={cn(
           "group/sidebar-wrapper flex min-h-svh w-full has-data-[variant=inset]:bg-sidebar",
@@ -165,7 +165,7 @@ function SidebarProvider({
       >
         {children}
       </div>
-    </SidebarContext.Provider>
+    </SidebarContext>
   );
 }
 
@@ -205,7 +205,7 @@ function Sidebar({
 
   if (collapsible === "none") {
     return (
-      <SidebarInstanceContext.Provider value={instanceContextValue}>
+      <SidebarInstanceContext value={instanceContextValue}>
         <div
           className={cn(
             "flex h-full w-(--sidebar-width) flex-col bg-sidebar text-sidebar-foreground",
@@ -216,13 +216,13 @@ function Sidebar({
         >
           {children}
         </div>
-      </SidebarInstanceContext.Provider>
+      </SidebarInstanceContext>
     );
   }
 
   if (isMobile) {
     return (
-      <SidebarInstanceContext.Provider value={instanceContextValue}>
+      <SidebarInstanceContext value={instanceContextValue}>
         <Sheet onOpenChange={setOpenMobile} open={openMobile} {...props}>
           <SheetPopup
             className={cn(
@@ -254,12 +254,12 @@ function Sidebar({
             </div>
           </SheetPopup>
         </Sheet>
-      </SidebarInstanceContext.Provider>
+      </SidebarInstanceContext>
     );
   }
 
   return (
-    <SidebarInstanceContext.Provider value={instanceContextValue}>
+    <SidebarInstanceContext value={instanceContextValue}>
       <div
         className="group peer hidden text-sidebar-foreground md:block"
         data-collapsible={state === "collapsed" ? collapsible : ""}
@@ -304,7 +304,7 @@ function Sidebar({
           </div>
         </div>
       </div>
-    </SidebarInstanceContext.Provider>
+    </SidebarInstanceContext>
   );
 }
 
@@ -767,7 +767,7 @@ function SidebarMenuSkeleton({
 }: React.ComponentProps<"div"> & {
   showIcon?: boolean;
 }) {
-  // Random width between 50 to 90%.
+  // Random width between 50 to 90%. Intentionally wrapped in useMemo to avoid changing width on every render.
   const width = React.useMemo(() => {
     return `${Math.floor(Math.random() * 40) + 50}%`;
   }, []);
