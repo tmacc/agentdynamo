@@ -163,6 +163,28 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun run test src/client.test.ts` in `packages/effect-codex-app-server`.
   - Run `bun fmt`, `bun lint`, and `bun typecheck`.
 
+### Release workflow dispatch skip handling
+
+- `Status`: active
+- `Area`: release automation | GitHub Actions
+- `User-visible impact`: Manual stable/nightly release dispatches continue from successful preflight into desktop builds, GitHub release publishing, and optional finalize even though the schedule-only change-detection job is skipped on non-scheduled events. Dynamo releases do not post Discord announcements.
+- `Why this patch exists`: GitHub Actions can propagate skipped jobs through the release DAG. The workflow intentionally skips `check_changes` for `workflow_dispatch` and tag releases, so downstream release jobs need explicit `always()` plus result checks to distinguish a valid skipped guard job from a failed preflight/build.
+- `Key files`:
+  - `.github/workflows/release.yml`
+- `Important invariants`:
+  - Scheduled no-change runs must still stop before preflight/build/release.
+  - Manual and tag releases must proceed only when preflight succeeds.
+  - CLI publishing may remain skipped when `ENABLE_CLI_PUBLISH` is not enabled, without blocking GitHub release publishing.
+  - Stable finalize remains opt-in behind `ENABLE_RELEASE_FINALIZE` and requires the GitHub release job to succeed.
+  - The workflow must not require Discord webhook or role secrets.
+- `Merge hotspots`:
+  - Release workflow job `needs` and `if` conditions.
+  - Upstream release workflow changes around nightly change detection, CLI publishing, and release finalization.
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Trigger a manual nightly or stable release workflow and confirm build jobs are not skipped after successful preflight.
+  - Confirm a scheduled run with no changes still reports preflight/build/release as skipped.
+
 ### Tiled multi-thread view
 
 - `Status`: In progress on current feature branch.
