@@ -11,7 +11,7 @@
     "build": "tsdown",
     "start": "node scripts/start-electron.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "node scripts/ensure-electron-installed.mjs && vitest run --passWithNoTests",
     "smoke-test": "node scripts/smoke-test.mjs"
   },
   "dependencies": {

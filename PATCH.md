@@ -45,6 +45,7 @@
   - Upstream migration `030_ProjectionThreadShellArchiveIndexes` is registered as Dynamo migration `056_ProjectionThreadShellArchiveIndexes` because fork-local migrations already occupy the historical upstream id range.
   - The desktop Effect port keeps Dynamo app names, bundle ids, Linux desktop metadata, home directory names, commit metadata fields, and user-data migration fallbacks.
   - The new sync desktop IPC helper accepts payloads so saved-prompt storage remains synchronous for renderer boot hydration without changing web store semantics.
+  - Desktop tests run an Electron binary preflight before Vitest so CI installs that skipped package scripts recover by invoking Electron's installer instead of failing during module import.
   - TanStack route tree was regenerated after preserving Dynamo fork routes and upstream diagnostics/keybindings/providers settings routes.
 - `Merge hotspots`:
   - Desktop Effect runtime, preload bridge, IPC method schemas, and Electron service layers.
