@@ -1140,7 +1140,7 @@ describe("GeneralSettingsPanel observability", () => {
 
     setServerConfigSnapshot(createBaseServerConfig());
 
-    mounted = await render(
+    mounted = await renderWithTestRouter(
       <AppAtomRegistryProvider>
         <GeneralSettingsPanel />
       </AppAtomRegistryProvider>,

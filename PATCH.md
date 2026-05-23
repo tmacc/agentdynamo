@@ -244,6 +244,24 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - From `apps/web`, run `bun run test:browser src/components/ChatMarkdown.browser.tsx`.
   - In Codex and Claude-backed threads, ask for a response that mentions a changed file path and confirm the path opens in the preferred editor.
 
+### Long user prompt collapse
+
+- `Status`: Present on current fork.
+- `User-visible behavior`: Long user messages start collapsed in the chat timeline with a `Show full message` control and can be expanded/re-collapsed without hiding the message action footer. This keeps large pasted prompts from overwhelming the visible conversation.
+- `Why it exists`: Dynamo users frequently paste large specs, logs, and implementation prompts. Collapsing only the user bubble preserves timeline scanability while keeping the original message available in place.
+- `Key fork files`:
+  - `apps/web/src/components/chat/MessagesTimeline.tsx`
+  - `apps/web/src/components/chat/MessagesTimeline.browser.tsx`
+- `Important invariants`:
+  - Short user messages should render normally without an expand control.
+  - Collapsed messages must retain copy/save/fork/revert actions and timestamp visibility.
+  - The newest long user prompt should also start collapsed.
+- `Merge hotspots`:
+  - User-message row rendering in `MessagesTimeline.tsx`
+  - Timeline virtualization or row memoization changes
+- `Verification`:
+  - From `apps/web`, run `bun run test:browser src/components/chat/MessagesTimeline.browser.tsx`.
+
 ### PR size label workflow resilience
 
 - `Status`: Present on current fork.

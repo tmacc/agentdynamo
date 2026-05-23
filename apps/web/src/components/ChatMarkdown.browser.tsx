@@ -67,7 +67,7 @@ describe("ChatMarkdown", () => {
       await expect.element(fileLink).toBeInTheDocument();
       await expect
         .element(fileLink)
-        .toHaveAttribute("href", "apps/web/src/components/ChatMarkdown.tsx:42");
+        .toHaveAttribute("href", "/repo/project/apps/web/src/components/ChatMarkdown.tsx:42");
 
       const webLink = page.getByRole("link", { name: "https://example.com/docs" });
       await expect.element(webLink).toBeInTheDocument();
@@ -94,7 +94,9 @@ describe("ChatMarkdown", () => {
     try {
       const link = page.getByRole("link", { name: "markdown-links.ts · L12:C3" });
       await expect.element(link).toBeInTheDocument();
-      await expect.element(link).toHaveAttribute("href", "apps/web/src/markdown-links.ts:12:3");
+      await expect
+        .element(link)
+        .toHaveAttribute("href", "/repo/project/apps/web/src/markdown-links.ts:12:3");
     } finally {
       await screen.unmount();
     }
