@@ -21,9 +21,40 @@
 - Count command: `git rev-list --count origin/upstream-sync-base..upstream/main`
 - Advance after successful sync: `git branch -f upstream-sync-base <integrated-upstream-tip>` followed by `git push origin upstream-sync-base`
 - Previous reconstructed marker: upstream commit equivalent to `327499aa` from the `2026-04-23` merge is `b0b7b38d` (`fix(server): detect localized Windows command errors (#2152)`).
-- Current integrated marker: upstream `35721d9a` (`chore(release): prepare v0.0.22`) verified on branch `t3code/upstream-sync-2026-05-05`.
+- Current integrated marker: upstream `d1e85c4e` (`feat: desktop Effect runtime port`) verified on branch `t3code/upstream-commit-review`.
 
 ## Upstream Sync Log
+
+### 2026-05-23 - Merge upstream `35721d9a..d1e85c4e`
+
+- `Status`: verified on integration branch `t3code/upstream-commit-review`.
+- `Range integrated`: `35721d9a08b225c4a3752f322ae4daccbeaa564e..d1e85c4e8fdef82fbaded9539532b754080419e0`.
+- `Previous marker`: `35721d9a08b225c4a3752f322ae4daccbeaa564e` was a direct ancestor of the pinned upstream tip.
+- `New marker after verification`: `d1e85c4e8fdef82fbaded9539532b754080419e0`.
+- `Integration method`: merged the pinned upstream commit `d1e85c4e8fdef82fbaded9539532b754080419e0` rather than the later `upstream/main` head, following `upstream-sync-plan-upstream-main-into-dynamo-fork.md`.
+- `Adopted upstream behavior`:
+  - Effect-based desktop main-process runtime, IPC services, Electron service wrappers, desktop updater/settings layers, and VCS checkpoint delegation.
+  - Provider maintenance/update notifications, diagnostics settings routes, keybinding/provider settings routes, external launcher abstraction, process diagnostics, trace diagnostics, and shell archive projection indexes.
+  - Upstream package and generated protocol updates through the pinned `d1e85c4e` tip, while preserving Dynamo package versions and release ownership.
+- `Fork behavior preserved`:
+  - Dynamo branding, hosted-channel labels, release workflow ownership, runtime storage isolation, and legacy `T3CODE_*` fallback environment variables where required.
+  - Saved prompts persistence in desktop through the new upstream IPC service layout.
+  - Team task tracing, team coordinator worktrees, context handoffs, board projections, project intelligence, tiled view, and source-control/VCS fork compatibility surfaces.
+  - Codex app-server response schema compatibility for `serviceTier: "priority"`.
+- `Merge notes`:
+  - Upstream migration `030_ProjectionThreadShellArchiveIndexes` is registered as Dynamo migration `056_ProjectionThreadShellArchiveIndexes` because fork-local migrations already occupy the historical upstream id range.
+  - The desktop Effect port keeps Dynamo app names, bundle ids, Linux desktop metadata, home directory names, commit metadata fields, and user-data migration fallbacks.
+  - The new sync desktop IPC helper accepts payloads so saved-prompt storage remains synchronous for renderer boot hydration without changing web store semantics.
+  - TanStack route tree was regenerated after preserving Dynamo fork routes and upstream diagnostics/keybindings/providers settings routes.
+- `Merge hotspots`:
+  - Desktop Effect runtime, preload bridge, IPC method schemas, and Electron service layers.
+  - Projection snapshot/read-model shape for archived shells, team traces, full-thread diff context, board cards, and context handoffs.
+  - Chat composer/timeline, settings routes, provider maintenance UI, and generated route tree.
+  - Persistence migration numbering where fork and upstream migration ids overlap.
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
+  - Confirm no merge conflict markers remain.
+  - Confirm Dynamo branding/version ownership, saved prompts, team worktree support, board/project-intelligence routes, and VCS/source-control contracts are present after the merge.
 
 ### 2026-05-05 - Merge upstream `17b43960..35721d9a`
 

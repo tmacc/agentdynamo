@@ -259,6 +259,13 @@ async function makeRuntime(input: {
     getProviders: Effect.succeed([provider()]),
     refresh: () => Effect.succeed([provider()]),
     refreshInstance: () => Effect.succeed([provider()]),
+    getProviderMaintenanceCapabilitiesForInstance: (_instanceId, providerKind) =>
+      Effect.succeed({
+        provider: providerKind,
+        packageName: null,
+        update: null,
+      }),
+    setProviderMaintenanceActionState: () => Effect.succeed([provider()]),
     streamChanges: Stream.empty,
   } satisfies ProviderRegistryShape;
   const git = {

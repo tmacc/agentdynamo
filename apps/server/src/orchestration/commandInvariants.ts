@@ -8,7 +8,8 @@ import type {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import { Effect, Option } from "effect";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import { type ProjectionBoardCardRepositoryShape } from "../persistence/Services/ProjectionBoardCards.ts";

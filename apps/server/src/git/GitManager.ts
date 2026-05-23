@@ -3,21 +3,19 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  Array as Arr,
-  Cache,
-  Context,
-  DateTime,
-  Duration,
-  Effect,
-  Exit,
-  FileSystem,
-  Layer,
-  Option,
-  Order,
-  Path,
-  Ref,
-} from "effect";
+import * as Arr from "effect/Array";
+import * as Cache from "effect/Cache";
+import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Order from "effect/Order";
+import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import {
   GitActionProgressEvent,
   GitActionProgressPhase,
@@ -693,7 +691,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         args: ["diff", "--cached", "--binary", "--full-index", baseSha],
         env,
         maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
-        truncateOutputAtMaxBytes: false,
+        appendTruncationMarker: false,
       });
       const numstat = yield* gitCore.execute({
         operation: "GitManager.applyWorktreePatch.numstat",
@@ -701,7 +699,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         args: ["diff", "--cached", "--numstat", baseSha],
         env,
         maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
-        truncateOutputAtMaxBytes: false,
+        appendTruncationMarker: false,
       });
 
       return {
@@ -2123,7 +2121,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         cwd: context.parentCwd,
         args: ["status", "--porcelain"],
         maxOutputBytes: 2 * 1024 * 1024,
-        truncateOutputAtMaxBytes: false,
+        appendTruncationMarker: false,
       });
       if (context.seedMetadata) {
         const parentSnapshotTree = yield* gitCore.createWorktreeSnapshotTree(context.parentCwd);
@@ -2146,7 +2144,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         args: ["apply", "--check", "--whitespace=nowarn", "-"],
         stdin: context.patch,
         maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
-        truncateOutputAtMaxBytes: false,
+        appendTruncationMarker: false,
       });
       yield* gitCore.execute({
         operation: "GitManager.applyWorktreePatch.apply",
@@ -2154,7 +2152,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         args: ["apply", "--whitespace=nowarn", "-"],
         stdin: context.patch,
         maxOutputBytes: WORKTREE_PATCH_MAX_OUTPUT_BYTES,
-        truncateOutputAtMaxBytes: false,
+        appendTruncationMarker: false,
       });
 
       yield* invalidateStatus(context.parentCwd);

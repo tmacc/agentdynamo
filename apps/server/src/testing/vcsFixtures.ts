@@ -63,12 +63,20 @@ export function makeProjectionSnapshotQueryMock(
         projects: [],
         threads: [],
       }),
+    getArchivedShellSnapshot: () =>
+      Effect.succeed({
+        snapshotSequence: 0,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        projects: [],
+        threads: [],
+      }),
     getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
     getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
     getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
     getProjectShellById: () => Effect.succeed(Option.none()),
     getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
     getThreadCheckpointContext: () => Effect.succeed(Option.none()),
+    getFullThreadDiffContext: () => Effect.succeed(Option.none()),
     getThreadShellById: () => Effect.succeed(Option.none()),
     getThreadDetailById: () => Effect.succeed(Option.none()),
     getTeamTaskTrace: (input) =>

@@ -60,6 +60,7 @@ import Migration0048 from "./Migrations/048_ProjectionThreadSessionInstanceId.ts
 import Migration0053 from "./Migrations/053_CanonicalizePrototypeInteractionMode.ts";
 import Migration0054 from "./Migrations/054_ProjectionThreadDetailOrderingIndexes.ts";
 import Migration0055 from "./Migrations/055_ProjectionThreadMessageRenderMode.ts";
+import Migration0056 from "./Migrations/030_ProjectionThreadShellArchiveIndexes.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -119,6 +120,7 @@ export const migrationEntries = [
   [53, "CanonicalizePrototypeInteractionMode", Migration0053],
   [54, "ProjectionThreadDetailOrderingIndexes", Migration0054],
   [55, "ProjectionThreadMessageRenderMode", Migration0055],
+  [56, "ProjectionThreadShellArchiveIndexes", Migration0056],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

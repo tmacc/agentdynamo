@@ -204,7 +204,7 @@ function buildSourceWorkspaceDirtyPatch(input: {
         args: ["diff", "--cached", "--binary", "--full-index", input.baseSha],
         env,
         maxOutputBytes: FORK_WORKTREE_PATCH_MAX_OUTPUT_BYTES,
-        truncateOutputAtMaxBytes: false,
+        appendTruncationMarker: false,
       });
       return patch.stdout;
     }).pipe(
@@ -231,7 +231,7 @@ function resolveSourceWorkspaceHeadSha(input: {
       cwd: input.sourceWorkspaceCwd,
       args: ["rev-parse", "--verify", "HEAD"],
       maxOutputBytes: 4_096,
-      truncateOutputAtMaxBytes: false,
+      appendTruncationMarker: false,
     })
     .pipe(
       Effect.map((result) => result.stdout.trim()),
@@ -324,7 +324,7 @@ function applySourceWorkspaceDirtyPatch(input: {
       args: ["apply", "--check", "--whitespace=nowarn", "-"],
       stdin: input.patch,
       maxOutputBytes: FORK_WORKTREE_PATCH_MAX_OUTPUT_BYTES,
-      truncateOutputAtMaxBytes: false,
+      appendTruncationMarker: false,
     });
     yield* input.git.execute({
       operation: "ThreadForkDispatcher.dirtyPatch.apply",
@@ -332,7 +332,7 @@ function applySourceWorkspaceDirtyPatch(input: {
       args: ["apply", "--whitespace=nowarn", "-"],
       stdin: input.patch,
       maxOutputBytes: FORK_WORKTREE_PATCH_MAX_OUTPUT_BYTES,
-      truncateOutputAtMaxBytes: false,
+      appendTruncationMarker: false,
     });
   }).pipe(
     Effect.mapError(
@@ -366,7 +366,7 @@ const cleanupForkWorktree = (input: {
           cwd: input.cwd,
           args: ["branch", "-D", input.branch],
           maxOutputBytes: 64 * 1024,
-          truncateOutputAtMaxBytes: true,
+          appendTruncationMarker: true,
         })
         .pipe(Effect.ignoreCause({ log: true }), Effect.asVoid)
     : Effect.void;

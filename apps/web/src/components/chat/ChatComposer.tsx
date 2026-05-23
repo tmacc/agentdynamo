@@ -2400,7 +2400,7 @@ export const ChatComposer = memo(
 
                 <div className="relative">
                   <ComposerPromptEditor
-                    ref={composerEditorRef}
+                    editorRef={composerEditorRef}
                     value={
                       isComposerApprovalState
                         ? ""

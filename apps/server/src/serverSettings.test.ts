@@ -8,7 +8,11 @@ import {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Duration from "effect/Duration";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import { ServerConfig } from "./config.ts";
 import { ServerSettingsLive, ServerSettingsService } from "./serverSettings.ts";
 
@@ -449,11 +453,13 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             serverPassword: "secret-password",
           },
         },
+        automaticGitFetchInterval: Duration.seconds(10),
       });
 
       assert.equal(next.providers.codex.binaryPath, "/opt/homebrew/bin/codex");
 
       const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
       assert.deepEqual(JSON.parse(raw), {
         addProjectBaseDirectory: "~/Development",
         observability: {
@@ -469,6 +475,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             serverPassword: "secret-password",
           },
         },
+        automaticGitFetchInterval: 10_000,
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
@@ -505,6 +512,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
       assert.notInclude(raw, "sk-or-secret");
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
       assert.deepEqual(JSON.parse(raw).providerInstances.codex_personal.environment, [
         {
           name: "OPENROUTER_API_KEY",

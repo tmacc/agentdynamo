@@ -1,12 +1,15 @@
 import { ProjectId } from "@t3tools/contracts";
 import { projectScriptRuntimeEnv, setupProjectScript } from "@t3tools/shared/projectScripts";
-import { Effect, Layer, Option } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
 import {
   type ProjectSetupScriptRunnerShape,
   ProjectSetupScriptRunner,
+  ProjectSetupScriptRunnerError,
 } from "../Services/ProjectSetupScriptRunner.ts";
 import { WorktreeSetupRuntime } from "../Services/WorktreeSetupRuntime.ts";
 
@@ -31,7 +34,9 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
         null;
 
       if (!project) {
-        return yield* Effect.fail(new Error("Project was not found for setup script execution."));
+        return yield* new ProjectSetupScriptRunnerError({
+          message: "Project was not found for setup script execution.",
+        });
       }
 
       if (
@@ -78,7 +83,18 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
         terminalId,
         cwd,
       } as const;
-    });
+    }).pipe(
+      Effect.mapError((cause) => {
+        const message =
+          typeof cause === "object" &&
+          cause !== null &&
+          "message" in cause &&
+          typeof cause.message === "string"
+            ? cause.message
+            : String(cause);
+        return new ProjectSetupScriptRunnerError({ message });
+      }),
+    );
 
   return {
     runForThread,
