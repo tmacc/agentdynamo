@@ -1,9 +1,10 @@
-import type {
-  OrchestrationCommand,
-  OrchestrationEvent,
-  OrchestrationReadModel,
-  OrchestrationTeamTask,
-  TeamAgentsSettings,
+import {
+  EventId,
+  type OrchestrationCommand,
+  type OrchestrationEvent,
+  type OrchestrationReadModel,
+  type OrchestrationTeamTask,
+  type TeamAgentsSettings,
 } from "@t3tools/contracts";
 import { PROVIDER_DISPLAY_NAMES, ProviderKind } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -41,7 +42,7 @@ function withEventBase(
   },
 ): Omit<OrchestrationEvent, "sequence" | "type" | "payload"> {
   return {
-    eventId: crypto.randomUUID() as OrchestrationEvent["eventId"],
+    eventId: EventId.make(crypto.randomUUID()),
     aggregateKind: input.aggregateKind,
     aggregateId: input.aggregateId,
     occurredAt: input.occurredAt,
