@@ -26,6 +26,12 @@ import {
 } from "../config.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
 
+type ServerConfigEffect = Effect.Effect<
+  ServerConfigShape,
+  unknown,
+  NetService.NetService | Path.Path | FileSystem.FileSystem
+>;
+
 export const modeFlag = Flag.choice("mode", RuntimeMode.literals).pipe(
   Flag.withDescription("Runtime mode. `desktop` keeps loopback defaults unless overridden."),
   Flag.optional,
@@ -218,7 +224,7 @@ export const resolveServerConfig = (
     readonly startupPresentation?: StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
   },
-) =>
+): ServerConfigEffect =>
   Effect.gen(function* () {
     const { findAvailablePort } = yield* NetService.NetService;
     const path = yield* Path.Path;
@@ -389,7 +395,7 @@ export const resolveServerConfig = (
 export const resolveCliAuthConfig = (
   flags: CliAuthLocationFlags,
   cliLogLevel: Option.Option<LogLevel.LogLevel>,
-) =>
+): ServerConfigEffect =>
   resolveServerConfig(
     {
       mode: Option.none(),

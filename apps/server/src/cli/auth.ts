@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as References from "effect/References";
 import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
+import type { Command as CliCommand } from "effect/unstable/cli";
 
 import { AuthControlPlaneRuntimeLive } from "../auth/Layers/AuthControlPlane.ts";
 import { AuthControlPlane } from "../auth/Services/AuthControlPlane.ts";
@@ -241,7 +242,9 @@ const sessionCommand = Command.make("session").pipe(
   Command.withSubcommands([sessionIssueCommand, sessionListCommand, sessionRevokeCommand]),
 );
 
-export const authCommand = Command.make("auth").pipe(
+export const authCommand: CliCommand.Command<"auth", {}, {}, unknown, never> = Command.make(
+  "auth",
+).pipe(
   Command.withDescription("Manage the local auth control plane for headless deployments."),
   Command.withSubcommands([pairingCommand, sessionCommand]),
 );
