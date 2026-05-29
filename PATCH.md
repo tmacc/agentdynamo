@@ -223,20 +223,21 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 - `Status`: active
 - `Area`: CI | GitHub Actions
-- `User-visible impact`: Pull request CI has enough time to finish browser runtime installation, browser tests, and desktop build on GitHub-hosted runners after the fork moved away from Blacksmith runners.
-- `Why this patch exists`: The combined quality job reached `Install browser test runtime` after format, lint, typecheck, and unit tests, restored a stale Playwright browser cache, downloaded the newer Chromium bundle, then hit the 10 minute job timeout before browser tests or build could run.
+- `User-visible impact`: Pull request CI can run browser tests and desktop builds on GitHub-hosted runners after the fork moved away from Blacksmith runners.
+- `Why this patch exists`: The combined quality job reached `Install browser test runtime` after format, lint, typecheck, and unit tests, restored a stale Playwright browser cache, downloaded the newer Chromium bundle, then got stuck until the job timeout before browser tests or build could run.
 - `Key files`:
   - `.github/workflows/ci.yml`
+  - `apps/web/vitest.browser.config.ts`
 - `Important invariants`:
-  - The quality job timeout must leave room for Playwright browser installation plus browser tests and desktop build on `ubuntu-24.04`.
-  - Playwright browser cache keys should be tied to the installed Playwright package version and should not restore broad stale `Linux-playwright-*` caches.
-  - Browser runtime installation should use the workspace script so CI uses the repository-pinned Playwright dependency instead of resolving through `bunx`.
+  - The quality job timeout must leave room for browser tests and desktop build on `ubuntu-24.04`.
+  - CI browser tests should launch the GitHub runner's system Chrome through Playwright's Chromium channel rather than downloading a bundled Playwright browser during the workflow.
+  - Keep a fast `google-chrome --version` preflight before browser tests so missing runner Chrome fails clearly.
 - `Merge hotspots`:
-  - CI workflow runner, timeout, dependency install, and Playwright cache/install steps.
-  - Any upstream changes to browser test package scripts or Playwright version management.
+  - CI workflow runner, timeout, dependency install, and browser runtime steps.
+  - Vitest browser provider configuration and any upstream changes to browser test package scripts or Playwright version management.
 - `Verification`:
   - Run `bun fmt`, `bun lint`, and `bun typecheck`.
-  - Confirm PR CI completes `Install browser test runtime`, `Browser test`, and `Build desktop pipeline`.
+  - Confirm PR CI completes `Verify browser test runtime`, `Browser test`, and `Build desktop pipeline`.
 
 ### Tiled multi-thread view
 
