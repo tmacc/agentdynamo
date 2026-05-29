@@ -21,9 +21,43 @@
 - Count command: `git rev-list --count origin/upstream-sync-base..upstream/main`
 - Advance after successful sync: `git branch -f upstream-sync-base <integrated-upstream-tip>` followed by `git push origin upstream-sync-base`
 - Previous reconstructed marker: upstream commit equivalent to `327499aa` from the `2026-04-23` merge is `b0b7b38d` (`fix(server): detect localized Windows command errors (#2152)`).
-- Current integrated marker: upstream `d1e85c4e` (`feat: desktop Effect runtime port`) verified on branch `t3code/upstream-commit-review`.
+- Current integrated marker: upstream `83f0cc9e` (`Add Claude Opus 4.8 support (#2849)`) verified on branch `t3code/upstream-opus-support`.
 
 ## Upstream Sync Log
+
+### 2026-05-28 - Merge upstream `d1e85c4e..83f0cc9e`
+
+- `Status`: verified on integration branch `t3code/upstream-opus-support`.
+- `Range integrated`: `d1e85c4e8fdef82fbaded9539532b754080419e0..83f0cc9e31b8c38cc3ecd3c394f882ce9ee3714f`.
+- `Previous marker`: `d1e85c4e8fdef82fbaded9539532b754080419e0` was a direct ancestor of `upstream/main`.
+- `New marker after verification`: `83f0cc9e31b8c38cc3ecd3c394f882ce9ee3714f`.
+- `Integration method`: merged `upstream/main` into the current integration branch, preserving Dynamo fork-owned package metadata, release ownership, tiled/right-panel chat UI, saved prompts, team coordinator surfaces, and server-side team/task orchestration.
+- `Adopted upstream behavior`:
+  - Claude Opus 4.8 model support for Claude Code `v2.1.154+`, including `opus` alias promotion, 200k/1M context options, `ultracode`, and Claude SDK `0.3.154` package metadata.
+  - Instance-keyed composer provider option selection so reasoning/model traits are preserved across multiple configured provider instances.
+  - Effect beta.73 compatibility updates across desktop, server, provider runtimes, telemetry, process launching, shared git helpers, and generated lock/patch metadata.
+- `Fork behavior preserved`:
+  - Dynamo package versions, repository URLs, runtime branding/storage identity, release workflow behavior, and `@xterm/headless` server dependency.
+  - Tiled multi-thread view, right-panel docking, saved prompts, Agents/Plan surfaces, team coordinator grants, child worktree review/apply flow, team task projections, board behavior, and context handoffs.
+  - GitHub PR target remote selection, fork VCS compatibility helpers, and Dynamo telemetry environment fallbacks.
+- `Merge notes`:
+  - `bun.lock` was based on upstream's Effect beta.73 and Claude SDK lock entries, then patched back to Dynamo workspace versions and fork-only package dependencies.
+  - Web conflicts kept Dynamo's chat composer/view structure while applying upstream's instance-keyed `composerModelOptions` lookups and random-hex temporary worktree branch generation.
+  - Orchestration conflicts combine upstream Effect compatibility changes with Dynamo board/team-agent invariants, optional server settings, and team task event generation.
+- `Merge hotspots`:
+  - Claude provider model capability definitions and effort normalization.
+  - Composer model/provider option storage across provider instances.
+  - Orchestration decider/engine command event generation and team task invariants.
+  - Chat composer/view fork UI surfaces, especially tiled view, saved prompts, and right panels.
+  - Effect catalog/lockfile entries if upstream beta packages are not present in the local registry/cache.
+- `Verification`:
+  - `bun fmt`: passed.
+  - `bun lint`: passed with warnings only.
+  - `bun typecheck`: passed after installing the upstream Claude SDK update with `bun install --offline --ignore-scripts --safe-chain-skip-minimum-package-age`.
+  - Focused composer/model tests passed: `bun run test src/modelSelection.test.ts src/composerDraftStore.test.ts` from `apps/web`.
+  - Focused orchestration tests passed: `bun run test src/orchestration/decider.teamTasks.test.ts src/orchestration/decider.delete.test.ts src/orchestration/decider.projectScripts.test.ts src/orchestration/Layers/OrchestrationEngine.test.ts` from `apps/server`.
+  - Confirm Claude Opus 4.8 appears only for Claude Code `v2.1.154+`, `opus` aliases to `claude-opus-4-8`, and `ultracode` sends `effort: xhigh` plus `settings.ultracode`.
+  - Confirm no merge conflict markers remain and Dynamo fork UI/features listed above are still present.
 
 ### 2026-05-23 - Merge upstream `35721d9a..d1e85c4e`
 
@@ -184,6 +218,26 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Run `bun fmt`, `bun lint`, and `bun typecheck`.
   - Trigger a manual nightly or stable release workflow and confirm build jobs are not skipped after successful preflight.
   - Confirm a scheduled run with no changes still reports preflight/build/release as skipped.
+
+### CI browser runtime timeout guard
+
+- `Status`: active
+- `Area`: CI | GitHub Actions
+- `User-visible impact`: Pull request CI can run browser tests and desktop builds on GitHub-hosted runners after the fork moved away from Blacksmith runners.
+- `Why this patch exists`: The combined quality job reached `Install browser test runtime` after format, lint, typecheck, and unit tests, restored a stale Playwright browser cache, downloaded the newer Chromium bundle, then got stuck until the job timeout before browser tests or build could run.
+- `Key files`:
+  - `.github/workflows/ci.yml`
+  - `apps/web/vitest.browser.config.ts`
+- `Important invariants`:
+  - The quality job timeout must leave room for browser tests and desktop build on `ubuntu-24.04`.
+  - CI browser tests should launch the GitHub runner's system Chrome through Playwright's Chromium channel rather than downloading a bundled Playwright browser during the workflow.
+  - Keep a fast `google-chrome --version` preflight before browser tests so missing runner Chrome fails clearly.
+- `Merge hotspots`:
+  - CI workflow runner, timeout, dependency install, and browser runtime steps.
+  - Vitest browser provider configuration and any upstream changes to browser test package scripts or Playwright version management.
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Confirm PR CI completes `Verify browser test runtime`, `Browser test`, and `Build desktop pipeline`.
 
 ### Tiled multi-thread view
 

@@ -221,6 +221,7 @@ describe("OrchestrationEngine", () => {
       Layer.provide(ProjectionBoardCardRepositoryLive),
       Layer.provide(SqlitePersistenceMemory),
       Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(NodeServices.layer),
     );
 
     const runtime = ManagedRuntime.make(layer);

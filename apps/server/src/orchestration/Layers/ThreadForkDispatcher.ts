@@ -36,6 +36,11 @@ import { Effect, Layer, Option, Schema } from "effect";
 const serverCommandId = (tag: string): CommandId =>
   CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 
+const randomHex = (byteLength: number): string =>
+  Array.from(crypto.getRandomValues(new Uint8Array(byteLength)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+
 const FORK_WORKTREE_PATCH_MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
 
 function toForkThreadError(cause: unknown, fallbackMessage: string): OrchestrationForkThreadError {
@@ -462,7 +467,7 @@ const makeThreadForkDispatcher = Effect.gen(function* () {
             .createWorktree({
               cwd: sourceProject.value.workspaceRoot,
               refName: sourceSnapshot.headSha,
-              newRefName: buildTemporaryWorktreeBranchName(),
+              newRefName: buildTemporaryWorktreeBranchName(randomHex),
               path: null,
             })
             .pipe(

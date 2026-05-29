@@ -5,6 +5,9 @@ import { defineConfig, mergeConfig } from "vitest/config";
 import viteConfig from "./vite.config";
 
 const srcPath = fileURLToPath(new URL("./src", import.meta.url));
+const browserProvider = process.env.CI
+  ? playwright({ launchOptions: { channel: "chrome" } })
+  : playwright();
 
 export default mergeConfig(
   viteConfig,
@@ -23,7 +26,7 @@ export default mergeConfig(
       include: ["src/components/**/*.browser.tsx"],
       browser: {
         enabled: true,
-        provider: playwright(),
+        provider: browserProvider,
         instances: [{ browser: "chromium" }],
         headless: true,
         api: {

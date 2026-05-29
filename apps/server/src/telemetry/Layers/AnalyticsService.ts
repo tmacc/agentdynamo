@@ -55,19 +55,19 @@ const optionBooleanToUndefined = (value: Option.Option<boolean>) => Option.getOr
 const normalizePosthogHost = (value: string) => value.replace(/\/+$/, "");
 
 const makeAnalyticsService = Effect.gen(function* () {
-  const rawTelemetryConfig = yield* TelemetryEnvConfig.asEffect();
+  const telemetryConfig = yield* TelemetryEnvConfig;
   const posthogKey =
-    optionStringToNonEmpty(rawTelemetryConfig.dynamoPosthogKey) ??
-    optionStringToNonEmpty(rawTelemetryConfig.legacyPosthogKey) ??
+    optionStringToNonEmpty(telemetryConfig.dynamoPosthogKey) ??
+    optionStringToNonEmpty(telemetryConfig.legacyPosthogKey) ??
     DEFAULT_POSTHOG_KEY;
   const posthogHost = normalizePosthogHost(
-    optionStringToUndefined(rawTelemetryConfig.dynamoPosthogHost) ??
-      optionStringToUndefined(rawTelemetryConfig.legacyPosthogHost) ??
+    optionStringToUndefined(telemetryConfig.dynamoPosthogHost) ??
+      optionStringToUndefined(telemetryConfig.legacyPosthogHost) ??
       DEFAULT_POSTHOG_HOST,
   );
   const telemetryEnabled =
-    optionBooleanToUndefined(rawTelemetryConfig.dynamoEnabled) ??
-    optionBooleanToUndefined(rawTelemetryConfig.legacyEnabled) ??
+    optionBooleanToUndefined(telemetryConfig.dynamoEnabled) ??
+    optionBooleanToUndefined(telemetryConfig.legacyEnabled) ??
     true;
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig;
@@ -88,8 +88,8 @@ const makeAnalyticsService = Effect.gen(function* () {
         ];
 
         const next =
-          appended.length > rawTelemetryConfig.maxBufferedEvents
-            ? appended.slice(appended.length - rawTelemetryConfig.maxBufferedEvents)
+          appended.length > telemetryConfig.maxBufferedEvents
+            ? appended.slice(appended.length - telemetryConfig.maxBufferedEvents)
             : appended;
 
         return [
@@ -138,7 +138,7 @@ const makeAnalyticsService = Effect.gen(function* () {
         if (current.length === 0) {
           return [[] as ReadonlyArray<BufferedAnalyticsEvent>, current] as const;
         }
-        const nextBatch = current.slice(0, rawTelemetryConfig.flushBatchSize);
+        const nextBatch = current.slice(0, telemetryConfig.flushBatchSize);
         const remaining = current.slice(nextBatch.length);
         return [nextBatch, remaining] as const;
       });
