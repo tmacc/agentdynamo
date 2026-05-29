@@ -219,6 +219,25 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - Trigger a manual nightly or stable release workflow and confirm build jobs are not skipped after successful preflight.
   - Confirm a scheduled run with no changes still reports preflight/build/release as skipped.
 
+### CI browser runtime timeout guard
+
+- `Status`: active
+- `Area`: CI | GitHub Actions
+- `User-visible impact`: Pull request CI has enough time to finish browser runtime installation, browser tests, and desktop build on GitHub-hosted runners after the fork moved away from Blacksmith runners.
+- `Why this patch exists`: The combined quality job reached `Install browser test runtime` after format, lint, typecheck, and unit tests, restored a stale Playwright browser cache, downloaded the newer Chromium bundle, then hit the 10 minute job timeout before browser tests or build could run.
+- `Key files`:
+  - `.github/workflows/ci.yml`
+- `Important invariants`:
+  - The quality job timeout must leave room for Playwright browser installation plus browser tests and desktop build on `ubuntu-24.04`.
+  - Playwright browser cache keys should be tied to the installed Playwright package version and should not restore broad stale `Linux-playwright-*` caches.
+  - Browser runtime installation should use the workspace script so CI uses the repository-pinned Playwright dependency instead of resolving through `bunx`.
+- `Merge hotspots`:
+  - CI workflow runner, timeout, dependency install, and Playwright cache/install steps.
+  - Any upstream changes to browser test package scripts or Playwright version management.
+- `Verification`:
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Confirm PR CI completes `Install browser test runtime`, `Browser test`, and `Build desktop pipeline`.
+
 ### Tiled multi-thread view
 
 - `Status`: In progress on current feature branch.

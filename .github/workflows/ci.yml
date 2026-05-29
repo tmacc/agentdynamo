@@ -10,7 +10,7 @@ jobs:
   quality:
     name: Format, Lint, Typecheck, Test, Browser Test, Build
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -35,16 +35,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}-
 
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: |
+          PLAYWRIGHT_VERSION="$(node -p "require('./apps/web/node_modules/playwright/package.json').version")"
+          echo "version=${PLAYWRIGHT_VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Cache Playwright browsers
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile --ignore-scripts
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
 
       - name: Ensure Electron runtime is installed
         run: |
@@ -67,9 +71,7 @@ jobs:
         run: bun run test
 
       - name: Install browser test runtime
-        run: |
-          cd apps/web
-          bunx playwright install --with-deps chromium
+        run: bun run --cwd apps/web test:browser:install
 
       - name: Browser test
         run: bun run --cwd apps/web test:browser
