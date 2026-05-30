@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
@@ -18,7 +19,11 @@ function hasUsableElectronBinary() {
 
 if (!hasUsableElectronBinary()) {
   const electronPackageJsonPath = require.resolve("electron/package.json");
-  const installScriptPath = join(dirname(electronPackageJsonPath), "install.js");
+  const electronPackageDir = dirname(electronPackageJsonPath);
+  rmSync(join(electronPackageDir, "dist"), { recursive: true, force: true });
+  rmSync(join(electronPackageDir, "path.txt"), { force: true });
+
+  const installScriptPath = join(electronPackageDir, "install.js");
   const result = spawnSync(process.execPath, [installScriptPath], {
     env: process.env,
     stdio: "inherit",

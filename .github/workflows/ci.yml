@@ -39,12 +39,7 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Ensure Electron runtime is installed
-        run: |
-          if ! node -e "require('./apps/desktop/node_modules/electron')" >/dev/null 2>&1; then
-            rm -rf apps/desktop/node_modules/electron/dist apps/desktop/node_modules/electron/path.txt
-            bun apps/desktop/node_modules/electron/install.js
-          fi
-          node -e "require('./apps/desktop/node_modules/electron')"
+        run: node apps/desktop/scripts/ensure-electron-installed.mjs
 
       - name: Format
         run: bun run fmt:check

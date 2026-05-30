@@ -223,20 +223,24 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 - `Status`: active
 - `Area`: CI | GitHub Actions
-- `User-visible impact`: Pull request CI can run browser tests and desktop builds on GitHub-hosted runners after the fork moved away from Blacksmith runners.
+- `User-visible impact`: Pull request CI and nightly release preflight can run desktop tests, browser tests, and desktop builds on GitHub-hosted runners after the fork moved away from Blacksmith runners.
 - `Why this patch exists`: The combined quality job reached `Install browser test runtime` after format, lint, typecheck, and unit tests, restored a stale Playwright browser cache, downloaded the newer Chromium bundle, then got stuck until the job timeout before browser tests or build could run.
 - `Key files`:
   - `.github/workflows/ci.yml`
   - `apps/web/vitest.browser.config.ts`
+  - `apps/desktop/scripts/ensure-electron-installed.mjs`
 - `Important invariants`:
   - The quality job timeout must leave room for browser tests and desktop build on `ubuntu-24.04`.
   - CI browser tests should launch the GitHub runner's system Chrome through Playwright's Chromium channel rather than downloading a bundled Playwright browser during the workflow.
   - Keep a fast `google-chrome --version` preflight before browser tests so missing runner Chrome fails clearly.
+  - Desktop test preflight must repair installs created with `bun install --ignore-scripts` by clearing Electron's stale `dist` and `path.txt` before rerunning Electron's installer.
 - `Merge hotspots`:
   - CI workflow runner, timeout, dependency install, and browser runtime steps.
+  - Release workflow preflight if it starts bypassing package `test` scripts or Electron install repair.
   - Vitest browser provider configuration and any upstream changes to browser test package scripts or Playwright version management.
 - `Verification`:
   - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+  - Run `bun run test`.
   - Confirm PR CI completes `Verify browser test runtime`, `Browser test`, and `Build desktop pipeline`.
 
 ### Tiled multi-thread view
