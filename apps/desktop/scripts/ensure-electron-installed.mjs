@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
@@ -15,6 +15,26 @@ const electronPackageJsonPath = require.resolve("electron/package.json");
 const electronPackageDir = dirname(electronPackageJsonPath);
 const electronDistDir = join(electronPackageDir, "dist");
 const electronPathTxtPath = join(electronPackageDir, "path.txt");
+const electronPlatformPath = getElectronPlatformPath();
+const electronExecutablePath = join(electronDistDir, electronPlatformPath);
+
+function getElectronPlatformPath() {
+  const platform = process.env.npm_config_platform || process.platform;
+
+  switch (platform) {
+    case "mas":
+    case "darwin":
+      return "Electron.app/Contents/MacOS/Electron";
+    case "freebsd":
+    case "openbsd":
+    case "linux":
+      return "electron";
+    case "win32":
+      return "electron.exe";
+    default:
+      throw new Error(`Electron builds are not available on platform: ${platform}`);
+  }
+}
 
 function getElectronBinaryStatus() {
   try {
@@ -38,6 +58,16 @@ function getElectronBinaryStatus() {
 
 function resetElectronRequireCache() {
   delete require.cache[require.resolve("electron")];
+}
+
+function repairElectronPathFileFromExtractedBinary() {
+  if (existsSync(electronPathTxtPath) || !existsSync(electronExecutablePath)) {
+    return false;
+  }
+
+  writeFileSync(electronPathTxtPath, electronPlatformPath);
+  resetElectronRequireCache();
+  return true;
 }
 
 function createElectronInstallEnv() {
@@ -65,6 +95,8 @@ function formatElectronDiagnostics(status) {
     `platform=${process.platform}`,
     `arch=${process.arch}`,
     `distExists=${existsSync(electronDistDir)}`,
+    `executablePath=${electronExecutablePath}`,
+    `executableExists=${existsSync(electronExecutablePath)}`,
     `pathTxt=${pathTxt || "<empty>"}`,
     `resolvedPath=${status.electronPath ?? "<unresolved>"}`,
     `skipDownloadEnv=${skipEnv.length > 0 ? skipEnv.join(",") : "<unset>"}`,
@@ -73,6 +105,12 @@ function formatElectronDiagnostics(status) {
 }
 
 let electronStatus = getElectronBinaryStatus();
+
+if (!electronStatus.ok) {
+  if (repairElectronPathFileFromExtractedBinary()) {
+    electronStatus = getElectronBinaryStatus();
+  }
+}
 
 if (!electronStatus.ok) {
   rmSync(electronDistDir, { recursive: true, force: true });
@@ -103,6 +141,7 @@ if (!electronStatus.ok) {
   }
 
   resetElectronRequireCache();
+  repairElectronPathFileFromExtractedBinary();
   electronStatus = getElectronBinaryStatus();
 }
 
