@@ -38,9 +38,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Ensure Electron runtime is installed
-        run: node apps/desktop/scripts/ensure-electron-installed.mjs
-
       - name: Format
         run: bun run fmt:check
 

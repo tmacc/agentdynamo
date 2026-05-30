@@ -79,7 +79,7 @@
   - Upstream migration `030_ProjectionThreadShellArchiveIndexes` is registered as Dynamo migration `056_ProjectionThreadShellArchiveIndexes` because fork-local migrations already occupy the historical upstream id range.
   - The desktop Effect port keeps Dynamo app names, bundle ids, Linux desktop metadata, home directory names, commit metadata fields, and user-data migration fallbacks.
   - The new sync desktop IPC helper accepts payloads so saved-prompt storage remains synchronous for renderer boot hydration without changing web store semantics.
-  - Desktop tests run an Electron binary preflight before Vitest so CI installs that skipped package scripts recover by invoking Electron's installer, or by reconstructing Electron's missing `path.txt` marker from an extracted binary, instead of failing during module import.
+  - Desktop Vitest runs mock Electron's runtime module so unit tests do not depend on GitHub-hosted runners downloading a usable Electron binary during quality preflight.
   - TanStack route tree was regenerated after preserving Dynamo fork routes and upstream diagnostics/keybindings/providers settings routes.
 - `Merge hotspots`:
   - Desktop Effect runtime, preload bridge, IPC method schemas, and Electron service layers.
@@ -229,12 +229,14 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
   - `.github/workflows/ci.yml`
   - `apps/web/vitest.browser.config.ts`
   - `apps/desktop/scripts/ensure-electron-installed.mjs`
+  - `apps/desktop/vitest.config.ts`
+  - `apps/desktop/src/test/setup.ts`
 - `Important invariants`:
   - The quality job timeout must leave room for browser tests and desktop build on `ubuntu-24.04`.
   - CI browser tests should launch the GitHub runner's system Chrome through Playwright's Chromium channel rather than downloading a bundled Playwright browser during the workflow.
   - Keep a fast `google-chrome --version` preflight before browser tests so missing runner Chrome fails clearly.
-  - Desktop test preflight must repair installs created with `bun install --ignore-scripts` by clearing Electron's stale `dist` and `path.txt` before rerunning Electron's installer.
-  - Desktop test preflight must override Electron binary-download skip env for its installer child process, repair a missing Electron `path.txt` when `dist/electron` exists, and print package/path diagnostics if the binary is still unavailable.
+  - Desktop unit tests must not require a real Electron binary; Vitest should provide a stable Electron module mock for tests that import desktop main-process modules.
+  - Electron binary repair remains available for launch/build paths, but CI quality preflight should not run it before format, lint, typecheck, or unit tests.
 - `Merge hotspots`:
   - CI workflow runner, timeout, dependency install, and browser runtime steps.
   - Release workflow preflight if it starts bypassing package `test` scripts or Electron install repair.
