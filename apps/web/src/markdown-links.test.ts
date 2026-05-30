@@ -47,6 +47,18 @@ describe("resolveMarkdownFileLinkTarget", () => {
     );
   });
 
+  it("does not resolve directory-looking relative paths", () => {
+    expect(
+      resolveMarkdownFileLinkTarget("AgentDynamo2/installer/cache", "/Users/example/project"),
+    ).toBeNull();
+  });
+
+  it("resolves extensionless relative paths when they include a line suffix", () => {
+    expect(resolveMarkdownFileLinkTarget("scripts/install:42", "/Users/example/project")).toBe(
+      "/Users/example/project/scripts/install:42",
+    );
+  });
+
   it("does not treat filename line references as external schemes", () => {
     expect(resolveMarkdownFileLinkTarget("script.ts:10", "/Users/example/project")).toBe(
       "/Users/example/project/script.ts:10",

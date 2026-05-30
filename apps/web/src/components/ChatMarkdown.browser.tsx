@@ -102,6 +102,21 @@ describe("ChatMarkdown", () => {
     }
   });
 
+  it("does not auto-link directory-looking relative paths in assistant prose", async () => {
+    const screen = await render(
+      <ChatMarkdown
+        text="CI cache lives at `AgentDynamo2/installer/cache`; run `AgentDynamo2/install` to repair it."
+        cwd="/repo/project"
+      />,
+    );
+
+    try {
+      expect([...document.querySelectorAll("a")].map((link) => link.textContent)).toEqual([]);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("keeps line anchors working after rewriting file uri hrefs", async () => {
     const filePath = "/repo/project/src/utils/permissions/PermissionRule.ts";
     const screen = await render(
