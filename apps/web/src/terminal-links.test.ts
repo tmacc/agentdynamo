@@ -80,6 +80,24 @@ describe("extractTerminalLinks", () => {
       },
     ]);
   });
+
+  it("does not link directory-looking relative paths in prose", () => {
+    const line = "Cache path AgentDynamo2/installer/cache and command AgentDynamo2/install.";
+    expect(extractTerminalLinks(line)).toEqual([]);
+  });
+
+  it("links extensionless relative paths only when they include a line suffix", () => {
+    const line = "See scripts/install:42 for the entrypoint.";
+    const path = "scripts/install:42";
+    expect(extractTerminalLinks(line)).toEqual([
+      {
+        kind: "path",
+        text: path,
+        start: line.indexOf(path),
+        end: line.indexOf(path) + path.length,
+      },
+    ]);
+  });
 });
 
 describe("collectWrappedTerminalLinkLine", () => {

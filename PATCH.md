@@ -178,6 +178,28 @@ As of merge commit `ed85e9ce` (`Merge upstream/main into t3code/1bed190b`):
 
 ## Fork Feature Inventory
 
+### Chat markdown source-file linkification guard
+
+- `Status`: active
+- `Area`: web | chat markdown rendering
+- `User-visible impact`: Chat prose only turns source-file-shaped paths into editor links, so directory-like fragments such as `AgentDynamo2/installer/cache` or `AgentDynamo2/install` remain plain inline text.
+- `Why this patch exists`: The markdown auto-linker is meant to make generated references to repository files easy to open in an editor. A permissive path matcher also linked arbitrary slash-containing prose and CI cache/install directory names, creating misleading file chips.
+- `Key files`:
+  - `apps/web/src/terminal-links.ts`
+  - `apps/web/src/markdown-links.ts`
+  - `apps/web/src/components/ChatMarkdown.tsx`
+- `Important invariants`:
+  - Bare relative slash paths must look file-like by ending in an extension or an explicit line/column suffix.
+  - Path matches must not start in the middle of another word/path token.
+  - Existing editor links for normal source paths such as `apps/web/src/ChatMarkdown.tsx:42`, file URI markdown links, and extensionless files with line suffixes must continue to work.
+- `Merge hotspots`:
+  - Terminal path extraction regexes and markdown auto-linking logic.
+  - Chat markdown file link rendering and tooltip labels.
+- `Verification`:
+  - Run `bun run test src/terminal-links.test.ts src/markdown-links.test.ts` in `apps/web`.
+  - Run `bun run test:browser src/components/ChatMarkdown.browser.tsx` in `apps/web`.
+  - Run `bun fmt`, `bun lint`, and `bun typecheck`.
+
 ### Codex app-server priority service tier compatibility
 
 - `Status`: active

@@ -38,7 +38,7 @@ export interface WrappedTerminalLinkLine {
 
 const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/g;
 const FILE_PATH_PATTERN =
-  /(?:~\/|\.{1,2}\/|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+(?::\d+){0,2}/g;
+  /(?:~\/|\.{1,2}\/|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\/[A-Za-z0-9._-]+(?:\.[A-Za-z0-9_-]+|(?=:\d))(?::\d+){0,2}/g;
 const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/;
 
 function trimClosingDelimiters(value: string): string {
@@ -64,6 +64,12 @@ function overlaps(a: { start: number; end: number }, b: { start: number; end: nu
   return a.start < b.end && b.start < a.end;
 }
 
+function hasPathStartBoundary(line: string, start: number): boolean {
+  if (start <= 0) return true;
+  const previous = line[start - 1];
+  return previous === undefined || !/[A-Za-z0-9._~-]/.test(previous);
+}
+
 function collectMatches(
   line: string,
   kind: TerminalLinkKind,
@@ -81,6 +87,7 @@ function collectMatches(
     const trimmed = trimClosingDelimiters(raw);
     if (trimmed.length === 0) continue;
     if (kind === "path" && /^https?:\/\//i.test(trimmed)) continue;
+    if (kind === "path" && !hasPathStartBoundary(line, start)) continue;
 
     const candidate: TerminalLinkMatch = {
       kind,
