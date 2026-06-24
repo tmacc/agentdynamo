@@ -137,11 +137,13 @@ function formatOpenCodeProbeError(input: {
 }
 
 function titleCaseSlug(value: string): string {
-  return value
-    .split(/[-_/]+/)
-    .filter((segment) => segment.length > 0)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
+  const segments: Array<string> = [];
+  for (const segment of value.split(/[-_/]+/)) {
+    if (segment.length > 0) {
+      segments.push(segment.charAt(0).toUpperCase() + segment.slice(1));
+    }
+  }
+  return segments.join(" ");
 }
 
 function inferDefaultVariant(
@@ -299,9 +301,10 @@ export const makePendingOpenCodeProvider = (
 export const checkOpenCodeProviderStatus = Effect.fn("checkOpenCodeProviderStatus")(function* (
   openCodeSettings: OpenCodeSettings,
   cwd: string,
-  environment: NodeJS.ProcessEnv = process.env,
+  environment?: NodeJS.ProcessEnv,
 ): Effect.fn.Return<ServerProviderDraft, never, OpenCodeRuntime> {
   const openCodeRuntime = yield* OpenCodeRuntime;
+  const resolvedEnvironment = environment ?? process.env;
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const customModels = openCodeSettings.customModels;
   const isExternalServer = openCodeSettings.serverUrl.trim().length > 0;
@@ -362,7 +365,7 @@ export const checkOpenCodeProviderStatus = Effect.fn("checkOpenCodeProviderStatu
         .runOpenCodeCommand({
           binaryPath: openCodeSettings.binaryPath,
           args: ["--version"],
-          environment,
+          environment: resolvedEnvironment,
         })
         .pipe(
           Effect.mapError(
@@ -408,35 +411,25 @@ export const checkOpenCodeProviderStatus = Effect.fn("checkOpenCodeProviderStatu
   const inventoryExit = yield* Effect.exit(
     Effect.scoped(
       Effect.gen(function* () {
-        const server = yield* openCodeRuntime
-          .connectToOpenCodeServer({
-            binaryPath: openCodeSettings.binaryPath,
-            serverUrl: openCodeSettings.serverUrl,
-            environment,
-          })
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new OpenCodeProbeError({ cause, detail: openCodeRuntimeErrorDetail(cause) }),
-            ),
-          );
-        return yield* openCodeRuntime
-          .loadOpenCodeInventory(
-            openCodeRuntime.createOpenCodeSdkClient({
-              baseUrl: server.url,
-              directory: cwd,
-              ...(isExternalServer && openCodeSettings.serverPassword
-                ? { serverPassword: openCodeSettings.serverPassword }
-                : {}),
-            }),
-          )
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new OpenCodeProbeError({ cause, detail: openCodeRuntimeErrorDetail(cause) }),
-            ),
-          );
-      }),
+        const server = yield* openCodeRuntime.connectToOpenCodeServer({
+          binaryPath: openCodeSettings.binaryPath,
+          serverUrl: openCodeSettings.serverUrl,
+          environment: resolvedEnvironment,
+        });
+        return yield* openCodeRuntime.loadOpenCodeInventory(
+          openCodeRuntime.createOpenCodeSdkClient({
+            baseUrl: server.url,
+            directory: cwd,
+            ...(isExternalServer && openCodeSettings.serverPassword
+              ? { serverPassword: openCodeSettings.serverPassword }
+              : {}),
+          }),
+        );
+      }).pipe(
+        Effect.mapError(
+          (cause) => new OpenCodeProbeError({ cause, detail: openCodeRuntimeErrorDetail(cause) }),
+        ),
+      ),
     ),
   );
   if (inventoryExit._tag === "Failure") {

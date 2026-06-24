@@ -5,7 +5,7 @@ import {
   type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
-import { scopeThreadRef } from "@t3tools/client-runtime";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   ArchiveIcon,
   ArrowRightIcon,

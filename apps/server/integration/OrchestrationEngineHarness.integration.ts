@@ -1,12 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import { execFileSync } from "node:child_process";
+import * as NodeChildProcess from "node:child_process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ApprovalRequestId,
   CodexSettings,
   ProviderDriverKind,
-  TeamCoordinatorGrantId,
   type OrchestrationEvent,
   type OrchestrationThread,
 } from "@t3tools/contracts";
@@ -23,8 +22,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
-import { CheckpointStoreLive } from "../src/checkpointing/Layers/CheckpointStore.ts";
-import { CheckpointStore } from "../src/checkpointing/Services/CheckpointStore.ts";
+import * as CheckpointStore from "../src/checkpointing/CheckpointStore.ts";
 import { TextGeneration, type TextGenerationShape } from "../src/textGeneration/TextGeneration.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../src/persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../src/persistence/Layers/OrchestrationEventStore.ts";
@@ -36,6 +34,7 @@ import { ProjectionCheckpointRepository } from "../src/persistence/Services/Proj
 import { ProjectionPendingApprovalRepository } from "../src/persistence/Services/ProjectionPendingApprovals.ts";
 import { makeAdapterRegistryMock } from "../src/provider/testUtils/providerAdapterRegistryMock.ts";
 import { ProviderAdapterRegistry } from "../src/provider/Services/ProviderAdapterRegistry.ts";
+import { makeProviderRegistryLayer } from "../src/provider/testUtils/providerRegistryMock.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
 import { ServerSettingsService } from "../src/serverSettings.ts";
 import { makeProviderServiceLive } from "../src/provider/Layers/ProviderService.ts";
@@ -47,7 +46,7 @@ import {
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { CheckpointReactorLive } from "../src/orchestration/Layers/CheckpointReactor.ts";
-import { RepositoryIdentityResolverLive } from "../src/project/Layers/RepositoryIdentityResolver.ts";
+import * as RepositoryIdentityResolver from "../src/project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "../src/orchestration/Layers/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "../src/orchestration/Layers/ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "../src/orchestration/Layers/ProjectionSnapshotQuery.ts";
@@ -72,20 +71,18 @@ import {
   type TestProviderAdapterHarness,
 } from "./TestProviderAdapter.integration.ts";
 import { deriveServerPaths, ServerConfig } from "../src/config.ts";
-import { TeamCoordinatorAccess } from "../src/team/Services/TeamCoordinatorAccess.ts";
-import { TeamTaskReactor } from "../src/team/Services/TeamTaskReactor.ts";
-import { WorkspaceEntriesLive } from "../src/workspace/Layers/WorkspaceEntries.ts";
-import { WorkspacePathsLive } from "../src/workspace/Layers/WorkspacePaths.ts";
+import * as WorkspaceEntries from "../src/workspace/WorkspaceEntries.ts";
+import * as WorkspacePaths from "../src/workspace/WorkspacePaths.ts";
 import * as VcsDriverRegistry from "../src/vcs/VcsDriverRegistry.ts";
-import * as GitVcsDriver from "../src/vcs/GitVcsDriver.ts";
-import * as VcsProcess from "../src/vcs/VcsProcess.ts";
 import { VcsStatusBroadcaster } from "../src/vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../src/git/GitWorkflowService.ts";
+import * as VcsProcess from "../src/vcs/VcsProcess.ts";
+import * as AgentAwarenessRelay from "../src/relay/AgentAwarenessRelay.ts";
 
 const decodeCodexSettings = Schema.decodeEffect(CodexSettings);
 
 function runGit(cwd: string, args: ReadonlyArray<string>) {
-  return execFileSync("git", args, {
+  return NodeChildProcess.execFileSync("git", args, {
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
     encoding: "utf8",
@@ -164,7 +161,7 @@ class OrchestrationHarnessRuntimeError extends Schema.TaggedErrorClass<Orchestra
   "OrchestrationHarnessRuntimeError",
   {
     operation: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {}
 
@@ -182,7 +179,7 @@ export interface OrchestrationIntegrationHarness {
   readonly engine: OrchestrationEngineShape;
   readonly snapshotQuery: ProjectionSnapshotQuery["Service"];
   readonly providerService: ProviderService["Service"];
-  readonly checkpointStore: CheckpointStore["Service"];
+  readonly checkpointStore: CheckpointStore.CheckpointStore["Service"];
   readonly checkpointRepository: ProjectionCheckpointRepository["Service"];
   readonly pendingApprovalRepository: ProjectionPendingApprovalRepository["Service"];
   readonly waitForThread: (
@@ -296,18 +293,9 @@ export const makeOrchestrationIntegrationHarness = (
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(providerEventLoggersLayer),
         );
+    const providerRegistryLayer = makeProviderRegistryLayer();
 
-    const gitVcsDriverLayer = GitVcsDriver.layer.pipe(
-      Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
-      Layer.provideMerge(NodeServices.layer),
-    );
-    const vcsDriverRegistryLayer = VcsDriverRegistry.layer.pipe(
-      Layer.provideMerge(GitVcsDriver.vcsLayer),
-      Layer.provideMerge(gitVcsDriverLayer),
-      Layer.provideMerge(VcsProcess.layer),
-      Layer.provideMerge(NodeServices.layer),
-    );
-    const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(vcsDriverRegistryLayer));
+    const checkpointStoreLayer = CheckpointStore.layer.pipe(Layer.provide(VcsDriverRegistry.layer));
     const projectionSnapshotQueryLayer = OrchestrationProjectionSnapshotQueryLive;
     const runtimeServicesLayer = Layer.mergeAll(
       projectionSnapshotQueryLayer,
@@ -334,27 +322,10 @@ export const makeOrchestrationIntegrationHarness = (
       generateBranchName: () => Effect.succeed({ branch: "update" }),
       generateThreadTitle: () => Effect.succeed({ title: "New thread" }),
     } as unknown as TextGenerationShape);
-    const teamCoordinatorAccessLayer = Layer.succeed(TeamCoordinatorAccess, {
-      issueGrant: (input) =>
-        Effect.succeed({
-          grantId: TeamCoordinatorGrantId.make("team-grant:test"),
-          parentThreadId: input.parentThreadId,
-          provider: input.provider,
-          accessToken: "dynamo_team_test_token",
-          createdAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        }),
-      authenticate: () => Effect.succeed(Option.none()),
-      revokeForThread: () => Effect.void,
-      revokeGrant: () => Effect.void,
-      revokeOtherGrantsForThread: () => Effect.void,
-    } as typeof TeamCoordinatorAccess.Service);
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(gitWorkflowLayer),
-      Layer.provideMerge(gitVcsDriverLayer),
       Layer.provideMerge(textGenerationLayer),
-      Layer.provideMerge(teamCoordinatorAccessLayer),
       Layer.provideMerge(serverSettingsLayer),
     );
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
@@ -376,13 +347,13 @@ export const makeOrchestrationIntegrationHarness = (
         }),
       ),
       Layer.provideMerge(
-        WorkspaceEntriesLive.pipe(
-          Layer.provide(WorkspacePathsLive),
-          Layer.provideMerge(vcsDriverRegistryLayer),
+        WorkspaceEntries.layer.pipe(
+          Layer.provide(WorkspacePaths.layer),
+          Layer.provideMerge(VcsDriverRegistry.layer),
           Layer.provide(NodeServices.layer),
         ),
       ),
-      Layer.provideMerge(WorkspacePathsLive),
+      Layer.provideMerge(WorkspacePaths.layer),
       Layer.provideMerge(VcsProcess.layer),
     );
     const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
@@ -390,28 +361,30 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(providerCommandReactorLayer),
       Layer.provideMerge(checkpointReactorLayer),
       Layer.provideMerge(
-        Layer.succeed(TeamTaskReactor, {
-          start: Effect.void,
-        }),
-      ),
-      Layer.provideMerge(
         Layer.succeed(ThreadDeletionReactor, {
           start: () => Effect.void,
           drain: Effect.void,
+        }),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(AgentAwarenessRelay.AgentAwarenessRelay, {
+          publishThread: () => Effect.void,
+          start: () => Effect.void,
         }),
       ),
     );
     const layer = Layer.empty.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(orchestrationReactorLayer),
+      Layer.provideMerge(providerRegistryLayer),
       Layer.provide(persistenceLayer),
-      Layer.provideMerge(RepositoryIdentityResolverLive),
+      Layer.provideMerge(RepositoryIdentityResolver.layer),
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
     );
 
-    const runtime = ManagedRuntime.make(layer as any);
+    const runtime = ManagedRuntime.make(layer);
     const engine = yield* tryRuntimePromise("load OrchestrationEngine service", () =>
       runtime.runPromise(Effect.service(OrchestrationEngineService)),
     ).pipe(Effect.orDie);
@@ -425,7 +398,7 @@ export const makeOrchestrationIntegrationHarness = (
       runtime.runPromise(Effect.service(ProviderService)),
     ).pipe(Effect.orDie);
     const checkpointStore = yield* tryRuntimePromise("load CheckpointStore service", () =>
-      runtime.runPromise(Effect.service(CheckpointStore)),
+      runtime.runPromise(Effect.service(CheckpointStore.CheckpointStore)),
     ).pipe(Effect.orDie);
     const checkpointRepository = yield* tryRuntimePromise(
       "load ProjectionCheckpointRepository service",

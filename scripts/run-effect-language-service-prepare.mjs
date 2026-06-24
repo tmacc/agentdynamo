@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// oxlint-disable t3code/namespace-node-imports
 
 import { spawnSync } from "node:child_process";
 

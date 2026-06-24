@@ -5,10 +5,8 @@ import {
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
   type ResolvedKeybindingsConfig,
   THREAD_JUMP_KEYBINDING_COMMANDS,
-  TILE_FOCUS_INDEX_KEYBINDING_COMMANDS,
   type ModelPickerJumpKeybindingCommand,
   type ThreadJumpKeybindingCommand,
-  type TileFocusIndexKeybindingCommand,
 } from "@t3tools/contracts";
 import { isMacPlatform } from "./lib/utils";
 
@@ -32,7 +30,8 @@ export interface ShortcutModifierStateLike {
 export interface ShortcutMatchContext {
   terminalFocus: boolean;
   terminalOpen: boolean;
-  tileMode: boolean;
+  previewFocus: boolean;
+  previewOpen: boolean;
   [key: string]: boolean;
 }
 
@@ -73,6 +72,10 @@ function normalizeEventKey(key: string): string {
 
 function resolveEventKeys(event: ShortcutEventLike): Set<string> {
   const keys = new Set([normalizeEventKey(event.key)]);
+  const letterCode = event.code?.match(/^Key([A-Z])$/)?.[1];
+  if (letterCode) {
+    keys.add(letterCode.toLowerCase());
+  }
   const aliases = event.code ? EVENT_CODE_KEY_ALIASES[event.code] : undefined;
   if (!aliases) return keys;
 
@@ -115,7 +118,8 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
   return {
     terminalFocus: false,
     terminalOpen: false,
-    tileMode: false,
+    previewFocus: false,
+    previewOpen: false,
     ...options?.context,
   };
 }
@@ -304,19 +308,6 @@ export function shouldShowThreadJumpHintsForModifiers(
   return false;
 }
 
-export function tileFocusIndexCommandForIndex(
-  index: number,
-): TileFocusIndexKeybindingCommand | null {
-  return TILE_FOCUS_INDEX_KEYBINDING_COMMANDS[index] ?? null;
-}
-
-export function tileFocusIndexFromCommand(command: string): number | null {
-  const index = TILE_FOCUS_INDEX_KEYBINDING_COMMANDS.indexOf(
-    command as TileFocusIndexKeybindingCommand,
-  );
-  return index === -1 ? null : index;
-}
-
 export function modelPickerJumpCommandForIndex(
   index: number,
 ): ModelPickerJumpKeybindingCommand | null {
@@ -372,6 +363,14 @@ export function isTerminalSplitShortcut(
   return matchesCommandShortcut(event, keybindings, "terminal.split", options);
 }
 
+export function isTerminalSplitVerticalShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "terminal.splitVertical", options);
+}
+
 export function isTerminalNewShortcut(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,
@@ -394,6 +393,30 @@ export function isDiffToggleShortcut(
   options?: ShortcutMatchOptions,
 ): boolean {
   return matchesCommandShortcut(event, keybindings, "diff.toggle", options);
+}
+
+export function isPreviewToggleShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "preview.toggle", options);
+}
+
+export function isPreviewRefreshShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "preview.refresh", options);
+}
+
+export function isPreviewFocusUrlShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "preview.focusUrl", options);
 }
 
 export function isChatNewShortcut(

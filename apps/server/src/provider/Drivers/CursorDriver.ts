@@ -1,10 +1,9 @@
 /**
  * CursorDriver — `ProviderDriver` for the Cursor Agent (`agent`) runtime.
  *
- * Cursor exposes an ACP-based CLI. The driver is still a plain value, but
- * its snapshot uses `makeManagedServerProvider`'s optional `enrichSnapshot`
- * hook to run the slow ACP model-capability probe in the background without
- * blocking the initial `ready`-state publish.
+ * Cursor exposes an ACP-based CLI. Model catalog and capability refreshes
+ * happen during the managed provider status check via Cursor's
+ * `list_available_models` extension method.
  *
  * Text generation is supported via the ACP runtime — `makeCursorTextGeneration`
  * drives `runtime.prompt` with a structured-output schema and collects the
@@ -19,11 +18,11 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { ServerConfig } from "../../config.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { makeCursorTextGeneration } from "../../textGeneration/CursorTextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeCursorAdapter } from "../Layers/CursorAdapter.ts";
@@ -46,6 +45,11 @@ import {
   makeStaticProviderMaintenanceResolver,
   resolveProviderMaintenanceCapabilitiesEffect,
 } from "../providerMaintenance.ts";
+import {
+  haveProviderSnapshotSettingsChanged,
+  makeProviderSnapshotSettingsSource,
+  type ProviderSnapshotSettings,
+} from "../providerUpdateSettings.ts";
 const decodeCursorSettings = Schema.decodeSync(CursorSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("cursor");
@@ -67,7 +71,8 @@ export type CursorDriverEnv =
   | HttpClient.HttpClient
   | Path.Path
   | ProviderEventLoggers
-  | ServerConfig;
+  | ServerConfig
+  | ServerSettingsService;
 
 const withInstanceIdentity =
   (input: {
@@ -99,6 +104,7 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const httpClient = yield* HttpClient.HttpClient;
+      const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const continuationIdentity = defaultProviderContinuationIdentity({
@@ -131,28 +137,27 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
         Effect.provideService(Path.Path, path),
       );
 
-      const snapshot = yield* makeManagedServerProvider<CursorSettings>({
+      const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
+      const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<CursorSettings>>({
         maintenanceCapabilities,
-        getSettings: Effect.succeed(effectiveConfig),
-        streamSettings: Stream.never,
-        haveSettingsChanged: () => false,
+        getSettings: snapshotSettings.getSettings,
+        streamSettings: snapshotSettings.streamSettings,
+        haveSettingsChanged: haveProviderSnapshotSettingsChanged,
         initialSnapshot: (settings) =>
-          buildInitialCursorProviderSnapshot(settings).pipe(Effect.map(stampIdentity)),
+          buildInitialCursorProviderSnapshot(settings.provider).pipe(Effect.map(stampIdentity)),
         checkProvider,
-        // Preserve the background ACP model-capability probe that used to
-        // live on `CursorProviderLive`. Only fires when the snapshot reports
-        // an authenticated, enabled provider with at least one non-custom
-        // model whose capabilities haven't been captured yet.
+        // Model catalog and capabilities come exclusively from Cursor's
+        // list_available_models extension method during provider checks.
         enrichSnapshot: ({ settings, snapshot: currentSnapshot, publishSnapshot }) =>
           enrichCursorSnapshot({
-            settings,
-            environment: processEnv,
+            settings: settings.provider,
             snapshot: currentSnapshot,
             maintenanceCapabilities,
+            enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
             publishSnapshot,
             stampIdentity,
             httpClient,
-          }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+          }),
         refreshInterval: SNAPSHOT_REFRESH_INTERVAL,
       }).pipe(
         Effect.mapError(

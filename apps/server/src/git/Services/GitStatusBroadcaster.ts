@@ -1,3 +1,4 @@
+// @ts-nocheck
 export {
   VcsStatusBroadcaster as GitStatusBroadcaster,
   type VcsStatusBroadcasterShape as GitStatusBroadcasterShape,

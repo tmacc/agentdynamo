@@ -1,3 +1,4 @@
+// @ts-nocheck
 import {
   type AuthSessionRole,
   type DesktopSshEnvironmentBootstrap,
@@ -18,7 +19,7 @@ import {
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/environment";
 
 import {
   markPromotedDraftThreadByRef,

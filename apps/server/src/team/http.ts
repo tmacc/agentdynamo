@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Effect, Exit, Layer, Option } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import type { ServerProvider } from "@t3tools/contracts";

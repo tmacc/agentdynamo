@@ -1,4 +1,4 @@
-import { parseScopedThreadKey } from "@t3tools/client-runtime";
+import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { useRouter } from "@tanstack/react-router";
 import { LayoutGridIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";

@@ -14,6 +14,7 @@ import type {
 } from "@t3tools/contracts";
 
 export const SECTION_LABELS: Record<ProjectIntelligenceSectionId, string> = {
+  "code-stats": "Code stats",
   "context-inspector": "Context",
   providers: "Providers",
   runtime: "Runtime",
@@ -21,6 +22,7 @@ export const SECTION_LABELS: Record<ProjectIntelligenceSectionId, string> = {
 };
 
 export const SECTION_DESCRIPTIONS: Record<ProjectIntelligenceSectionId, string> = {
+  "code-stats": "Authored-source files and approximate code volume.",
   "context-inspector":
     "What is loaded into the model's context, and what you can toggle off to reclaim tokens.",
   providers: "Provider health, authentication, models, and team capabilities.",
@@ -50,8 +52,14 @@ export const OWNER_LABELS: Partial<Record<ProjectIntelligenceOwner, string>> = {
 };
 
 export const SURFACE_KIND_LABELS: Record<ProjectIntelligenceSurfaceKind, string> = {
+  agent: "Agent",
+  env: "Environment",
+  file: "File",
   instruction: "Instruction",
   skill: "Skill",
+  setting: "Setting",
+  tool: "Tool",
+  provider: "Provider",
   "slash-command": "Slash command",
   "custom-agent": "Custom agent",
   hook: "Hook",
@@ -67,8 +75,14 @@ export const SURFACE_KIND_LABELS: Record<ProjectIntelligenceSurfaceKind, string>
 };
 
 export const SURFACE_KIND_PLURALS: Record<ProjectIntelligenceSurfaceKind, string> = {
+  agent: "Agents",
+  env: "Environment",
+  file: "Files",
   instruction: "Instructions",
   skill: "Skills",
+  setting: "Settings",
+  tool: "Tools",
+  provider: "Providers",
   "slash-command": "Slash commands",
   "custom-agent": "Custom agents",
   hook: "Hooks",
@@ -85,6 +99,8 @@ export const SURFACE_KIND_PLURALS: Record<ProjectIntelligenceSurfaceKind, string
 
 export const ACTIVATION_LABELS: Record<ProjectIntelligenceActivation, string> = {
   "always-loaded": "Always loaded",
+  available: "Available",
+  disabled: "Disabled",
   "on-command": "On command",
   "on-skill-match": "On skill match",
   "on-agent-invoke": "On agent invoke",
@@ -100,6 +116,7 @@ export const SCOPE_LABELS: Record<ProjectIntelligenceScope, string> = {
   project: "Project",
   user: "User",
   system: "System",
+  global: "Global",
   "provider-runtime": "Provider runtime",
 };
 
@@ -231,8 +248,14 @@ export const INSPECTOR_KINDS: ReadonlyArray<ProjectIntelligenceSurfaceKind> = [
 const INSPECTOR_KIND_SET = new Set<ProjectIntelligenceSurfaceKind>(INSPECTOR_KINDS);
 
 const KIND_TO_CATEGORY: Record<ProjectIntelligenceSurfaceKind, InspectorCategoryId | null> = {
+  agent: "agents",
+  env: null,
+  file: null,
   instruction: "system",
   skill: "skills",
+  setting: null,
+  tool: null,
+  provider: null,
   "custom-agent": "agents",
   memory: "memory",
   "mcp-server": "mcp",

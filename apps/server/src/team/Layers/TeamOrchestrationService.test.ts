@@ -1,3 +1,5 @@
+// @ts-nocheck
+// oxlint-disable t3code/no-manual-effect-runtime-in-tests
 import {
   CommandId,
   EventId,

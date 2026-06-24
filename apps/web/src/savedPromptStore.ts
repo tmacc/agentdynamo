@@ -1,4 +1,4 @@
-import { scopedProjectKey } from "@t3tools/client-runtime";
+import { scopedProjectKey } from "@t3tools/client-runtime/environment";
 import type {
   DesktopStorageMutationResult,
   DesktopStorageReadResult,

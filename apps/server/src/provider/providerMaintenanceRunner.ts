@@ -53,7 +53,7 @@ export interface ProviderMaintenanceRunnerShape {
 export class ProviderMaintenanceRunner extends Context.Service<
   ProviderMaintenanceRunner,
   ProviderMaintenanceRunnerShape
->()("t3/provider/ProviderMaintenanceRunner") {}
+>()("t3/provider/providerMaintenanceRunner") {}
 
 class ProviderMaintenanceCommandError extends Data.TaggedError("ProviderMaintenanceCommandError")<{
   readonly message: string;
@@ -214,13 +214,15 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
     instanceId: ProviderInstanceId,
   ): Effect.Effect<VerifiedProviderRefresh> =>
     providerRegistry.getProviders.pipe(
-      Effect.map((providers) =>
-        providers
-          .filter(
-            (candidate) => candidate.driver === provider && candidate.instanceId === instanceId,
-          )
-          .map((candidate) => candidate.instanceId),
-      ),
+      Effect.map((providers) => {
+        const instanceIds: Array<ProviderInstanceId> = [];
+        for (const candidate of providers) {
+          if (candidate.driver === provider && candidate.instanceId === instanceId) {
+            instanceIds.push(candidate.instanceId);
+          }
+        }
+        return instanceIds;
+      }),
       Effect.flatMap((instanceIds) =>
         instanceIds.length === 0
           ? providerRegistry.refreshInstance(instanceId)
@@ -359,9 +361,9 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                 startedAt,
                 finishedAt,
                 message: couldNotVerify
-                  ? "Update command completed, but T3 Code could not verify the provider version."
+                  ? "Update command completed, but Dynamo could not verify the provider version."
                   : stillOutdated
-                    ? "Update command completed, but T3 Code still detects an outdated provider version."
+                    ? "Update command completed, but Dynamo still detects an outdated provider version."
                     : "Provider updated.",
                 output: commandOutput(result),
               }),

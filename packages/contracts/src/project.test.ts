@@ -1,140 +1,67 @@
-import { describe, expect, it } from "vitest";
 import * as Schema from "effect/Schema";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
-  ProjectGetIntelligenceInput,
-  ProjectGetIntelligenceResult,
-  ProjectIntelligenceSurfaceKind,
-  ProjectReadIntelligenceSurfaceInput,
-  ProjectReadIntelligenceSurfaceResult,
+  ProjectReadFileError,
+  ProjectSearchEntriesError,
+  ProjectWriteFileError,
 } from "./project.ts";
 
-const decodeGetResult = Schema.decodeUnknownSync(ProjectGetIntelligenceResult);
-const decodeGetInput = Schema.decodeUnknownSync(ProjectGetIntelligenceInput);
-const decodeReadInput = Schema.decodeUnknownSync(ProjectReadIntelligenceSurfaceInput);
-const decodeReadResult = Schema.decodeUnknownSync(ProjectReadIntelligenceSurfaceResult);
-
-const allSurfaceKinds = ProjectIntelligenceSurfaceKind.literals;
-
-describe("Project Intelligence schemas", () => {
-  it("decodes a full result with every surface kind", () => {
-    const parsed = decodeGetResult({
-      resolvedAt: "2026-04-25T00:00:00.000Z",
-      viewMode: "thread",
-      projectCwd: "/repo",
-      effectiveCwd: "/repo-worktree",
-      surfaces: allSurfaceKinds.map((kind, index) => ({
-        id: `intel:${kind}`,
-        owner: index % 2 === 0 ? "shared" : "codex",
-        provider: index % 2 === 0 ? undefined : "codex",
-        kind,
-        label: `${kind} surface`,
-        path: `virtual://${kind}`,
-        openPath: index === 0 ? "/repo/AGENTS.md" : undefined,
-        scope: index % 2 === 0 ? "project" : "provider-runtime",
-        activation: index % 2 === 0 ? "always-loaded" : "runtime-config",
-        enabled: true,
-        health: "ok",
-        description: "A discovered surface.",
-        triggerLabel: "trigger",
-        sourceLabel: "source",
-        excerpt: "preview",
-        lineCount: 1,
-        approxTokenCount: 3,
-        metadata: [{ label: "Kind", value: kind }],
-      })),
-      providers: [
-        {
-          provider: "codex",
-          enabled: true,
-          installed: true,
-          status: "ready",
-          auth: { status: "authenticated", type: "api-key", label: "Codex" },
-          version: "1.0.0",
-          message: "Ready",
-          modelCount: 2,
-          skillCount: 1,
-          slashCommandCount: 1,
-          supportsCoordinatorTools: true,
-          supportsWorker: true,
-          health: "ok",
-        },
-      ],
-      codeStats: {
-        basis: "authored-source-cross-stack-v1",
-        fileCount: 1,
-        loc: 10,
-        approxTokenCount: 20,
-        partial: false,
-      },
-      warnings: [
-        {
-          id: "warning-1",
-          severity: "warning",
-          message: "A warning",
-          surfaceId: "intel:instruction",
-          provider: "codex",
-          path: "/repo/AGENTS.md",
-        },
-      ],
+describe("project RPC errors", () => {
+  it("derives stable messages from structured request context while retaining causes", () => {
+    const cause = new Error("sensitive platform detail");
+    const searchError = new ProjectSearchEntriesError({
+      cwd: "/workspace",
+      queryLength: "authorization: Bearer secret-token".length,
+      limit: 20,
+      failure: "search_index_search_failed",
+      normalizedCwd: "/workspace",
+      detail: "index unavailable",
+      cause,
+    });
+    const readError = new ProjectReadFileError({
+      cwd: "/workspace",
+      relativePath: "src/index.ts",
+      failure: "operation_failed",
+      operation: "read",
+      operationPath: "/workspace/src/index.ts",
+      resolvedPath: "/workspace/src/index.ts",
+      cause,
     });
 
-    expect(parsed.surfaces.map((surface) => surface.kind)).toEqual(allSurfaceKinds);
-    expect(parsed.providers[0]?.provider).toBe("codex");
-    expect(parsed.codeStats?.loc).toBe(10);
+    expect(searchError.message).toBe("Failed to search workspace entries in '/workspace'.");
+    expect(searchError.message).not.toContain(cause.message);
+    expect(searchError.normalizedCwd).toBe("/workspace");
+    expect(searchError.queryLength).toBe("authorization: Bearer secret-token".length);
+    expect(searchError).not.toHaveProperty("query");
+    expect(searchError.message).not.toMatch(/Bearer|secret-token/);
+    expect(searchError.cause).toBe(cause);
+    expect(readError.message).toBe("Failed to read workspace file 'src/index.ts' in '/workspace'.");
+    expect(readError.message).not.toContain(cause.message);
+    expect(readError.cause).toBe(cause);
   });
 
-  it("defaults optional metadata and warnings arrays", () => {
-    const parsed = decodeGetResult({
-      resolvedAt: "2026-04-25T00:00:00.000Z",
-      viewMode: "project",
-      projectCwd: "/repo",
-      surfaces: [
-        {
-          id: "intel:surface",
-          owner: "dynamo",
-          kind: "runtime-config",
-          label: "Runtime",
-          path: "dynamo://runtime",
-          scope: "project",
-          activation: "runtime-config",
-          enabled: true,
-          health: "info",
-        },
-      ],
-      providers: [],
+  it("decodes legacy message-only errors during rolling upgrades", () => {
+    const decodeSearchError = Schema.decodeUnknownSync(ProjectSearchEntriesError);
+    const decodeWriteError = Schema.decodeUnknownSync(ProjectWriteFileError);
+
+    const searchError = decodeSearchError({
+      _tag: "ProjectSearchEntriesError",
+      message: "Legacy project search failure.",
+      query: "legacy sensitive query",
+    });
+    const writeError = decodeWriteError({
+      _tag: "ProjectWriteFileError",
+      message: "Legacy project write failure.",
     });
 
-    expect(parsed.surfaces[0]?.metadata).toEqual([]);
-    expect(parsed.warnings).toEqual([]);
-  });
-
-  it("rejects empty roots and surface IDs", () => {
-    expect(() =>
-      decodeGetInput({
-        projectCwd: " ",
-        viewMode: "project",
-      }),
-    ).toThrow();
-
-    expect(() =>
-      decodeReadInput({
-        projectCwd: "/repo",
-        viewMode: "project",
-        surfaceId: "",
-      }),
-    ).toThrow();
-  });
-
-  it("decodes surface readback results", () => {
-    const parsed = decodeReadResult({
-      surfaceId: "intel:surface",
-      contentType: "markdown",
-      content: "# Surface",
-      truncated: false,
-      maxBytes: 65536,
-    });
-
-    expect(parsed.contentType).toBe("markdown");
+    expect(searchError.message).toBe("Legacy project search failure.");
+    expect(searchError.cwd).toBeUndefined();
+    expect(searchError.queryLength).toBeUndefined();
+    expect(searchError).not.toHaveProperty("query");
+    expect(searchError.failure).toBeUndefined();
+    expect(writeError.message).toBe("Legacy project write failure.");
+    expect(writeError.relativePath).toBeUndefined();
+    expect(writeError.failure).toBeUndefined();
   });
 });

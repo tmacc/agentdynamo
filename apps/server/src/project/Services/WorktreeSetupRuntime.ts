@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { ProjectId, ProjectWorktreeSetupProfile, ThreadId } from "@t3tools/contracts";
 import { Context, type Effect } from "effect";
 

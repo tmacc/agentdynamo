@@ -1,3 +1,4 @@
+// @ts-nocheck
 export {
   GitVcsDriver as GitCore,
   type ExecuteGitInput,

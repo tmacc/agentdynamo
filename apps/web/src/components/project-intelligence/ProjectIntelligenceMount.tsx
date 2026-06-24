@@ -46,7 +46,7 @@ export function ProjectIntelligenceMount() {
       allProjects.find(
         (project) =>
           (!navigation.environmentId || project.environmentId === navigation.environmentId) &&
-          normalizePath(project.cwd) === normalized,
+          normalizePath(project.cwd ?? project.workspaceRoot) === normalized,
       ) ?? null
     );
   }, [allProjects, navigation.environmentId, navigation.projectCwd]);

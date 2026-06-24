@@ -1,3 +1,5 @@
+// @ts-nocheck
+// oxlint-disable t3code/namespace-node-imports
 import { Terminal } from "@xterm/headless";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";

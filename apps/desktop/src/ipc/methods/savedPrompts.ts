@@ -22,7 +22,7 @@ export const setSavedPromptStorage = makeSyncIpcMethodWithPayload({
   channel: IpcChannels.SET_SAVED_PROMPT_STORAGE_CHANNEL,
   payload: Schema.String,
   result: DesktopStorageMutationResultSchema,
-  handler: Effect.fn("desktop.ipc.savedPrompts.set")(function* (value) {
+  handler: Effect.fn("desktop.ipc.savedPrompts.set")(function* (value: string) {
     const savedPrompts = yield* DesktopSavedPrompts.DesktopSavedPrompts;
     return yield* savedPrompts.write(value);
   }),

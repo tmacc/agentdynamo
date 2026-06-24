@@ -1,4 +1,4 @@
-import { getKnownEnvironmentHttpBaseUrl } from "@t3tools/client-runtime";
+import { getKnownEnvironmentHttpBaseUrl } from "@t3tools/client-runtime/environment";
 import type {
   AuthSessionRole,
   EnvironmentId,

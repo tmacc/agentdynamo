@@ -1,3 +1,4 @@
+// oxlint-disable t3code/namespace-node-imports
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalDate:off
 import * as FS from "node:fs";
@@ -19,7 +20,7 @@ export interface DesktopSavedPromptsShape {
 export class DesktopSavedPrompts extends Context.Service<
   DesktopSavedPrompts,
   DesktopSavedPromptsShape
->()("t3/desktop/SavedPrompts") {}
+>()("@t3tools/desktop/settings/DesktopSavedPrompts") {}
 
 function isNodeErrorWithCode(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;

@@ -1,5 +1,5 @@
 import type { VcsStatusResult } from "@t3tools/contracts";
-import { assert, describe, it } from "vitest";
+import { assert, describe, it } from "vite-plus/test";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
@@ -1101,26 +1101,13 @@ describe("resolveLiveThreadBranchUpdate", () => {
     assert.equal(update, null);
   });
 
-  it("does not replace a temporary worktree branch with a non-temporary live branch", () => {
+  it("allows a temporary worktree ref to reconcile to a semantic branch", () => {
     const update = resolveLiveThreadBranchUpdate({
-      threadBranch: "t3code/07f7f5eb",
-      threadWorktreePath: "/repo/.dynamo/worktrees/project/t3code-07f7f5eb",
-      gitStatus: status({ refName: "main" }),
+      threadBranch: "t3code/a9628676",
+      gitStatus: status({ refName: "feature/diff-panel-toggle" }),
     });
 
-    assert.equal(update, null);
-  });
-
-  it("allows non-worktree temporary branch metadata to sync from live git status", () => {
-    const update = resolveLiveThreadBranchUpdate({
-      threadBranch: "t3code/07f7f5eb",
-      threadWorktreePath: null,
-      gitStatus: status({ refName: "main" }),
-    });
-
-    assert.deepEqual(update, {
-      branch: "main",
-    });
+    assert.deepEqual(update, { branch: "feature/diff-panel-toggle" });
   });
 });
 

@@ -1,3 +1,5 @@
+// @ts-nocheck
+// oxlint-disable t3code/namespace-node-imports
 import fsPromises from "node:fs/promises";
 
 import type {

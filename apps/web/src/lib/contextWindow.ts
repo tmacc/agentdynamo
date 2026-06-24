@@ -38,16 +38,37 @@ interface IndexedContextWindowSnapshot {
   readonly snapshot: ContextWindowSnapshot;
 }
 
+/** Map a provider driver kind to a user-facing display name. */
+export function formatProviderDisplayName(provider: string | null | undefined): string {
+  if (!provider) return "This agent";
+  switch (provider) {
+    case "claudeAgent":
+    case "claude":
+      return "Claude";
+    case "codex":
+      return "Codex";
+    case "cursor":
+      return "Cursor";
+    case "opencode":
+      return "OpenCode";
+    default: {
+      // Title-case unknown driver kinds so they read reasonably.
+      const trimmed = provider.replace(/Agent$/i, "").trim();
+      if (trimmed.length === 0) return provider;
+      return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+    }
+  }
+}
+
 function readContextWindowSnapshot(
   activity: OrchestrationThreadActivity,
 ): ContextWindowSnapshot | null {
   if (activity.kind !== "context-window.updated") {
     return null;
   }
-
   const payload = asRecord(activity.payload);
   const usedTokens = asFiniteNumber(payload?.usedTokens);
-  if (usedTokens === null || usedTokens <= 0) {
+  if (usedTokens === null || usedTokens < 0) {
     return null;
   }
 
@@ -86,9 +107,13 @@ export function deriveLatestContextWindowSnapshot(
 ): ContextWindowSnapshot | null {
   for (let index = activities.length - 1; index >= 0; index -= 1) {
     const activity = activities[index];
-    if (!activity) continue;
+    if (!activity) {
+      continue;
+    }
     const snapshot = readContextWindowSnapshot(activity);
-    if (snapshot) return snapshot;
+    if (snapshot) {
+      return snapshot;
+    }
   }
 
   return null;
@@ -144,7 +169,9 @@ export function deriveContextCompactionStats(
     const candidates = snapshots.filter(
       (entry) => entry.index > compactionPosition && entry.index < nextCompactionPosition,
     );
-    if (candidates.length === 0) return null;
+    if (candidates.length === 0) {
+      return null;
+    }
     return Math.min(...candidates.map((entry) => entry.snapshot.usedTokens));
   };
 

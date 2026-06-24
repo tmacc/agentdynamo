@@ -7,9 +7,21 @@ import {
   TerminalIcon,
   TriangleAlertIcon,
 } from "lucide-react";
+import { useAuth } from "@clerk/react";
 import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AuthAccessReadScope,
+  AuthAccessWriteScope,
+  AuthAdministrativeScopes,
+  AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
+  AuthRelayReadScope,
+  AuthRelayWriteScope,
+  AuthReviewWriteScope,
+  AuthStandardClientScopes,
+  AuthTerminalOperateScope,
   type AuthClientSession,
+  type AuthEnvironmentScope,
   type AuthPairingLink,
   type AdvertisedEndpoint,
   type DesktopDiscoveredSshHost,
@@ -17,12 +29,26 @@ import {
   type DesktopServerExposureState,
   type EnvironmentId,
 } from "@t3tools/contracts";
+import {
+  connectionStatusText,
+  RelayConnectionRegistration,
+  RelayConnectionTarget,
+} from "@t3tools/client-runtime/connection";
+import { findErrorTraceId } from "@t3tools/client-runtime/errors";
+import {
+  isAtomCommandInterrupted,
+  settlePromise,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
+import type { RelayClientEnvironmentRecord } from "@t3tools/contracts/relay";
 import * as DateTime from "effect/DateTime";
+import * as Option from "effect/Option";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
 import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
+import { resolveRelayClerkTokenOptions } from "../../cloud/publicConfig";
 import {
   SettingsPageContainer,
   SettingsRow,
@@ -30,6 +56,7 @@ import {
   useRelativeTimeTick,
 } from "./settingsLayout";
 import { Input } from "../ui/input";
+import { Checkbox } from "../ui/checkbox";
 import {
   Dialog,
   DialogClose,
@@ -53,11 +80,13 @@ import {
 } from "../ui/alert-dialog";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { QRCodeSvg } from "../ui/qr-code";
+import { Skeleton } from "../ui/skeleton";
 import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { Button } from "../ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Group, GroupSeparator } from "../ui/group";
 import { AnimatedHeight } from "../AnimatedHeight";
 import {
@@ -74,32 +103,47 @@ import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "../../pairingUrl";
 import { readHostedPairingRequest } from "../../hostedPairing";
 import {
   createServerPairingCredential,
-  fetchSessionState,
   revokeOtherServerClientSessions,
   revokeServerClientSession,
   revokeServerPairingLink,
   isLoopbackHostname,
+  usePrimarySessionState,
   type ServerClientSessionRecord,
   type ServerPairingLinkRecord,
 } from "~/environments/primary";
-import type { WsRpcClient } from "~/rpc/wsRpcClient";
-import {
-  type SavedEnvironmentRecord,
-  type SavedEnvironmentRuntimeState,
-  useSavedEnvironmentRegistryStore,
-  useSavedEnvironmentRuntimeStore,
-  addSavedEnvironment,
-  connectDesktopSshEnvironment,
-  disconnectSavedEnvironment,
-  getPrimaryEnvironmentConnection,
-  reconnectSavedEnvironment,
-  removeSavedEnvironment,
-} from "~/environments/runtime";
 import { useUiStateStore } from "~/uiStateStore";
 import { resolveServerConfigVersionMismatch } from "~/versionSkew";
-import { useServerConfig } from "~/rpc/serverState";
+import { usePrimaryCloudLinkState } from "~/cloud/primaryCloudLinkState";
+import { hasCloudPublicConfig } from "~/cloud/publicConfig";
+import {
+  linkPrimaryEnvironment as linkPrimaryEnvironmentAtom,
+  unlinkPrimaryEnvironment as unlinkPrimaryEnvironmentAtom,
+  updatePrimaryEnvironmentPreferences as updatePrimaryEnvironmentPreferencesAtom,
+} from "~/cloud/linkEnvironmentAtoms";
+import { authEnvironment } from "~/state/auth";
+import { environmentCatalog } from "~/connection/catalog";
+import {
+  connectPairing as connectPairingAtom,
+  connectSshEnvironment as connectSshEnvironmentAtom,
+} from "~/connection/onboarding";
+import { useEnvironmentQuery } from "~/state/query";
+import {
+  desktopNetworkAccessStateAtom,
+  refreshDesktopNetworkAccessState,
+} from "~/state/desktopNetworkAccess";
+import { desktopSshHostsStateAtom } from "~/state/desktopSshHosts";
+import {
+  type EnvironmentPresentation,
+  useEnvironments,
+  usePrimaryEnvironment,
+  useRelayEnvironmentDiscovery,
+} from "~/state/environments";
+import { relayEnvironmentDiscovery } from "~/state/relay";
+import { useAtomCommand } from "../../state/use-atom-command";
 
 const DEFAULT_TAILSCALE_SERVE_PORT = 443;
+const EMPTY_ADVERTISED_ENDPOINTS: ReadonlyArray<AdvertisedEndpoint> = [];
+const EMPTY_DISCOVERED_SSH_HOSTS: ReadonlyArray<DesktopDiscoveredSshHost> = [];
 
 const accessTimestampFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -112,6 +156,97 @@ function formatAccessTimestamp(value: string): string {
     return value;
   }
   return accessTimestampFormatter.format(parsed);
+}
+
+const PAIRING_SCOPE_OPTIONS: ReadonlyArray<{
+  readonly scope: AuthEnvironmentScope;
+  readonly title: string;
+  readonly description: string;
+}> = [
+  {
+    scope: AuthOrchestrationReadScope,
+    title: "View environment",
+    description: "Read threads, status, diffs, and configuration.",
+  },
+  {
+    scope: AuthOrchestrationOperateScope,
+    title: "Operate tasks",
+    description: "Start tasks and perform changes in the environment.",
+  },
+  {
+    scope: AuthTerminalOperateScope,
+    title: "Use terminals",
+    description: "Create terminals and send input to running shells.",
+  },
+  {
+    scope: AuthReviewWriteScope,
+    title: "Write reviews",
+    description: "Create comments while reviewing changes.",
+  },
+  {
+    scope: AuthAccessReadScope,
+    title: "View access",
+    description: "Inspect pairing links and authorized clients.",
+  },
+  {
+    scope: AuthAccessWriteScope,
+    title: "Manage access",
+    description: "Issue and revoke credentials for other clients.",
+  },
+  {
+    scope: AuthRelayReadScope,
+    title: "View relay",
+    description: "Inspect managed relay connectivity.",
+  },
+  {
+    scope: AuthRelayWriteScope,
+    title: "Manage relay",
+    description: "Change managed tunnel connectivity.",
+  },
+];
+
+function AccessScopeSummary({
+  scopes,
+  label,
+}: {
+  readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
+  readonly label: string;
+}) {
+  const scopeCountLabel = `${scopes.length} ${scopes.length === 1 ? "scope" : "scopes"}`;
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        delay={250}
+        closeDelay={100}
+        render={
+          <button
+            type="button"
+            aria-label={`${label}: show ${scopeCountLabel}`}
+            className="cursor-help underline decoration-border underline-offset-2 outline-hidden hover:text-foreground focus-visible:text-foreground"
+          />
+        }
+      >
+        {scopeCountLabel}
+      </PopoverTrigger>
+      <PopoverPopup
+        side="top"
+        align="start"
+        tooltipStyle
+        className="w-max max-w-80 whitespace-normal"
+      >
+        <p className="mb-1 font-medium">Granted scopes</p>
+        <div className="flex flex-col gap-0.5">
+          {scopes.map((scope) => (
+            <code key={scope} className="font-mono text-foreground/85">
+              {scope}
+            </code>
+          ))}
+        </div>
+      </PopoverPopup>
+    </Popover>
+  );
 }
 
 type ConnectionStatusDotProps = {
@@ -168,32 +303,7 @@ function ConnectionStatusDot({
   );
 }
 
-function getSavedBackendStatusTooltip(
-  runtime: SavedEnvironmentRuntimeState | null,
-  record: SavedEnvironmentRecord,
-  nowMs: number,
-) {
-  const connectionState = runtime?.connectionState ?? "disconnected";
-
-  if (connectionState === "connected") {
-    const connectedAt = runtime?.connectedAt ?? record.lastConnectedAt;
-    return connectedAt ? `Connected for ${formatElapsedDurationLabel(connectedAt, nowMs)}` : null;
-  }
-
-  if (connectionState === "connecting") {
-    return null;
-  }
-
-  if (connectionState === "error") {
-    return runtime?.lastError ?? "An unknown connection error occurred.";
-  }
-
-  return record.lastConnectedAt
-    ? `Last connected at ${formatAccessTimestamp(record.lastConnectedAt)}`
-    : "Not connected yet.";
-}
-
-function formatDesktopSshTarget(target: NonNullable<SavedEnvironmentRecord["desktopSsh"]>): string {
+function formatDesktopSshTarget(target: DesktopSshEnvironmentTarget): string {
   const authority = target.username ? `${target.username}@${target.hostname}` : target.hostname;
   return target.port ? `${authority}:${target.port}` : authority;
 }
@@ -378,45 +488,6 @@ function toDesktopClientSessionRecord(clientSession: AuthClientSession): ServerC
   };
 }
 
-function upsertDesktopPairingLink(
-  current: ReadonlyArray<ServerPairingLinkRecord>,
-  next: ServerPairingLinkRecord,
-) {
-  const existingIndex = current.findIndex((pairingLink) => pairingLink.id === next.id);
-  if (existingIndex === -1) {
-    return sortDesktopPairingLinks([...current, next]);
-  }
-  const updated = [...current];
-  updated[existingIndex] = next;
-  return sortDesktopPairingLinks(updated);
-}
-
-function removeDesktopPairingLink(current: ReadonlyArray<ServerPairingLinkRecord>, id: string) {
-  return current.filter((pairingLink) => pairingLink.id !== id);
-}
-
-function upsertDesktopClientSession(
-  current: ReadonlyArray<ServerClientSessionRecord>,
-  next: ServerClientSessionRecord,
-) {
-  const existingIndex = current.findIndex(
-    (clientSession) => clientSession.sessionId === next.sessionId,
-  );
-  if (existingIndex === -1) {
-    return sortDesktopClientSessions([...current, next]);
-  }
-  const updated = [...current];
-  updated[existingIndex] = next;
-  return sortDesktopClientSessions(updated);
-}
-
-function removeDesktopClientSession(
-  current: ReadonlyArray<ServerClientSessionRecord>,
-  sessionId: ServerClientSessionRecord["sessionId"],
-) {
-  return current.filter((clientSession) => clientSession.sessionId !== sessionId);
-}
-
 function selectPairingEndpoint(
   endpoints: ReadonlyArray<AdvertisedEndpoint>,
   defaultEndpointKey?: string | null,
@@ -534,21 +605,27 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     const endpoint = selectPairingEndpoint(endpoints, defaultEndpointKey);
     return endpoint ? resolveAdvertisedEndpointPairingUrl(endpoint, pairingLink.credential) : null;
   }, [defaultEndpointKey, endpoints, pairingLink.credential]);
-  const endpointCopyOptions = useMemo(
-    () =>
-      endpoints
-        .filter((endpoint) => endpoint.status !== "unavailable")
-        .map((endpoint) => {
-          const url = resolveAdvertisedEndpointPairingUrl(endpoint, pairingLink.credential);
-          return {
-            key: endpointDefaultPreferenceKey(endpoint),
-            label: endpoint.label,
-            url,
-            detail: isHostedAppPairingUrl(url) ? "Hosted app link" : "Backend pairing URL",
-          };
-        }),
-    [endpoints, pairingLink.credential],
-  );
+  const endpointCopyOptions = useMemo(() => {
+    const options: Array<{
+      readonly key: string;
+      readonly label: string;
+      readonly url: string;
+      readonly detail: string;
+    }> = [];
+    for (const endpoint of endpoints) {
+      if (endpoint.status === "unavailable") {
+        continue;
+      }
+      const url = resolveAdvertisedEndpointPairingUrl(endpoint, pairingLink.credential);
+      options.push({
+        key: endpointDefaultPreferenceKey(endpoint),
+        label: endpoint.label,
+        url,
+        detail: isHostedAppPairingUrl(url) ? "Hosted app link" : "Backend pairing URL",
+      });
+    }
+    return options;
+  }, [endpoints, pairingLink.credential]);
   const shareablePairingUrl =
     endpointPairingUrl ??
     (endpointUrl != null && endpointUrl !== ""
@@ -623,8 +700,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
 
   const expiresAbsolute = formatAccessTimestamp(pairingLink.expiresAt);
 
-  const roleLabel = pairingLink.role === "owner" ? "Owner" : "Client";
-  const primaryLabel = pairingLink.label ?? `${roleLabel} link`;
+  const primaryLabel = pairingLink.label ?? "Pairing link";
   const defaultEndpointCopyOption =
     endpointCopyOptions.find((option) => option.key === defaultEndpointKey) ??
     endpointCopyOptions[0] ??
@@ -753,7 +829,9 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
             </Popover>
           </div>
           <p className="text-xs text-muted-foreground" title={expiresAbsolute}>
-            {[roleLabel, formatExpiresInLabel(pairingLink.expiresAt, nowMs)].join(" · ")}
+            {formatExpiresInLabel(pairingLink.expiresAt, nowMs)}
+            <span aria-hidden> · </span>
+            <AccessScopeSummary scopes={pairingLink.scopes} label="Pairing link scopes" />
           </p>
           {shareablePairingUrl === null ? (
             <p className="text-[11px] text-muted-foreground/70">
@@ -894,7 +972,6 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
     : lastConnectedAt
       ? `Last connected at ${formatAccessTimestamp(lastConnectedAt)}`
       : "Not connected yet.";
-  const roleLabel = clientSession.role === "owner" ? "Owner" : "Client";
   const deviceInfoBits = [
     clientSession.client.deviceType !== "unknown"
       ? clientSession.client.deviceType[0]?.toUpperCase() + clientSession.client.deviceType.slice(1)
@@ -926,7 +1003,13 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
             ) : null}
           </div>
           <p className="text-xs text-muted-foreground">
-            {[roleLabel, ...deviceInfoBits].join(" · ")}
+            {deviceInfoBits.length > 0 ? (
+              <>
+                {deviceInfoBits.join(" · ")}
+                <span aria-hidden> · </span>
+              </>
+            ) : null}
+            <AccessScopeSummary scopes={clientSession.scopes} label="Client scopes" />
           </p>
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
@@ -959,13 +1042,17 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
 }: AuthorizedClientsHeaderActionProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pairingLabel, setPairingLabel] = useState("");
+  const [pairingScopes, setPairingScopes] = useState<ReadonlyArray<AuthEnvironmentScope>>([
+    ...AuthStandardClientScopes,
+  ]);
   const [isCreatingPairingLink, setIsCreatingPairingLink] = useState(false);
 
   const handleCreatePairingLink = useCallback(async () => {
     setIsCreatingPairingLink(true);
     try {
-      await createServerPairingCredential(pairingLabel);
+      await createServerPairingCredential({ label: pairingLabel, scopes: pairingScopes });
       setPairingLabel("");
+      setPairingScopes([...AuthStandardClientScopes]);
       setDialogOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to create pairing URL.";
@@ -979,7 +1066,13 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
     } finally {
       setIsCreatingPairingLink(false);
     }
-  }, [pairingLabel]);
+  }, [pairingLabel, pairingScopes]);
+
+  const togglePairingScope = useCallback((scope: AuthEnvironmentScope, checked: boolean) => {
+    setPairingScopes((current) =>
+      checked ? [...current, scope] : current.filter((currentScope) => currentScope !== scope),
+    );
+  }, []);
 
   return (
     <div className="flex items-center gap-2">
@@ -999,6 +1092,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
           setDialogOpen(open);
           if (!open) {
             setPairingLabel("");
+            setPairingScopes([...AuthStandardClientScopes]);
           }
         }}
       >
@@ -1010,7 +1104,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
             </Button>
           }
         />
-        <DialogPopup className="max-w-sm">
+        <DialogPopup className="max-w-md">
           <DialogHeader>
             <DialogTitle>Create pairing link</DialogTitle>
             <DialogDescription>
@@ -1018,7 +1112,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
               authorized client.
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel>
+          <DialogPanel className="space-y-5">
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-foreground">
                 Client label (optional)
@@ -1031,6 +1125,62 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
                 autoFocus
               />
             </label>
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-medium text-foreground">Permissions</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Limit what the paired client can do.
+                  </p>
+                </div>
+                <div className="flex gap-1">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={isCreatingPairingLink}
+                    onClick={() => setPairingScopes([AuthOrchestrationReadScope])}
+                  >
+                    Read only
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={isCreatingPairingLink}
+                    onClick={() => setPairingScopes([...AuthStandardClientScopes])}
+                  >
+                    Standard
+                  </Button>
+                </div>
+              </div>
+              <div className="divide-y divide-border/60 rounded-lg border border-input bg-muted/25">
+                {PAIRING_SCOPE_OPTIONS.map(({ scope, title, description }) => (
+                  <label
+                    key={scope}
+                    className="flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors hover:bg-muted/40"
+                  >
+                    <Checkbox
+                      className="mt-0.5"
+                      checked={pairingScopes.includes(scope)}
+                      disabled={isCreatingPairingLink}
+                      onCheckedChange={(checked) => togglePairingScope(scope, checked === true)}
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium text-foreground">{title}</span>
+                      <span className="block text-xs leading-snug text-muted-foreground">
+                        {description}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {pairingScopes.length === 0 ? (
+                <p className="text-xs text-destructive">Select at least one permission.</p>
+              ) : pairingScopes.includes(AuthAccessWriteScope) ? (
+                <p className="text-xs text-warning">
+                  This client can create or revoke access for other devices.
+                </p>
+              ) : null}
+            </section>
           </DialogPanel>
           <DialogFooter variant="bare">
             <Button
@@ -1040,7 +1190,10 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
             >
               Cancel
             </Button>
-            <Button disabled={isCreatingPairingLink} onClick={() => void handleCreatePairingLink()}>
+            <Button
+              disabled={isCreatingPairingLink || pairingScopes.length === 0}
+              onClick={() => void handleCreatePairingLink()}
+            >
               {isCreatingPairingLink ? "Creating…" : "Create link"}
             </Button>
           </DialogFooter>
@@ -1245,56 +1398,67 @@ function NetworkAccessDescription({
 }
 
 type SavedBackendListRowProps = {
-  environmentId: EnvironmentId;
-  reconnectingEnvironmentId: EnvironmentId | null;
-  disconnectingEnvironmentId: EnvironmentId | null;
+  environment: EnvironmentPresentation;
   removingEnvironmentId: EnvironmentId | null;
   onConnect: (environmentId: EnvironmentId) => void;
-  onDisconnect: (environmentId: EnvironmentId) => void;
   onRemove: (environmentId: EnvironmentId) => void;
 };
 
 function SavedBackendListRow({
-  environmentId,
-  reconnectingEnvironmentId,
-  disconnectingEnvironmentId,
+  environment,
   removingEnvironmentId,
   onConnect,
-  onDisconnect,
   onRemove,
 }: SavedBackendListRowProps) {
-  const nowMs = useRelativeTimeTick(1_000);
-  const record = useSavedEnvironmentRegistryStore((state) => state.byId[environmentId] ?? null);
-  const runtime = useSavedEnvironmentRuntimeStore((state) => state.byId[environmentId] ?? null);
-
-  if (!record) {
-    return null;
-  }
-
-  const connectionState = runtime?.connectionState ?? "disconnected";
+  const environmentId = environment.environmentId;
+  const connectionState = environment.connection.phase;
   const isConnected = connectionState === "connected";
-  const isConnecting =
-    connectionState === "connecting" || reconnectingEnvironmentId === environmentId;
-  const isDisconnecting = disconnectingEnvironmentId === environmentId;
+  const isConnecting = connectionState === "connecting" || connectionState === "reconnecting";
   const stateDotClassName =
     connectionState === "connected"
       ? "bg-success"
-      : connectionState === "connecting"
+      : connectionState === "connecting" || connectionState === "reconnecting"
         ? "bg-warning"
         : connectionState === "error"
           ? "bg-destructive"
           : "bg-muted-foreground/40";
-  const roleLabel = runtime?.role ? (runtime.role === "owner" ? "Owner" : "Client") : null;
-  const descriptorLabel = runtime?.descriptor?.label ?? null;
-  const displayLabel = descriptorLabel ?? record.label;
-  const statusTooltip = getSavedBackendStatusTooltip(runtime, record, nowMs);
-  const versionMismatch = resolveServerConfigVersionMismatch(runtime?.serverConfig);
+  const statusTooltip = connectionStatusText(environment.connection);
+  const errorTraceId = environment.connection.traceId;
+  const { copyToClipboard: copyTraceIdToClipboard } = useCopyToClipboard<{ traceId: string }>({
+    target: "trace ID",
+    onCopy: ({ traceId }) => {
+      toastManager.add({
+        type: "success",
+        title: "Trace ID copied",
+        description: traceId,
+      });
+    },
+    onError: (error) => {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not copy trace ID",
+          description: error.message,
+        }),
+      );
+    },
+  });
+  const copyTraceId = useCallback(
+    (traceId: string) => {
+      copyTraceIdToClipboard(traceId, { traceId });
+    },
+    [copyTraceIdToClipboard],
+  );
+  const versionMismatch = resolveServerConfigVersionMismatch(environment.serverConfig);
+  const sshTarget =
+    environment.entry.target._tag === "SshConnectionTarget" &&
+    Option.isSome(environment.entry.profile) &&
+    environment.entry.profile.value._tag === "SshConnectionProfile"
+      ? environment.entry.profile.value.target
+      : null;
   const metadataBits = [
-    record.desktopSsh ? `SSH ${formatDesktopSshTarget(record.desktopSsh)}` : null,
-    roleLabel,
-    record.lastConnectedAt
-      ? `Last connected ${formatAccessTimestamp(record.lastConnectedAt)}`
-      : null,
+    sshTarget ? `SSH ${formatDesktopSshTarget(sshTarget)}` : null,
+    environment.relayManaged ? "T3 Connect" : null,
   ].filter((value): value is string => value !== null);
 
   return (
@@ -1306,10 +1470,12 @@ function SavedBackendListRow({
               tooltipText={statusTooltip}
               dotClassName={stateDotClassName}
               pingClassName={
-                connectionState === "connecting" ? "bg-warning/60 duration-2000" : null
+                connectionState === "connecting" || connectionState === "reconnecting"
+                  ? "bg-warning/60 duration-2000"
+                  : null
               }
             />
-            <h3 className="text-sm font-medium text-foreground">{displayLabel}</h3>
+            <h3 className="text-sm font-medium text-foreground">{environment.label}</h3>
           </div>
           {metadataBits.length > 0 ? (
             <p className="text-xs text-muted-foreground">{metadataBits.join(" · ")}</p>
@@ -1321,31 +1487,35 @@ function SavedBackendListRow({
               {versionMismatch.serverVersion}.
             </p>
           ) : null}
+          {environment.connection.error ? (
+            <p className="flex min-w-0 items-center gap-2 text-destructive text-xs">
+              <span className="truncate">{connectionStatusText(environment.connection)}</span>
+              {errorTraceId ? (
+                <button
+                  type="button"
+                  className="shrink-0 underline underline-offset-2"
+                  onClick={() => copyTraceId(errorTraceId)}
+                >
+                  Copy trace ID
+                </button>
+              ) : null}
+            </p>
+          ) : null}
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
           <Button
             size="xs"
             variant="outline"
-            disabled={isConnected ? isDisconnecting : isConnecting}
-            onClick={() =>
-              void (isConnected ? onDisconnect(environmentId) : onConnect(environmentId))
-            }
+            disabled={isConnecting || removingEnvironmentId === environmentId}
+            onClick={() => void (isConnected ? onRemove(environmentId) : onConnect(environmentId))}
           >
             {isConnected
-              ? isDisconnecting
+              ? removingEnvironmentId === environmentId
                 ? "Disconnecting…"
                 : "Disconnect"
               : isConnecting
                 ? "Connecting…"
                 : "Connect"}
-          </Button>
-          <Button
-            size="xs"
-            variant="destructive-outline"
-            disabled={removingEnvironmentId === environmentId}
-            onClick={() => void onRemove(environmentId)}
-          >
-            {removingEnvironmentId === environmentId ? "Removing…" : "Remove"}
           </Button>
         </div>
       </div>
@@ -1393,69 +1563,488 @@ const DesktopSshHostRow = memo(function DesktopSshHostRow({
   );
 });
 
+function CloudLinkSwitch({
+  checked,
+  disabled,
+  disabledReason,
+  onCheckedChange,
+}: {
+  readonly checked: boolean;
+  readonly disabled: boolean;
+  readonly disabledReason: string | null;
+  readonly onCheckedChange?: (enabled: boolean) => void;
+}) {
+  const control = (
+    <Switch
+      aria-label="Enable T3 Connect"
+      checked={checked}
+      disabled={disabled}
+      {...(onCheckedChange ? { onCheckedChange } : {})}
+    />
+  );
+  return disabledReason ? (
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex">{control}</span>} />
+      <TooltipPopup side="top">{disabledReason}</TooltipPopup>
+    </Tooltip>
+  ) : (
+    control
+  );
+}
+
+function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: boolean }) {
+  const { getToken, isSignedIn } = useAuth();
+  const refreshRelayEnvironments = useAtomCommand(relayEnvironmentDiscovery.refresh, {
+    reportFailure: false,
+  });
+  const linkPrimaryEnvironment = useAtomCommand(linkPrimaryEnvironmentAtom, {
+    reportFailure: false,
+  });
+  const unlinkPrimaryEnvironment = useAtomCommand(unlinkPrimaryEnvironmentAtom, {
+    reportFailure: false,
+  });
+  const updatePrimaryEnvironmentPreferences = useAtomCommand(
+    updatePrimaryEnvironmentPreferencesAtom,
+    { reportFailure: false },
+  );
+  const primaryCloudLinkState = usePrimaryCloudLinkState();
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
+
+  const reportUpdateFailure = (cause: unknown) => {
+    const message = cause instanceof Error ? cause.message : "Could not update T3 Connect access.";
+    const traceId = findErrorTraceId(cause);
+    console.error("[t3-connect] Could not update T3 Connect", { message, traceId, cause });
+    setOperationError(traceId ? `${message} Trace ID: ${traceId}` : message);
+    toastManager.add({
+      type: "error",
+      title: "Could not update T3 Connect",
+      description: message,
+      data: traceId
+        ? {
+            secondaryActionProps: {
+              children: "Copy trace ID",
+              onClick: () => void navigator.clipboard?.writeText(traceId),
+            },
+          }
+        : undefined,
+    });
+  };
+
+  const updateLink = async (enabled: boolean) => {
+    setIsUpdating(true);
+    setOperationError(null);
+    const tokenResult = await settlePromise(() => getToken(resolveRelayClerkTokenOptions()));
+    if (tokenResult._tag === "Failure") {
+      reportUpdateFailure(squashAtomCommandFailure(tokenResult));
+      setIsUpdating(false);
+      return;
+    }
+
+    const target = primaryCloudLinkState.target;
+    if (!target) {
+      reportUpdateFailure(new Error("Local environment is not ready yet."));
+      setIsUpdating(false);
+      return;
+    }
+    if (enabled && !tokenResult.value) {
+      reportUpdateFailure(new Error("Sign in to T3 Connect before linking this environment."));
+      setIsUpdating(false);
+      return;
+    }
+
+    const linkResult =
+      enabled && tokenResult.value
+        ? await linkPrimaryEnvironment({
+            target,
+            clerkToken: tokenResult.value,
+          })
+        : await unlinkPrimaryEnvironment({
+            target,
+            clerkToken: tokenResult.value ?? null,
+          });
+    if (linkResult._tag === "Failure") {
+      if (!isAtomCommandInterrupted(linkResult)) {
+        reportUpdateFailure(squashAtomCommandFailure(linkResult));
+      }
+      setIsUpdating(false);
+      return;
+    }
+
+    primaryCloudLinkState.refresh();
+    const refreshResult = await refreshRelayEnvironments();
+    if (refreshResult._tag === "Failure") {
+      if (!isAtomCommandInterrupted(refreshResult)) {
+        reportUpdateFailure(squashAtomCommandFailure(refreshResult));
+      }
+      setIsUpdating(false);
+      return;
+    }
+
+    toastManager.add({
+      type: "success",
+      title: enabled ? "T3 Connect linked" : "T3 Connect unlinked",
+      description: enabled
+        ? "This environment is available through T3 Connect."
+        : "This environment is no longer available through T3 Connect.",
+    });
+    setIsUpdating(false);
+  };
+
+  const updatePublishAgentActivity = async (enabled: boolean) => {
+    const target = primaryCloudLinkState.target;
+    if (!target) {
+      reportUpdateFailure(new Error("Local environment is not ready yet."));
+      return;
+    }
+
+    setIsUpdatingPreference(true);
+    setOperationError(null);
+    const updateResult = await updatePrimaryEnvironmentPreferences({
+      target,
+      publishAgentActivity: enabled,
+    });
+    if (updateResult._tag === "Failure") {
+      if (!isAtomCommandInterrupted(updateResult)) {
+        reportUpdateFailure(squashAtomCommandFailure(updateResult));
+      }
+      setIsUpdatingPreference(false);
+      return;
+    }
+
+    primaryCloudLinkState.refresh();
+    toastManager.add({
+      type: "success",
+      title: enabled ? "Agent activity enabled" : "Agent activity disabled",
+      description: enabled
+        ? "This environment can publish agent activity to your mobile clients."
+        : "This environment will stop publishing agent activity.",
+    });
+    setIsUpdatingPreference(false);
+  };
+  const disabledReason = !isSignedIn
+    ? "Sign in to T3 Connect to manage this environment."
+    : !canManageRelay
+      ? "Your session does not have permission to manage T3 Connect access."
+      : null;
+  const linked = primaryCloudLinkState.data?.linked ?? false;
+
+  return (
+    <>
+      <SettingsRow
+        title="T3 Connect"
+        description={
+          linked
+            ? "This environment is available to your other devices through T3 Connect."
+            : "Make this environment available to your other devices through T3 Connect."
+        }
+        status={operationError ?? primaryCloudLinkState.error}
+        control={
+          <CloudLinkSwitch
+            checked={linked}
+            disabled={
+              !canManageRelay || !isSignedIn || primaryCloudLinkState.isPending || isUpdating
+            }
+            disabledReason={disabledReason}
+            onCheckedChange={(enabled) => void updateLink(enabled)}
+          />
+        }
+      />
+      {linked ? (
+        <SettingsRow
+          title="Publish agent activity"
+          description="Send activity from this environment to your mobile clients for push notifications and Live Activities."
+          className="bg-muted/20 pl-7 sm:pl-8"
+          control={
+            <Switch
+              aria-label="Publish agent activity to mobile clients"
+              checked={primaryCloudLinkState.data?.publishAgentActivity ?? false}
+              disabled={
+                !canManageRelay ||
+                !isSignedIn ||
+                primaryCloudLinkState.isPending ||
+                isUpdating ||
+                isUpdatingPreference
+              }
+              onCheckedChange={(enabled) => void updatePublishAgentActivity(enabled)}
+            />
+          }
+        />
+      ) : null}
+    </>
+  );
+}
+
+function CloudLinkRow({ canManageRelay }: { readonly canManageRelay: boolean }) {
+  return hasCloudPublicConfig() ? <ConfiguredCloudLinkRow canManageRelay={canManageRelay} /> : null;
+}
+
+function EmptyRemoteEnvironments({ cloudEnabled = true }: { readonly cloudEnabled?: boolean }) {
+  return (
+    <Empty className="min-h-52">
+      <EmptyMedia variant="icon">
+        <ChevronsLeftRightEllipsisIcon />
+      </EmptyMedia>
+      <EmptyHeader>
+        <EmptyTitle>No saved remote environments</EmptyTitle>
+        <EmptyDescription>
+          {cloudEnabled
+            ? "Click “Add environment” to pair another environment, or connect one from T3 Connect."
+            : "Click “Add environment” to pair another environment."}
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  );
+}
+
+function RemoteEnvironmentRowsSkeleton() {
+  return (
+    <div className={ITEM_ROW_CLASSNAME}>
+      <div className={ITEM_ROW_INNER_CLASSNAME}>
+        <div className="min-w-0 flex-1 space-y-2">
+          <Skeleton className="h-4 w-32 rounded-full" />
+          <Skeleton className="h-3 w-20 rounded-full" />
+        </div>
+        <Skeleton className="h-7 w-16 rounded-md" />
+      </div>
+    </div>
+  );
+}
+
+function ConfiguredCloudRemoteEnvironmentRows({
+  primaryEnvironmentId,
+  savedEnvironmentIds,
+}: {
+  readonly primaryEnvironmentId: EnvironmentId | null;
+  readonly savedEnvironmentIds: ReadonlyArray<EnvironmentId>;
+}) {
+  const environmentsState = useRelayEnvironmentDiscovery();
+  const registerEnvironment = useAtomCommand(environmentCatalog.register, {
+    reportFailure: false,
+  });
+  const refreshRelayEnvironments = useAtomCommand(relayEnvironmentDiscovery.refresh, {
+    reportFailure: false,
+  });
+  const connectRelayEnvironment = useCallback(
+    (environment: RelayClientEnvironmentRecord) =>
+      registerEnvironment(
+        new RelayConnectionRegistration({
+          target: new RelayConnectionTarget({
+            environmentId: environment.environmentId,
+            label: environment.label,
+          }),
+        }),
+      ),
+    [registerEnvironment],
+  );
+  const [connectingEnvironmentId, setConnectingEnvironmentId] = useState<EnvironmentId | null>(
+    null,
+  );
+  const savedIds = useMemo(() => new Set(savedEnvironmentIds), [savedEnvironmentIds]);
+
+  useEffect(() => {
+    void refreshRelayEnvironments();
+  }, [refreshRelayEnvironments]);
+
+  const connectEnvironment = async (environment: RelayClientEnvironmentRecord) => {
+    setConnectingEnvironmentId(environment.environmentId);
+    const result = await connectRelayEnvironment(environment);
+    setConnectingEnvironmentId(null);
+    if (result._tag === "Success") {
+      toastManager.add({
+        type: "success",
+        title: "Environment connected",
+        description: `${environment.label} is available through T3 Connect.`,
+      });
+      return;
+    }
+    if (isAtomCommandInterrupted(result)) {
+      return;
+    }
+    const cause = squashAtomCommandFailure(result);
+    const message =
+      cause instanceof Error ? cause.message : "Could not connect the T3 Connect environment.";
+    const traceId = findErrorTraceId(cause);
+    console.error("[t3-connect] Could not connect environment", { message, traceId, cause });
+    toastManager.add({
+      type: "error",
+      title: "Could not connect environment",
+      description: message,
+      data: traceId
+        ? {
+            secondaryActionProps: {
+              children: "Copy trace ID",
+              onClick: () => void navigator.clipboard?.writeText(traceId),
+            },
+          }
+        : undefined,
+    });
+  };
+
+  const connectableEnvironments = [...environmentsState.environments.values()].filter(
+    ({ environment }) =>
+      environment.environmentId !== primaryEnvironmentId &&
+      !savedIds.has(environment.environmentId),
+  );
+
+  if (
+    savedEnvironmentIds.length === 0 &&
+    environmentsState.refreshing &&
+    environmentsState.environments.size === 0
+  ) {
+    return <RemoteEnvironmentRowsSkeleton />;
+  }
+
+  if (savedEnvironmentIds.length === 0 && connectableEnvironments.length === 0) {
+    return <EmptyRemoteEnvironments />;
+  }
+
+  return connectableEnvironments.map(({ environment, availability, error }) => (
+    <div key={environment.environmentId} className={ITEM_ROW_CLASSNAME}>
+      <div className={ITEM_ROW_INNER_CLASSNAME}>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <ConnectionStatusDot
+              dotClassName={
+                availability === "online"
+                  ? "bg-success"
+                  : availability === "error"
+                    ? "bg-destructive"
+                    : availability === "checking"
+                      ? "bg-warning"
+                      : "bg-muted-foreground/35"
+              }
+              pingClassName={availability === "checking" ? "bg-warning/60 duration-2000" : null}
+              tooltipText={
+                availability === "online"
+                  ? "Relay online"
+                  : availability === "offline"
+                    ? "Relay offline"
+                    : availability === "checking"
+                      ? "Checking relay status"
+                      : (Option.getOrNull(error)?.message ?? "Relay status unavailable")
+              }
+            />
+            <p className="truncate text-sm font-medium">{environment.label}</p>
+          </div>
+          <p
+            className={cn(
+              "mt-1 truncate text-xs",
+              availability === "error" ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {availability === "online"
+              ? "Available · Relay online"
+              : availability === "offline"
+                ? "Available · Relay offline"
+                : availability === "checking"
+                  ? "Available · Checking relay status…"
+                  : (Option.getOrNull(error)?.message ?? "Available · Relay status unavailable")}
+          </p>
+        </div>
+        <Button
+          size="sm"
+          disabled={connectingEnvironmentId !== null}
+          onClick={() => void connectEnvironment(environment)}
+        >
+          {connectingEnvironmentId === environment.environmentId ? "Connecting…" : "Connect"}
+        </Button>
+      </div>
+    </div>
+  ));
+}
+
+function CloudRemoteEnvironmentRows({
+  primaryEnvironmentId,
+  savedEnvironmentIds,
+}: {
+  readonly primaryEnvironmentId: EnvironmentId | null;
+  readonly savedEnvironmentIds: ReadonlyArray<EnvironmentId>;
+}) {
+  return hasCloudPublicConfig() ? (
+    <ConfiguredCloudRemoteEnvironmentRows
+      primaryEnvironmentId={primaryEnvironmentId}
+      savedEnvironmentIds={savedEnvironmentIds}
+    />
+  ) : savedEnvironmentIds.length === 0 ? (
+    <EmptyRemoteEnvironments cloudEnabled={false} />
+  ) : null;
+}
+
 export function ConnectionsSettings() {
   const desktopBridge = window.desktopBridge;
-  const [currentSessionRole, setCurrentSessionRole] = useState<"owner" | "client" | null>(
-    desktopBridge ? "owner" : null,
-  );
-  const [currentAuthPolicy, setCurrentAuthPolicy] = useState<
-    "desktop-managed-local" | "loopback-browser" | "remote-reachable" | "unsafe-no-auth" | null
-  >(desktopBridge ? null : null);
-  const savedEnvironmentsById = useSavedEnvironmentRegistryStore((state) => state.byId);
-  const savedEnvironmentIds = useMemo(
+  const { environments } = useEnvironments();
+  const primaryEnvironment = usePrimaryEnvironment();
+  const connectPairing = useAtomCommand(connectPairingAtom, { reportFailure: false });
+  const connectSshEnvironment = useAtomCommand(connectSshEnvironmentAtom, {
+    reportFailure: false,
+  });
+  const removeEnvironment = useAtomCommand(environmentCatalog.remove, { reportFailure: false });
+  const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, { reportFailure: false });
+  const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
+  const primarySessionState = usePrimarySessionState();
+  const currentSessionScopes = desktopBridge
+    ? AuthAdministrativeScopes
+    : primarySessionState.data?.authenticated
+      ? (primarySessionState.data.scopes ?? null)
+      : null;
+  const currentAuthPolicy = desktopBridge ? null : (primarySessionState.data?.auth.policy ?? null);
+  const savedEnvironments = useMemo(
     () =>
-      Object.values(savedEnvironmentsById)
-        .toSorted((left, right) => left.label.localeCompare(right.label))
-        .map((record) => record.environmentId),
-    [savedEnvironmentsById],
+      environments
+        .filter((environment) => environment.entry.target._tag !== "PrimaryConnectionTarget")
+        .toSorted((left, right) => left.label.localeCompare(right.label)),
+    [environments],
+  );
+  const savedEnvironmentIds = useMemo(
+    () => savedEnvironments.map((environment) => environment.environmentId),
+    [savedEnvironments],
   );
   const savedDesktopSshEnvironmentsByAlias = useMemo(
     () =>
-      Object.values(savedEnvironmentsById).reduce<Record<string, SavedEnvironmentRecord>>(
-        (accumulator, record) => {
-          if (record.desktopSsh?.alias) {
-            accumulator[record.desktopSsh.alias] = record;
+      savedEnvironments.reduce<Record<string, EnvironmentPresentation>>(
+        (accumulator, environment) => {
+          const profile = environment.entry.profile;
+          if (
+            environment.entry.target._tag === "SshConnectionTarget" &&
+            Option.isSome(profile) &&
+            profile.value._tag === "SshConnectionProfile"
+          ) {
+            accumulator[profile.value.target.alias] = environment;
           }
           return accumulator;
         },
         {},
       ),
-    [savedEnvironmentsById],
+    [savedEnvironments],
   );
   const savedDesktopSshEnvironmentKeys = useMemo(() => {
     const keys = new Set<string>();
-    for (const record of Object.values(savedEnvironmentsById)) {
-      const target = record.desktopSsh;
-      if (!target) continue;
+    for (const environment of savedEnvironments) {
+      const profile = environment.entry.profile;
+      if (
+        environment.entry.target._tag !== "SshConnectionTarget" ||
+        Option.isNone(profile) ||
+        profile.value._tag !== "SshConnectionProfile"
+      ) {
+        continue;
+      }
+      const target = profile.value.target;
       keys.add(target.alias);
       keys.add(formatDesktopSshTarget(target));
     }
     return keys;
-  }, [savedEnvironmentsById]);
-  const [discoveredSshHosts, setDiscoveredSshHosts] = useState<
-    ReadonlyArray<DesktopDiscoveredSshHost>
-  >([]);
-  const [hasLoadedDiscoveredSshHosts, setHasLoadedDiscoveredSshHosts] = useState(false);
-  const [isLoadingDiscoveredSshHosts, setIsLoadingDiscoveredSshHosts] = useState(false);
-  const [discoveredSshHostsError, setDiscoveredSshHostsError] = useState<string | null>(null);
+  }, [savedEnvironments]);
+  const [sshConnectionError, setSshConnectionError] = useState<string | null>(null);
   const [connectingSshHostAlias, setConnectingSshHostAlias] = useState<string | null>(null);
 
-  const [desktopServerExposureState, setDesktopServerExposureState] =
-    useState<DesktopServerExposureState | null>(null);
-  const [desktopAdvertisedEndpoints, setDesktopAdvertisedEndpoints] = useState<
-    ReadonlyArray<AdvertisedEndpoint>
-  >([]);
-  const [desktopServerExposureError, setDesktopServerExposureError] = useState<string | null>(null);
-  const [desktopPairingLinks, setDesktopPairingLinks] = useState<
-    ReadonlyArray<ServerPairingLinkRecord>
-  >([]);
-  const [desktopClientSessions, setDesktopClientSessions] = useState<
-    ReadonlyArray<ServerClientSessionRecord>
-  >([]);
-  const [desktopAccessManagementError, setDesktopAccessManagementError] = useState<string | null>(
-    null,
-  );
-  const [isLoadingDesktopAccessManagement, setIsLoadingDesktopAccessManagement] = useState(false);
+  const [desktopServerExposureMutationError, setDesktopServerExposureMutationError] = useState<
+    string | null
+  >(null);
+  const [desktopAccessManagementMutationError, setDesktopAccessManagementMutationError] = useState<
+    string | null
+  >(null);
   const [revokingDesktopPairingLinkId, setRevokingDesktopPairingLinkId] = useState<string | null>(
     null,
   );
@@ -1472,21 +2061,6 @@ export function ConnectionsSettings() {
   const [savedBackendSshPort, setSavedBackendSshPort] = useState("");
   const [savedBackendError, setSavedBackendError] = useState<string | null>(null);
   const [isAddingSavedBackend, setIsAddingSavedBackend] = useState(false);
-  const unsavedDiscoveredSshHosts = useMemo(
-    () =>
-      discoveredSshHosts.filter((target) => {
-        const address = formatDesktopSshTarget(target);
-        return (
-          !savedDesktopSshEnvironmentKeys.has(target.alias) &&
-          !savedDesktopSshEnvironmentKeys.has(address)
-        );
-      }),
-    [discoveredSshHosts, savedDesktopSshEnvironmentKeys],
-  );
-  const [reconnectingSavedEnvironmentId, setReconnectingSavedEnvironmentId] =
-    useState<EnvironmentId | null>(null);
-  const [disconnectingSavedEnvironmentId, setDisconnectingSavedEnvironmentId] =
-    useState<EnvironmentId | null>(null);
   const [removingSavedEnvironmentId, setRemovingSavedEnvironmentId] =
     useState<EnvironmentId | null>(null);
   const [isUpdatingDesktopServerExposure, setIsUpdatingDesktopServerExposure] = useState(false);
@@ -1501,7 +2075,7 @@ export function ConnectionsSettings() {
   const [pendingDesktopServerExposureMode, setPendingDesktopServerExposureMode] = useState<
     DesktopServerExposureState["mode"] | null
   >(null);
-  const primaryServerConfig = useServerConfig();
+  const primaryServerConfig = primaryEnvironment?.serverConfig ?? null;
   const primaryVersionMismatch = resolveServerConfigVersionMismatch(primaryServerConfig);
   const [isAdvertisedEndpointListExpanded, setIsAdvertisedEndpointListExpanded] = useState(false);
   const defaultAdvertisedEndpointKey = useUiStateStore(
@@ -1510,7 +2084,67 @@ export function ConnectionsSettings() {
   const setDefaultAdvertisedEndpointKey = useUiStateStore(
     (state) => state.setDefaultAdvertisedEndpointKey,
   );
-  const canManageLocalBackend = currentSessionRole === "owner";
+  const canManageLocalBackend = currentSessionScopes?.includes(AuthAccessWriteScope) ?? false;
+  const canManageRelay = currentSessionScopes?.includes(AuthRelayWriteScope) ?? false;
+  const authAccessChanges = useEnvironmentQuery(
+    canManageLocalBackend && primaryEnvironmentId !== null
+      ? authEnvironment.accessChanges({
+          environmentId: primaryEnvironmentId,
+          input: null,
+        })
+      : null,
+  );
+  const desktopNetworkAccess = useEnvironmentQuery(
+    canManageLocalBackend && desktopBridge ? desktopNetworkAccessStateAtom : null,
+  );
+  const desktopSshHosts = useEnvironmentQuery(
+    desktopBridge && addBackendDialogOpen && savedBackendMode === "ssh"
+      ? desktopSshHostsStateAtom
+      : null,
+  );
+  const discoveredSshHosts = desktopSshHosts.data ?? EMPTY_DISCOVERED_SSH_HOSTS;
+  const unsavedDiscoveredSshHosts = useMemo(
+    () =>
+      discoveredSshHosts.filter((target) => {
+        const address = formatDesktopSshTarget(target);
+        return (
+          !savedDesktopSshEnvironmentKeys.has(target.alias) &&
+          !savedDesktopSshEnvironmentKeys.has(address)
+        );
+      }),
+    [discoveredSshHosts, savedDesktopSshEnvironmentKeys],
+  );
+  const hasLoadedDiscoveredSshHosts =
+    desktopSshHosts.data !== null || desktopSshHosts.error !== null;
+  const isLoadingDiscoveredSshHosts = desktopSshHosts.isPending;
+  const discoveredSshHostsError = sshConnectionError ?? desktopSshHosts.error;
+  const desktopServerExposureState = desktopNetworkAccess.data?.serverExposureState ?? null;
+  const desktopAdvertisedEndpoints =
+    desktopNetworkAccess.data?.advertisedEndpoints ?? EMPTY_ADVERTISED_ENDPOINTS;
+  const desktopServerExposureError =
+    desktopServerExposureMutationError ?? desktopNetworkAccess.error;
+  const desktopAccessManagementError =
+    desktopAccessManagementMutationError ?? authAccessChanges.error;
+  const isLoadingDesktopAccessManagement =
+    authAccessChanges.isPending && authAccessChanges.data === null;
+  const desktopPairingLinks = useMemo(() => {
+    const event = authAccessChanges.data;
+    if (event?.type !== "snapshot") return [];
+    return sortDesktopPairingLinks(
+      event.payload.pairingLinks.map((pairingLink: AuthPairingLink) =>
+        toDesktopPairingLinkRecord(pairingLink),
+      ),
+    );
+  }, [authAccessChanges.data]);
+  const desktopClientSessions = useMemo(() => {
+    const event = authAccessChanges.data;
+    if (event?.type !== "snapshot") return [];
+    return sortDesktopClientSessions(
+      event.payload.clientSessions.map((clientSession: AuthClientSession) =>
+        toDesktopClientSessionRecord(clientSession),
+      ),
+    );
+  }, [authAccessChanges.data]);
   const isLocalBackendNetworkAccessible = desktopBridge
     ? desktopServerExposureState?.mode === "network-accessible"
     : currentAuthPolicy === "remote-reachable";
@@ -1541,19 +2175,17 @@ export function ConnectionsSettings() {
     async (checked: boolean) => {
       if (!desktopBridge) return;
       setIsUpdatingDesktopServerExposure(true);
-      setDesktopServerExposureError(null);
+      setDesktopServerExposureMutationError(null);
       try {
-        const nextState = await desktopBridge.setServerExposureMode(
-          checked ? "network-accessible" : "local-only",
-        );
-        setDesktopServerExposureState(nextState);
+        await desktopBridge.setServerExposureMode(checked ? "network-accessible" : "local-only");
+        refreshDesktopNetworkAccessState();
         setIsDesktopServerExposureDialogOpen(false);
         setIsUpdatingDesktopServerExposure(false);
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Failed to update network exposure.";
         setIsDesktopServerExposureDialogOpen(false);
-        setDesktopServerExposureError(message);
+        setDesktopServerExposureMutationError(message);
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -1577,18 +2209,18 @@ export function ConnectionsSettings() {
     if (!desktopBridge) return;
     if (!isTailscaleServePortValid) return;
     setIsUpdatingTailscaleServe(true);
-    setDesktopServerExposureError(null);
+    setDesktopServerExposureMutationError(null);
     try {
-      const nextState = await desktopBridge.setTailscaleServeEnabled({
+      await desktopBridge.setTailscaleServeEnabled({
         enabled: true,
         port: parsedTailscaleServePort,
       });
-      setDesktopServerExposureState(nextState);
+      refreshDesktopNetworkAccessState();
       setPendingTailscaleServeEndpoint(null);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to configure Tailscale HTTPS.";
-      setDesktopServerExposureError(message);
+      setDesktopServerExposureMutationError(message);
       toastManager.add(
         stackedThreadToast({
           type: "error",
@@ -1614,17 +2246,17 @@ export function ConnectionsSettings() {
   const handleConfirmTailscaleServeDisable = useCallback(async () => {
     if (!desktopBridge) return;
     setIsUpdatingTailscaleServe(true);
-    setDesktopServerExposureError(null);
+    setDesktopServerExposureMutationError(null);
     try {
-      const nextState = await desktopBridge.setTailscaleServeEnabled({
+      await desktopBridge.setTailscaleServeEnabled({
         enabled: false,
         port: desktopServerExposureState?.tailscaleServePort ?? DEFAULT_TAILSCALE_SERVE_PORT,
       });
-      setDesktopServerExposureState(nextState);
+      refreshDesktopNetworkAccessState();
       setDisableTailscaleServeDialogOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to disable Tailscale HTTPS.";
-      setDesktopServerExposureError(message);
+      setDesktopServerExposureMutationError(message);
       toastManager.add(
         stackedThreadToast({
           type: "error",
@@ -1643,12 +2275,12 @@ export function ConnectionsSettings() {
 
   const handleRevokeDesktopPairingLink = useCallback(async (id: string) => {
     setRevokingDesktopPairingLinkId(id);
-    setDesktopAccessManagementError(null);
+    setDesktopAccessManagementMutationError(null);
     try {
       await revokeServerPairingLink(id);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to revoke pairing link.";
-      setDesktopAccessManagementError(message);
+      setDesktopAccessManagementMutationError(message);
       toastManager.add(
         stackedThreadToast({
           type: "error",
@@ -1664,12 +2296,12 @@ export function ConnectionsSettings() {
   const handleRevokeDesktopClientSession = useCallback(
     async (sessionId: ServerClientSessionRecord["sessionId"]) => {
       setRevokingDesktopClientSessionId(sessionId);
-      setDesktopAccessManagementError(null);
+      setDesktopAccessManagementMutationError(null);
       try {
         await revokeServerClientSession(sessionId);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to revoke client access.";
-        setDesktopAccessManagementError(message);
+        setDesktopAccessManagementMutationError(message);
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -1686,7 +2318,7 @@ export function ConnectionsSettings() {
 
   const handleRevokeOtherDesktopClients = useCallback(async () => {
     setIsRevokingOtherDesktopClients(true);
-    setDesktopAccessManagementError(null);
+    setDesktopAccessManagementMutationError(null);
     try {
       const revokedCount = await revokeOtherServerClientSessions();
       toastManager.add({
@@ -1696,7 +2328,7 @@ export function ConnectionsSettings() {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to revoke other clients.";
-      setDesktopAccessManagementError(message);
+      setDesktopAccessManagementMutationError(message);
       toastManager.add(
         stackedThreadToast({
           type: "error",
@@ -1713,45 +2345,28 @@ export function ConnectionsSettings() {
     if (savedBackendMode === "ssh") {
       setIsAddingSavedBackend(true);
       setSavedBackendError(null);
+      let target: DesktopSshEnvironmentTarget;
       try {
-        const target = parseManualDesktopSshTarget({
+        target = parseManualDesktopSshTarget({
           host: savedBackendSshHost,
           username: savedBackendSshUsername,
           port: savedBackendSshPort,
         });
-        const record = await connectDesktopSshEnvironment(target, { label: "" });
-        setSavedBackendHost("");
-        setSavedBackendPairingCode("");
-        setSavedBackendSshHost("");
-        setSavedBackendSshUsername("");
-        setSavedBackendSshPort("");
-
-        setAddBackendDialogOpen(false);
-        toastManager.add({
-          type: "success",
-          title: "Environment connected",
-          description: `${record.label} is ready over an SSH-managed tunnel.`,
-        });
       } catch (error) {
-        const message = formatDesktopSshConnectionError(error);
-        setSavedBackendError(message);
-      } finally {
+        setSavedBackendError(formatDesktopSshConnectionError(error));
         setIsAddingSavedBackend(false);
+        return;
       }
-      return;
-    }
 
-    setIsAddingSavedBackend(true);
-    setSavedBackendError(null);
-    try {
-      const remotePairingInput = parseRemotePairingFields({
-        host: savedBackendHost,
-        pairingCode: savedBackendPairingCode,
-      });
-      const record = await addSavedEnvironment({
-        label: "",
-        ...remotePairingInput,
-      });
+      const result = await connectSshEnvironment({ target, label: "" });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          setSavedBackendError(formatDesktopSshConnectionError(squashAtomCommandFailure(result)));
+        }
+        setIsAddingSavedBackend(false);
+        return;
+      }
+
       setSavedBackendHost("");
       setSavedBackendPairingCode("");
       setSavedBackendSshHost("");
@@ -1760,8 +2375,20 @@ export function ConnectionsSettings() {
       setAddBackendDialogOpen(false);
       toastManager.add({
         type: "success",
-        title: "Backend added",
-        description: `${record.label} is now saved and will reconnect on app startup.`,
+        title: "Environment connected",
+        description: `${target.alias} is ready over an SSH-managed tunnel.`,
+      });
+      setIsAddingSavedBackend(false);
+      return;
+    }
+
+    setIsAddingSavedBackend(true);
+    setSavedBackendError(null);
+    let remotePairingInput: ReturnType<typeof parseRemotePairingFields>;
+    try {
+      remotePairingInput = parseRemotePairingFields({
+        host: savedBackendHost,
+        pairingCode: savedBackendPairingCode,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to add backend.";
@@ -1773,10 +2400,43 @@ export function ConnectionsSettings() {
           description: message,
         }),
       );
-    } finally {
       setIsAddingSavedBackend(false);
+      return;
     }
+
+    const result = await connectPairing(remotePairingInput);
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        const message = error instanceof Error ? error.message : "Failed to add backend.";
+        setSavedBackendError(message);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not add backend",
+            description: message,
+          }),
+        );
+      }
+      setIsAddingSavedBackend(false);
+      return;
+    }
+
+    setSavedBackendHost("");
+    setSavedBackendPairingCode("");
+    setSavedBackendSshHost("");
+    setSavedBackendSshUsername("");
+    setSavedBackendSshPort("");
+    setAddBackendDialogOpen(false);
+    toastManager.add({
+      type: "success",
+      title: "Backend added",
+      description: "The environment is saved and will reconnect on app startup.",
+    });
+    setIsAddingSavedBackend(false);
   }, [
+    connectPairing,
+    connectSshEnvironment,
     savedBackendHost,
     savedBackendMode,
     savedBackendPairingCode,
@@ -1785,88 +2445,47 @@ export function ConnectionsSettings() {
     savedBackendSshUsername,
   ]);
 
-  const handleConnectSavedBackend = useCallback(async (environmentId: EnvironmentId) => {
-    setReconnectingSavedEnvironmentId(environmentId);
-    setSavedBackendError(null);
-    try {
-      await reconnectSavedEnvironment(environmentId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to connect backend.";
-      setSavedBackendError(message);
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Could not connect backend",
-          description: message,
-        }),
-      );
-    } finally {
-      setReconnectingSavedEnvironmentId(null);
-    }
-  }, []);
+  const handleConnectSavedBackend = useCallback(
+    async (environmentId: EnvironmentId) => {
+      setSavedBackendError(null);
+      const result = await retryEnvironment(environmentId);
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        const message = error instanceof Error ? error.message : "Failed to connect backend.";
+        setSavedBackendError(message);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not connect backend",
+            description: message,
+          }),
+        );
+      }
+    },
+    [retryEnvironment],
+  );
 
-  const handleDisconnectSavedBackend = useCallback(async (environmentId: EnvironmentId) => {
-    setDisconnectingSavedEnvironmentId(environmentId);
-    setSavedBackendError(null);
-    try {
-      await disconnectSavedEnvironment(environmentId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to disconnect backend.";
-      setSavedBackendError(message);
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Could not disconnect backend",
-          description: message,
-        }),
-      );
-    } finally {
-      setDisconnectingSavedEnvironmentId(null);
-    }
-  }, []);
-
-  const handleRemoveSavedBackend = useCallback(async (environmentId: EnvironmentId) => {
-    setRemovingSavedEnvironmentId(environmentId);
-    setSavedBackendError(null);
-    try {
-      await removeSavedEnvironment(environmentId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to remove backend.";
-      setSavedBackendError(message);
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Could not remove backend",
-          description: message,
-        }),
-      );
-    } finally {
+  const handleRemoveSavedBackend = useCallback(
+    async (environmentId: EnvironmentId) => {
+      setRemovingSavedEnvironmentId(environmentId);
+      setSavedBackendError(null);
+      const result = await removeEnvironment(environmentId);
       setRemovingSavedEnvironmentId(null);
-    }
-  }, []);
-
-  const loadDiscoveredSshHosts = useCallback(async () => {
-    if (!desktopBridge) {
-      setDiscoveredSshHosts([]);
-      setHasLoadedDiscoveredSshHosts(false);
-      setDiscoveredSshHostsError(null);
-      return;
-    }
-
-    setIsLoadingDiscoveredSshHosts(true);
-    setDiscoveredSshHostsError(null);
-    try {
-      const hosts = await desktopBridge.discoverSshHosts();
-      setDiscoveredSshHosts(hosts);
-      setHasLoadedDiscoveredSshHosts(true);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to discover SSH hosts.";
-      setDiscoveredSshHostsError(message);
-      setHasLoadedDiscoveredSshHosts(true);
-    } finally {
-      setIsLoadingDiscoveredSshHosts(false);
-    }
-  }, [desktopBridge]);
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        const message = error instanceof Error ? error.message : "Failed to remove backend.";
+        setSavedBackendError(message);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not remove backend",
+            description: message,
+          }),
+        );
+      }
+    },
+    [removeEnvironment],
+  );
 
   const handleConnectSshHost = useCallback(
     async (target: DesktopSshEnvironmentTarget, label?: string) => {
@@ -1874,13 +2493,14 @@ export function ConnectionsSettings() {
       if (savedBackendMode === "ssh") {
         setSavedBackendError(null);
       } else {
-        setDiscoveredSshHostsError(null);
+        setSshConnectionError(null);
       }
-      try {
-        const record = await connectDesktopSshEnvironment(
-          target,
-          label === undefined ? undefined : { label },
-        );
+      const result = await connectSshEnvironment({
+        target,
+        ...(label === undefined ? {} : { label }),
+      });
+      setConnectingSshHostAlias(null);
+      if (result._tag === "Success") {
         setSavedBackendSshHost("");
         setSavedBackendSshUsername("");
         setSavedBackendSshPort("");
@@ -1890,179 +2510,24 @@ export function ConnectionsSettings() {
           title: savedDesktopSshEnvironmentsByAlias[target.alias]
             ? "Environment reconnected"
             : "Environment connected",
-          description: `${record.label} is ready over an SSH-managed tunnel.`,
+          description: `${label?.trim() || target.alias} is ready over an SSH-managed tunnel.`,
         });
-      } catch (error) {
+        return;
+      }
+      if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
         const message = formatDesktopSshConnectionError(error);
         if (savedBackendMode === "ssh") {
           setSavedBackendError(message);
         } else {
-          setDiscoveredSshHostsError(message);
+          setSshConnectionError(message);
         }
-      } finally {
-        setConnectingSshHostAlias(null);
       }
     },
-    [savedBackendMode, savedDesktopSshEnvironmentsByAlias],
+    [connectSshEnvironment, savedBackendMode, savedDesktopSshEnvironmentsByAlias],
   );
 
-  useEffect(() => {
-    if (!desktopBridge || !addBackendDialogOpen || savedBackendMode !== "ssh") {
-      return;
-    }
-    if (hasLoadedDiscoveredSshHosts || isLoadingDiscoveredSshHosts) {
-      return;
-    }
-    void loadDiscoveredSshHosts();
-  }, [
-    addBackendDialogOpen,
-    desktopBridge,
-    hasLoadedDiscoveredSshHosts,
-    isLoadingDiscoveredSshHosts,
-    loadDiscoveredSshHosts,
-    savedBackendMode,
-  ]);
-
-  useEffect(() => {
-    if (desktopBridge) {
-      setCurrentSessionRole("owner");
-      return;
-    }
-
-    let cancelled = false;
-    void fetchSessionState()
-      .then((session) => {
-        if (cancelled) return;
-        setCurrentSessionRole(session.authenticated ? (session.role ?? null) : null);
-        setCurrentAuthPolicy(session.auth.policy);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setCurrentSessionRole(null);
-        setCurrentAuthPolicy(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [desktopBridge]);
-
-  useEffect(() => {
-    if (!canManageLocalBackend) return;
-
-    let cancelled = false;
-    setIsLoadingDesktopAccessManagement(true);
-    type AuthAccessEvent = Parameters<
-      Parameters<WsRpcClient["server"]["subscribeAuthAccess"]>[0]
-    >[0];
-    const unsubscribeAuthAccess =
-      getPrimaryEnvironmentConnection().client.server.subscribeAuthAccess(
-        (event: AuthAccessEvent) => {
-          if (cancelled) {
-            return;
-          }
-
-          switch (event.type) {
-            case "snapshot":
-              setDesktopPairingLinks(
-                sortDesktopPairingLinks(
-                  event.payload.pairingLinks.map((pairingLink: AuthPairingLink) =>
-                    toDesktopPairingLinkRecord(pairingLink),
-                  ),
-                ),
-              );
-              setDesktopClientSessions(
-                sortDesktopClientSessions(
-                  event.payload.clientSessions.map((clientSession: AuthClientSession) =>
-                    toDesktopClientSessionRecord(clientSession),
-                  ),
-                ),
-              );
-              break;
-            case "pairingLinkUpserted":
-              setDesktopPairingLinks((current) =>
-                upsertDesktopPairingLink(current, toDesktopPairingLinkRecord(event.payload)),
-              );
-              break;
-            case "pairingLinkRemoved":
-              setDesktopPairingLinks((current) =>
-                removeDesktopPairingLink(current, event.payload.id),
-              );
-              break;
-            case "clientUpserted":
-              setDesktopClientSessions((current) =>
-                upsertDesktopClientSession(current, toDesktopClientSessionRecord(event.payload)),
-              );
-              break;
-            case "clientRemoved":
-              setDesktopClientSessions((current) =>
-                removeDesktopClientSession(current, event.payload.sessionId),
-              );
-              break;
-          }
-
-          setDesktopAccessManagementError(null);
-          setIsLoadingDesktopAccessManagement(false);
-        },
-        {
-          onResubscribe: () => {
-            if (!cancelled) {
-              setIsLoadingDesktopAccessManagement(true);
-            }
-          },
-        },
-      );
-    if (desktopBridge) {
-      void desktopBridge
-        .getServerExposureState()
-        .then((state) => {
-          if (cancelled) return;
-          setDesktopServerExposureState(state);
-        })
-        .catch((error: unknown) => {
-          if (cancelled) return;
-          const message =
-            error instanceof Error ? error.message : "Failed to load network exposure state.";
-          setDesktopServerExposureError(message);
-        });
-      void desktopBridge
-        .getAdvertisedEndpoints()
-        .then((endpoints) => {
-          if (cancelled) return;
-          setDesktopAdvertisedEndpoints(endpoints);
-        })
-        .catch((error: unknown) => {
-          if (cancelled) return;
-          const message =
-            error instanceof Error ? error.message : "Failed to load reachable endpoints.";
-          setDesktopServerExposureError(message);
-        });
-    } else {
-      setDesktopServerExposureState(null);
-      setDesktopAdvertisedEndpoints([]);
-      setDesktopServerExposureError(null);
-    }
-
-    return () => {
-      cancelled = true;
-      unsubscribeAuthAccess();
-    };
-  }, [canManageLocalBackend, desktopBridge]);
-
-  useEffect(() => {
-    if (canManageLocalBackend) return;
-    setIsLoadingDesktopAccessManagement(false);
-    setDesktopPairingLinks([]);
-    setDesktopClientSessions([]);
-    setDesktopAccessManagementError(null);
-    setDesktopServerExposureState(null);
-    setDesktopAdvertisedEndpoints([]);
-    setDesktopServerExposureError(null);
-  }, [canManageLocalBackend]);
-  const visibleDesktopPairingLinks = useMemo(
-    () => desktopPairingLinks.filter((pairingLink) => pairingLink.role === "client"),
-    [desktopPairingLinks],
-  );
+  const visibleDesktopPairingLinks = desktopPairingLinks;
   const tailscaleHttpsEndpoint = useMemo(
     () => desktopAdvertisedEndpoints.find(isTailscaleHttpsEndpoint) ?? null,
     [desktopAdvertisedEndpoints],
@@ -2267,7 +2732,7 @@ export function ConnectionsSettings() {
             size="xs"
             variant="ghost"
             disabled={isLoadingDiscoveredSshHosts}
-            onClick={() => void loadDiscoveredSshHosts()}
+            onClick={desktopSshHosts.refresh}
           >
             {isLoadingDiscoveredSshHosts ? (
               <RefreshCwIcon className="size-3 animate-spin" />
@@ -2444,7 +2909,7 @@ export function ConnectionsSettings() {
     <SettingsPageContainer>
       {canManageLocalBackend ? (
         <>
-          <SettingsSection title="Manage local backend">
+          <SettingsSection title="This environment">
             {primaryVersionMismatch ? (
               <SettingsRow
                 title="Version drift"
@@ -2463,9 +2928,13 @@ export function ConnectionsSettings() {
                 {renderNetworkAccessRow()}
                 {renderEndpointRows("endpoint-rail")}
                 {renderTailscaleRow()}
+                <CloudLinkRow canManageRelay={canManageRelay} />
               </>
             ) : (
-              renderDisabledNetworkAccessRow()
+              <>
+                {renderDisabledNetworkAccessRow()}
+                <CloudLinkRow canManageRelay={canManageRelay} />
+              </>
             )}
           </SettingsSection>
 
@@ -2480,7 +2949,13 @@ export function ConnectionsSettings() {
                 />
               }
             >
-              {renderAuthorizedClients("current")}
+              <ScrollArea
+                scrollFade
+                className="max-h-[22.5rem]"
+                data-testid="authorized-clients-scroll-area"
+              >
+                {renderAuthorizedClients("current")}
+              </ScrollArea>
             </SettingsSection>
           ) : null}
           <AlertDialog
@@ -2642,11 +3117,12 @@ export function ConnectionsSettings() {
           </Dialog>
         </>
       ) : (
-        <SettingsSection title="Local backend access">
+        <SettingsSection title="This environment">
           <SettingsRow
-            title="Owner tools"
-            description="Pairing links and client-session management are only available to owner sessions for this backend."
+            title="Administrative access"
+            description="Pairing links and client-session management require the access:write scope for this backend."
           />
+          <CloudLinkRow canManageRelay={canManageRelay} />
         </SettingsSection>
       )}
 
@@ -2714,27 +3190,19 @@ export function ConnectionsSettings() {
           </Dialog>
         }
       >
-        {savedEnvironmentIds.map((environmentId) => (
+        {savedEnvironments.map((environment) => (
           <SavedBackendListRow
-            key={environmentId}
-            environmentId={environmentId}
-            reconnectingEnvironmentId={reconnectingSavedEnvironmentId}
-            disconnectingEnvironmentId={disconnectingSavedEnvironmentId}
+            key={environment.environmentId}
+            environment={environment}
             removingEnvironmentId={removingSavedEnvironmentId}
             onConnect={handleConnectSavedBackend}
-            onDisconnect={handleDisconnectSavedBackend}
             onRemove={handleRemoveSavedBackend}
           />
         ))}
-
-        {savedEnvironmentIds.length === 0 ? (
-          <div className={ITEM_ROW_CLASSNAME}>
-            <p className="text-xs text-muted-foreground">
-              No remote environments yet. Click &ldquo;Add environment&rdquo; to pair another
-              environment.
-            </p>
-          </div>
-        ) : null}
+        <CloudRemoteEnvironmentRows
+          primaryEnvironmentId={primaryEnvironmentId}
+          savedEnvironmentIds={savedEnvironmentIds}
+        />
       </SettingsSection>
     </SettingsPageContainer>
   );

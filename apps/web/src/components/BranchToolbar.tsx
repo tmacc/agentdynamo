@@ -1,10 +1,5 @@
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime";
-import type {
-  EnvironmentId,
-  ProviderDriverKind,
-  ProviderInstanceId,
-  ThreadId,
-} from "@t3tools/contracts";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
   ChevronDownIcon,
   CloudIcon,
@@ -15,36 +10,20 @@ import {
 } from "lucide-react";
 import { memo, useMemo } from "react";
 
-import {
-  useComposerDraftModelState,
-  useComposerDraftStore,
-  type DraftId,
-} from "../composerDraftStore";
+import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
+import { useProject, useThread } from "../state/entities";
 import { useIsMobile } from "../hooks/useMediaQuery";
-import {
-  deriveLatestAccountUsageSnapshot,
-  type AccountUsageProviderScope,
-} from "../lib/accountUsage";
-import {
-  deriveProviderInstanceEntries,
-  resolveProviderDriverKindForInstanceSelection,
-} from "../providerInstances";
-import { useServerProviders } from "../rpc/serverState";
-import { useStore } from "../store";
-import { createProjectSelectorByRef, createThreadSelectorByRef } from "../storeSelectors";
 import {
   type EnvMode,
   type EnvironmentOption,
   resolveCurrentWorkspaceLabel,
   resolveEnvModeLabel,
   resolveEffectiveEnvMode,
-  resolveEnvModeLocked,
   resolveLockedWorkspaceLabel,
 } from "./BranchToolbar.logic";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
-import { AccountUsageMeter } from "./chat/AccountUsageMeter";
 import { Button } from "./ui/button";
 import {
   Menu,
@@ -64,8 +43,10 @@ interface BranchToolbarProps {
   draftId?: DraftId;
   onEnvModeChange: (mode: EnvMode) => void;
   effectiveEnvModeOverride?: EnvMode;
-  pendingWorktreeBaseBranch?: string | null;
-  onPendingWorktreeBaseBranchChange?: (branch: string | null) => void;
+  activeThreadBranchOverride?: string | null;
+  onActiveThreadBranchOverrideChange?: (branch: string | null) => void;
+  startFromOrigin: boolean;
+  onStartFromOriginChange: (startFromOrigin: boolean) => void;
   envLocked: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
@@ -209,31 +190,16 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   );
 });
 
-function accountUsageScopeFromDriver(
-  provider: ProviderDriverKind | undefined,
-): AccountUsageProviderScope {
-  if (provider === "codex") return "codex";
-  if (provider === "claudeAgent") return "claudeAgent";
-  return "unsupported";
-}
-
-function fallbackAccountUsageProviderFromInstanceId(
-  instanceId: ProviderInstanceId | null | undefined,
-): AccountUsageProviderScope | undefined {
-  const value = instanceId?.toString();
-  if (value === "codex") return "codex";
-  if (value === "claudeAgent") return "claudeAgent";
-  return undefined;
-}
-
 export const BranchToolbar = memo(function BranchToolbar({
   environmentId,
   threadId,
   draftId,
   onEnvModeChange,
   effectiveEnvModeOverride,
-  pendingWorktreeBaseBranch,
-  onPendingWorktreeBaseBranchChange,
+  activeThreadBranchOverride,
+  onActiveThreadBranchOverrideChange,
+  startFromOrigin,
+  onStartFromOriginChange,
   envLocked,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
@@ -244,14 +210,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
   );
-  const serverThreadSelector = useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]);
-  const serverThread = useStore(serverThreadSelector);
-  const providerStatuses = useServerProviders();
-  const providerInstanceEntries = useMemo(
-    () => deriveProviderInstanceEntries(providerStatuses),
-    [providerStatuses],
-  );
-  const composerModelDraft = useComposerDraftModelState(draftId ?? threadRef);
+  const serverThread = useThread(threadRef);
   const draftThread = useComposerDraftStore((store) =>
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
@@ -260,58 +219,17 @@ export const BranchToolbar = memo(function BranchToolbar({
     : draftThread
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
       : null;
-  const activeProjectSelector = useMemo(
-    () => createProjectSelectorByRef(activeProjectRef),
-    [activeProjectRef],
-  );
-  const activeProject = useStore(activeProjectSelector);
-  const hasActiveThread = serverThread !== undefined || draftThread !== null;
+  const activeProject = useProject(activeProjectRef);
+  const hasActiveThread = serverThread !== null || draftThread !== null;
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
-  const activeProviderInstanceId =
-    composerModelDraft.activeProvider ??
-    serverThread?.session?.providerInstanceId ??
-    serverThread?.modelSelection.instanceId ??
-    null;
-  const activeAccountUsageProvider = useMemo(() => {
-    const activeInstanceId =
-      composerModelDraft.activeProvider ??
-      serverThread?.session?.providerInstanceId ??
-      serverThread?.modelSelection.instanceId ??
-      null;
-    const driver = resolveProviderDriverKindForInstanceSelection(
-      providerInstanceEntries,
-      providerStatuses,
-      activeInstanceId,
-    );
-    return driver
-      ? accountUsageScopeFromDriver(driver)
-      : (fallbackAccountUsageProviderFromInstanceId(activeInstanceId) ?? "unsupported");
-  }, [
-    composerModelDraft.activeProvider,
-    providerInstanceEntries,
-    providerStatuses,
-    serverThread?.modelSelection.instanceId,
-    serverThread?.session?.providerInstanceId,
-  ]);
-  const activeAccountUsage = useMemo(
-    () =>
-      deriveLatestAccountUsageSnapshot(serverThread?.activities ?? [], {
-        provider: activeAccountUsageProvider,
-        instanceId: activeProviderInstanceId,
-      }),
-    [activeAccountUsageProvider, activeProviderInstanceId, serverThread?.activities],
-  );
   const effectiveEnvMode =
     effectiveEnvModeOverride ??
     resolveEffectiveEnvMode({
       activeWorktreePath,
-      hasServerThread: serverThread !== undefined,
+      hasServerThread: serverThread !== null,
       draftThreadEnvMode: draftThread?.envMode,
     });
-  const envModeLocked = resolveEnvModeLocked({
-    envLocked,
-    activeWorktreePath,
-  });
+  const envModeLocked = envLocked || (serverThread !== null && activeWorktreePath !== null);
 
   const showEnvironmentPicker = Boolean(
     availableEnvironments && availableEnvironments.length > 1 && onEnvironmentChange,
@@ -353,20 +271,8 @@ export const BranchToolbar = memo(function BranchToolbar({
             activeWorktreePath={activeWorktreePath}
             onEnvModeChange={onEnvModeChange}
           />
-          {activeAccountUsage ? (
-            <>
-              <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
-              <AccountUsageMeter usage={activeAccountUsage} />
-            </>
-          ) : null}
         </div>
       )}
-      {isMobile && activeAccountUsage ? (
-        <>
-          <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
-          <AccountUsageMeter usage={activeAccountUsage} />
-        </>
-      ) : null}
 
       <BranchToolbarBranchSelector
         className="min-w-0 flex-1 justify-end md:ml-auto md:flex-none"
@@ -375,8 +281,10 @@ export const BranchToolbar = memo(function BranchToolbar({
         {...(draftId ? { draftId } : {})}
         envLocked={envLocked}
         {...(effectiveEnvModeOverride ? { effectiveEnvModeOverride } : {})}
-        {...(pendingWorktreeBaseBranch !== undefined ? { pendingWorktreeBaseBranch } : {})}
-        {...(onPendingWorktreeBaseBranchChange ? { onPendingWorktreeBaseBranchChange } : {})}
+        {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
+        {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
+        startFromOrigin={startFromOrigin}
+        onStartFromOriginChange={onStartFromOriginChange}
         {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
         {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
       />

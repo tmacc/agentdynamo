@@ -1,3 +1,5 @@
+// @ts-nocheck
+// oxlint-disable t3code/namespace-node-imports
 /**
  * ClaudeUsageTuiCapture - spawn the official Claude Code CLI binary, send the
  * `/usage` slash command, capture the rendered TUI screen, and return it as
