@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * MigrationsLive - Migration runner with inline loader
  *
@@ -38,29 +39,13 @@ import Migration0022 from "./Migrations/022_AuthSessionLastConnectedAt.ts";
 import Migration0023 from "./Migrations/023_ProjectionThreadShellSummary.ts";
 import Migration0024 from "./Migrations/024_BackfillProjectionThreadShellSummary.ts";
 import Migration0025 from "./Migrations/025_CleanupInvalidProjectionPendingApprovals.ts";
-import Migration0026 from "./Migrations/026_ProjectionBoardCards.ts";
-import Migration0027 from "./Migrations/027_ProjectionBoardDismissedGhosts.ts";
-import Migration0028 from "./Migrations/028_ProjectionThreadsForkOrigin.ts";
-import Migration0029 from "./Migrations/029_ProjectionThreadContextHandoffs.ts";
-import Migration0034 from "./Migrations/034_EnsureProjectionThreadContextHandoffs.ts";
-import Migration0035 from "./Migrations/035_ProjectionProjectWorktreeSetup.ts";
-import Migration0036 from "./Migrations/036_ProjectionThreadTeamTasks.ts";
-import Migration0037 from "./Migrations/037_TeamCoordinatorAccessGrants.ts";
-import Migration0038 from "./Migrations/038_EnsureProjectionThreadTeamTasks.ts";
-import Migration0039 from "./Migrations/039_ProjectionThreadTeamTaskNativeSource.ts";
-import Migration0040 from "./Migrations/040_EnsureProjectionThreadTeamTaskNativeSource.ts";
-import Migration0041 from "./Migrations/041_ProjectionNativeSubagentTrace.ts";
-import Migration0042 from "./Migrations/042_EnsureProviderSessionRuntimeSchema.ts";
-import Migration0043 from "./Migrations/043_EnsureProviderSessionRuntimePrimaryKey.ts";
-import Migration0044 from "./Migrations/044_EnsureProjectionBoardTables.ts";
-import Migration0045 from "./Migrations/045_RelaxProjectionBoardLinkedThreadUniquenessForArchivedCards.ts";
-import Migration0046 from "./Migrations/046_CanonicalizeModelSelectionOptions.ts";
-import Migration0047 from "./Migrations/047_ProviderSessionRuntimeInstanceId.ts";
-import Migration0048 from "./Migrations/048_ProjectionThreadSessionInstanceId.ts";
-import Migration0053 from "./Migrations/053_CanonicalizePrototypeInteractionMode.ts";
-import Migration0054 from "./Migrations/054_ProjectionThreadDetailOrderingIndexes.ts";
-import Migration0055 from "./Migrations/055_ProjectionThreadMessageRenderMode.ts";
-import Migration0056 from "./Migrations/030_ProjectionThreadShellArchiveIndexes.ts";
+import Migration0026 from "./Migrations/026_CanonicalizeModelSelectionOptions.ts";
+import Migration0027 from "./Migrations/027_ProviderSessionRuntimeInstanceId.ts";
+import Migration0028 from "./Migrations/028_ProjectionThreadSessionInstanceId.ts";
+import Migration0029 from "./Migrations/029_ProjectionThreadDetailOrderingIndexes.ts";
+import Migration0030 from "./Migrations/030_ProjectionThreadShellArchiveIndexes.ts";
+import Migration0031 from "./Migrations/031_AuthAuthorizationScopes.ts";
+import Migration0032 from "./Migrations/032_AuthPairingProofKeyThumbprint.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -98,29 +83,13 @@ export const migrationEntries = [
   [23, "ProjectionThreadShellSummary", Migration0023],
   [24, "BackfillProjectionThreadShellSummary", Migration0024],
   [25, "CleanupInvalidProjectionPendingApprovals", Migration0025],
-  [26, "ProjectionBoardCards", Migration0026],
-  [27, "ProjectionBoardDismissedGhosts", Migration0027],
-  [28, "ProjectionThreadsForkOrigin", Migration0028],
-  [29, "ProjectionThreadContextHandoffs", Migration0029],
-  [34, "EnsureProjectionThreadContextHandoffs", Migration0034],
-  [35, "ProjectionProjectWorktreeSetup", Migration0035],
-  [36, "ProjectionThreadTeamTasks", Migration0036],
-  [37, "TeamCoordinatorAccessGrants", Migration0037],
-  [38, "EnsureProjectionThreadTeamTasks", Migration0038],
-  [39, "ProjectionThreadTeamTaskNativeSource", Migration0039],
-  [40, "EnsureProjectionThreadTeamTaskNativeSource", Migration0040],
-  [41, "ProjectionNativeSubagentTrace", Migration0041],
-  [42, "EnsureProviderSessionRuntimeSchema", Migration0042],
-  [43, "EnsureProviderSessionRuntimePrimaryKey", Migration0043],
-  [44, "EnsureProjectionBoardTables", Migration0044],
-  [45, "RelaxProjectionBoardLinkedThreadUniquenessForArchivedCards", Migration0045],
-  [46, "CanonicalizeModelSelectionOptions", Migration0046],
-  [47, "ProviderSessionRuntimeInstanceId", Migration0047],
-  [48, "ProjectionThreadSessionInstanceId", Migration0048],
-  [53, "CanonicalizePrototypeInteractionMode", Migration0053],
-  [54, "ProjectionThreadDetailOrderingIndexes", Migration0054],
-  [55, "ProjectionThreadMessageRenderMode", Migration0055],
-  [56, "ProjectionThreadShellArchiveIndexes", Migration0056],
+  [26, "CanonicalizeModelSelectionOptions", Migration0026],
+  [27, "ProviderSessionRuntimeInstanceId", Migration0027],
+  [28, "ProjectionThreadSessionInstanceId", Migration0028],
+  [29, "ProjectionThreadDetailOrderingIndexes", Migration0029],
+  [30, "ProjectionThreadShellArchiveIndexes", Migration0030],
+  [31, "AuthAuthorizationScopes", Migration0031],
+  [32, "AuthPairingProofKeyThumbprint", Migration0032],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

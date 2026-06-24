@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { it } from "@effect/vitest";
+import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
@@ -414,6 +413,7 @@ it.effect("accepts bootstrap metadata in thread.turn.start", () =>
           projectCwd: "/tmp/workspace",
           baseBranch: "main",
           branch: "t3code/example",
+          startFromOrigin: true,
         },
         runSetupScript: true,
       },
@@ -421,6 +421,7 @@ it.effect("accepts bootstrap metadata in thread.turn.start", () =>
     });
     assert.strictEqual(parsed.bootstrap?.createThread?.projectId, "project-1");
     assert.strictEqual(parsed.bootstrap?.prepareWorktree?.baseBranch, "main");
+    assert.strictEqual(parsed.bootstrap?.prepareWorktree?.startFromOrigin, true);
     assert.strictEqual(parsed.bootstrap?.runSetupScript, true);
   }),
 );
@@ -508,7 +509,9 @@ it.effect("decodes thread fork command with context handoff id", () =>
       createdAt: "2026-01-01T00:00:01.000Z",
     });
 
-    assert.strictEqual(parsed.type, "thread.fork");
+    if (parsed.type !== "thread.fork") {
+      throw new Error(`Expected thread.fork command, got ${parsed.type}`);
+    }
     assert.strictEqual(parsed.handoffId, "handoff-fork-1");
   }),
 );
@@ -530,7 +533,9 @@ it.effect("decodes context handoff prepare command", () =>
       createdAt: "2026-01-01T00:00:01.000Z",
     });
 
-    assert.strictEqual(parsed.type, "thread.context-handoff.prepare");
+    if (parsed.type !== "thread.context-handoff.prepare") {
+      throw new Error(`Expected thread.context-handoff.prepare command, got ${parsed.type}`);
+    }
     assert.strictEqual(parsed.reason, "provider-switch");
     assert.strictEqual(parsed.targetProvider, "claudeAgent");
   }),
@@ -572,7 +577,9 @@ it.effect("decodes thread archived and unarchived events", () =>
       },
     });
 
-    assert.strictEqual(archived.type, "thread.archived");
+    if (archived.type !== "thread.archived") {
+      assert.fail(`Expected thread.archived event, received ${archived.type}.`);
+    }
     assert.strictEqual(archived.payload.archivedAt, "2026-01-01T00:00:00.000Z");
     assert.strictEqual(unarchived.type, "thread.unarchived");
   }),

@@ -1,17 +1,15 @@
 ---
+import { GITHUB_REPOSITORY_URL, MARKETING_STATS } from "../lib/site";
+
 interface Props {
   title?: string;
   description?: string;
-  image?: string;
 }
 
 const {
   title = "Dynamo",
-  description = "Dynamo is a desktop and web workspace for coordinating coding agents across providers.",
-  image = "/hero-agents.webp",
+  description = "Dynamo — The open-source control plane for coding agents.",
 } = Astro.props;
-const siteUrl = Astro.url.origin;
-const absoluteImage = new URL(image, siteUrl).toString();
 ---
 
 <html lang="en">
@@ -19,18 +17,10 @@ const absoluteImage = new URL(image, siteUrl).toString();
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content={description} />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content={title} />
-    <meta property="og:description" content={description} />
-    <meta property="og:image" content={absoluteImage} />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content={title} />
-    <meta name="twitter:description" content={description} />
-    <meta name="twitter:image" content={absoluteImage} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
@@ -41,21 +31,25 @@ const absoluteImage = new URL(image, siteUrl).toString();
   </head>
   <body>
     <div class="page">
-      <nav class="nav" aria-label="Primary">
-        <a href="/" class="nav-brand" aria-label="Dynamo home">
-          <img src="/dynamo-mark.webp" alt="Dynamo" class="nav-icon" />
-          <span>Dynamo</span>
-        </a>
-        <div class="nav-links">
-          <a href="/download">Download</a>
-          <a
-            href="https://github.com/tmacc/agentdynamo"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            GitHub
-            <span class="nav-arrow" aria-hidden="true">&#8599;</span>
+      <nav class="nav">
+        <div class="nav-inner">
+          <a href="/" class="nav-brand" aria-label="Dynamo home">
+            <span class="nav-brand-name">Dynamo</span>
           </a>
+          <div class="nav-right">
+            <a
+              class="nav-stars"
+              href={GITHUB_REPOSITORY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Star Dynamo on GitHub — ${MARKETING_STATS.githubStars} stars`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2.3l2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 17.12l-5.8 3.05 1.11-6.47-4.7-4.58 6.49-.94L12 2.3z"/>
+              </svg>
+              <span><strong>{MARKETING_STATS.githubStars}</strong> GitHub stars</span>
+            </a>
+          </div>
         </div>
       </nav>
 
@@ -64,45 +58,54 @@ const absoluteImage = new URL(image, siteUrl).toString();
       </main>
 
       <footer class="footer">
-        <span class="footer-copy">&copy; {new Date().getFullYear()} Dynamo</span>
-        <div class="footer-links">
-          <a href="/download">Download</a>
-          <a
-            href="https://github.com/tmacc/agentdynamo"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            GitHub
-          </a>
-          <a
-            href="https://discord.gg/jn4EGJjrvv"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Discord
-          </a>
+        <div class="footer-inner">
+          <div class="footer-brand">
+            <img src="/icon.webp" alt="" />
+            <span>&copy; {new Date().getFullYear()} Dynamo · MIT licensed</span>
+          </div>
+          <div class="footer-links">
+            <a href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href="https://discord.gg/jn4EGJjrvv" target="_blank" rel="noopener noreferrer">Discord</a>
+            <a href="/download">Download</a>
+          </div>
         </div>
       </footer>
     </div>
+
+    <script>
+      const nav = document.querySelector(".nav");
+      const onScroll = () => {
+        if (!nav) return;
+        if (window.scrollY > 12) nav.classList.add("is-scrolled");
+        else nav.classList.remove("is-scrolled");
+      };
+      window.addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+    </script>
   </body>
 </html>
 
 <style is:global>
   :root {
     --bg: #09090b;
-    --bg-soft: #111114;
-    --bg-panel: rgba(255, 255, 255, 0.045);
-    --bg-panel-strong: rgba(255, 255, 255, 0.075);
+    --bg-elev: #0c0c0e;
+    --bg-card: #111113;
     --fg: #fafafa;
-    --fg-muted: #b7b8c0;
-    --fg-dim: #7d808a;
-    --border: rgba(255, 255, 255, 0.1);
-    --border-strong: rgba(255, 255, 255, 0.18);
-    --pink: #f21d72;
-    --green: #42d392;
-    --blue: #5ab8ff;
-    --yellow: #f6c85f;
-    --max: 1240px;
+    --fg-muted: #a1a1aa;
+    --fg-dim: #71717a;
+    --fg-faint: #52525b;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.14);
+    --accent-h: 250;
+    --accent: oklch(0.68 0.17 var(--accent-h));
+    --accent-dim: oklch(0.68 0.17 var(--accent-h) / 0.15);
+    --ok: oklch(0.72 0.16 150);
+    --warn: oklch(0.76 0.15 75);
+    --font-sans: "DM Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-lg: 16px;
   }
 
   * {
@@ -117,16 +120,15 @@ const absoluteImage = new URL(image, siteUrl).toString();
   }
 
   body {
-    background:
-      radial-gradient(circle at 18% 0%, rgba(242, 29, 114, 0.16), transparent 30rem),
-      radial-gradient(circle at 82% 8%, rgba(90, 184, 255, 0.18), transparent 32rem),
-      linear-gradient(180deg, #0b0b10 0%, #09090b 45%, #0d0d10 100%);
+    background: var(--bg);
     color: var(--fg);
-    font-family: "DM Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "ss02";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     min-height: 100vh;
     overflow-x: hidden;
+    line-height: 1.5;
   }
 
   body::after {
@@ -134,7 +136,7 @@ const absoluteImage = new URL(image, siteUrl).toString();
     position: fixed;
     inset: 0;
     pointer-events: none;
-    opacity: 0.03;
+    opacity: 0.035;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     background-repeat: repeat;
     background-size: 256px 256px;
@@ -146,14 +148,129 @@ const absoluteImage = new URL(image, siteUrl).toString();
     text-decoration: none;
   }
 
-  img {
+  button {
+    font-family: inherit;
+    cursor: pointer;
+    border: 0;
+    background: none;
+    color: inherit;
+  }
+
+  img,
+  svg {
     display: block;
     max-width: 100%;
   }
 
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    font-weight: 500;
+  }
+
+  .display {
+    font-weight: 500;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-weight: 500;
+    font-size: 14px;
+    padding: 10px 18px;
+    border-radius: 8px;
+    transition: transform 0.18s ease, background 0.18s ease,
+      border-color 0.18s ease, color 0.18s ease;
+    white-space: nowrap;
+  }
+
+  .btn-primary {
+    background: var(--fg);
+    color: #09090b;
+    font-weight: 600;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    background: #fff;
+  }
+
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+
+  .btn-ghost {
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+    background: transparent;
+  }
+
+  .btn-ghost:hover {
+    color: var(--fg);
+    border-color: var(--border-strong);
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .btn-lg {
+    padding: 14px 22px;
+    font-size: 15px;
+    border-radius: 10px;
+  }
+
+  .tile {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+    overflow: hidden;
+  }
+
   :focus-visible {
-    outline: 2px solid var(--blue);
-    outline-offset: 3px;
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes pulse {
+    50% { opacity: 0.4; }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes floatDrift {
+    0%, 100% { translate: 0 0; }
+    50%      { translate: 0 -10px; }
+  }
+
+  @keyframes blink {
+    50% { opacity: 0; }
   }
 </style>
 
@@ -166,78 +283,131 @@ const absoluteImage = new URL(image, siteUrl).toString();
   }
 
   .nav {
-    width: min(100%, calc(var(--max) + 64px));
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    background: color-mix(in srgb, var(--bg) 75%, transparent);
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.3s ease;
+  }
+
+  .nav.is-scrolled {
+    border-bottom-color: var(--border);
+  }
+
+  .nav-inner {
+    max-width: 1240px;
     margin: 0 auto;
+    padding: 12px 32px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1.1rem 2rem;
+    gap: 24px;
   }
 
   .nav-brand {
     display: inline-flex;
     align-items: center;
-    gap: 0.7rem;
-    font-weight: 700;
-    font-size: 0.95rem;
-  }
-
-  .nav-icon {
-    width: 30px;
-    height: 30px;
-    border-radius: 6px;
-  }
-
-  .nav-links {
-    display: flex;
-    align-items: center;
-    gap: 1.4rem;
-    color: var(--fg-muted);
-    font-size: 0.9rem;
-  }
-
-  .nav-links a {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
+    color: var(--fg);
     transition: color 0.2s ease;
   }
 
-  .nav-links a:hover {
-    color: var(--fg);
+  .nav-brand:hover {
+    color: #fff;
   }
 
-  .nav-arrow {
-    font-size: 0.82rem;
+  .nav-brand-name {
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    line-height: 1;
+  }
+
+  .nav-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .nav-stars {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 36px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--fg-muted);
+    font-size: 13px;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  }
+
+  .nav-stars:hover {
+    color: var(--fg);
+    border-color: var(--border-strong);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .nav-stars strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .nav-stars svg {
+    color: var(--warn);
+    flex-shrink: 0;
   }
 
   .main {
     flex: 1;
     display: flex;
     flex-direction: column;
-    align-items: center;
   }
 
   .footer {
-    width: min(100%, calc(var(--max) + 64px));
+    margin-top: auto;
+    border-top: 1px solid var(--border);
+    padding: 40px 0 32px;
+  }
+
+  .footer-inner {
+    max-width: 1240px;
     margin: 0 auto;
+    padding: 0 32px;
     display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-    padding: 2rem;
-    font-size: 0.82rem;
+  }
+
+  .footer-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
     color: var(--fg-dim);
+  }
+
+  .footer-brand img {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
   }
 
   .footer-links {
     display: flex;
-    gap: 1.25rem;
-    flex-wrap: wrap;
-    justify-content: flex-end;
+    gap: 20px;
   }
 
   .footer-links a {
+    font-size: 13px;
+    color: var(--fg-dim);
     transition: color 0.2s ease;
   }
 
@@ -245,24 +415,24 @@ const absoluteImage = new URL(image, siteUrl).toString();
     color: var(--fg);
   }
 
-  @media (max-width: 640px) {
-    .nav {
-      padding: 1rem 1.25rem;
+  @media (max-width: 820px) {
+    .nav-inner,
+    .footer-inner {
+      padding-left: 20px;
+      padding-right: 20px;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .nav-inner {
+      gap: 12px;
     }
 
-    .nav-links {
-      gap: 0.9rem;
-      font-size: 0.84rem;
-    }
-
-    .footer {
-      padding: 1.5rem 1.25rem;
-      align-items: flex-start;
-      flex-direction: column;
-    }
-
-    .footer-links {
-      justify-content: flex-start;
+    .nav-stars {
+      height: 34px;
+      gap: 6px;
+      padding: 0 12px;
+      font-size: 12px;
     }
   }
 </style>

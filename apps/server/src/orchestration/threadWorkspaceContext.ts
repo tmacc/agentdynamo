@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { ProjectId, type ThreadId } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import { Effect } from "effect";

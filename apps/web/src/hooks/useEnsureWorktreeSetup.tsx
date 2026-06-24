@@ -71,7 +71,7 @@ export function useEnsureWorktreeSetup(environmentId: EnvironmentId) {
       try {
         const scanResult = await api.projects.scanWorktreeSetup({
           projectId: project.id,
-          projectCwd: project.cwd,
+          projectCwd: project.cwd ?? project.workspaceRoot,
           trigger: input.trigger,
         });
         if (!scanResult.promptRequired && input.trigger !== "manual") {
@@ -116,7 +116,7 @@ export function useEnsureWorktreeSetup(environmentId: EnvironmentId) {
       const api = ensureEnvironmentApi(environmentId);
       const result = await api.projects.applyWorktreeSetup({
         projectId: pending.project.id,
-        projectCwd: pending.project.cwd,
+        projectCwd: pending.project.cwd ?? pending.project.workspaceRoot,
         scanFingerprint: pending.scanResult.scanFingerprint,
         installCommand:
           pending.installCommand.trim().length > 0 ? pending.installCommand.trim() : null,

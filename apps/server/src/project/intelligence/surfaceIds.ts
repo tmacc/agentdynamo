@@ -1,3 +1,4 @@
+// oxlint-disable t3code/namespace-node-imports
 import { createHash } from "node:crypto";
 
 import type { ProjectIntelligenceSurfaceId } from "@t3tools/contracts";

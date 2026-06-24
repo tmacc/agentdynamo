@@ -97,6 +97,27 @@ const GitResolvedPullRequest = Schema.Struct({
 });
 export type GitResolvedPullRequest = typeof GitResolvedPullRequest.Type;
 
+export const GitPullRequestRemoteCandidate = Schema.Struct({
+  remoteName: TrimmedNonEmptyStringSchema,
+  repositoryNameWithOwner: TrimmedNonEmptyStringSchema,
+  ownerLogin: TrimmedNonEmptyStringSchema,
+  pushRepositoryNameWithOwner: Schema.NullOr(TrimmedNonEmptyStringSchema),
+});
+export type GitPullRequestRemoteCandidate = typeof GitPullRequestRemoteCandidate.Type;
+
+export const GitGetPullRequestRemoteOptionsResult = Schema.Struct({
+  configuredRemoteName: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  selectedRemoteName: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  candidates: Schema.Array(GitPullRequestRemoteCandidate),
+  requiresSelection: Schema.Boolean,
+});
+export type GitGetPullRequestRemoteOptionsResult = typeof GitGetPullRequestRemoteOptionsResult.Type;
+
+export const GitSetPullRequestRemoteResult = Schema.Struct({
+  remoteName: TrimmedNonEmptyStringSchema,
+});
+export type GitSetPullRequestRemoteResult = typeof GitSetPullRequestRemoteResult.Type;
+
 // RPC Inputs
 
 export const VcsStatusInput = Schema.Struct({
@@ -136,6 +157,8 @@ export const VcsListRefsInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   query: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(256))),
   cursor: Schema.optional(NonNegativeInt),
+  includeMatchingRemoteRefs: Schema.optional(Schema.Boolean),
+  refKind: Schema.optional(Schema.Literals(["all", "local", "remote"])),
   limit: Schema.optional(
     PositiveInt.check(Schema.isLessThanOrEqualTo(GIT_LIST_BRANCHES_MAX_LIMIT)),
   ),
@@ -146,6 +169,7 @@ export const VcsCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,
   newRefName: Schema.optional(TrimmedNonEmptyStringSchema),
+  baseRefName: Schema.optional(TrimmedNonEmptyStringSchema),
   path: Schema.NullOr(TrimmedNonEmptyStringSchema),
 });
 export type VcsCreateWorktreeInput = typeof VcsCreateWorktreeInput.Type;
@@ -219,36 +243,12 @@ const VcsStatusChangeRequest = Schema.Struct({
   state: VcsStatusChangeRequestState,
 });
 
-export const GitPullRequestRemoteCandidate = Schema.Struct({
-  remoteName: TrimmedNonEmptyStringSchema,
-  repositoryNameWithOwner: TrimmedNonEmptyStringSchema,
-  ownerLogin: TrimmedNonEmptyStringSchema,
-  pushRepositoryNameWithOwner: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
-});
-export type GitPullRequestRemoteCandidate = typeof GitPullRequestRemoteCandidate.Type;
-
-export const GitGetPullRequestRemoteOptionsResult = Schema.Struct({
-  configuredRemoteName: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
-  selectedRemoteName: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
-  candidates: Schema.Array(GitPullRequestRemoteCandidate),
-  requiresSelection: Schema.Boolean,
-});
-export type GitGetPullRequestRemoteOptionsResult = typeof GitGetPullRequestRemoteOptionsResult.Type;
-
-export const GitSetPullRequestRemoteResult = Schema.Struct({
-  remoteName: TrimmedNonEmptyStringSchema,
-});
-export type GitSetPullRequestRemoteResult = typeof GitSetPullRequestRemoteResult.Type;
-
 const VcsStatusLocalShape = {
   isRepo: Schema.Boolean,
   sourceControlProvider: Schema.optional(SourceControlProviderInfo),
   hasPrimaryRemote: Schema.Boolean,
-  hasOriginRemote: Schema.optional(Schema.Boolean),
   isDefaultRef: Schema.Boolean,
-  isDefaultBranch: Schema.optional(Schema.Boolean),
   refName: Schema.NullOr(TrimmedNonEmptyStringSchema),
-  branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
   hasWorkingTreeChanges: Schema.Boolean,
   workingTree: Schema.Struct({
     files: Schema.Array(
@@ -392,11 +392,16 @@ export class GitCommandError extends Schema.TaggedErrorClass<GitCommandError>()(
   operation: Schema.String,
   command: Schema.String,
   cwd: Schema.String,
+  argumentCount: Schema.optional(Schema.Number),
+  exitCode: Schema.optional(Schema.Number),
+  stdoutLength: Schema.optional(Schema.Number),
+  stderrLength: Schema.optional(Schema.Number),
+  outputLength: Schema.optional(Schema.Number),
   detail: Schema.String,
-  cause: Schema.optional(Schema.Defect),
+  cause: Schema.optional(Schema.Defect()),
 }) {
   override get message(): string {
-    return `Git command failed in ${this.operation}: ${this.command} (${this.cwd}) - ${this.detail}`;
+    return `Git command failed in ${this.operation} (${this.cwd}): ${this.detail}`;
   }
 }
 
@@ -405,7 +410,7 @@ export class TextGenerationError extends Schema.TaggedErrorClass<TextGenerationE
   {
     operation: Schema.String,
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -415,11 +420,28 @@ export class TextGenerationError extends Schema.TaggedErrorClass<TextGenerationE
 
 export class GitManagerError extends Schema.TaggedErrorClass<GitManagerError>()("GitManagerError", {
   operation: Schema.String,
+  cwd: Schema.String,
   detail: Schema.String,
-  cause: Schema.optional(Schema.Defect),
+  cause: Schema.optional(Schema.Defect()),
 }) {
   override get message(): string {
     return `Git manager failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
+export class GitPullRequestMaterializationError extends Schema.TaggedErrorClass<GitPullRequestMaterializationError>()(
+  "GitPullRequestMaterializationError",
+  {
+    cwd: TrimmedNonEmptyStringSchema,
+    pullRequestNumber: PositiveInt,
+    headRepository: Schema.NullOr(TrimmedNonEmptyStringSchema),
+    headBranch: TrimmedNonEmptyStringSchema,
+    localBranch: TrimmedNonEmptyStringSchema,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Failed to materialize pull request #${this.pullRequestNumber} branch ${this.headBranch} as ${this.localBranch}.`;
   }
 }
 
@@ -428,8 +450,8 @@ export class GitPullRequestRemoteSelectionRequiredError extends Schema.TaggedErr
   {
     operation: Schema.String,
     detail: Schema.String,
-    configuredRemoteName: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
-    selectedRemoteName: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+    configuredRemoteName: Schema.NullOr(TrimmedNonEmptyStringSchema),
+    selectedRemoteName: Schema.NullOr(TrimmedNonEmptyStringSchema),
     candidates: Schema.Array(GitPullRequestRemoteCandidate),
   },
 ) {
@@ -440,6 +462,7 @@ export class GitPullRequestRemoteSelectionRequiredError extends Schema.TaggedErr
 
 export const GitManagerServiceError = Schema.Union([
   GitManagerError,
+  GitPullRequestMaterializationError,
   GitCommandError,
   SourceControlProviderError,
   TextGenerationError,

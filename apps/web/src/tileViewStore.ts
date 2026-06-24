@@ -5,7 +5,7 @@
  * `setFromUrl()` and consumers re-serialize back to the URL after mutations.
  * The store itself is non-persisted.
  */
-import { scopedThreadKey } from "@t3tools/client-runtime";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 

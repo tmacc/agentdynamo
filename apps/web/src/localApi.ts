@@ -1,38 +1,44 @@
-import type { ContextMenuItem, LocalApi } from "@t3tools/contracts";
+import type {
+  ContextMenuItem,
+  EnvironmentId,
+  LocalApi,
+  PersistedSavedEnvironmentRecord,
+} from "@t3tools/contracts";
 
-import { resetGitStatusStateForTests } from "./lib/gitStatusState";
-import { resetSourceControlDiscoveryStateForTests } from "./lib/sourceControlDiscoveryState";
 import { resetRequestLatencyStateForTests } from "./rpc/requestLatencyState";
-import { resetServerStateForTests } from "./rpc/serverState";
-import { resetWsConnectionStateForTests } from "./rpc/wsConnectionState";
-import {
-  resetSavedEnvironmentRegistryStoreForTests,
-  resetSavedEnvironmentRuntimeStoreForTests,
-} from "./environments/runtime";
-import {
-  getPrimaryEnvironmentConnection,
-  resetEnvironmentServiceForTests,
-} from "./environments/runtime";
-import { getPrimaryKnownEnvironment } from "./environments/primary";
-import { type WsRpcClient } from "./rpc/wsRpcClient";
 import { showContextMenuFallback } from "./contextMenuFallback";
-import {
-  readBrowserClientSettings,
-  readBrowserSavedEnvironmentRegistry,
-  readBrowserSavedEnvironmentSecret,
-  removeBrowserSavedEnvironmentSecret,
-  writeBrowserClientSettings,
-  writeBrowserSavedEnvironmentRegistry,
-  writeBrowserSavedEnvironmentSecret,
-} from "./clientPersistenceStorage";
+import { readBrowserClientSettings, writeBrowserClientSettings } from "./clientPersistenceStorage";
 
 let cachedApi: LocalApi | undefined;
+const SAVED_ENVIRONMENT_REGISTRY_KEY = "dynamo:saved-environments";
+const SAVED_ENVIRONMENT_SECRET_PREFIX = "dynamo:saved-environment-secret:";
 
 function unavailableLocalBackendError(): Error {
   return new Error("Local backend API is unavailable before a backend is paired.");
 }
 
-function createBrowserLocalApi(rpcClient?: WsRpcClient): LocalApi {
+function readBrowserSavedEnvironmentRegistry(): readonly PersistedSavedEnvironmentRecord[] {
+  try {
+    const raw = window.localStorage.getItem(SAVED_ENVIRONMENT_REGISTRY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as PersistedSavedEnvironmentRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeBrowserSavedEnvironmentRegistry(
+  records: readonly PersistedSavedEnvironmentRecord[],
+): void {
+  window.localStorage.setItem(SAVED_ENVIRONMENT_REGISTRY_KEY, JSON.stringify(records));
+}
+
+function savedEnvironmentSecretKey(environmentId: EnvironmentId): string {
+  return `${SAVED_ENVIRONMENT_SECRET_PREFIX}${environmentId}`;
+}
+
+function createBrowserLocalApi(): LocalApi {
   return {
     dialogs: {
       pickFolder: async (options) => {
@@ -47,10 +53,7 @@ function createBrowserLocalApi(rpcClient?: WsRpcClient): LocalApi {
       },
     },
     shell: {
-      openInEditor: (cwd, editor) =>
-        rpcClient
-          ? rpcClient.shell.openInEditor({ cwd, editor })
-          : Promise.reject(unavailableLocalBackendError()),
+      openInEditor: () => Promise.reject(unavailableLocalBackendError()),
       openExternal: async (url) => {
         if (window.desktopBridge) {
           const opened = await window.desktopBridge.openExternal(url);
@@ -103,72 +106,41 @@ function createBrowserLocalApi(rpcClient?: WsRpcClient): LocalApi {
         if (window.desktopBridge) {
           return window.desktopBridge.getSavedEnvironmentSecret(environmentId);
         }
-        return readBrowserSavedEnvironmentSecret(environmentId);
+        return window.localStorage.getItem(savedEnvironmentSecretKey(environmentId));
       },
       setSavedEnvironmentSecret: async (environmentId, secret) => {
         if (window.desktopBridge) {
           return window.desktopBridge.setSavedEnvironmentSecret(environmentId, secret);
         }
-        return writeBrowserSavedEnvironmentSecret(environmentId, secret);
+        window.localStorage.setItem(savedEnvironmentSecretKey(environmentId), secret);
+        return true;
       },
       removeSavedEnvironmentSecret: async (environmentId) => {
         if (window.desktopBridge) {
           return window.desktopBridge.removeSavedEnvironmentSecret(environmentId);
         }
-        removeBrowserSavedEnvironmentSecret(environmentId);
+        window.localStorage.removeItem(savedEnvironmentSecretKey(environmentId));
       },
     },
     server: {
-      getConfig: () =>
-        rpcClient ? rpcClient.server.getConfig() : Promise.reject(unavailableLocalBackendError()),
-      refreshProviders: () =>
-        rpcClient
-          ? rpcClient.server.refreshProviders()
-          : Promise.reject(unavailableLocalBackendError()),
-      updateProvider: (input) =>
-        rpcClient
-          ? rpcClient.server.updateProvider(input)
-          : Promise.reject(unavailableLocalBackendError()),
-      upsertKeybinding: (input) =>
-        rpcClient
-          ? rpcClient.server.upsertKeybinding(input)
-          : Promise.reject(unavailableLocalBackendError()),
-      removeKeybinding: (input) =>
-        rpcClient
-          ? rpcClient.server.removeKeybinding(input)
-          : Promise.reject(unavailableLocalBackendError()),
-      getSettings: () =>
-        rpcClient ? rpcClient.server.getSettings() : Promise.reject(unavailableLocalBackendError()),
-      updateSettings: (patch) =>
-        rpcClient
-          ? rpcClient.server.updateSettings(patch)
-          : Promise.reject(unavailableLocalBackendError()),
-      discoverSourceControl: () =>
-        rpcClient
-          ? rpcClient.server.discoverSourceControl()
-          : Promise.reject(unavailableLocalBackendError()),
-      getTraceDiagnostics: () =>
-        rpcClient
-          ? rpcClient.server.getTraceDiagnostics()
-          : Promise.reject(unavailableLocalBackendError()),
-      getProcessDiagnostics: () =>
-        rpcClient
-          ? rpcClient.server.getProcessDiagnostics()
-          : Promise.reject(unavailableLocalBackendError()),
-      getProcessResourceHistory: (input) =>
-        rpcClient
-          ? rpcClient.server.getProcessResourceHistory(input)
-          : Promise.reject(unavailableLocalBackendError()),
-      signalProcess: (input) =>
-        rpcClient
-          ? rpcClient.server.signalProcess(input)
-          : Promise.reject(unavailableLocalBackendError()),
+      getConfig: () => Promise.reject(unavailableLocalBackendError()),
+      refreshProviders: () => Promise.reject(unavailableLocalBackendError()),
+      updateProvider: () => Promise.reject(unavailableLocalBackendError()),
+      upsertKeybinding: () => Promise.reject(unavailableLocalBackendError()),
+      removeKeybinding: () => Promise.reject(unavailableLocalBackendError()),
+      getSettings: () => Promise.reject(unavailableLocalBackendError()),
+      updateSettings: () => Promise.reject(unavailableLocalBackendError()),
+      discoverSourceControl: () => Promise.reject(unavailableLocalBackendError()),
+      getTraceDiagnostics: () => Promise.reject(unavailableLocalBackendError()),
+      getProcessDiagnostics: () => Promise.reject(unavailableLocalBackendError()),
+      getProcessResourceHistory: () => Promise.reject(unavailableLocalBackendError()),
+      signalProcess: () => Promise.reject(unavailableLocalBackendError()),
     },
   };
 }
 
-export function createLocalApi(rpcClient: WsRpcClient): LocalApi {
-  return createBrowserLocalApi(rpcClient);
+export function createLocalApi(): LocalApi {
+  return createBrowserLocalApi();
 }
 
 export function readLocalApi(): LocalApi | undefined {
@@ -180,10 +152,7 @@ export function readLocalApi(): LocalApi | undefined {
     return cachedApi;
   }
 
-  const primaryEnvironment = getPrimaryKnownEnvironment();
-  cachedApi = primaryEnvironment
-    ? createLocalApi(getPrimaryEnvironmentConnection().client)
-    : createBrowserLocalApi();
+  cachedApi = createBrowserLocalApi();
   return cachedApi;
 }
 
@@ -199,12 +168,5 @@ export async function __resetLocalApiForTests() {
   cachedApi = undefined;
   const { __resetClientSettingsPersistenceForTests } = await import("./hooks/useSettings");
   __resetClientSettingsPersistenceForTests();
-  await resetEnvironmentServiceForTests();
-  resetGitStatusStateForTests();
-  resetSourceControlDiscoveryStateForTests();
   resetRequestLatencyStateForTests();
-  resetSavedEnvironmentRegistryStoreForTests();
-  resetSavedEnvironmentRuntimeStoreForTests();
-  resetServerStateForTests();
-  resetWsConnectionStateForTests();
 }

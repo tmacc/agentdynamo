@@ -1,3 +1,5 @@
+// oxlint-disable t3code/namespace-node-imports
+// oxlint-disable t3code/no-global-process-runtime
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";

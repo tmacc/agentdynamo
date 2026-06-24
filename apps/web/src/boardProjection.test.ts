@@ -5,6 +5,7 @@ import {
   type IsoDateTime,
   type ProjectId,
   ProviderDriverKind,
+  ProviderInstanceId,
   type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
@@ -44,6 +45,8 @@ function makeThread(
     environmentId: ENVIRONMENT_ID,
     projectId: PROJECT_ID,
     title: "Thread",
+    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+    runtimeMode: "full-access",
     interactionMode: DEFAULT_INTERACTION_MODE,
     session: null,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -56,6 +59,7 @@ function makeThread(
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    contextHandoffs: [],
     ...rest,
   };
 }

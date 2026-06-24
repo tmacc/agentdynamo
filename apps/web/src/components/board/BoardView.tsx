@@ -7,7 +7,7 @@ import {
   type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
-import { scopeProjectRef } from "@t3tools/client-runtime";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   DndContext,
   DragOverlay,
@@ -245,7 +245,7 @@ export function BoardView({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
       <BoardHeader
-        projectName={project.name}
+        projectName={project.name ?? project.title}
         cardCount={cards.filter((card) => card.archivedAt === null).length}
         status={status.status}
         {...(onCloseBoard ? { onCloseBoard } : {})}

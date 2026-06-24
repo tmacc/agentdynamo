@@ -1,7 +1,11 @@
+import { useAtomValue } from "@effect/atom-react";
 import { type ScopedThreadRef } from "@t3tools/contracts";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import type {
   GitActionProgressEvent,
-  GitGetPullRequestRemoteOptionsResult,
   GitRunStackedActionResult,
   GitStackedAction,
   SourceControlCloneProtocol,
@@ -11,7 +15,6 @@ import type {
   SourceControlRepositoryVisibility,
   VcsStatusResult,
 } from "@t3tools/contracts";
-import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
@@ -21,6 +24,7 @@ import {
   ChevronDownIcon,
   CloudUploadIcon,
   ExternalLinkIcon,
+  GitBranchPlusIcon,
   GitCommitIcon,
   InfoIcon,
   LockIcon,
@@ -28,6 +32,7 @@ import {
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "~/components/Icons";
+import { RadioGroup } from "~/components/ui/radio-group";
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
 import {
@@ -59,33 +64,31 @@ import { Group, GroupSeparator } from "~/components/ui/group";
 import { Input } from "~/components/ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
-import { Radio, RadioGroup } from "~/components/ui/radio-group";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { stackedThreadToast, toastManager, type ThreadToastData } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { openInPreferredEditor } from "~/editorPreferences";
+import { useOpenInPreferredEditor } from "~/editorPreferences";
 import {
-  gitInitMutationOptions,
-  gitMutationKeys,
-  gitPullMutationOptions,
-  gitPullRequestRemoteOptionsQueryOptions,
-  gitResolvePullRequestQueryOptions,
-  gitRunStackedActionMutationOptions,
-  gitSetPullRequestRemoteMutationOptions,
-  sourceControlPublishRepositoryMutationOptions,
-} from "~/lib/gitReactQuery";
-import { applyOptimisticGitStatusPr, refreshGitStatus, useGitStatus } from "~/lib/gitStatusState";
-import { useSourceControlDiscovery } from "~/lib/sourceControlDiscoveryState";
-import { newCommandId, randomUUID } from "~/lib/utils";
+  useGitStackedAction,
+  useSourceControlActionRunning,
+  useSourceControlPublishRepositoryAction,
+  useVcsInitAction,
+  useVcsPullAction,
+} from "~/lib/sourceControlActions";
+import { useThread } from "~/state/entities";
+import { useEnvironmentQuery } from "~/state/query";
+import { serverEnvironment } from "~/state/server";
+import { sourceControlEnvironment } from "~/state/sourceControl";
+import { threadEnvironment } from "~/state/threads";
+import { useAtomCommand } from "~/state/use-atom-command";
+import { vcsEnvironment } from "~/state/vcs";
+import { randomUUID } from "~/lib/utils";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
-import { readEnvironmentApi } from "~/environmentApi";
 import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
-import { useStore } from "~/store";
-import { createThreadSelectorByRef } from "~/storeSelectors";
-import { resolvedPullRequestToThreadPr } from "./ThreadStatusIndicators";
+import { openPullRequestLink } from "~/lib/openPullRequestLink";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -132,11 +135,24 @@ interface RunGitActionWithToastInput {
   filePaths?: string[];
 }
 
-interface PendingPullRequestRemoteSelection extends RunGitActionWithToastInput {
-  options: GitGetPullRequestRemoteOptionsResult;
-}
-
 const GIT_STATUS_WINDOW_REFRESH_DEBOUNCE_MS = 250;
+
+type RefreshVcsStatus = (target: {
+  readonly environmentId: ScopedThreadRef["environmentId"];
+  readonly input: { readonly cwd: string };
+}) => Promise<unknown>;
+
+function requestVcsStatusRefresh(
+  refresh: RefreshVcsStatus,
+  environmentId: ScopedThreadRef["environmentId"] | null,
+  cwd: string | null,
+): void {
+  if (environmentId === null || cwd === null) {
+    return;
+  }
+  void refresh({ environmentId, input: { cwd } });
+}
+const RUNNING_SOURCE_CONTROL_ACTIONS = ["runStackedAction", "pull", "publishRepository"] as const;
 
 const PUBLISH_PROVIDER_OPTIONS = [
   {
@@ -231,31 +247,6 @@ function formatElapsedDescription(startedAtMs: number | null): string | undefine
   const minutes = Math.floor(elapsedSeconds / 60);
   const seconds = elapsedSeconds % 60;
   return `Running for ${minutes}m ${seconds}s`;
-}
-
-function prStatusFromGitActionResult(
-  result: GitRunStackedActionResult,
-): NonNullable<VcsStatusResult["pr"]> | null {
-  if (result.pr.status !== "created" && result.pr.status !== "opened_existing") {
-    return null;
-  }
-  if (
-    !result.pr.number ||
-    !result.pr.url ||
-    !result.pr.title ||
-    !result.pr.baseBranch ||
-    !result.pr.headBranch
-  ) {
-    return null;
-  }
-  return {
-    number: result.pr.number,
-    title: result.pr.title,
-    url: result.pr.url,
-    baseRef: result.pr.baseBranch,
-    headRef: result.pr.headBranch,
-    state: "open",
-  };
 }
 
 function resolveProgressDescription(progress: ActiveGitActionProgress): string | undefined {
@@ -380,11 +371,18 @@ interface PublishRepositoryDialogProps {
 }
 
 function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const sourceControlDiscovery = useSourceControlDiscovery();
-  const [publishProvider, setPublishProvider] = useState<PublishProviderKind>("github");
-  const [publishRepository, setPublishRepository] = useState("");
+  const sourceControlDiscovery = useEnvironmentQuery(
+    props.environmentId === null
+      ? null
+      : sourceControlEnvironment.discovery({
+          environmentId: props.environmentId,
+          input: {},
+        }),
+  );
+  const [selectedPublishProvider, setSelectedPublishProvider] =
+    useState<PublishProviderKind | null>(null);
+  const [publishRepositoryOverride, setPublishRepositoryOverride] = useState<string | null>(null);
   const [publishVisibility, setPublishVisibility] =
     useState<SourceControlRepositoryVisibility>("private");
   const [publishRemoteName, setPublishRemoteName] = useState("origin");
@@ -395,14 +393,14 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
   const [publishResult, setPublishResult] = useState<SourceControlPublishRepositoryResult | null>(
     null,
   );
-  const [hasUserEditedPublishRepository, setHasUserEditedPublishRepository] = useState(false);
-  const publishRepositoryMutation = useMutation(
-    sourceControlPublishRepositoryMutationOptions({
+  const sourceControlScope = useMemo(
+    () => ({
       environmentId: props.environmentId,
       cwd: props.gitCwd,
-      queryClient,
     }),
+    [props.environmentId, props.gitCwd],
   );
+  const publishRepositoryAction = useSourceControlPublishRepositoryAction(sourceControlScope);
   const publishAccountByProvider = useMemo(() => {
     const accounts: Record<PublishProviderKind, string | null> = {
       github: null,
@@ -445,10 +443,18 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
       }),
     [publishProviderReadiness],
   );
+  const firstReadyPublishProvider = sortedPublishProviderOptions.find(
+    (option) => publishProviderReadiness[option.value].ready,
+  )?.value;
+  const publishProvider =
+    selectedPublishProvider !== null && publishProviderReadiness[selectedPublishProvider].ready
+      ? selectedPublishProvider
+      : (firstReadyPublishProvider ?? selectedPublishProvider ?? "github");
   const selectedPublishProviderReadiness = publishProviderReadiness[publishProvider];
   const publishRepositoryPrefill = publishAccountByProvider[publishProvider]
     ? `${publishAccountByProvider[publishProvider]}/`
     : "";
+  const publishRepository = publishRepositoryOverride ?? publishRepositoryPrefill;
   const currentPublishProvider = publishProviderOption(publishProvider);
   const publishHost = currentPublishProvider.host;
   const publishPathPlaceholder = currentPublishProvider.pathPlaceholder;
@@ -460,37 +466,15 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
     null,
   ] as const;
 
-  useEffect(() => {
-    if (!props.open || hasUserEditedPublishRepository) {
-      return;
-    }
-    setPublishRepository(publishRepositoryPrefill);
-  }, [hasUserEditedPublishRepository, props.open, publishRepositoryPrefill]);
-
   const canSubmitPublishRepository = useMemo(() => {
     if (!selectedPublishProviderReadiness.ready) return false;
-    if (publishRepositoryMutation.isPending) return false;
+    if (publishRepositoryAction.isPending) return false;
     const repositoryParts = publishRepository.trim().split("/");
     const owner = repositoryParts[0]?.trim() ?? "";
     const rest = repositoryParts.slice(1);
     const name = rest.join("/").trim();
     return owner.length > 0 && name.length > 0;
-  }, [publishRepository, publishRepositoryMutation.isPending, selectedPublishProviderReadiness]);
-
-  useEffect(() => {
-    if (!props.open) {
-      return;
-    }
-    if (publishProviderReadiness[publishProvider].ready) {
-      return;
-    }
-    const firstReadyProvider = PUBLISH_PROVIDER_OPTIONS.find(
-      (option) => publishProviderReadiness[option.value].ready,
-    );
-    if (firstReadyProvider) {
-      setPublishProvider(firstReadyProvider.value);
-    }
-  }, [props.open, publishProvider, publishProviderReadiness]);
+  }, [publishRepository, publishRepositoryAction.isPending, selectedPublishProviderReadiness]);
 
   const submitPublishRepository = useCallback(() => {
     if (!canSubmitPublishRepository) {
@@ -499,26 +483,28 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
 
     setPublishError(null);
 
-    void publishRepositoryMutation
-      .mutateAsync({
+    void (async () => {
+      const result = await publishRepositoryAction.run({
         provider: publishProvider,
         repository: publishRepository.trim(),
         visibility: publishVisibility,
         remoteName: publishRemoteName.trim() || "origin",
         protocol: publishProtocol,
-      })
-      .then((result) => {
-        flushSync(() => {
-          setPublishResult(result);
-          setPublishWizardStep(2);
-        });
-        void refreshGitStatus({ environmentId: props.environmentId, cwd: props.gitCwd }).catch(
-          () => undefined,
-        );
-      })
-      .catch((err: unknown) => {
-        setPublishError(err instanceof Error ? err.message : "An error occurred.");
       });
+
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          setPublishError(error instanceof Error ? error.message : "An error occurred.");
+        }
+        return;
+      }
+
+      flushSync(() => {
+        setPublishResult(result.value);
+        setPublishWizardStep(2);
+      });
+    })();
   }, [
     canSubmitPublishRepository,
     props.environmentId,
@@ -527,14 +513,13 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
     publishProvider,
     publishRemoteName,
     publishRepository,
-    publishRepositoryMutation,
+    publishRepositoryAction,
     publishVisibility,
   ]);
 
   const resetState = useCallback(() => {
     setPublishRemoteName("origin");
-    setPublishRepository("");
-    setHasUserEditedPublishRepository(false);
+    setPublishRepositoryOverride(null);
     setPublishWizardStep(0);
     setPublishAdvancedOpen(false);
     setPublishError(null);
@@ -627,7 +612,10 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                 </span>
                 <RadioGroup
                   value={publishProvider}
-                  onValueChange={(value) => setPublishProvider(value as PublishProviderKind)}
+                  onValueChange={(value) => {
+                    setSelectedPublishProvider(value as PublishProviderKind);
+                    setPublishRepositoryOverride(null);
+                  }}
                   aria-labelledby="publish-provider-cards-label"
                   className="grid grid-cols-2 gap-2.5"
                 >
@@ -713,8 +701,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                       name="publish-repository-path"
                       value={publishRepository}
                       onChange={(event) => {
-                        setPublishRepository(event.target.value);
-                        setHasUserEditedPublishRepository(true);
+                        setPublishRepositoryOverride(event.target.value);
                       }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
@@ -723,7 +710,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                         }
                       }}
                       placeholder={publishPathPlaceholder}
-                      disabled={publishRepositoryMutation.isPending}
+                      disabled={publishRepositoryAction.isPending}
                       className="w-full bg-transparent px-3 py-2 font-mono text-sm placeholder:text-muted-foreground/60 focus:outline-none"
                     />
                   </div>
@@ -742,7 +729,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                       setPublishVisibility(value as SourceControlRepositoryVisibility)
                     }
                     aria-labelledby="publish-visibility-cards-label"
-                    disabled={publishRepositoryMutation.isPending}
+                    disabled={publishRepositoryAction.isPending}
                     className="grid grid-cols-2 gap-2.5"
                   >
                     {[
@@ -814,7 +801,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                           value={publishRemoteName}
                           onChange={(event) => setPublishRemoteName(event.target.value)}
                           placeholder="origin"
-                          disabled={publishRepositoryMutation.isPending}
+                          disabled={publishRepositoryAction.isPending}
                         />
                       </label>
                       <div className="space-y-1.5">
@@ -830,7 +817,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                             setPublishProtocol(value as SourceControlCloneProtocol)
                           }
                           aria-labelledby="publish-protocol-label"
-                          disabled={publishRepositoryMutation.isPending}
+                          disabled={publishRepositoryAction.isPending}
                           className="grid grid-cols-2 gap-2"
                         >
                           {(["ssh", "https"] as const).map((value) => {
@@ -857,7 +844,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                   ) : null}
                 </div>
 
-                {publishRepositoryMutation.isPending ? (
+                {publishRepositoryAction.isPending ? (
                   <div
                     role="status"
                     aria-live="polite"
@@ -867,7 +854,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                     Publishing repository to {publishProviderLabel}...
                   </div>
                 ) : null}
-                {publishError && !publishRepositoryMutation.isPending ? (
+                {publishError && !publishRepositoryAction.isPending ? (
                   <div
                     role="alert"
                     className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
@@ -935,7 +922,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={publishRepositoryMutation.isPending}
+                  disabled={publishRepositoryAction.isPending}
                   onClick={() => {
                     if (publishWizardStep === 0) {
                       handleOpenChange(false);
@@ -960,7 +947,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                     disabled={!canSubmitPublishRepository}
                     onClick={submitPublishRepository}
                   >
-                    {publishRepositoryMutation.isPending ? (
+                    {publishRepositoryAction.isPending ? (
                       <>
                         <Spinner className="size-3.5" aria-hidden />
                         Publishing...
@@ -984,16 +971,21 @@ export default function GitActionsControl({
   activeThreadRef,
   draftId,
 }: GitActionsControlProps) {
+  const updateThreadMetadata = useAtomCommand(
+    threadEnvironment.updateMetadata,
+    "thread branch metadata update",
+  );
   const activeEnvironmentId = activeThreadRef?.environmentId ?? null;
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(activeEnvironmentId));
+  const openInPreferredEditor = useOpenInPreferredEditor(
+    activeEnvironmentId,
+    serverConfig?.availableEditors ?? [],
+  );
   const threadToastData = useMemo(
     () => (activeThreadRef ? { threadRef: activeThreadRef } : undefined),
     [activeThreadRef],
   );
-  const activeServerThreadSelector = useMemo(
-    () => createThreadSelectorByRef(activeThreadRef),
-    [activeThreadRef],
-  );
-  const activeServerThread = useStore(activeServerThreadSelector);
+  const activeServerThread = useThread(activeThreadRef);
   const activeDraftThread = useComposerDraftStore((store) =>
     draftId
       ? store.getDraftSession(draftId)
@@ -1002,8 +994,6 @@ export default function GitActionsControl({
         : null,
   );
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
-  const setThreadBranch = useStore((store) => store.setThreadBranch);
-  const queryClient = useQueryClient();
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
@@ -1011,10 +1001,11 @@ export default function GitActionsControl({
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
-  const [pendingPullRequestRemoteSelection, setPendingPullRequestRemoteSelection] =
-    useState<PendingPullRequestRemoteSelection | null>(null);
-  const [selectedPullRequestRemoteName, setSelectedPullRequestRemoteName] = useState("");
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
+  const sourceControlScope = useMemo(
+    () => ({ environmentId: activeEnvironmentId, cwd: gitCwd }),
+    [activeEnvironmentId, gitCwd],
+  );
   let runGitActionWithToast: (input: RunGitActionWithToastInput) => Promise<void>;
 
   const updateActiveProgressToast = useCallback(() => {
@@ -1043,20 +1034,15 @@ export default function GitActionsControl({
         }
 
         const worktreePath = activeServerThread.worktreePath;
-        const api = readEnvironmentApi(activeThreadRef.environmentId);
-        if (api) {
-          void api.orchestration
-            .dispatchCommand({
-              type: "thread.meta.update",
-              commandId: newCommandId(),
-              threadId: activeThreadRef.threadId,
-              branch,
-              worktreePath,
-            })
-            .catch(() => undefined);
-        }
+        void updateThreadMetadata({
+          environmentId: activeThreadRef.environmentId,
+          input: {
+            threadId: activeThreadRef.threadId,
+            branch,
+            worktreePath,
+          },
+        });
 
-        setThreadBranch(activeThreadRef, branch, worktreePath);
         return;
       }
 
@@ -1075,7 +1061,7 @@ export default function GitActionsControl({
       activeThreadRef,
       draftId,
       setDraftThreadContext,
-      setThreadBranch,
+      updateThreadMetadata,
     ],
   );
 
@@ -1091,10 +1077,18 @@ export default function GitActionsControl({
     [persistThreadBranchSync],
   );
 
-  const { data: gitStatus = null, error: gitStatusError } = useGitStatus({
-    environmentId: activeEnvironmentId,
-    cwd: gitCwd,
+  const gitStatusQuery = useEnvironmentQuery(
+    activeEnvironmentId !== null && gitCwd !== null
+      ? vcsEnvironment.status({
+          environmentId: activeEnvironmentId,
+          input: { cwd: gitCwd },
+        })
+      : null,
+  );
+  const refreshVcsStatus = useAtomCommand(vcsEnvironment.refreshStatus, {
+    reportFailure: false,
   });
+  const { data: gitStatus, error: gitStatusError } = gitStatusQuery;
   const sourceControlPresentation = useMemo(
     () => getSourceControlPresentation(gitStatus?.sourceControlProvider),
     [gitStatus?.sourceControlProvider],
@@ -1104,71 +1098,24 @@ export default function GitActionsControl({
   // Default to true while loading so we don't flash init controls.
   const isRepo = gitStatus?.isRepo ?? true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
-  const activeThreadBranch = activeServerThread?.branch ?? activeDraftThread?.branch ?? null;
-  const pullRequestLookupBranch = gitStatus?.refName ?? activeThreadBranch;
-  const resolvedPullRequestQuery = useQuery({
-    ...gitResolvePullRequestQueryOptions({
-      environmentId: activeEnvironmentId,
-      cwd: gitCwd,
-      reference: pullRequestLookupBranch,
-    }),
-    enabled: gitStatus !== null && gitStatus.pr === null && pullRequestLookupBranch !== null,
-    retry: false,
-  });
-  const resolvedPullRequestPr = resolvedPullRequestToThreadPr(
-    pullRequestLookupBranch,
-    resolvedPullRequestQuery.data,
-  );
-  const gitStatusForActions = useMemo(() => {
-    return gitStatus && resolvedPullRequestPr
-      ? { ...gitStatus, pr: resolvedPullRequestPr }
-      : gitStatus;
-  }, [gitStatus, resolvedPullRequestPr]);
+  const gitStatusForActions = gitStatus;
 
   const allFiles = gitStatusForActions?.workingTree.files ?? [];
   const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));
   const allSelected = excludedFiles.size === 0;
   const noneSelected = selectedFiles.length === 0;
 
-  const initMutation = useMutation(
-    gitInitMutationOptions({ environmentId: activeEnvironmentId, cwd: gitCwd, queryClient }),
+  const initAction = useVcsInitAction(sourceControlScope);
+  const runImmediateGitAction = useGitStackedAction(sourceControlScope);
+  const pullAction = useVcsPullAction(sourceControlScope);
+  const isGitActionRunning = useSourceControlActionRunning(
+    sourceControlScope,
+    RUNNING_SOURCE_CONTROL_ACTIONS,
   );
-
-  const runImmediateGitActionMutation = useMutation(
-    gitRunStackedActionMutationOptions({
-      environmentId: activeEnvironmentId,
-      cwd: gitCwd,
-      queryClient,
-    }),
-  );
-  const setPullRequestRemoteMutation = useMutation(
-    gitSetPullRequestRemoteMutationOptions({
-      environmentId: activeEnvironmentId,
-      cwd: gitCwd,
-      queryClient,
-    }),
-  );
-  const pullMutation = useMutation(
-    gitPullMutationOptions({ environmentId: activeEnvironmentId, cwd: gitCwd, queryClient }),
-  );
-
-  const isRunStackedActionRunning =
-    useIsMutating({
-      mutationKey: gitMutationKeys.runStackedAction(activeEnvironmentId, gitCwd),
-    }) > 0;
-  const isPullRunning =
-    useIsMutating({ mutationKey: gitMutationKeys.pull(activeEnvironmentId, gitCwd) }) > 0;
-  const isPublishRunning =
-    useIsMutating({
-      mutationKey: gitMutationKeys.publishRepository(activeEnvironmentId, gitCwd),
-    }) > 0;
-  const isGitActionRunning = isRunStackedActionRunning || isPullRunning || isPublishRunning;
   const isSelectingWorktreeBase =
     !activeServerThread &&
     activeDraftThread?.envMode === "worktree" &&
     activeDraftThread.worktreePath === null;
-  const activeThreadWorktreePath =
-    activeServerThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null;
 
   useEffect(() => {
     if (isGitActionRunning || isSelectingWorktreeBase) {
@@ -1177,7 +1124,6 @@ export default function GitActionsControl({
 
     const branchUpdate = resolveLiveThreadBranchUpdate({
       threadBranch: activeServerThread?.branch ?? activeDraftThread?.branch ?? null,
-      threadWorktreePath: activeThreadWorktreePath,
       gitStatus: gitStatusForActions,
     });
     if (!branchUpdate) {
@@ -1188,7 +1134,6 @@ export default function GitActionsControl({
   }, [
     activeServerThread?.branch,
     activeDraftThread?.branch,
-    activeThreadWorktreePath,
     gitStatusForActions,
     isGitActionRunning,
     isSelectingWorktreeBase,
@@ -1245,9 +1190,7 @@ export default function GitActionsControl({
       }
       refreshTimeout = window.setTimeout(() => {
         refreshTimeout = null;
-        void refreshGitStatus({ environmentId: activeEnvironmentId, cwd: gitCwd }).catch(
-          () => undefined,
-        );
+        requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd);
       }, GIT_STATUS_WINDOW_REFRESH_DEBOUNCE_MS);
     };
     const handleVisibilityChange = () => {
@@ -1266,7 +1209,7 @@ export default function GitActionsControl({
       window.removeEventListener("focus", scheduleRefreshCurrentGitStatus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [activeEnvironmentId, gitCwd]);
+  }, [activeEnvironmentId, gitCwd, refreshVcsStatus]);
 
   const openExistingPr = useCallback(async () => {
     const api = readLocalApi();
@@ -1287,7 +1230,8 @@ export default function GitActionsControl({
       });
       return;
     }
-    void api.shell.openExternal(prUrl).catch((err: unknown) => {
+    void openPullRequestLink(api.shell, prUrl).catch((err: unknown) => {
+      console.error(err);
       toastManager.add(
         stackedThreadToast({
           type: "error",
@@ -1298,36 +1242,6 @@ export default function GitActionsControl({
       );
     });
   }, [gitStatusForActions, threadToastData]);
-
-  const requestPullRequestRemoteSelection = useEffectEvent(
-    async (input: RunGitActionWithToastInput) => {
-      if (input.action !== "create_pr" && input.action !== "commit_push_pr") {
-        return false;
-      }
-      if (!gitCwd || !activeEnvironmentId) {
-        throw new Error("Pull request creation is unavailable.");
-      }
-
-      const options = await queryClient.fetchQuery(
-        gitPullRequestRemoteOptionsQueryOptions({
-          environmentId: activeEnvironmentId,
-          cwd: gitCwd,
-        }),
-      );
-      if (!options.requiresSelection) {
-        return false;
-      }
-
-      const initialRemoteName =
-        options.selectedRemoteName ?? options.candidates[0]?.remoteName ?? "";
-      setSelectedPullRequestRemoteName(initialRemoteName);
-      setPendingPullRequestRemoteSelection({
-        ...input,
-        options,
-      });
-      return true;
-    },
-  );
 
   runGitActionWithToast = useEffectEvent(
     async ({
@@ -1372,20 +1286,6 @@ export default function GitActionsControl({
         return;
       }
       onConfirmed?.();
-
-      if (
-        await requestPullRequestRemoteSelection({
-          action,
-          ...(commitMessage ? { commitMessage } : {}),
-          skipDefaultBranchPrompt,
-          ...(statusOverride !== undefined ? { statusOverride } : {}),
-          featureBranch,
-          ...(progressToastId ? { progressToastId } : {}),
-          ...(filePaths ? { filePaths } : {}),
-        })
-      ) {
-        return;
-      }
 
       const progressStages = buildGitActionProgressStages({
         action,
@@ -1479,7 +1379,7 @@ export default function GitActionsControl({
             // elapsed description visible until the final success state renders.
             return;
           case "action_failed":
-            // Let the rejected mutation publish the error toast to avoid a
+            // Let the settled mutation publish the error toast to avoid a
             // transient intermediate state before the final failure message.
             return;
         }
@@ -1487,7 +1387,7 @@ export default function GitActionsControl({
         updateActiveProgressToast();
       };
 
-      const promise = runImmediateGitActionMutation.mutateAsync({
+      const result = await runImmediateGitAction.run({
         actionId,
         action,
         ...(commitMessage ? { commitMessage } : {}),
@@ -1496,120 +1396,87 @@ export default function GitActionsControl({
         onProgress: applyProgressEvent,
       });
 
-      try {
-        const result = await promise;
-        activeGitActionProgressRef.current = null;
-        syncThreadBranchAfterGitAction(result);
-        const optimisticPr = prStatusFromGitActionResult(result);
-        if (optimisticPr) {
-          applyOptimisticGitStatusPr(
-            { environmentId: activeEnvironmentId, cwd: gitCwd },
-            optimisticPr,
-          );
-        }
-        const closeResultToast = () => {
+      activeGitActionProgressRef.current = null;
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) {
           toastManager.close(resolvedProgressToastId);
-        };
-
-        const toastCta = result.toast.cta;
-        let toastActionProps: {
-          children: string;
-          onClick: () => void;
-        } | null = null;
-        if (toastCta.kind === "run_action") {
-          toastActionProps = {
-            children: toastCta.label,
-            onClick: () => {
-              closeResultToast();
-              void runGitActionWithToast({
-                action: toastCta.action.kind,
-              });
-            },
-          };
-        } else if (toastCta.kind === "open_pr") {
-          toastActionProps = {
-            children: toastCta.label,
-            onClick: () => {
-              const api = readLocalApi();
-              if (!api) return;
-              closeResultToast();
-              void api.shell.openExternal(toastCta.url);
-            },
-          };
+          return;
         }
 
-        const successToastData = {
-          ...scopedToastData,
-          dismissAfterVisibleMs: 10_000,
-        };
-
-        if (toastActionProps) {
-          toastManager.update(
-            resolvedProgressToastId,
-            stackedThreadToast({
-              type: "success",
-              title: result.toast.title,
-              description: result.toast.description,
-              timeout: 0,
-              actionProps: toastActionProps,
-              data: successToastData,
-            }),
-          );
-        } else {
-          toastManager.update(resolvedProgressToastId, {
-            type: "success",
-            title: result.toast.title,
-            description: result.toast.description,
-            timeout: 0,
-            data: successToastData,
-          });
-        }
-      } catch (err) {
-        activeGitActionProgressRef.current = null;
+        const error = squashAtomCommandFailure(result);
         toastManager.update(
           resolvedProgressToastId,
           stackedThreadToast({
             type: "error",
             title: "Action failed",
-            description: err instanceof Error ? err.message : "An error occurred.",
+            description: error instanceof Error ? error.message : "An error occurred.",
             ...(scopedToastData !== undefined ? { data: scopedToastData } : {}),
           }),
         );
+        return;
+      }
+
+      const actionResult = result.value;
+      syncThreadBranchAfterGitAction(actionResult);
+      const closeResultToast = () => {
+        toastManager.close(resolvedProgressToastId);
+      };
+
+      const toastCta = actionResult.toast.cta;
+      let toastActionProps: {
+        children: string;
+        onClick: () => void;
+      } | null = null;
+      if (toastCta.kind === "run_action") {
+        toastActionProps = {
+          children: toastCta.label,
+          onClick: () => {
+            closeResultToast();
+            void runGitActionWithToast({
+              action: toastCta.action.kind,
+            });
+          },
+        };
+      } else if (toastCta.kind === "open_pr") {
+        toastActionProps = {
+          children: toastCta.label,
+          onClick: () => {
+            const api = readLocalApi();
+            if (!api) return;
+            closeResultToast();
+            void api.shell.openExternal(toastCta.url);
+          },
+        };
+      }
+
+      const successToastData = {
+        ...scopedToastData,
+        dismissAfterVisibleMs: 10_000,
+      };
+
+      if (toastActionProps) {
+        toastManager.update(
+          resolvedProgressToastId,
+          stackedThreadToast({
+            type: "success",
+            title: actionResult.toast.title,
+            description: actionResult.toast.description,
+            timeout: 0,
+            actionProps: toastActionProps,
+            data: successToastData,
+          }),
+        );
+      } else {
+        toastManager.update(resolvedProgressToastId, {
+          type: "success",
+          title: actionResult.toast.title,
+          description: actionResult.toast.description,
+          timeout: 0,
+          data: successToastData,
+        });
       }
     },
   );
-
-  const confirmPullRequestRemoteSelection = () => {
-    if (!pendingPullRequestRemoteSelection || !selectedPullRequestRemoteName) {
-      return;
-    }
-
-    const nextAction = pendingPullRequestRemoteSelection;
-    setPullRequestRemoteMutation.mutate(selectedPullRequestRemoteName, {
-      onSuccess: () => {
-        const { onConfirmed: _onConfirmed, ...nextActionWithoutConfirmation } = nextAction;
-        setPendingPullRequestRemoteSelection(null);
-        setSelectedPullRequestRemoteName("");
-        toastManager.add({
-          type: "success",
-          title: `PR remote set to ${selectedPullRequestRemoteName}`,
-          data: threadToastData,
-        });
-        void runGitActionWithToast({
-          ...nextActionWithoutConfirmation,
-          skipDefaultBranchPrompt: true,
-        });
-      },
-      onError: (error) => {
-        toastManager.add({
-          type: "error",
-          title: "Could not save PR remote",
-          description: error instanceof Error ? error.message : "An error occurred.",
-          data: threadToastData,
-        });
-      },
-    });
-  };
 
   const continuePendingDefaultBranchAction = () => {
     if (!pendingDefaultBranchAction) return;
@@ -1666,27 +1533,43 @@ export default function GitActionsControl({
       return;
     }
     if (quickAction.kind === "run_pull") {
-      const promise = pullMutation.mutateAsync();
-      void toastManager.promise<
-        Awaited<ReturnType<typeof pullMutation.mutateAsync>>,
-        ThreadToastData
-      >(promise, {
-        loading: { title: "Pulling...", data: threadToastData },
-        success: (result) => ({
-          title: result.status === "pulled" ? "Pulled" : "Already up to date",
-          description:
-            result.status === "pulled"
-              ? `Updated ${result.refName} from ${result.upstreamRef ?? "upstream"}`
-              : `${result.refName} is already synchronized.`,
-          data: threadToastData,
-        }),
-        error: (err) => ({
-          title: "Pull failed",
-          description: err instanceof Error ? err.message : "An error occurred.",
-          data: threadToastData,
-        }),
+      const toastId = toastManager.add({
+        type: "loading",
+        title: "Pulling...",
+        timeout: 0,
+        data: threadToastData,
       });
-      void promise.catch(() => undefined);
+      void (async () => {
+        const result = await pullAction.run();
+        if (result._tag === "Failure") {
+          if (isAtomCommandInterrupted(result)) {
+            toastManager.close(toastId);
+            return;
+          }
+          const error = squashAtomCommandFailure(result);
+          toastManager.update(
+            toastId,
+            stackedThreadToast({
+              type: "error",
+              title: "Pull failed",
+              description: error instanceof Error ? error.message : "An error occurred.",
+              ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+            }),
+          );
+          return;
+        }
+
+        const pullResult = result.value;
+        toastManager.update(toastId, {
+          type: "success",
+          title: pullResult.status === "pulled" ? "Pulled" : "Already up to date",
+          description:
+            pullResult.status === "pulled"
+              ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
+              : `${pullResult.refName} is already synchronized.`,
+          data: threadToastData,
+        });
+      })();
       return;
     }
     if (quickAction.kind === "show_hint") {
@@ -1738,8 +1621,7 @@ export default function GitActionsControl({
 
   const openChangedFileInEditor = useCallback(
     (filePath: string) => {
-      const api = readLocalApi();
-      if (!api || !gitCwd) {
+      if (!gitCwd) {
         toastManager.add({
           type: "error",
           title: "Editor opening is unavailable.",
@@ -1748,7 +1630,12 @@ export default function GitActionsControl({
         return;
       }
       const target = resolvePathLinkTarget(filePath, gitCwd);
-      void openInPreferredEditor(api, target).catch((error) => {
+      void (async () => {
+        const result = await openInPreferredEditor(target);
+        if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
+          return;
+        }
+        const error = squashAtomCommandFailure(result);
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -1757,9 +1644,9 @@ export default function GitActionsControl({
             ...(threadToastData !== undefined ? { data: threadToastData } : {}),
           }),
         );
-      });
+      })();
     },
-    [gitCwd, threadToastData],
+    [gitCwd, openInPreferredEditor, threadToastData],
   );
 
   const canPublishRepository = isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
@@ -1772,10 +1659,29 @@ export default function GitActionsControl({
         <Button
           variant="outline"
           size="xs"
-          disabled={initMutation.isPending}
-          onClick={() => initMutation.mutate()}
+          disabled={initAction.isPending}
+          onClick={() => {
+            void (async () => {
+              const result = await initAction.run();
+              if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
+                return;
+              }
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Git initialization failed",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                  ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+                }),
+              );
+            })();
+          }}
         >
-          {initMutation.isPending ? "Initializing..." : "Initialize Git"}
+          <GitBranchPlusIcon className="size-3.5" aria-hidden />
+          <span className="ml-0.5">
+            {initAction.isPending ? "Initializing..." : "Initialize Git"}
+          </span>
         </Button>
       ) : (
         <Group aria-label="Git actions" className="shrink-0">
@@ -1821,10 +1727,7 @@ export default function GitActionsControl({
           <Menu
             onOpenChange={(open) => {
               if (open) {
-                void refreshGitStatus({
-                  environmentId: activeEnvironmentId,
-                  cwd: gitCwd,
-                }).catch(() => undefined);
+                requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd);
               }
             }}
           >
@@ -1905,7 +1808,7 @@ export default function GitActionsControl({
                   </p>
                 )}
               {gitStatusError && (
-                <p className="px-2 py-1.5 text-xs text-destructive">{gitStatusError.message}</p>
+                <p className="px-2 py-1.5 text-xs text-destructive">{gitStatusError}</p>
               )}
             </MenuPopup>
           </Menu>
@@ -2087,73 +1990,6 @@ export default function GitActionsControl({
         environmentId={activeEnvironmentId}
         gitCwd={gitCwd}
       />
-
-      <Dialog
-        open={pendingPullRequestRemoteSelection !== null}
-        onOpenChange={(open) => {
-          if (!open && !setPullRequestRemoteMutation.isPending) {
-            setPendingPullRequestRemoteSelection(null);
-            setSelectedPullRequestRemoteName("");
-          }
-        }}
-      >
-        <DialogPopup className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Choose PR remote</DialogTitle>
-            <DialogDescription>
-              This repository has multiple GitHub remotes. Choose which remote should receive pull
-              requests. This preference is stored in this repo and reused for future PRs.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogPanel className="space-y-3">
-            <RadioGroup
-              value={selectedPullRequestRemoteName}
-              onValueChange={setSelectedPullRequestRemoteName}
-            >
-              {pendingPullRequestRemoteSelection?.options.candidates.map((candidate) => (
-                <label
-                  key={candidate.remoteName}
-                  className="flex cursor-pointer items-start gap-3 rounded-md border border-input bg-muted/30 p-3 transition-colors hover:bg-muted/50"
-                >
-                  <Radio value={candidate.remoteName} />
-                  <span className="min-w-0 space-y-1">
-                    <span className="block font-medium">{candidate.remoteName}</span>
-                    <span className="block truncate font-mono text-xs text-muted-foreground">
-                      {candidate.repositoryNameWithOwner}
-                    </span>
-                    {candidate.pushRepositoryNameWithOwner &&
-                    candidate.pushRepositoryNameWithOwner !== candidate.repositoryNameWithOwner ? (
-                      <span className="block truncate text-xs text-muted-foreground">
-                        Push URL: {candidate.pushRepositoryNameWithOwner}
-                      </span>
-                    ) : null}
-                  </span>
-                </label>
-              ))}
-            </RadioGroup>
-          </DialogPanel>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={setPullRequestRemoteMutation.isPending}
-              onClick={() => {
-                setPendingPullRequestRemoteSelection(null);
-                setSelectedPullRequestRemoteName("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              disabled={!selectedPullRequestRemoteName || setPullRequestRemoteMutation.isPending}
-              onClick={confirmPullRequestRemoteSelection}
-            >
-              {setPullRequestRemoteMutation.isPending ? "Saving..." : "Use this remote"}
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
 
       <Dialog
         open={pendingDefaultBranchAction !== null}

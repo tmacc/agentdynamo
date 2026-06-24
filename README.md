@@ -1,78 +1,90 @@
 # Dynamo
 
-Dynamo is a minimal desktop/web GUI for working with coding agents. It supports Codex, Claude, and OpenCode provider sessions, tracking conversation state, coordinating agent work, and managing project worktrees from one interface.
+Dynamo is a minimal web GUI for coding agents (currently Codex, Claude, Cursor, and OpenCode, more coming soon).
+
+## Installation
 
 > [!WARNING]
-> Dynamo is early alpha software. Expect bugs, rough edges, and occasional breaking changes.
+> Dynamo currently supports Codex, Claude, Cursor, and OpenCode.
+> Install and authenticate at least one provider before use:
+>
+> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
+> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
+> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `cursor-agent login`
+> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
 
-## Install
+### Run without installing
+
+```bash
+npx t3@latest
+```
+
+Tip: Use `npx t3@latest --help` for the full CLI reference.
 
 ### Desktop app
 
-Install the latest desktop build from [GitHub Releases](https://github.com/tmacc/agentdynamo/releases).
+Install the latest version of the desktop app from [GitHub Releases](https://github.com/tmacc/agentdynamo/releases), or from your favorite package registry:
 
-Unsigned builds may require extra approval from your operating system. Code signing and notarization are still being finalized.
-
-## Provider setup
-
-Dynamo launches provider CLIs locally, so you need at least one supported provider installed and authenticated before starting:
-
-- Codex: install [Codex CLI](https://github.com/openai/codex), then run `codex login`
-- Claude: install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`
-- OpenCode: install [OpenCode](https://opencode.ai), then run `opencode auth login`
-
-## Local development
-
-Prerequisites:
-
-- Bun `1.3.11`
-- Node.js `24.13.1` or newer in the Node 24 line
-
-Install dependencies:
+#### Windows (`winget`)
 
 ```bash
-bun install
+winget install T3Tools.T3Code
 ```
 
-Run the web/server development stack:
+#### macOS (Homebrew)
 
 ```bash
-bun dev
+brew install --cask t3-code
 ```
 
-Run the desktop app in development:
+#### Arch Linux (AUR)
 
 ```bash
-bun dev:desktop
+yay -S dynamo-bin
 ```
 
-Before submitting changes, run:
+## Some notes
+
+We are very very early in this project. Expect bugs.
+
+We are not accepting contributions yet.
+
+There's no public docs site yet, checkout the miscellaneous markdown files in [docs](./docs).
+
+## Documentation
+
+- [Getting started](./docs/getting-started/quick-start.md)
+- [Architecture overview](./docs/architecture/overview.md)
+- [Provider guides](./docs/providers/codex.md)
+- [Operations](./docs/operations/ci.md)
+- [Reference](./docs/reference/encyclopedia.md)
+
+## If you REALLY want to contribute still.... read this first
+
+### Install `vp`
+
+Dynamo uses Vite+ so you'll need to install the global `vp` command-line tool.
+
+#### macOS / Linux
 
 ```bash
-bun fmt
-bun lint
-bun typecheck
+curl -fsSL https://vite.plus | bash
 ```
 
-Use `bun run test` for the Vitest suite.
+#### Windows
 
-## Project layout
+```bash
+irm https://vite.plus/ps1 | iex
+```
 
-- `apps/server`: Node.js WebSocket server and provider/session orchestration
-- `apps/web`: React/Vite UI
-- `apps/desktop`: Electron desktop shell
-- `apps/marketing`: marketing/download site
-- `packages/contracts`: shared schemas and TypeScript contracts
-- `packages/shared`: shared runtime utilities
+Checkout their getting started guide for more information: https://viteplus.dev/guide/
 
-## Status
+### Install dependencies
 
-Dynamo is not accepting broad external contributions yet. Small bug reports and focused issues are welcome, but please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
+```bash
+vp i
+```
 
-Need support or want to follow development? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
 
-Observability guide: [docs/observability.md](./docs/observability.md)
-
-## Credits
-
-Dynamo started as a fork of [T3 Code](https://github.com/pingdotgg/t3code) and owes its core agent-runtime architecture to that project. Thanks to the T3 Code team.
+Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).

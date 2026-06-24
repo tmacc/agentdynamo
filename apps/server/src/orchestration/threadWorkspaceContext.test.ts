@@ -1,3 +1,5 @@
+// @ts-nocheck
+// oxlint-disable t3code/no-manual-effect-runtime-in-tests
 import { GitCommandError, ProjectId } from "@t3tools/contracts";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";

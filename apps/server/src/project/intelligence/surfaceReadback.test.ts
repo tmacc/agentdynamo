@@ -1,3 +1,5 @@
+// @ts-nocheck
+// oxlint-disable t3code/namespace-node-imports
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";

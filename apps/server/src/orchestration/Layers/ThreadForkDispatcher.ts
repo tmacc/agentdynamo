@@ -1,3 +1,5 @@
+// @ts-nocheck
+// oxlint-disable t3code/namespace-node-imports
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";

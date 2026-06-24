@@ -163,9 +163,9 @@ export function ProjectContextSettingsPanel() {
         <ProjectIntelligencePanel
           viewMode="project"
           environmentId={selectedProject.environmentId}
-          projectCwd={selectedProject.cwd}
+          projectCwd={selectedProject.cwd ?? selectedProject.workspaceRoot}
           effectiveCwd={null}
-          projectTitle={selectedProject.name}
+          projectTitle={selectedProject.name ?? selectedProject.title}
           section={section}
           surfaceId={surfaceId}
           canSwitchToThread={false}

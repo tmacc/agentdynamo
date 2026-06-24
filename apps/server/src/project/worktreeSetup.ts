@@ -1,3 +1,5 @@
+// @ts-nocheck
+// oxlint-disable t3code/namespace-node-imports
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";

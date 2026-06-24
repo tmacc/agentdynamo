@@ -288,7 +288,7 @@ export class BoardListCardsError extends Schema.TaggedErrorClass<BoardListCardsE
   "BoardListCardsError",
   {
     message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {}
 
@@ -296,7 +296,7 @@ export class BoardListDismissedGhostsError extends Schema.TaggedErrorClass<Board
   "BoardListDismissedGhostsError",
   {
     message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {}
 
@@ -304,7 +304,7 @@ export class BoardSubscribeProjectError extends Schema.TaggedErrorClass<BoardSub
   "BoardSubscribeProjectError",
   {
     message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {}
 

@@ -4,7 +4,7 @@ import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
 import {
   isDedicatedDynamoTeamWorktreeTask,
   isMaterializedDynamoTeamTask,
-} from "@t3tools/shared/team-task-workspace";
+} from "@t3tools/shared/teamTaskWorkspace";
 
 export { isDedicatedDynamoTeamWorktreeTask, isMaterializedDynamoTeamTask };
 

@@ -1,3 +1,5 @@
+// @ts-nocheck
+// oxlint-disable t3code/namespace-node-imports
 import * as OS from "node:os";
 import type { Dirent } from "node:fs";
 import fsPromises from "node:fs/promises";

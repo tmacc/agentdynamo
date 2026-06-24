@@ -1,17 +1,12 @@
 import {
   type ChatAttachment,
   CommandId,
-  ContextHandoffId,
   EventId,
-  MessageId,
   type ModelSelection,
   type OrchestrationEvent,
-  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-  ProviderKind,
   ProviderDriverKind,
   type ProjectId,
   type OrchestrationSession,
-  type OrchestrationThread,
   ThreadId,
   type ProviderSession,
   type RuntimeMode,
@@ -24,7 +19,6 @@ import * as Crypto from "effect/Crypto";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
-import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -37,20 +31,16 @@ import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
-import { renderContextHandoff, type ContextHandoffRenderResult } from "../contextHandoff.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { ServerConfig } from "../../config.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
-import { GitVcsDriver } from "../../vcs/GitVcsDriver.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
-import { TeamCoordinatorAccess } from "../../team/Services/TeamCoordinatorAccess.ts";
-import { isDedicatedDynamoTeamWorktreeTask } from "../../team/teamTaskGuards.ts";
-
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
@@ -97,7 +87,6 @@ const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const DEFAULT_THREAD_TITLE = "New thread";
-const CONTEXT_HANDOFF_RESERVE_CHARS = 2_000;
 
 export function providerErrorLabel(value: string | undefined): string {
   const normalized = value?.trim();
@@ -114,23 +103,9 @@ export function providerErrorLabelFromInstanceHint(input: {
   );
 }
 
-function defaultForkThreadTitle(sourceTitle: string): string {
-  return `Fork of ${sourceTitle}`;
-}
-
-function canReplaceThreadTitle(
-  currentTitle: string,
-  titleSeed?: string,
-  forkOrigin?: { readonly sourceThreadTitle: string } | undefined,
-): boolean {
+function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolean {
   const trimmedCurrentTitle = currentTitle.trim();
   if (trimmedCurrentTitle === DEFAULT_THREAD_TITLE) {
-    return true;
-  }
-  if (
-    forkOrigin !== undefined &&
-    trimmedCurrentTitle === defaultForkThreadTitle(forkOrigin.sourceThreadTitle).trim()
-  ) {
     return true;
   }
 
@@ -138,100 +113,6 @@ function canReplaceThreadTitle(
   return trimmedTitleSeed !== undefined && trimmedTitleSeed.length > 0
     ? trimmedCurrentTitle === trimmedTitleSeed
     : false;
-}
-
-function isFirstLiveUserMessageTurn(input: {
-  readonly thread: Pick<OrchestrationThread, "messages" | "forkOrigin">;
-  readonly messageId: MessageId;
-}): boolean {
-  if (input.thread.forkOrigin === undefined) {
-    return input.thread.messages.filter((entry) => entry.role === "user").length === 1;
-  }
-
-  const liveUserMessages = input.thread.messages
-    .filter(
-      (entry) =>
-        entry.role === "user" &&
-        entry.createdAt.localeCompare(input.thread.forkOrigin!.importedUntilAt) > 0,
-    )
-    .toSorted(
-      (left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-    );
-
-  return liveUserMessages.length > 0 && liveUserMessages[0]?.id === input.messageId;
-}
-
-function hasPendingProviderInteraction(
-  activities: ReadonlyArray<OrchestrationThread["activities"][number]>,
-): boolean {
-  const pendingApprovals = new Set<string>();
-  const pendingUserInputs = new Set<string>();
-
-  for (const activity of activities) {
-    const payload =
-      activity.payload !== null &&
-      typeof activity.payload === "object" &&
-      !Array.isArray(activity.payload)
-        ? (activity.payload as Record<string, unknown>)
-        : {};
-    const requestId = typeof payload.requestId === "string" ? payload.requestId : null;
-    if (!requestId) {
-      continue;
-    }
-
-    if (activity.kind === "approval.requested") {
-      pendingApprovals.add(requestId);
-    } else if (
-      activity.kind === "approval.resolved" ||
-      activity.kind === "provider.approval.respond.failed"
-    ) {
-      pendingApprovals.delete(requestId);
-    } else if (activity.kind === "user-input.requested") {
-      pendingUserInputs.add(requestId);
-    } else if (
-      activity.kind === "user-input.resolved" ||
-      activity.kind === "provider.user-input.respond.failed"
-    ) {
-      pendingUserInputs.delete(requestId);
-    }
-  }
-
-  return pendingApprovals.size > 0 || pendingUserInputs.size > 0;
-}
-
-function latestImportedContextTimestamp(input: {
-  readonly thread: OrchestrationThread;
-  readonly liveMessageId: MessageId;
-}): string | null {
-  const timestamps = [
-    ...input.thread.messages
-      .filter((message) => message.id !== input.liveMessageId)
-      .map((message) => message.createdAt),
-    ...input.thread.proposedPlans.map((plan) => plan.createdAt),
-  ].toSorted();
-
-  return timestamps.at(-1) ?? null;
-}
-
-function findPendingContextHandoffForTurn(input: {
-  readonly thread: OrchestrationThread;
-  readonly messageId: MessageId;
-  readonly targetProvider: ProviderKind;
-  readonly isFirstUserMessageTurn: boolean;
-}) {
-  return input.thread.contextHandoffs.find((handoff) => {
-    if (handoff.status !== "pending") {
-      return false;
-    }
-    if (handoff.targetProvider !== undefined && handoff.targetProvider !== input.targetProvider) {
-      return false;
-    }
-    if (handoff.reason === "fork") {
-      return input.isFirstUserMessageTurn;
-    }
-    return handoff.reason === "provider-switch";
-  });
 }
 
 function findProviderAdapterRequestError(
@@ -260,9 +141,19 @@ function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderService
 function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = findProviderAdapterRequestError(cause);
   if (error) {
-    return error.detail.toLowerCase().includes("unknown pending user-input request");
+    const detail = error.detail.toLowerCase();
+    return (
+      detail.includes("unknown pending user-input request") ||
+      detail.includes("unknown pending user input request") ||
+      detail.includes("unknown pending codex user input request")
+    );
   }
-  return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
+  const message = Cause.pretty(cause).toLowerCase();
+  return (
+    message.includes("unknown pending user-input request") ||
+    message.includes("unknown pending user input request") ||
+    message.includes("unknown pending codex user input request")
+  );
 }
 
 function stalePendingRequestDetail(
@@ -298,14 +189,13 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
+  const providerRegistry = yield* ProviderRegistry;
   const gitWorkflow = yield* GitWorkflowService;
-  const git = yield* GitVcsDriver;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
-  const serverConfig = yield* ServerConfig;
-  const teamCoordinatorAccess = yield* TeamCoordinatorAccess;
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
   const serverEventId = () => crypto.randomUUIDv4.pipe(Effect.map(EventId.make));
@@ -416,13 +306,47 @@ const make = Effect.gen(function* () {
   });
 
   const resolveProject = Effect.fnUntraced(function* (projectId: ProjectId) {
-    const readModel = yield* orchestrationEngine.getReadModel();
-    return readModel.projects.find((project) => project.id === projectId);
+    return yield* projectionSnapshotQuery
+      .getProjectShellById(projectId)
+      .pipe(Effect.map(Option.getOrUndefined));
   });
 
   const resolveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
-    const readModel = yield* orchestrationEngine.getReadModel();
-    return readModel.threads.find((thread) => thread.id === threadId);
+    return yield* projectionSnapshotQuery
+      .getThreadDetailById(threadId)
+      .pipe(Effect.map(Option.getOrUndefined));
+  });
+
+  const rejectStartedThreadModelChangeIfRequired = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly currentModelSelection: ModelSelection;
+    readonly requestedModelSelection: ModelSelection | undefined;
+  }) {
+    const requestedModelSelection = input.requestedModelSelection;
+    if (
+      requestedModelSelection === undefined ||
+      (input.currentModelSelection.instanceId === requestedModelSelection.instanceId &&
+        input.currentModelSelection.model === requestedModelSelection.model)
+    ) {
+      return;
+    }
+    const providers = yield* providerRegistry.getProviders;
+    const requiresNewThread =
+      providers.find((snapshot) => snapshot.instanceId === input.currentModelSelection.instanceId)
+        ?.requiresNewThreadForModelChange === true ||
+      providers.find((snapshot) => snapshot.instanceId === requestedModelSelection.instanceId)
+        ?.requiresNewThreadForModelChange === true;
+    if (!requiresNewThread) {
+      return;
+    }
+    return yield* new ProviderAdapterRequestError({
+      provider: providerErrorLabelFromInstanceHint({
+        instanceId: String(requestedModelSelection.instanceId),
+        modelSelectionInstanceId: String(input.currentModelSelection.instanceId),
+      }),
+      method: "thread.turn.start",
+      detail: `Thread '${input.threadId}' cannot switch models after the conversation has started. Start a new thread to use '${requestedModelSelection.model}'.`,
+    });
   });
 
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
@@ -504,21 +428,42 @@ const make = Effect.gen(function* () {
       });
     }
     const preferredProvider: ProviderDriverKind = desiredDriverKind;
-    const continuationCompatible =
-      currentInfo.continuationIdentity.continuationKey ===
-      desiredInfo.continuationIdentity.continuationKey;
+    if (thread.session !== null) {
+      yield* rejectStartedThreadModelChangeIfRequired({
+        threadId,
+        currentModelSelection:
+          activeSession?.model !== undefined
+            ? {
+                ...thread.modelSelection,
+                instanceId: currentInstanceId,
+                model: activeSession.model,
+              }
+            : thread.modelSelection,
+        requestedModelSelection,
+      });
+    }
     if (
       thread.session !== null &&
       requestedModelSelection !== undefined &&
-      requestedModelSelection.instanceId !== currentInstanceId &&
-      currentInfo.driverKind === desiredInfo.driverKind &&
-      !continuationCompatible
+      requestedModelSelection.instanceId !== currentInstanceId
     ) {
-      return yield* new ProviderAdapterRequestError({
-        provider: preferredProvider,
-        method: "thread.turn.start",
-        detail: `Thread '${threadId}' cannot switch from instance '${currentInstanceId}' to '${desiredInstanceId}' because their provider resume state is incompatible.`,
-      });
+      if (currentInfo.driverKind !== desiredInfo.driverKind) {
+        return yield* new ProviderAdapterRequestError({
+          provider: preferredProvider,
+          method: "thread.turn.start",
+          detail: `Thread '${threadId}' is bound to driver '${currentInfo.driverKind}' and cannot switch to '${desiredInfo.driverKind}'.`,
+        });
+      }
+      if (
+        currentInfo.continuationIdentity.continuationKey !==
+        desiredInfo.continuationIdentity.continuationKey
+      ) {
+        return yield* new ProviderAdapterRequestError({
+          provider: preferredProvider,
+          method: "thread.turn.start",
+          detail: `Thread '${threadId}' cannot switch from instance '${currentInstanceId}' to '${desiredInstanceId}' because their provider resume state is incompatible.`,
+        });
+      }
     }
     const project = yield* resolveProject(thread.projectId);
     const effectiveCwd = resolveThreadWorkspaceCwd({
@@ -526,90 +471,18 @@ const make = Effect.gen(function* () {
       projects: project ? [project] : [],
     });
 
-    const resolveTeamCoordinator = Effect.fnUntraced(function* (driver: ProviderDriverKind) {
-      if (!Schema.is(ProviderKind)(driver)) {
-        return undefined;
-      }
-      if (thread.teamParent != null) {
-        return undefined;
-      }
-      const settings = yield* serverSettingsService.getSettings;
-      if (!settings.teamAgents.enabled || !settings.teamAgents.coordinatorToolsOnTopLevelThreads) {
-        return undefined;
-      }
-      const capabilities = yield* providerService.getCapabilities(desiredInstanceId);
-      if (capabilities.teamCoordinatorTools !== "mcp-http") {
-        return undefined;
-      }
-      const grant = yield* teamCoordinatorAccess.issueGrant({
-        parentThreadId: thread.id,
-        provider: driver,
-      });
-      const host =
-        serverConfig.host && serverConfig.host.length > 0 ? serverConfig.host : "127.0.0.1";
-      return {
-        parentThreadId: thread.id,
-        grantId: grant.grantId,
-        mcpServerName: "dynamo_team",
-        mcpServerUrl: `http://${host}:${serverConfig.port}/api/team-mcp`,
-        accessToken: grant.accessToken,
-      };
-    });
-
-    const startProviderSession = (input?: { readonly resumeCursor?: unknown }) =>
-      Effect.gen(function* () {
-        const teamCoordinator = yield* resolveTeamCoordinator(preferredProvider);
-        const started = yield* Effect.exit(
-          providerService.startSession(threadId, {
-            threadId,
-            provider: preferredProvider,
-            providerInstanceId: desiredInstanceId,
-            ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-            modelSelection: desiredModelSelection,
-            ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-            runtimeMode: desiredRuntimeMode,
-            ...(teamCoordinator !== undefined
-              ? {
-                  teamCoordinator: {
-                    parentThreadId: teamCoordinator.parentThreadId,
-                    mcpServerName: teamCoordinator.mcpServerName,
-                    mcpServerUrl: teamCoordinator.mcpServerUrl,
-                    accessToken: teamCoordinator.accessToken,
-                  },
-                }
-              : {}),
-          }),
-        );
-        if (teamCoordinator !== undefined) {
-          if (Exit.isSuccess(started)) {
-            yield* teamCoordinatorAccess
-              .revokeOtherGrantsForThread({
-                parentThreadId: teamCoordinator.parentThreadId,
-                keepGrantId: teamCoordinator.grantId,
-              })
-              .pipe(
-                Effect.catchCause((cause) =>
-                  Effect.logWarning("failed to revoke stale team coordinator grants", {
-                    threadId,
-                    cause: Cause.pretty(cause),
-                  }),
-                ),
-              );
-          } else {
-            yield* teamCoordinatorAccess.revokeGrant({ grantId: teamCoordinator.grantId }).pipe(
-              Effect.catchCause((cause) =>
-                Effect.logWarning("failed to revoke unused team coordinator grant", {
-                  threadId,
-                  cause: Cause.pretty(cause),
-                }),
-              ),
-            );
-          }
-        }
-        if (Exit.isFailure(started)) {
-          return yield* Effect.failCause(started.cause);
-        }
-        return started.value;
+    const startProviderSession = (input?: {
+      readonly resumeCursor?: unknown;
+      readonly provider?: ProviderDriverKind;
+    }) =>
+      providerService.startSession(threadId, {
+        threadId,
+        ...(preferredProvider ? { provider: preferredProvider } : {}),
+        providerInstanceId: desiredInstanceId,
+        ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+        modelSelection: desiredModelSelection,
+        ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        runtimeMode: desiredRuntimeMode,
       });
 
     const bindSessionToThread = (session: ProviderSession) =>
@@ -668,10 +541,9 @@ const make = Effect.gen(function* () {
         return existingSessionThreadId;
       }
 
-      const resumeCursor =
-        shouldRestartForModelChange || !continuationCompatible
-          ? undefined
-          : (activeSession?.resumeCursor ?? undefined);
+      const resumeCursor = shouldRestartForModelChange
+        ? undefined
+        : (activeSession?.resumeCursor ?? undefined);
       yield* Effect.logInfo("provider command reactor restarting provider session", {
         threadId,
         existingSessionThreadId,
@@ -781,24 +653,14 @@ const make = Effect.gen(function* () {
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
   }) {
-    if (!input.worktreePath) {
+    if (!input.branch || !input.worktreePath) {
+      return;
+    }
+    if (!isTemporaryWorktreeBranch(input.branch)) {
       return;
     }
 
-    const status = yield* git.status({ cwd: input.worktreePath }).pipe(Effect.option);
-    const oldBranch = Option.isSome(status)
-      ? status.value.isRepo &&
-        status.value.refName !== null &&
-        isTemporaryWorktreeBranch(status.value.refName)
-        ? status.value.refName
-        : null
-      : input.branch && isTemporaryWorktreeBranch(input.branch)
-        ? input.branch
-        : null;
-    if (oldBranch === null) {
-      return;
-    }
-
+    const oldBranch = input.branch;
     const cwd = input.worktreePath;
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
@@ -837,28 +699,6 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const shouldAutoRenameWorktreeBranchForFirstTurn = Effect.fn(
-    "shouldAutoRenameWorktreeBranchForFirstTurn",
-  )(function* (input: { readonly thread: OrchestrationThread }) {
-    if (!input.thread.worktreePath) {
-      return false;
-    }
-
-    if (!input.thread.teamParent) {
-      return true;
-    }
-
-    const readModel = yield* orchestrationEngine.getReadModel();
-    const parentThread = readModel.threads.find(
-      (candidate) => candidate.id === input.thread.teamParent?.parentThreadId,
-    );
-    const task = parentThread?.teamTasks?.find(
-      (candidate) => candidate.id === input.thread.teamParent?.taskId,
-    );
-
-    return task ? isDedicatedDynamoTeamWorktreeTask(task) : false;
-  });
-
   const maybeGenerateThreadTitleForFirstTurn = Effect.fn("maybeGenerateThreadTitleForFirstTurn")(
     function* (input: {
       readonly threadId: ThreadId;
@@ -882,7 +722,7 @@ const make = Effect.gen(function* () {
 
         const thread = yield* resolveThread(input.threadId);
         if (!thread) return;
-        if (!canReplaceThreadTitle(thread.title, input.titleSeed, thread.forkOrigin)) {
+        if (!canReplaceThreadTitle(thread.title, input.titleSeed)) {
           return;
         }
 
@@ -930,10 +770,8 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const isFirstUserMessageTurn = isFirstLiveUserMessageTurn({
-      thread,
-      messageId: event.payload.messageId,
-    });
+    const isFirstUserMessageTurn =
+      thread.messages.filter((entry) => entry.role === "user").length === 1;
     if (isFirstUserMessageTurn) {
       const project = yield* resolveProject(thread.projectId);
       const generationCwd =
@@ -947,16 +785,14 @@ const make = Effect.gen(function* () {
         ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
       };
 
-      if (yield* shouldAutoRenameWorktreeBranchForFirstTurn({ thread })) {
-        yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
-          threadId: event.payload.threadId,
-          branch: thread.branch,
-          worktreePath: thread.worktreePath,
-          ...generationInput,
-        }).pipe(Effect.forkScoped);
-      }
+      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
+        threadId: event.payload.threadId,
+        branch: thread.branch,
+        worktreePath: thread.worktreePath,
+        ...generationInput,
+      }).pipe(Effect.forkScoped);
 
-      if (canReplaceThreadTitle(thread.title, event.payload.titleSeed, thread.forkOrigin)) {
+      if (canReplaceThreadTitle(thread.title, event.payload.titleSeed)) {
         yield* maybeGenerateThreadTitleForFirstTurn({
           threadId: event.payload.threadId,
           cwd: generationCwd,
@@ -1001,134 +837,9 @@ const make = Effect.gen(function* () {
         ),
       );
 
-    const sessionProvider = Schema.is(ProviderKind)(thread.session?.providerName)
-      ? thread.session?.providerName
-      : undefined;
-    const driverForInstance = (instanceId: typeof thread.modelSelection.instanceId) =>
-      providerService.getInstanceInfo(instanceId).pipe(
-        Effect.map((info) =>
-          Schema.is(ProviderKind)(info.driverKind) ? info.driverKind : undefined,
-        ),
-        Effect.orElseSucceed(() => undefined),
-      );
-    const currentModelProvider = yield* driverForInstance(thread.modelSelection.instanceId);
-    const targetModelProvider =
-      event.payload.modelSelection === undefined
-        ? undefined
-        : yield* driverForInstance(event.payload.modelSelection.instanceId);
-    const currentProvider = sessionProvider ?? currentModelProvider;
-    const targetProvider = targetModelProvider ?? sessionProvider ?? currentModelProvider;
-    if (currentProvider === undefined || targetProvider === undefined) {
-      yield* recoverTurnStartFailure(
-        Cause.fail(
-          new ProviderAdapterRequestError({
-            provider: ProviderKind.make("codex"),
-            method: "thread.turn.start",
-            detail: `Thread '${event.payload.threadId}' could not resolve provider driver for the requested model selection.`,
-          }),
-        ),
-      );
-      return;
-    }
-    const providerChanged = currentProvider !== targetProvider;
-    if (providerChanged) {
-      const turnIsRunning =
-        thread.latestTurn?.state === "running" ||
-        thread.session?.status === "running" ||
-        (thread.session?.activeTurnId ?? null) !== null;
-      const pendingInteraction = hasPendingProviderInteraction(thread.activities);
-      if (turnIsRunning || pendingInteraction) {
-        const blockedBy: string[] = [];
-        if (turnIsRunning) {
-          blockedBy.push("a turn is still running");
-        }
-        if (pendingInteraction) {
-          blockedBy.push("provider approvals or user-input are still pending");
-        }
-        yield* recoverTurnStartFailure(
-          Cause.fail(
-            new ProviderAdapterRequestError({
-              provider: currentProvider,
-              method: "thread.turn.start",
-              detail: `Thread '${event.payload.threadId}' can only switch providers between turns; ${blockedBy.join(" and ")}.`,
-            }),
-          ),
-        );
-        return;
-      }
-    }
-    const existingPendingProviderSwitchHandoff = thread.contextHandoffs.find(
-      (handoff) =>
-        handoff.status === "pending" &&
-        handoff.reason === "provider-switch" &&
-        (handoff.targetProvider === undefined || handoff.targetProvider === targetProvider),
-    );
-    const importedUntilAt = latestImportedContextTimestamp({
-      thread,
-      liveMessageId: message.id,
-    });
-    const shouldPrepareProviderSwitchHandoff =
-      providerChanged &&
-      importedUntilAt !== null &&
-      existingPendingProviderSwitchHandoff === undefined;
-
-    let threadForHandoff = thread;
-    if (shouldPrepareProviderSwitchHandoff) {
-      const latestSourceUserMessage = thread.messages
-        .filter((entry) => entry.id !== message.id && entry.role === "user")
-        .toSorted(
-          (left, right) =>
-            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-        )
-        .at(-1);
-      const preparedAt = new Date().toISOString();
-      const prepareResult = yield* orchestrationEngine
-        .dispatch({
-          type: "thread.context-handoff.prepare",
-          commandId: yield* serverCommandId("context-handoff-prepare"),
-          threadId: event.payload.threadId,
-          handoffId: ContextHandoffId.make(`handoff:${yield* crypto.randomUUIDv4}`),
-          reason: "provider-switch",
-          sourceThreadId: thread.id,
-          sourceThreadTitle: thread.title,
-          sourceUserMessageId: latestSourceUserMessage?.id ?? null,
-          sourceProvider: currentProvider,
-          targetProvider,
-          importedUntilAt,
-          createdAt: preparedAt,
-        })
-        .pipe(Effect.exit);
-      if (Exit.isFailure(prepareResult)) {
-        yield* recoverTurnStartFailure(prepareResult.cause);
-        return;
-      }
-      threadForHandoff = (yield* resolveThread(event.payload.threadId)) ?? thread;
-    }
-
-    const pendingHandoff = findPendingContextHandoffForTurn({
-      thread: threadForHandoff,
-      messageId: message.id,
-      targetProvider,
-      isFirstUserMessageTurn,
-    });
-    const handoffRender =
-      pendingHandoff === undefined
-        ? undefined
-        : renderContextHandoff({
-            thread: threadForHandoff,
-            handoff: pendingHandoff,
-            liveMessage: message,
-            targetProvider,
-            maxInputChars: PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-            reserveChars: CONTEXT_HANDOFF_RESERVE_CHARS,
-          });
-
-    const providerMessageText = handoffRender?.input ?? message.text;
-    const deliveredModelSelection = event.payload.modelSelection ?? threadForHandoff.modelSelection;
-
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
-      messageText: providerMessageText,
+      messageText: message.text,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }
@@ -1144,64 +855,9 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const markContextHandoffDeliveryFailed = (
-      cause: Cause.Cause<unknown>,
-      render: ContextHandoffRenderResult,
-    ) =>
-      pendingHandoff === undefined
-        ? Effect.void
-        : Effect.gen(function* () {
-            yield* orchestrationEngine.dispatch({
-              type: "thread.context-handoff.mark-delivery-failed",
-              commandId: yield* serverCommandId("context-handoff-delivery-failed"),
-              threadId: event.payload.threadId,
-              handoffId: pendingHandoff.id,
-              liveMessageId: message.id,
-              provider: targetProvider,
-              detail: formatFailureDetail(cause) || "Provider turn start failed.",
-              renderStats: render.stats,
-              createdAt: new Date().toISOString(),
-            });
-          });
-
-    const sendTurnEffect = providerService.sendTurn(sendTurnRequest.value).pipe(
-      Effect.tap((turn) =>
-        pendingHandoff === undefined || handoffRender === undefined
-          ? Effect.void
-          : Effect.gen(function* () {
-              yield* orchestrationEngine.dispatch({
-                type: "thread.context-handoff.mark-delivered",
-                commandId: yield* serverCommandId("context-handoff-delivered"),
-                threadId: event.payload.threadId,
-                handoffId: pendingHandoff.id,
-                liveMessageId: message.id,
-                provider: targetProvider,
-                turnId: turn.turnId,
-                modelSelection: deliveredModelSelection,
-                renderStats: handoffRender.stats,
-                createdAt: new Date().toISOString(),
-              });
-            }),
-      ),
-      Effect.catchCause((cause) =>
-        handoffRender === undefined
-          ? recoverTurnStartFailure(cause)
-          : markContextHandoffDeliveryFailed(cause, handoffRender).pipe(
-              Effect.catchCause((handoffCause) =>
-                Effect.logWarning("failed to record context handoff delivery failure", {
-                  eventType: event.type,
-                  threadId: event.payload.threadId,
-                  handoffId: pendingHandoff?.id,
-                  cause: Cause.pretty(handoffCause),
-                  originalCause: Cause.pretty(cause),
-                }),
-              ),
-              Effect.flatMap(() => recoverTurnStartFailure(cause)),
-            ),
-      ),
-    );
-
-    yield* sendTurnEffect.pipe(Effect.forkScoped);
+    yield* providerService
+      .sendTurn(sendTurnRequest.value)
+      .pipe(Effect.catchCause(recoverTurnStartFailure), Effect.forkScoped);
   });
 
   const processTurnInterruptRequested = Effect.fn("processTurnInterruptRequested")(function* (

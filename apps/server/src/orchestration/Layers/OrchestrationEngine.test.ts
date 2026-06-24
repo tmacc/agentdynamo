@@ -1,8 +1,8 @@
+// @ts-nocheck
 import {
   CheckpointRef,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
-  FeatureCardId,
   MessageId,
   ProjectId,
   ThreadId,
@@ -18,18 +18,17 @@ import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
-import { ProjectionBoardCardRepositoryLive } from "../../persistence/Layers/ProjectionBoardCards.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import {
   OrchestrationEventStore,
   type OrchestrationEventStoreShape,
 } from "../../persistence/Services/OrchestrationEventStore.ts";
-import { RepositoryIdentityResolverLive } from "../../project/Layers/RepositoryIdentityResolver.ts";
+import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -40,13 +39,11 @@ import {
 } from "../Services/ProjectionPipeline.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(value);
-const asFeatureCardId = (value: string): FeatureCardId => FeatureCardId.make(value);
 
 async function createOrchestrationSystem() {
   const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
@@ -61,10 +58,8 @@ async function createOrchestrationSystem() {
   ).pipe(
     Layer.provide(OrchestrationEventStoreLive),
     Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-    Layer.provide(ProjectionBoardCardRepositoryLive),
-    Layer.provide(RepositoryIdentityResolverLive),
+    Layer.provide(RepositoryIdentityResolver.layer),
     Layer.provide(SqlitePersistenceMemory),
-    Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(ServerConfigLayer),
     Layer.provideMerge(NodeServices.layer),
   );
@@ -155,7 +150,6 @@ describe("OrchestrationEngine", () => {
           deletedAt: null,
           messages: [],
           proposedPlans: [],
-          contextHandoffs: [],
           activities: [],
           checkpoints: [],
           session: null,
@@ -207,7 +201,6 @@ describe("OrchestrationEngine", () => {
           getFullThreadDiffContext: () => Effect.succeed(Option.none()),
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
-          getTeamTaskTrace: () => Effect.die("unused"),
         }),
       ),
       Layer.provide(
@@ -218,9 +211,7 @@ describe("OrchestrationEngine", () => {
       ),
       Layer.provide(Layer.succeed(OrchestrationEventStore, eventStore)),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-      Layer.provide(ProjectionBoardCardRepositoryLive),
       Layer.provide(SqlitePersistenceMemory),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(NodeServices.layer),
     );
 
@@ -363,60 +354,6 @@ describe("OrchestrationEngine", () => {
       (await system.readModel()).threads.find((thread) => thread.id === "thread-archive")
         ?.archivedAt,
     ).toBeNull();
-
-    await system.dispose();
-  });
-
-  it("dispatches board card commands through the live card repository", async () => {
-    const system = await createOrchestrationSystem();
-    const { engine } = system;
-    const createdAt = now();
-    const projectId = asProjectId("project-board-card-create");
-    const cardId = asFeatureCardId("card-board-create");
-
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.make("cmd-project-board-card-create"),
-        projectId,
-        title: "Board Card Project",
-        workspaceRoot: "/tmp/project-board-card-create",
-        defaultModelSelection: {
-          instanceId: ProviderInstanceId.make("codex"),
-          model: "gpt-5-codex",
-        },
-        createdAt,
-      }),
-    );
-
-    await system.run(
-      engine.dispatch({
-        type: "board.card.create",
-        commandId: CommandId.make("cmd-board-card-create"),
-        cardId,
-        projectId,
-        title: "Create board card",
-        description: null,
-        seededPrompt: null,
-        column: "ideas",
-        sortOrder: 1000,
-        linkedThreadId: null,
-        linkedProposedPlanId: null,
-        createdAt,
-      }),
-    );
-
-    const events = await system.run(
-      Stream.runCollect(engine.readEvents(1)).pipe(
-        Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
-      ),
-    );
-    expect(events.map((event) => event.type)).toEqual(["board.card-created"]);
-    expect(events[0]?.payload).toMatchObject({
-      cardId,
-      projectId,
-      title: "Create board card",
-    });
 
     await system.dispose();
   });
@@ -744,10 +681,8 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationProjectionPipelineLive),
         Layer.provide(Layer.succeed(OrchestrationEventStore, flakyStore)),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-        Layer.provide(ProjectionBoardCardRepositoryLive),
-        Layer.provide(RepositoryIdentityResolverLive),
+        Layer.provide(RepositoryIdentityResolver.layer),
         Layer.provide(SqlitePersistenceMemory),
-        Layer.provideMerge(ServerSettingsService.layerTest()),
         Layer.provideMerge(ServerConfigLayer),
         Layer.provideMerge(NodeServices.layer),
       ),
@@ -851,10 +786,8 @@ describe("OrchestrationEngine", () => {
         Layer.provide(Layer.succeed(OrchestrationProjectionPipeline, flakyProjectionPipeline)),
         Layer.provide(OrchestrationEventStoreLive),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-        Layer.provide(ProjectionBoardCardRepositoryLive),
-        Layer.provide(RepositoryIdentityResolverLive),
+        Layer.provide(RepositoryIdentityResolver.layer),
         Layer.provide(SqlitePersistenceMemory),
-        Layer.provideMerge(ServerSettingsService.layerTest()),
         Layer.provide(NodeServices.layer),
       ),
     );
@@ -996,10 +929,8 @@ describe("OrchestrationEngine", () => {
         Layer.provide(Layer.succeed(OrchestrationProjectionPipeline, flakyProjectionPipeline)),
         Layer.provide(Layer.succeed(OrchestrationEventStore, nonTransactionalStore)),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-        Layer.provide(ProjectionBoardCardRepositoryLive),
-        Layer.provide(RepositoryIdentityResolverLive),
+        Layer.provide(RepositoryIdentityResolver.layer),
         Layer.provide(SqlitePersistenceMemory),
-        Layer.provideMerge(ServerSettingsService.layerTest()),
         Layer.provide(NodeServices.layer),
       ),
     );

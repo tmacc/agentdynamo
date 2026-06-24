@@ -6,7 +6,7 @@ import type {
   ServerLifecycleWelcomePayload,
   TerminalEvent,
 } from "@t3tools/contracts";
-import type { KnownEnvironment } from "@t3tools/client-runtime";
+import type { KnownEnvironment } from "@t3tools/client-runtime/environment";
 
 import type { WsRpcClient } from "~/rpc/wsRpcClient";
 
